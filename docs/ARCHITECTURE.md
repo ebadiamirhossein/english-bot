@@ -60,6 +60,7 @@ english-bot/
 │   │   ├── couple.py         # M8, M15
 │   │   └── settings.py       # /settings, /pause, /stats
 │   ├── services/
+│   │   ├── users.py          # get/save user, onboarding, EF SET → CEFR
 │   │   ├── errors.py         # journal writes, spacing, resolution, M13
 │   │   ├── chunks.py
 │   │   ├── streaks.py        # streak, freeze, rescue mode

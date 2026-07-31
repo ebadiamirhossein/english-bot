@@ -25,7 +25,7 @@ Two adults in Vilnius at CEFR B1 want to reach B2 in six months. Every existing 
 
 | Metric | Baseline | Month 6 target |
 |---|---|---|
-| EF SET score | measured week 1 | B2 (57–70) |
+| EF SET score | measured week 1 | B2 (51–60) |
 | Mature Anki cards | 0 | 1,200+ |
 | Error types resolved | 0 | 25+ |
 | Voice sessions | 0 | 150+ |

@@ -8,8 +8,10 @@ import sys
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-from app.config import ConfigError, load_settings
 from app import texts
+from app.config import ConfigError, load_settings
+from app.handlers.access import build_access_handler
+from app.handlers.onboarding import build_onboarding_handler
 
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -37,7 +39,9 @@ def main() -> int:
         .token(settings.telegram_bot_token)
         .build()
     )
+    app.add_handler(build_onboarding_handler())
     app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(build_access_handler(), group=1)
 
     logging.getLogger(__name__).info("Starting bot (polling)")
     app.run_polling(drop_pending_updates=True)
