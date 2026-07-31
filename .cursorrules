@@ -1,0 +1,74 @@
+# Cursor Rules — English Learning System
+
+This file is the project's constitution. Every slice reads it first.
+
+## Before writing any code
+
+1. Read `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
+2. Read `BUILD_PROGRESS.md` (repo root) to see what already exists.
+3. Identify the single slice you are being asked to build. Read its spec in
+   `specs/` and its acceptance criteria. If that spec file does not exist,
+   stop and ask — do not improvise.
+4. If the slice is ambiguous or conflicts with the spec, STOP and ask.
+
+## Scope
+
+- One slice per prompt. Implement the slice's spec file in `specs/` and
+  nothing else.
+- Never begin a slice before the previous one meets its acceptance criteria.
+- No dependency added unless the current slice needs it; add it to
+  `requirements.txt` in the same change.
+- No handler, service or prompt file created ahead of the slice that
+  implements it.
+- Do not "improve" code outside the current slice, even if it looks wrong.
+  Note it in Known Issues instead.
+
+## Architecture (non-negotiable)
+
+- Plain SQL only. No ORM, no Alembic. Migrations are numbered `.sql` files in
+  `migrations/`, tracked in `schema_version`.
+- PostgreSQL via `psycopg[binary,pool]` against the Supabase **session-mode**
+  pooler. Never `supabase-py`.
+- Every LLM, STT and TTS call goes through `app/llm.py` or `app/speech.py`.
+  A provider SDK is imported nowhere else.
+- Every user-facing string lives in `app/texts.py`. Never inline a message in
+  a handler or service.
+- Every environment variable is read in `app/config.py` and nowhere else.
+- All prompts live in `app/prompts/*.txt` and are loaded at runtime.
+- All queries scoped by `user_id`. No query may ever return another user's rows.
+- Excluded by decision: ORM, Redis, Celery, Docker, web framework.
+
+## Behaviour
+
+- Fail loud to the operator, soft to the user. A user never sees a stack
+  trace or an exception message.
+- Copy follows `docs/PRD.md` §8: under 400 characters for scheduled messages,
+  one idea per message, never guilt, buttons over typing.
+- Audio is never written to disk.
+- Max 2 nudges per user per day. Max 3 bot-initiated messages per user per day.
+- Tasks stay open until 03:00 the following night. Never expire content.
+- Rescue mode never presents a backlog.
+- Weekly success is measured against 5 days out of 7, never 7.
+
+## Code standards
+
+- Python 3.12, type hints on all function signatures.
+- No secrets in code. Everything through `config.Settings`.
+- Functions do one thing. If a handler exceeds ~40 lines, extract to `services/`.
+
+## Testing
+
+- After building, state exactly how to verify the slice manually in Telegram,
+  step by step.
+- Automated tests are required only for `services/errors.py` (spacing ladder)
+  and `services/streaks.py` (freeze, rescue). Write them when those slices
+  land — a silent bug in either invalidates the product without being visible.
+
+## Every slice ends by
+
+- Updating `BUILD_PROGRESS.md`: slice row, header fields, file inventory,
+  decisions log, known issues, next action.
+- Marking the slice 🟡 code-complete. Only the human marks ✅, after verifying
+  in Telegram.
+- Outputting a short summary: what was built, what to test, what is next.
+  Do not start the next slice.
