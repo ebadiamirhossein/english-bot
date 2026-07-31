@@ -19,8 +19,8 @@
 | Runtime | Python 3.12 | Best SDK support |
 | Bot | python-telegram-bot v21+ | Mature, async, well-documented |
 | Scheduling | APScheduler in-process | No separate cron; survives with the app |
-| Database | PostgreSQL on Supabase | Managed backups + PITR; table editor as free admin UI; no future SQLite→PG migration |
-| DB driver | `psycopg[binary,pool]`, session-mode pooler | Plain SQL + own pool. Never `supabase-py` |
+| Database | Self-hosted PostgreSQL 16 on the Hetzner box | No managed-DB fee; application code unchanged; backups are our job |
+| DB driver | `psycopg[binary,pool]` | Plain SQL + own pool. Never `supabase-py` |
 | Migrations | Plain numbered `.sql` files + `schema_version` | No ORM, no Alembic |
 | LLM | Wrapper over Anthropic / OpenAI | Switchable |
 | STT | OpenAI Whisper API | Most mature |
@@ -33,10 +33,9 @@ Deliberately excluded: ORM, Redis, Celery, Docker, web framework, `supabase-py`.
 
 ### Database connection notes
 
-- Use the **session-mode pooler** connection string, not a direct connection. Direct Supabase connections are IPv6-only, and transaction-mode pooling breaks psycopg3's prepared statements unless explicitly disabled. Session mode avoids both. Confirm the port in the Supabase dashboard.
+- Connect with `psycopg[binary,pool]` over a normal `postgresql://` DSN (typically `127.0.0.1` on the same box).
 - Connection pool: min 1, max 5. Two users generate trivial load.
-- The Hetzner box holds no state. If it dies, rebuild and lose nothing.
-- Despite Supabase's managed backups, a weekly `pg_dump` to independent storage is mandatory (slice S18). Never rely on a single backup system.
+- The Hetzner box holds the database. If the disk dies or the box is wiped without a recent off-box copy, the error journal is gone. Off-box `pg_dump` backups (slice S4b) are the only protection — not optional.
 
 ## 3. Project structure
 
@@ -169,6 +168,11 @@ Every slice must be manually verifiable in Telegram against its acceptance crite
 
 ```bash
 # one-time
+sudo apt update && sudo apt install -y postgresql-16
+sudo -u postgres createuser --pwprompt bot
+sudo -u postgres createdb -O bot english_bot
+# DATABASE_URL=postgresql://bot:PASSWORD@127.0.0.1:5432/english_bot
+
 adduser bot && su bot
 git clone <repo> && cd english-bot
 python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
