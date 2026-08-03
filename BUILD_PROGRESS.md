@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-03
-**Current slice:** S2
-**Status:** S2 code-complete — awaiting Telegram verification
+**Current slice:** S3a
+**Status:** S3a code-complete — awaiting Telegram verification
 
 ---
 
@@ -28,8 +28,9 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S1b | Onboarding rebuild | 🟡 code-complete | 2026-08-03 | Single-message `edit_message_text` wizard; 8 taps / 0 typing common path; why multi-select → sentence; HTML + escape. |
 | S1c | Onboarding content | 🟡 code-complete | 2026-08-03 | Self-assessment A2/B1/B2; domain category→specific drill-down; situation-based why options; EF SET nudge on save. |
 | S1d | Onboarding personality | 🟡 code-complete | 2026-08-03 | Layout helper (≤12 shared rows); emoji on options; static reactions; warmer copy. Sticker skipped (no stable file_id). |
-| S2 | LLM wrapper + correction | 🟡 code-complete | 2026-08-03 | `llm.py` + free correction; pytest 30 green; await Telegram verify. |
-| S3 | Daily quiz + scheduler | ⬜ not started | | |
+| S2 | LLM wrapper + correction | 🟡 code-complete | 2026-08-03 | `llm.py` + free correction; pytest green; await Telegram verify. |
+| S3 | Daily quiz + scheduler | 🟡 code-complete | 2026-08-03 | Spacing ladder + quiz + 5-min poll; await Telegram verify. |
+| S3a | Quiz content + formats | 🟡 code-complete | 2026-08-03 | Labels not codes; track mix; gap/choice/reorder/spot; 53 pytest green. |
 | S4 | Streaks, freeze, rescue | ⬜ not started | | |
 | — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | |
 | S5 | Voice partner | ⬜ not started | | |
@@ -74,6 +75,17 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-03 | S3a: past prompts read from prior quiz `sessions.payload` (last 3 per error_id) — no new column | Payload already stores every question; a column would duplicate data and need a migration for no gain. |
+| 2026-08-03 | S3a: four formats (gap/choice/reorder/spot), not more multiple-choice | Reorder and spot keep tapping without collapsing to 25%-guess recognition; gap still forces production. |
+| 2026-08-03 | S3a: quiz sentences distributed by `track_weights` (interleaved) | PRD §6 — all-work quizzes ignore the weight the user set at onboarding. |
+| 2026-08-03 | S3a: user-facing copy uses `error_types.label`, never the code | Live bug: "quantifier_modifier is getting steadier" — database codes are not language. |
+| 2026-08-03 | S3: morning eligibility uses the user's **local** date/time (minute precision); every eligibility fn takes explicit `now` | Server UTC midnight ≠ Vilnius local; without local today a user can get two quizzes around UTC midnight. Tests must not touch the wall clock. |
+| 2026-08-03 | S3: `bot_message_counts(user_id, local_date, count)` table — not session-row counting | PRD §7 rule 9 caps **messages**. S10 nudges are not sessions; counting sessions would under-count. Increment on every bot-initiated send. |
+| 2026-08-03 | S3: quiz-active state from incomplete `sessions` (`task_type='quiz'`) + `payload` JSONB — never `bot_data` | `bot_data` dies on restart; a typed answer would fall through to correction and poison the journal. |
+| 2026-08-03 | S3: zero due errors → `task_type='free_practice'` session (not `'quiz'`); selection blocks on **any** session that local day | Fake quiz rows corrupt completion-rate / streak / 14-day gate. Distinct type claims the slot, stops the 5-min loop, counts toward the message ceiling. |
+| 2026-08-03 | S3: one 5-minute JobQueue poll (APScheduler via PTB), not per-user jobs | Survives restarts, picks up new users, implements PRD §7 rule 1 (delivery times, not deadlines). |
+| 2026-08-03 | S3: gap-fill default question format | Production beats recognition. |
+| 2026-08-03 | S3: grading by normalised string match against `accept`, no second LLM call | Deterministic, free, and the accept-list is the contract. |
 | 2026-08-03 | S2: `claude-sonnet-5` (~$3.40/mo at ~900 corrections) over Haiku (~$1.20) | Wrong `error_type` poisons the journal permanently; ARCHITECTURE principle 3 treats the journal as the product itself. Two euros/month is not worth weaker taxonomy accuracy. |
 | 2026-08-03 | S2: keep schema row-level `resolved`/`streak_right`; compute type-level "resolved" by aggregation in S10/S11 | PRD §3 defines resolved per error *type*; schema stores it per error *row*. Spacing (S3) needs per-instance rows; reporting aggregates later. No schema change. |
 | 2026-08-03 | S2: length gates — under 10 chars silent, over 1000 → TEXT_TOO_LONG | Short ack messages (`ok`, `thanks`) must not spend API money; essay-length input is outside M2's "ordinary usage" frame and is where cost runs away. |
@@ -133,7 +145,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `.cursorrules` | Project constitution for every slice | ✅ |
 | `.env.example` | Dummy env keys + session-pooler comment + LLM keys | ✅ |
 | `.gitignore` | Ignores `.env`, venv, pycache, pytest | ✅ |
-| `requirements.txt` | ptb, psycopg[binary,pool], python-dotenv, pytest, anthropic | ✅ |
+| `requirements.txt` | ptb[job-queue], psycopg, dotenv, pytest, anthropic | ✅ |
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
 | `docs/ARCHITECTURE.md` | Stack, structure, interfaces (+ `services/users.py`) | ✅ |
@@ -145,33 +157,44 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `specs/S1c-onboarding-content.md` | S1c level / domain / motivation content | ✅ |
 | `specs/S1d-onboarding-personality.md` | S1d layout / emoji / reactions | ✅ |
 | `specs/S2-llm-correction.md` | S2 LLM wrapper + free correction | ✅ |
+| `specs/S3-daily-quiz.md` | S3 daily quiz + scheduler | ✅ |
+| `specs/S3a-quiz-content.md` | S3a quiz content + four formats | ✅ |
 | `migrations/001_init_postgres.sql` | Initial schema + 19 error_types | ✅ |
+| `migrations/002_quiz_scheduler.sql` | sessions.payload + bot_message_counts | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
 | `app/config.py` | Env → frozen `Settings`, `ConfigError` (+ LLM keys) | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
 | `app/llm.py` | Anthropic chat wrapper; only provider SDK import | ✅ |
-| `app/texts.py` | User-facing strings + S1d reactions/emoji + S2 correction | ✅ |
-| `app/main.py` | Bot entrypoint; `/ping`, `/start`, correction, access control | ✅ |
+| `app/scheduler.py` | 5-min morning poll via PTB JobQueue | ✅ |
+| `app/texts.py` | User-facing strings + S1d reactions/emoji + S2 correction + S3 quiz | ✅ |
+| `app/main.py` | Bot entrypoint; `/ping`, `/start`, correction, quiz, scheduler | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
 | `app/handlers/access.py` | Shared unregistered-user ignore + onboarding allowlist | ✅ |
 | `app/handlers/onboarding.py` | `/start` wizard + `layout_buttons` + reactions (S1d) | ✅ |
 | `app/handlers/correction.py` | Free-text correction (S2) | ✅ |
+| `app/handlers/quiz.py` | Daily quiz delivery + grading UI (S3/S3a) | ✅ |
 | `app/services/__init__.py` | Services package | ✅ |
 | `app/services/users.py` | get/save user, EF SET → CEFR (+ explanation_language_fallback read) | ✅ |
-| `app/services/errors.py` | `record_errors` write path (S2); spacing in S3 | ✅ |
+| `app/services/errors.py` | record_errors + due_errors + mark_result spacing (S3) | ✅ |
+| `app/services/sessions.py` | sessions + bot_message_counts helpers (S3) | ✅ |
 | `app/prompts/correction.txt` | Correction system prompt template | ✅ |
+| `app/prompts/quiz.txt` | Quiz generation (tracks, 4 formats, freshness) | ✅ |
 | `tests/conftest.py` | Dummy `ANTHROPIC_API_KEY` for test settings load | ✅ |
-| `tests/test_onboarding.py` | S1 persistence + CEFR mapping tests (untouched by S1b/S1c/S2) | ✅ |
+| `tests/test_onboarding.py` | S1 persistence + CEFR mapping tests | ✅ |
 | `tests/test_onboarding_validation.py` | S1b validation re-ask via wizard edit | ✅ |
 | `tests/test_why_sentence.py` | Why multi-select → sentence grammar (S1c clauses) | ✅ |
 | `tests/test_s1c_content.py` | Self-assessment CEFR map + domain drill-down table | ✅ |
 | `tests/test_s1d_personality.py` | Layout helper + full reaction coverage | ✅ |
 | `tests/test_llm.py` | LLM retry / json_mode / images (mocked provider) | ✅ |
 | `tests/test_correction.py` | record_errors + handler + prompt fallback assertions | ✅ |
+| `tests/test_spacing.py` | Spacing ladder (ARCHITECTURE §8) | ✅ |
+| `tests/test_quiz.py` | Grading, mark_result once, abandon, free_practice | ✅ |
+| `tests/test_scheduler.py` | Local-time eligibility + 24h dual-TZ poll | ✅ |
+| `tests/test_quiz_s3a.py` | Tracks, reorder/spot, labels, past prompts | ✅ |
 | `scripts/.gitkeep` | Empty scripts dir | ✅ |
 
 ---
 
 ## Next action
 
-**Human:** add a real `ANTHROPIC_API_KEY` to `.env`, restart the bot, then run the eight Telegram verification steps in `specs/S2-llm-correction.md`. Mark S2 ✅ when they pass. Do not start S3 until then.
+**Human:** verify S3a in Telegram (handoff steps). Mark S3a ✅ when they pass. Do not start S4 until then.

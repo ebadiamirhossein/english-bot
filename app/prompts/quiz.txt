@@ -1,0 +1,95 @@
+You are writing a short daily English quiz for a {cefr_level} learner.
+Their first language is {native_language}. Their work domain is {work_domain}.
+Their practice track weights are: {track_weights_json}.
+
+You receive due error rows from their journal. Produce exactly one question per
+row, in the same order. Never invent an error_id. Never drop a row.
+
+Each due error includes a "track" (work, life, or curiosity). Write that
+question's sentence in that track. Topic ideas:
+- work: campaigns, client email, negotiation, standups, interviews, pricing
+- life: apartments, doctors, arguments, cooking, travel, humour, small talk
+- curiosity: space, psychology, history, mysteries, technology, sport, nature
+Do not label the track in the prompt — the learner should just notice variety.
+
+Output MUST be a single JSON object. The examples below illustrate FORMAT and
+SHAPE only. Never reuse their sentences, names, places, times, or situations.
+Vary names across questions and across quizzes — do not default to the same
+handful of people.
+
+{{
+  "questions": [
+    {{
+      "error_id": 12,
+      "format": "gap",
+      "prompt": "Her English ___ very good, but she's improving fast.",
+      "accept": ["isn't", "is not", "isnt"],
+      "answer": "isn't"
+    }},
+    {{
+      "error_id": 15,
+      "format": "choice",
+      "prompt": "Which one sounds right?",
+      "options": ["I agree with Marta", "I am agree with Marta",
+                  "I am agreeing with Marta", "I agreed with Marta"],
+      "answer": "I agree with Marta"
+    }},
+    {{
+      "error_id": 18,
+      "format": "reorder",
+      "prompt": "Put this in order:",
+      "tiles": ["I", "usually", "check", "my", "email", "at", "eight"],
+      "answer": "I usually check my email at eight"
+    }},
+    {{
+      "error_id": 21,
+      "format": "spot",
+      "prompt": "Tap the word that's wrong:",
+      "tiles": ["She", "buyed", "coffee", "before", "the", "meeting"],
+      "answer": "buyed",
+      "correction": "bought"
+    }}
+  ]
+}}
+
+## Sentence quality
+
+- Every sentence must describe a concrete situation with real details: a
+  specific place, object, person or time. Not "the strategy", "the process",
+  "the solution".
+- Write like a person talking, not like a textbook. Contractions are good.
+- Vary the subject. Not every sentence is "I".
+- The situation should be one this learner might actually be in, given their
+  work_domain and the track for that question.
+
+Bad:  "I ___ with your strategy."
+Good: "I ___ with Marta about moving the launch to Friday."
+
+## Formats — distribute roughly gap 40% · choice 25% · reorder 20% · spot 15%.
+Never more than two of the same format in a row.
+
+- gap: one missing word or short phrase, typed. "accept" lists every reasonable
+  spelling and contraction, lowercase.
+- choice: exactly 4 options. All four must be plausible — no obvious throwaways.
+  Distractors should be mistakes a learner at this level actually makes.
+  Still include "accept" with lowercase variants of the correct option.
+- reorder: 5–9 tiles. Prefer for word_order and any error where sentence
+  structure is the issue. "answer" is the full correct sentence.
+- spot: exactly one wrong word among 5–9 tiles. "answer" is the wrong tile;
+  "correction" is the right word so feedback can show it.
+- Choose the format that best tests the specific error. Word order → reorder;
+  irregular verbs → spot or gap; whole-clause errors → choice.
+
+## Freshness
+
+The same error will be quizzed again at 3, 7, 21 and 60 days. Generate a
+DIFFERENT sentence each time — the learner must learn the grammar rule, not
+memorise one sentence. Each due error may include "avoid_prompts": never reuse
+or lightly rephrase those prompts.
+
+Keep each prompt under 140 characters.
+"answer" is the canonical form for feedback. For gap/choice, "accept" is what
+grading matches.
+
+Due errors (JSON):
+{due_errors_json}

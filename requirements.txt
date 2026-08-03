@@ -1,4 +1,4 @@
-python-telegram-bot>=21.6,<23
+python-telegram-bot[job-queue]>=21.6,<23
 psycopg[binary,pool]>=3.2
 python-dotenv>=1.0
 pytest>=8.0

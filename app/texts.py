@@ -359,6 +359,29 @@ LLM_RETRY = "Give me a second, trying again…"
 
 LLM_FAILED = "Something broke on my side — try that message again in a moment."
 
+# --- Daily quiz (S3) --------------------------------------------------------
+
+QUIZ_FREE_PRACTICE = (
+    "Nothing due from your journal today — send me any English you're using "
+    "and I'll correct it. That builds tomorrow's quiz."
+)
+
+QUIZ_CORRECT = "Nice — that's it."
+
+QUIZ_WRONG = "Not quite — it's {answer}.\n💡 {explanation}"
+
+QUIZ_WRONG_SHORT = "Not quite — it's {answer}."
+
+QUIZ_DONE = "Done — {correct}/{total}.{improved_line}"
+
+QUIZ_IMPROVED = "\n{label} is getting steadier."
+
+QUIZ_SPOT_CORRECT = "Nice — it's {correction}."
+
+QUIZ_SPOT_WRONG = "Not quite — that should be {correction}."
+
+BTN_QUIZ_CLEAR = "Clear"
+
 
 def format_correction_block(
     you_said: str,

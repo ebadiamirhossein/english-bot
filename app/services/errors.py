@@ -1,15 +1,44 @@
-"""Error journal writes.
+"""Error journal writes and spacing ladder.
 
-S2 exposes record_errors only. due_errors / mark_result / spacing arrive in S3.
+S2: record_errors. S3: due_errors / mark_result / spacing.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from datetime import date, datetime
 
 from app.db import connection
 
 logger = logging.getLogger(__name__)
+
+# streak_right is the ladder index after a correct answer (and at insert = 0).
+SPACING_DAYS: dict[int, int] = {
+    0: 1,
+    1: 3,
+    2: 7,
+    3: 21,
+    4: 60,
+}
+
+
+@dataclass(frozen=True)
+class Error:
+    id: int
+    user_id: int
+    you_said: str
+    correct_form: str
+    error_type: str
+    explanation: str | None
+    streak_right: int
+    times_right: int
+    times_wrong: int
+    next_review: date
+    resolved: bool
+    resolved_at: date | None
+    unresolved_count: int
+    created_at: datetime
 
 
 def record_errors(user_id: int, source: str, corrections: list[dict]) -> int:
@@ -70,3 +99,121 @@ def record_errors(user_id: int, source: str, corrections: list[dict]) -> int:
                 )
                 written += 1
     return written
+
+
+def due_errors(user_id: int, limit: int = 5) -> list[Error]:
+    """Unresolved errors due for review, oldest next_review first."""
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, user_id, you_said, correct_form, error_type, explanation,
+                   streak_right, times_right, times_wrong, next_review,
+                   resolved, resolved_at, unresolved_count, created_at
+              FROM errors
+             WHERE user_id = %s
+               AND resolved = FALSE
+               AND next_review <= CURRENT_DATE
+             ORDER BY next_review ASC, id ASC
+             LIMIT %s
+            """,
+            (user_id, limit),
+        ).fetchall()
+    return [_row_to_error(row) for row in rows]
+
+
+def mark_result(error_id: int, correct: bool) -> None:
+    """Apply one review result and advance or reset the spacing ladder."""
+    with connection() as conn:
+        with conn.transaction():
+            row = conn.execute(
+                """
+                SELECT id, streak_right, resolved, created_at
+                  FROM errors
+                 WHERE id = %s
+                 FOR UPDATE
+                """,
+                (error_id,),
+            ).fetchone()
+            if row is None:
+                logger.warning("mark_result: unknown error_id=%s", error_id)
+                return
+
+            if correct:
+                new_streak = int(row["streak_right"]) + 1
+                age_days = conn.execute(
+                    """
+                    SELECT (CURRENT_DATE - created_at::date) AS age
+                      FROM errors
+                     WHERE id = %s
+                    """,
+                    (error_id,),
+                ).fetchone()["age"]
+                if new_streak >= 5 and int(age_days) >= 21:
+                    conn.execute(
+                        """
+                        UPDATE errors
+                           SET streak_right = %s,
+                               times_right = times_right + 1,
+                               resolved = TRUE,
+                               resolved_at = CURRENT_DATE
+                         WHERE id = %s
+                        """,
+                        (new_streak, error_id),
+                    )
+                else:
+                    interval = SPACING_DAYS[min(new_streak, 4)]
+                    conn.execute(
+                        """
+                        UPDATE errors
+                           SET streak_right = %s,
+                               times_right = times_right + 1,
+                               next_review = CURRENT_DATE + %s::integer
+                         WHERE id = %s
+                        """,
+                        (new_streak, interval, error_id),
+                    )
+            else:
+                if row["resolved"]:
+                    conn.execute(
+                        """
+                        UPDATE errors
+                           SET streak_right = 0,
+                               times_wrong = times_wrong + 1,
+                               next_review = CURRENT_DATE + 1,
+                               resolved = FALSE,
+                               resolved_at = NULL,
+                               unresolved_count = unresolved_count + 1
+                         WHERE id = %s
+                        """,
+                        (error_id,),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE errors
+                           SET streak_right = 0,
+                               times_wrong = times_wrong + 1,
+                               next_review = CURRENT_DATE + 1
+                         WHERE id = %s
+                        """,
+                        (error_id,),
+                    )
+
+
+def _row_to_error(row: dict) -> Error:
+    return Error(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        you_said=row["you_said"],
+        correct_form=row["correct_form"],
+        error_type=row["error_type"],
+        explanation=row["explanation"],
+        streak_right=int(row["streak_right"]),
+        times_right=int(row["times_right"]),
+        times_wrong=int(row["times_wrong"]),
+        next_review=row["next_review"],
+        resolved=bool(row["resolved"]),
+        resolved_at=row["resolved_at"],
+        unresolved_count=int(row["unresolved_count"]),
+        created_at=row["created_at"],
+    )
