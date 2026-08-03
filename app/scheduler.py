@@ -1,4 +1,7 @@
-"""In-process scheduled jobs via PTB JobQueue (APScheduler) — S3 morning poll."""
+"""In-process scheduled jobs via PTB JobQueue (APScheduler).
+
+S3: morning poll. S4: streak rollover + monthly freeze reset.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +18,12 @@ from app.services.sessions import (
     local_today,
     under_message_ceiling,
 )
+from app.services.streaks import (
+    USERS_PER_POLL_TICK,
+    evaluate_pending,
+    list_onboarded_streak_users,
+    reset_monthly_freezes,
+)
 
 if TYPE_CHECKING:
     from telegram.ext import Application, ContextTypes
@@ -22,7 +31,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 5 * 60
-_JOB_NAME = "morning_poll"
+STREAK_POLL_SECONDS = 15 * 60
+_MORNING_JOB = "morning_poll"
+_STREAK_JOB = "streak_rollover"
+_FREEZE_JOB = "monthly_freeze_reset"
 
 
 @dataclass(frozen=True)
@@ -114,36 +126,100 @@ async def run_morning_poll(
     return results
 
 
-async def _job(context: ContextTypes.DEFAULT_TYPE) -> None:
+def run_streak_rollover(
+    now: datetime | None = None,
+    *,
+    max_users: int = USERS_PER_POLL_TICK,
+) -> list[tuple[int, int]]:
+    """Evaluate pending streak days. Returns (user_id, days_evaluated) list."""
+    instant = now or datetime.now(timezone.utc)
+    users = list_onboarded_streak_users()[:max_users]
+    logger.info("Streak rollover poll: %s user(s)", len(users))
+    results: list[tuple[int, int]] = []
+    for user_id, tz in users:
+        try:
+            outcomes = evaluate_pending(user_id, timezone=tz, now=instant)
+            results.append((user_id, len(outcomes)))
+            if outcomes:
+                logger.info(
+                    "Streak rollover user_id=%s days=%s",
+                    user_id,
+                    len(outcomes),
+                )
+        except Exception:
+            logger.exception("Streak rollover failed user_id=%s", user_id)
+    return results
+
+
+def run_monthly_freeze_reset(now: datetime | None = None) -> int:
+    """Reset freeze tokens for users whose local date is the 1st."""
+    instant = now or datetime.now(timezone.utc)
+    updated = reset_monthly_freezes(now=instant)
+    if updated:
+        logger.info("Monthly freeze reset: %s user(s)", updated)
+    return updated
+
+
+async def _morning_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_morning_poll(context.application)
 
 
+async def _streak_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    run_streak_rollover()
+
+
+async def _freeze_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    run_monthly_freeze_reset()
+
+
 def start_scheduler(application: Application) -> None:
-    """Register the 5-minute morning poll on the PTB JobQueue (APScheduler)."""
+    """Register morning, streak, and freeze jobs on the PTB JobQueue."""
     jq = application.job_queue
     if jq is None:
         raise RuntimeError(
             "JobQueue unavailable — install apscheduler "
             "(see requirements.txt)"
         )
-    # Replace any prior registration (e.g. reload).
+    known = {_MORNING_JOB, _STREAK_JOB, _FREEZE_JOB}
     for job in jq.jobs():
-        if job.name == _JOB_NAME:
+        if job.name in known:
             job.schedule_removal()
+
     jq.run_repeating(
-        _job,
+        _morning_job,
         interval=POLL_SECONDS,
         first=10,
-        name=_JOB_NAME,
+        name=_MORNING_JOB,
     )
-    logger.info("Scheduler started (morning poll every %ss)", POLL_SECONDS)
+    jq.run_repeating(
+        _streak_job,
+        interval=STREAK_POLL_SECONDS,
+        first=20,
+        name=_STREAK_JOB,
+    )
+    jq.run_repeating(
+        _freeze_job,
+        interval=STREAK_POLL_SECONDS,
+        first=30,
+        name=_FREEZE_JOB,
+    )
+    logger.info(
+        "Scheduler started jobs=%s,%s,%s "
+        "(morning every %ss; streak/freeze every %ss)",
+        _MORNING_JOB,
+        _STREAK_JOB,
+        _FREEZE_JOB,
+        POLL_SECONDS,
+        STREAK_POLL_SECONDS,
+    )
 
 
 def stop_scheduler(application: Application | None = None) -> None:
-    """Remove the morning poll job if present."""
+    """Remove scheduler jobs if present."""
     if application is None or application.job_queue is None:
         return
+    known = {_MORNING_JOB, _STREAK_JOB, _FREEZE_JOB}
     for job in application.job_queue.jobs():
-        if job.name == _JOB_NAME:
+        if job.name in known:
             job.schedule_removal()
     logger.info("Scheduler stopped")

@@ -102,6 +102,30 @@ def complete_session(session_id: int, score: float) -> None:
         )
 
 
+def complete_open_free_practice(user_id: int, local_date: date) -> bool:
+    """Mark today's open free_practice session completed. Returns True if updated."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            UPDATE sessions
+               SET completed = TRUE,
+                   completed_at = NOW()
+             WHERE id = (
+                SELECT id FROM sessions
+                 WHERE user_id = %s
+                   AND date = %s
+                   AND task_type = 'free_practice'
+                   AND completed = FALSE
+                 ORDER BY id DESC
+                 LIMIT 1
+             )
+            RETURNING id
+            """,
+            (user_id, local_date),
+        ).fetchone()
+    return row is not None
+
+
 def update_session_payload(session_id: int, payload: dict[str, Any]) -> None:
     with connection() as conn:
         conn.execute(

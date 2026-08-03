@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-03
-**Current slice:** S3c
-**Status:** S3c code-complete — awaiting Telegram verification
+**Current slice:** S4
+**Status:** S4 code-complete — awaiting Telegram / SQL verification
 
 ---
 
@@ -32,9 +32,10 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S3 | Daily quiz + scheduler | 🟡 code-complete | 2026-08-03 | Spacing ladder + quiz + 5-min poll; await Telegram verify. |
 | S3a | Quiz content + formats | 🟡 code-complete | 2026-08-03 | Labels not codes; track mix; gap/choice/reorder/spot. |
 | S3b | Quiz question layout | 🟡 code-complete | 2026-08-03 | Body reads / buttons tap; feedback blank line. |
-| S3c | Quiz formats + register | 🟡 code-complete | 2026-08-03 | Reorder→order; spoken register; one scenario; 59 pytest green. |
-| S4 | Streaks, freeze, rescue | ⬜ not started | | |
-| — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | |
+| S3c | Quiz formats + register | 🟡 code-complete | 2026-08-03 | Reorder→order; spoken register; one scenario. |
+| S3d | Quiz feedback + format mix | 🟡 code-complete | 2026-08-03 | Full-sentence feedback; 2 typed/3 tapped; 63 pytest green. |
+| S4 | Streaks, freeze, rescue | 🟡 code-complete | 2026-08-03 | 03:00 local rollover; freeze; rescue 3Q; 83 pytest green. |
+| — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | await S4 verify + 14-day use |
 | S5 | Voice partner | ⬜ not started | | |
 | S6 | Book ingestion | ⬜ not started | | |
 | S7 | Anki export | ⬜ not started | | |
@@ -77,6 +78,16 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-03 | S4: 03:00 **local** rollover (15-min poll), never UTC midnight | PRD §7 rule 1 — Monday's quiz stays open until 03:00 Tuesday. UTC midnight would close Vilnius days mid-evening and break streaks for completions that were still on time. |
+| 2026-08-03 | S4: no `roll_over_day` on quiz complete; show `current_streak+1` optimistically | Early evaluation advances `last_evaluated_date` and can close the next day before its quiz is delivered. Real evaluation is only the 03:00 job. |
+| 2026-08-03 | S4: idempotency via `streaks.last_evaluated_date` | Freeze-covered misses do not move `last_active_date`; without a separate marker a second rollover would consume another freeze. |
+| 2026-08-03 | S4: backfill capped at 30 days; ≤50 users per streak poll tick | A two-month absence must not run 60 sequential rollovers inside one tick or starve other users. |
+| 2026-08-03 | S4: freeze-covered missed days still count toward rescue | A freeze protects the streak number; it does not mean the person engaged. Rescue exists to re-engage. |
+| 2026-08-03 | S4: no-session days are Neutral | Do not break the streak for a day the bot never asked about (paused / not yet onboarded). |
+| 2026-08-03 | S4: incomplete `free_practice` = Neutral; completed (via correction) = Active | Empty journal is success, not a miss — burning a freeze is backwards. But using M2 that day *is* activity; correction marks the open free_practice session completed so rollover needs no special branch. Only permitted change to `correction.py`. |
+| 2026-08-03 | S4: monthly freeze reset is per-user local 1st via `freeze_reset_on` | Users in Tokyo and Vilnius reach the 1st at different UTC moments; a global sweep would reset some early and some late. Unused tokens do not carry over. |
+| 2026-08-03 | S4: rescue window is fixed 7 days from entry; further misses do not extend it | "Runs its 7 days" — completing early does not clear it; extending on every extra miss would never end. |
+| 2026-08-03 | S3d: hard 2 typed (gap) / 3 tapped per 5-question quiz | Production practice matters (4-option guess is 25% right by chance), but daily completion matters more — PRD §7 is built around not abandoning; an easier quiz done every day beats a harder one abandoned. |
 | 2026-08-03 | S3c: one everyday scenario per quiz (shared people/places); avoid past scenarios from session payload | Five unrelated sentences felt like a worksheet; a thread makes the quiz feel like a conversation. |
 | 2026-08-03 | S3c: spoken-register rule (≤12 words, text-message test, conversations about work not documents) | Live sentences read like reports ("the museum team…"); people don't talk that way. |
 | 2026-08-03 | S3c: remove reorder tile format; replace with `order` (4 full-sentence word-order choices) | Failed twice in live testing — a 3-column button grid gives no visual signal that tiles form one sentence. Chat grids can't express a sentence; full options on their own rows can. |
@@ -140,6 +151,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 2 | `.cursorrules` needs human review against the required clauses in `specs/S0-repo-skeleton.md` | low | S0 | ⬜ open |
 | 3 | Timezone not collected in S1; all users get schema default `Europe/Vilnius`. S20 (Generalize) must add timezone selection when location assumptions are removed. | medium | S1 → S20 | ⬜ open — assumption recorded |
 | 4 | System prompt was under Anthropic Sonnet cache minimum (~1024). Fixed by adding two worked examples; live verify: call2 `cache_read=1641`. | low | S2 | ✅ closed — 2026-08-03 |
+| 5 | Chat-message UI has reached its design ceiling; a Telegram Mini App is the real answer for quiz UX — revisit after the 14-day usage gate, sharing design work with S23. | medium | S3d → post-gate / S23 | ⬜ open |
 
 ---
 
@@ -168,24 +180,28 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `specs/S3a-quiz-content.md` | S3a quiz content + four formats | ✅ |
 | `specs/S3b-quiz-layout.md` | S3b readable layout + feedback | ✅ |
 | `specs/S3c-quiz-formats.md` | S3c order format + spoken register | ✅ |
+| `specs/S3d-quiz-feedback.md` | S3d feedback + typed/tapped mix | ✅ |
+| `specs/S4-streaks.md` | S4 streaks / freeze / rescue | ✅ |
 | `migrations/001_init_postgres.sql` | Initial schema + 19 error_types | ✅ |
 | `migrations/002_quiz_scheduler.sql` | sessions.payload + bot_message_counts | ✅ |
+| `migrations/003_streaks.sql` | last_evaluated_date, freeze_reset_on, pending_freeze_notice | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
 | `app/config.py` | Env → frozen `Settings`, `ConfigError` (+ LLM keys) | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
 | `app/llm.py` | Anthropic chat wrapper; only provider SDK import | ✅ |
-| `app/scheduler.py` | 5-min morning poll via PTB JobQueue | ✅ |
-| `app/texts.py` | User-facing strings + S1d reactions/emoji + S2 correction + S3 quiz | ✅ |
+| `app/scheduler.py` | Morning poll + streak rollover + monthly freeze reset | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S4 quiz/streak/freeze/rescue | ✅ |
 | `app/main.py` | Bot entrypoint; `/ping`, `/start`, correction, quiz, scheduler | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
 | `app/handlers/access.py` | Shared unregistered-user ignore + onboarding allowlist | ✅ |
 | `app/handlers/onboarding.py` | `/start` wizard + `layout_buttons` + reactions (S1d) | ✅ |
-| `app/handlers/correction.py` | Free-text correction (S2) | ✅ |
-| `app/handlers/quiz.py` | Daily quiz delivery + grading UI (S3/S3a) | ✅ |
+| `app/handlers/correction.py` | Free-text correction (S2) + free_practice complete hook (S4) | ✅ |
+| `app/handlers/quiz.py` | Daily quiz delivery + grading UI (S3–S4 rescue/streak) | ✅ |
 | `app/services/__init__.py` | Services package | ✅ |
 | `app/services/users.py` | get/save user, EF SET → CEFR (+ explanation_language_fallback read) | ✅ |
 | `app/services/errors.py` | record_errors + due_errors + mark_result spacing (S3) | ✅ |
-| `app/services/sessions.py` | sessions + bot_message_counts helpers (S3) | ✅ |
+| `app/services/sessions.py` | sessions + bot_message_counts + free_practice complete (S3/S4) | ✅ |
+| `app/services/streaks.py` | Streak rollover, freeze, rescue (S4) | ✅ |
 | `app/prompts/correction.txt` | Correction system prompt template | ✅ |
 | `app/prompts/quiz.txt` | Quiz generation (tracks, 4 formats, freshness) | ✅ |
 | `tests/conftest.py` | Dummy `ANTHROPIC_API_KEY` for test settings load | ✅ |
@@ -202,10 +218,13 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_quiz_s3a.py` | Tracks, reorder/spot, labels, past prompts | ✅ |
 | `tests/test_quiz_s3b.py` | Readable body, blank-line sep, no-guilt copy | ✅ |
 | `tests/test_quiz_s3c.py` | No reorder; order rows; scenarios; no divider | ✅ |
+| `tests/test_quiz_s3d.py` | Full-sentence feedback; 2/3 mix; dots last | ✅ |
+| `tests/test_streaks.py` | Freeze / rescue / idempotency / monthly reset (ARCHITECTURE §8) | ✅ |
+| `tests/test_rescue_quiz.py` | Rescue 3Q vs 5Q; no backlog | ✅ |
 | `scripts/.gitkeep` | Empty scripts dir | ✅ |
 
 ---
 
 ## Next action
 
-**Human:** verify S3c in Telegram (handoff steps). Mark S3c ✅ when they pass. Do not start S4 until then.
+**Human:** verify S4 with the SQL + Telegram steps from the slice handoff. Mark S4 ✅ when they pass. Then Phase 1 usage gate (14 days). Do not start S4b until S4 is ✅ (backups are immediate after Phase 1 ships).

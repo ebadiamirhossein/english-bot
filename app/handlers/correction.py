@@ -13,10 +13,13 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes, MessageHandler, filters
 
+from datetime import datetime, timezone
+
 from app import texts
 from app.db import connection
 from app.llm import LLMError, chat
 from app.services.errors import record_errors
+from app.services.sessions import complete_open_free_practice, local_today
 from app.services.users import User, get_user, is_registered
 
 logger = logging.getLogger(__name__)
@@ -176,7 +179,23 @@ async def _call_llm_with_handler_retry(
             return None
 
 
+def _complete_free_practice_if_open(user_id: int) -> None:
+    """S4: a processed correction makes today's free_practice day Active."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT timezone FROM users WHERE telegram_user_id = %s
+            """,
+            (user_id,),
+        ).fetchone()
+    tz = str(row["timezone"] or "Europe/Vilnius") if row else "Europe/Vilnius"
+    day = local_today(tz, datetime.now(timezone.utc))
+    complete_open_free_practice(user_id, day)
+
+
 async def _handle_model_result(message, user_id: int, result: dict) -> None:
+    _complete_free_practice_if_open(user_id)
+
     if not result.get("is_english", True):
         await message.reply_text(texts.NOT_ENGLISH)
         return

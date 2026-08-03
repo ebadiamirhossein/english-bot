@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import re
@@ -34,6 +35,11 @@ from app.services.sessions import (
     local_today,
     under_message_ceiling,
     update_session_payload,
+)
+from app.services.streaks import (
+    consume_freeze_notice,
+    get_streak,
+    is_in_rescue,
 )
 from app.services.users import get_user
 
@@ -245,6 +251,206 @@ class OpenQuizFilter(filters.MessageFilter):
             return False
 
 
+def typed_gap_count(n: int) -> int:
+    """How many gap (typed) questions for a quiz of size n."""
+    if n <= 0:
+        return 0
+    if n >= 5:
+        return 2
+    return max(1, (n * 2) // 5)  # ~40% rounded down, min 1
+
+
+def plan_formats(n: int) -> list[str]:
+    """Hard mix: 2 gap + 3 tapped for n=5; never three of the same in a row."""
+    if n <= 0:
+        return []
+    if n == 5:
+        return ["choice", "gap", "spot", "gap", "order"]
+    n_gap = typed_gap_count(n)
+    n_tap = n - n_gap
+    taps = [["choice", "spot", "order"][i % 3] for i in range(n_tap)]
+    out: list[str] = []
+    gi = ti = 0
+    for slot in range(n):
+        slots_left = n - slot
+        gaps_left = n_gap - gi
+        taps_left = n_tap - ti
+        if gaps_left > 0 and gaps_left >= slots_left - taps_left:
+            out.append("gap")
+            gi += 1
+        elif taps_left > 0:
+            cand = taps[ti]
+            if len(out) >= 2 and out[-1] == cand and out[-2] == cand:
+                for alt in ("choice", "spot", "order"):
+                    if alt != cand:
+                        cand = alt
+                        break
+            out.append(cand)
+            ti += 1
+        else:
+            out.append("gap")
+            gi += 1
+    return out
+
+
+def fill_gap_html(prompt: str, answer: str) -> str:
+    """Replace ___ with a bolded answer inside an HTML sentence."""
+    esc_ans = html.escape(answer, quote=False)
+    if re.search(r"_{2,}", prompt):
+        parts = re.split(r"_{2,}", prompt, maxsplit=1)
+        return (
+            f"{html.escape(parts[0], quote=False)}"
+            f"<b>{esc_ans}</b>"
+            f"{html.escape(parts[1], quote=False)}"
+        )
+    return f"{html.escape(prompt, quote=False)} <b>{esc_ans}</b>"
+
+
+def gap_prompt_with_bold_blank(prompt: str) -> str:
+    """Show the gap as a bold blank slot."""
+    if re.search(r"_{2,}", prompt):
+        parts = re.split(r"_{2,}", prompt, maxsplit=1)
+        return (
+            f"{html.escape(parts[0], quote=False)}"
+            f"<b>___</b>"
+            f"{html.escape(parts[1], quote=False)}"
+        )
+    return html.escape(prompt, quote=False)
+
+
+def corrected_spot_sentence(q: dict[str, Any]) -> str:
+    """Sentence with the wrong word replaced by the correction."""
+    tiles = [str(t) for t in (q.get("tiles") or [])]
+    wrong = str(q.get("answer") or "")
+    right = str(q.get("correction") or wrong)
+    out: list[str] = []
+    replaced = False
+    for t in tiles:
+        if not replaced and normalize_answer(t) == normalize_answer(wrong):
+            out.append(right)
+            replaced = True
+        else:
+            out.append(t)
+    return " ".join(out)
+
+
+def spot_sentence_struck(q: dict[str, Any]) -> str:
+    """Sentence with the wrong word struck through (HTML)."""
+    tiles = [str(t) for t in (q.get("tiles") or [])]
+    wrong = str(q.get("answer") or "")
+    parts: list[str] = []
+    struck = False
+    for t in tiles:
+        if not struck and normalize_answer(t) == normalize_answer(wrong):
+            parts.append(f"<s>{html.escape(t, quote=False)}</s>")
+            struck = True
+        else:
+            parts.append(html.escape(t, quote=False))
+    return " ".join(parts)
+
+
+def format_feedback(
+    question: dict[str, Any],
+    *,
+    correct: bool,
+    user_answer: str,
+) -> str:
+    """Show the question context: what they said + full correct sentence."""
+    fmt = question.get("format")
+    expl = (question.get("explanation") or "").strip()
+    lines: list[str] = []
+
+    if fmt == "gap":
+        prompt = str(question.get("prompt") or "")
+        filled = fill_gap_html(prompt, str(question.get("answer") or ""))
+        if correct:
+            lines.append(texts.QUIZ_CORRECT_SENTENCE.format(sentence=filled))
+        else:
+            lines.append(
+                texts.QUIZ_YOU_SAID.format(said=html.escape(user_answer, quote=False))
+            )
+            lines.append(texts.QUIZ_CORRECT_SENTENCE.format(sentence=filled))
+            if expl:
+                lines.append(
+                    texts.QUIZ_WRONG_EXPLAIN.format(
+                        explanation=html.escape(expl, quote=False)
+                    )
+                )
+        return "\n".join(lines)
+
+    if fmt in ("choice", "order"):
+        correct_sent = html.escape(str(question.get("answer") or ""), quote=False)
+        if correct:
+            lines.append(
+                texts.QUIZ_CORRECT_SENTENCE.format(
+                    sentence=f"<b>{correct_sent}</b>"
+                )
+            )
+        else:
+            lines.append(
+                texts.QUIZ_YOU_SAID.format(
+                    said=html.escape(user_answer, quote=False)
+                )
+            )
+            lines.append(
+                texts.QUIZ_CORRECT_SENTENCE.format(
+                    sentence=f"<b>{correct_sent}</b>"
+                )
+            )
+            if expl:
+                lines.append(
+                    texts.QUIZ_WRONG_EXPLAIN.format(
+                        explanation=html.escape(expl, quote=False)
+                    )
+                )
+        return "\n".join(lines)
+
+    if fmt == "spot":
+        corrected = corrected_spot_sentence(question)
+        bold_corr = html.escape(corrected, quote=False)
+        # Bold the correction word inside the sentence if present
+        corr_word = str(question.get("correction") or "")
+        if corr_word and corr_word in corrected:
+            bold_corr = html.escape(corrected, quote=False).replace(
+                html.escape(corr_word, quote=False),
+                f"<b>{html.escape(corr_word, quote=False)}</b>",
+                1,
+            )
+        if correct:
+            lines.append(texts.QUIZ_CORRECT_SENTENCE.format(sentence=bold_corr))
+        else:
+            lines.append(
+                texts.QUIZ_YOU_SAID.format(said=spot_sentence_struck(question))
+            )
+            lines.append(texts.QUIZ_CORRECT_SENTENCE.format(sentence=bold_corr))
+            if expl:
+                lines.append(
+                    texts.QUIZ_WRONG_EXPLAIN.format(
+                        explanation=html.escape(expl, quote=False)
+                    )
+                )
+        return "\n".join(lines)
+
+    # Fallback
+    if correct:
+        return texts.QUIZ_CORRECT_SENTENCE.format(
+            sentence=html.escape(str(question.get("answer") or ""), quote=False)
+        )
+    return texts.QUIZ_YOU_SAID.format(
+        said=html.escape(user_answer, quote=False)
+    )
+
+
+def _format_hint(fmt: str) -> str:
+    if fmt == "gap":
+        return texts.QUIZ_HINT_GAP
+    if fmt == "spot":
+        return texts.QUIZ_HINT_SPOT
+    if fmt == "order":
+        return texts.QUIZ_HINT_ORDER
+    return texts.QUIZ_HINT_CHOICE
+
+
 def _progress_dots(index: int, total: int) -> str:
     return "".join("●" if i == index else "○" for i in range(total))
 
@@ -257,24 +463,60 @@ def _spot_sentence(q: dict[str, Any]) -> str:
     return " ".join(str(t) for t in (q.get("tiles") or []))
 
 
+def _freeze_remaining_word(n: int) -> str:
+    if n <= 0:
+        return "None"
+    if n == 1:
+        return "One"
+    return str(n)
+
+
+def _quiz_preface(user_id: int, *, rescue: bool) -> str:
+    """Freeze notice and/or rescue line for the opening quiz message."""
+    parts: list[str] = []
+    if consume_freeze_notice(user_id):
+        remaining = get_streak(user_id).freeze_tokens
+        parts.append(
+            texts.QUIZ_FREEZE_USED.format(
+                remaining=_freeze_remaining_word(remaining)
+            )
+        )
+    if rescue:
+        parts.append(texts.QUIZ_RESCUE)
+    return "\n\n".join(parts)
+
+
 def _question_text(payload: dict[str, Any]) -> str:
-    """Message body for READING. Buttons are separate (tapping only)."""
+    """Message body for READING. Hint → sentence → dots last."""
     questions = payload["questions"]
     index = int(payload["index"])
     q = questions[index]
     dots = _progress_dots(index, len(questions))
-    fmt = q.get("format")
+    fmt = q.get("format") or "gap"
+    hint = _format_hint(fmt)
 
     if fmt == "spot":
-        instruction = str(q.get("prompt") or texts.QUIZ_SPOT_PROMPT).strip()
-        sentence = _spot_sentence(q)
-        return f'{dots}\n\n{instruction}\n\n"{sentence}"'
+        sentence = html.escape(_spot_sentence(q), quote=False)
+        body = f'{hint}\n\n"{sentence}"\n\n{dots}'
+    elif fmt == "gap":
+        sentence = gap_prompt_with_bold_blank(str(q.get("prompt") or ""))
+        body = f"{hint}\n\n{sentence}\n\n{dots}"
+    else:
+        # choice / order — short instruction prompt, options on buttons
+        prompt = html.escape(
+            str(q.get("prompt") or "Which one sounds right?"), quote=False
+        )
+        body = f"{hint}\n\n{prompt}\n\n{dots}"
 
-    return f"{dots}\n\n{q['prompt']}"
+    # Preface (freeze / rescue) only on the first question.
+    preface = str(payload.get("preface") or "").strip()
+    if preface and index == 0:
+        return f"{preface}\n\n{body}"
+    return body
 
 
 def compose_body(*, feedback: str | None, question_body: str) -> str:
-    """Feedback then next question, separated by a blank line (no divider)."""
+    """Feedback then next question, separated by a blank line."""
     if feedback:
         return f"{feedback}\n\n{question_body}"
     return question_body
@@ -350,6 +592,7 @@ def _build_quiz_questions(
     assert _prompt_template is not None
 
     tracks = distribute_tracks(len(errors), user.track_weights)
+    formats = plan_formats(len(errors))
     recent = recent_prompts_for_errors(user_id, [e.id for e in errors])
     avoid_sc = recent_scenarios(user_id)
     due_payload = []
@@ -361,6 +604,7 @@ def _build_quiz_questions(
             "error_type": e.error_type,
             "explanation": e.explanation,
             "track": tracks[i] if i < len(tracks) else "life",
+            "format": formats[i] if i < len(formats) else "gap",
         }
         avoid = recent.get(e.id)
         if avoid:
@@ -391,13 +635,16 @@ def _build_quiz_questions(
     questions = list(result.get("questions") or [])
     by_id = {e.id: e for e in errors}
     cleaned: list[dict] = []
-    for q, err in zip(questions, errors, strict=False):
+    for i, (q, err) in enumerate(zip(questions, errors, strict=False)):
         eid = int(q.get("error_id", err.id))
         if eid not in by_id:
             eid = err.id
-        fmt = q.get("format") or "gap"
+        planned = formats[i] if i < len(formats) else "gap"
+        fmt = q.get("format") or planned
         if fmt not in _VALID_FORMATS:
-            fmt = "gap"
+            fmt = planned
+        # Hard mix: trust the plan, not the model.
+        fmt = planned
         accept = [str(a).lower() for a in (q.get("accept") or [])]
         answer = str(q.get("answer") or err.correct_form)
         if not accept and fmt in ("gap", "choice", "order"):
@@ -415,6 +662,9 @@ def _build_quiz_questions(
         }
         if fmt in ("choice", "order"):
             item["options"] = [str(o) for o in (q.get("options") or [])]
+            if not item["options"] and answer:
+                # Minimal fallback so a button still exists if the model skipped options.
+                item["options"] = [answer]
         if fmt == "spot":
             item["tiles"] = [str(t) for t in (q.get("tiles") or [])]
             item["correction"] = str(
@@ -439,13 +689,17 @@ async def deliver_morning(
     if not under_message_ceiling(user_id, day):
         return "skipped_ceiling"
 
-    errors = due_errors(user_id, limit=5)
+    rescue = is_in_rescue(user_id, day)
+    quiz_limit = 3 if rescue else 5
+    preface = _quiz_preface(user_id, rescue=rescue)
+
+    errors = due_errors(user_id, limit=quiz_limit)
     if not errors:
         insert_session(user_id, "free_practice", day, completed=False)
-        await bot.send_message(
-            chat_id=user_id,
-            text=texts.QUIZ_FREE_PRACTICE,
-        )
+        body = texts.QUIZ_FREE_PRACTICE
+        if preface:
+            body = f"{preface}\n\n{body}"
+        await bot.send_message(chat_id=user_id, text=body)
         increment_bot_messages(user_id, day)
         return "free_practice"
 
@@ -469,12 +723,14 @@ async def deliver_morning(
 
     if not questions:
         insert_session(user_id, "free_practice", day, completed=False)
-        await bot.send_message(
-            chat_id=user_id,
-            text=texts.QUIZ_FREE_PRACTICE,
-        )
+        body = texts.QUIZ_FREE_PRACTICE
+        if preface:
+            body = f"{preface}\n\n{body}"
+        await bot.send_message(chat_id=user_id, text=body)
         increment_bot_messages(user_id, day)
         return "free_practice"
+
+    questions = questions[:quiz_limit]
 
     payload: dict[str, Any] = {
         "index": 0,
@@ -484,6 +740,7 @@ async def deliver_morning(
         "scenario": scenario,
         "chat_id": user_id,
         "message_id": None,
+        "preface": preface,
     }
     session_id = insert_session(
         user_id, "quiz", day, payload=payload, completed=False
@@ -503,34 +760,25 @@ async def deliver_morning(
     return "quiz"
 
 
-def _feedback_for(question: dict[str, Any], *, correct: bool) -> str:
-    answer = str(question.get("answer") or "")
-    if question.get("format") == "spot":
-        if correct:
-            return texts.QUIZ_CORRECT.format(answer=answer)
-        return texts.QUIZ_SPOT_WRONG.format(
-            answer=answer,
-            correction=str(question.get("correction") or ""),
-        )
-    if correct:
-        return texts.QUIZ_CORRECT.format(answer=answer)
-    expl = (question.get("explanation") or "").strip()
-    if expl:
-        return texts.QUIZ_WRONG.format(answer=answer, explanation=expl)
-    return texts.QUIZ_WRONG_SHORT.format(answer=answer)
-
-
 def format_completion_message(
     *,
     correct_count: int,
     total: int,
+    streak_days: int | None = None,
     improved_labels: list[str] | None = None,
     struggled_labels: list[str] | None = None,
 ) -> str:
-    """Score line + progress / came-back lines (labels only, never codes)."""
+    """Score line with stars, optimistic streak, progress / came-back lines."""
     improved = list(improved_labels or [])
     struggled = list(struggled_labels or [])
-    lines = [texts.QUIZ_DONE.format(correct=correct_count, total=total)]
+    stars = ("⭐️" * correct_count) + ("☆" * max(0, total - correct_count))
+    lines = [
+        texts.QUIZ_DONE.format(
+            correct=correct_count, total=total, stars=stars
+        )
+    ]
+    if streak_days is not None and streak_days > 0:
+        lines.append(texts.QUIZ_STREAK.format(n=streak_days))
     detail: list[str] = []
     if improved:
         detail.append(texts.QUIZ_IMPROVED.format(label=improved[0]))
@@ -557,6 +805,7 @@ async def _advance_after_answer(
     *,
     correct: bool,
     question: dict[str, Any],
+    user_answer: str,
 ) -> None:
     mark_result(int(question["error_id"]), correct)
     payload["answered"] = int(payload.get("answered", 0)) + 1
@@ -577,16 +826,21 @@ async def _advance_after_answer(
     message_id = int(payload["message_id"])
     total = len(payload["questions"])
     index = int(payload["index"])
-    feedback = _feedback_for(question, correct=correct)
+    feedback = format_feedback(
+        question, correct=correct, user_answer=user_answer
+    )
 
     if index + 1 >= total:
         score = (
             float(payload["correct_count"]) / float(total) if total else 0.0
         )
         complete_session(session_id, score)
+        # Optimistic display only — rollover at 03:00 is the real evaluation.
+        optimistic_streak = get_streak(user_id).current_streak + 1
         summary = format_completion_message(
             correct_count=int(payload["correct_count"]),
             total=total,
+            streak_days=optimistic_streak,
             improved_labels=list(payload.get("improved_labels") or []),
             struggled_labels=list(payload.get("struggled_labels") or []),
         )
@@ -645,6 +899,7 @@ async def on_quiz_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         payload,
         correct=correct,
         question=q,
+        user_answer=raw,
     )
 
 
@@ -689,6 +944,7 @@ async def on_quiz_callback(
             payload,
             correct=correct,
             question=q,
+            user_answer=chosen,
         )
         return
 
@@ -709,6 +965,7 @@ async def on_quiz_callback(
             payload,
             correct=correct,
             question=q,
+            user_answer=tapped,
         )
 
 

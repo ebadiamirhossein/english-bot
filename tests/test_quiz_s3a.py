@@ -108,6 +108,7 @@ def test_completion_uses_label_not_code() -> None:
     )
     assert "quantifier_modifier" not in msg
     assert "Quantifiers and modifiers" in msg
+    assert "Getting steadier:" in msg
     assert "quantifier_modifier" not in texts.QUIZ_IMPROVED
 
 

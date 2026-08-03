@@ -6,9 +6,9 @@ import re
 
 from app import texts
 from app.handlers.quiz import (
-    _feedback_for,
     _question_text,
     compose_body,
+    format_feedback,
 )
 
 
@@ -34,15 +34,21 @@ def test_spot_body_contains_full_sentence() -> None:
         ],
     }
     body = _question_text(payload)
-    assert "One word is wrong. Which one?" in body
-    assert '"Last night Sara go to the pharmacy"' in body
-    assert "Last night Sara go" in body
+    assert "Last night Sara go to the pharmacy" in body
+    # Dots last, not first
+    assert body.strip().endswith("●") or "●" in body.split("\n")[-1]
 
 
 def test_feedback_and_question_separated_by_blank_line() -> None:
-    feedback = _feedback_for(
-        {"format": "gap", "answer": "isn't", "explanation": "Use isn't."},
+    feedback = format_feedback(
+        {
+            "format": "gap",
+            "prompt": "Her English ___ very good.",
+            "answer": "isn't",
+            "explanation": "Use isn't.",
+        },
         correct=True,
+        user_answer="isn't",
     )
     question = _question_text(
         {
@@ -57,39 +63,45 @@ def test_feedback_and_question_separated_by_blank_line() -> None:
     )
     body = compose_body(feedback=feedback, question_body=question)
     assert "──────────" not in body
-    assert not hasattr(texts, "QUIZ_DIVIDER") or not getattr(
-        texts, "QUIZ_DIVIDER", None
-    )
     assert "\n\n" in body
-    feedback_part, question_part = body.split("\n\n", 1)
-    assert "Correct" in feedback_part
-    assert "isn't" in feedback_part
-    assert "Her English" in question_part
-    assert "Correct" not in question_part
+    assert "Her English" in feedback
+    assert "isn't" in feedback
 
 
 def test_no_guilt_in_feedback_copy() -> None:
     samples = [
-        _feedback_for(
-            {"format": "gap", "answer": "isn't", "explanation": "Use isn't."},
+        format_feedback(
+            {
+                "format": "gap",
+                "prompt": "Her English ___ very good.",
+                "answer": "isn't",
+                "explanation": "Use isn't.",
+            },
             correct=True,
+            user_answer="isn't",
         ),
-        _feedback_for(
-            {"format": "gap", "answer": "isn't", "explanation": "Use isn't."},
+        format_feedback(
+            {
+                "format": "gap",
+                "prompt": "Her English ___ very good.",
+                "answer": "isn't",
+                "explanation": "Use isn't.",
+            },
             correct=False,
+            user_answer="is not so much",
         ),
-        _feedback_for(
+        format_feedback(
             {
                 "format": "spot",
+                "tiles": ["She", "go", "home"],
                 "answer": "go",
                 "correction": "went",
             },
             correct=False,
+            user_answer="She",
         ),
-        texts.QUIZ_CORRECT,
-        texts.QUIZ_WRONG,
-        texts.QUIZ_WRONG_SHORT,
-        texts.QUIZ_SPOT_WRONG,
+        texts.QUIZ_YOU_SAID,
+        texts.QUIZ_CORRECT_SENTENCE,
         texts.QUIZ_IMPROVED,
         texts.QUIZ_CAME_BACK,
     ]

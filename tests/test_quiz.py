@@ -177,6 +177,7 @@ def test_answer_calls_mark_result_once(cleanup_user: int) -> None:
                 payload,
                 correct=True,
                 question=payload["questions"][0],
+                user_answer="isn't",
             )
         )
         assert mocked.call_count == 1

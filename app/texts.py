@@ -359,34 +359,38 @@ LLM_RETRY = "Give me a second, trying again…"
 
 LLM_FAILED = "Something broke on my side — try that message again in a moment."
 
-# --- Daily quiz (S3 / S3a / S3b / S3c) ---------------------------------------
+# --- Daily quiz (S3–S3d) ----------------------------------------------------
 
 QUIZ_FREE_PRACTICE = (
     "Nothing due from your journal today — send me any English you're using "
     "and I'll correct it. That builds tomorrow's quiz."
 )
 
-QUIZ_CORRECT = '✅ Correct — "{answer}"'
-
-QUIZ_WRONG = (
-    '❌ Not quite — the answer was "{answer}"\n'
-    "💡 {explanation}"
-)
-
-QUIZ_WRONG_SHORT = '❌ Not quite — the answer was "{answer}"'
-
-QUIZ_SPOT_WRONG = (
-    '❌ Not quite — "{answer}" was the wrong word. '
-    'It should be "{correction}".'
-)
+QUIZ_HINT_GAP = "⌨️ Type the missing word"
+QUIZ_HINT_CHOICE = "👆 Tap the one that sounds right"
+QUIZ_HINT_ORDER = "👆 Tap the one that sounds right"
+QUIZ_HINT_SPOT = "👆 Tap the word that's wrong"
 
 QUIZ_SPOT_PROMPT = "One word is wrong. Which one?"
 
-QUIZ_DONE = "Done — {correct}/{total}"
+QUIZ_YOU_SAID = '❌ You said: "{said}"'
+QUIZ_CORRECT_SENTENCE = '✅ "{sentence}"'
+QUIZ_WRONG_EXPLAIN = "💡 {explanation}"
 
-QUIZ_IMPROVED = "✅ {label} is getting steadier."
+QUIZ_DONE = "Done — {correct}/{total} {stars}"
+
+QUIZ_STREAK = "🔥 {n}-day streak"
+
+QUIZ_IMPROVED = "Getting steadier: {label}."
 
 QUIZ_CAME_BACK = "📌 {label} came back — I'll ask again tomorrow."
+
+QUIZ_RESCUE = "Shorter one today — three questions."
+
+QUIZ_FREEZE_USED = (
+    "Yesterday got away from you — I used a freeze, your streak's intact. "
+    "{remaining} left this month."
+)
 
 
 def format_correction_block(

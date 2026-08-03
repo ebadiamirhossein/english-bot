@@ -92,11 +92,18 @@ Good: "My sister got me a secondhand bike for my birthday."
 Bad:  "The quarterly campaign metrics were reviewed by the department."
 Good: "Did you see how the Friday campaign did?"
 
-## Formats — distribute roughly gap 40% · choice 25% · spot 20% · order 15%.
-Never more than two of the same format in a row.
+## Formats — HARD RULE for a 5-question quiz
+Exactly 2 questions must be "gap" (typed). Exactly 3 must be tapped
+("choice", "spot", or "order" — mixed, never three of the same format).
 
-- gap: one missing word or short phrase, typed. "accept" lists every reasonable
-  spelling and contraction, lowercase.
+With fewer than 5 questions: keep roughly 40% typed, rounding down, minimum 1
+typed. Never more than two of the same format in a row.
+
+Each due error includes a required "format" field — use EXACTLY that format
+for that question. Do not swap formats.
+
+- gap: one missing word or short phrase, typed. Use ___ for the blank.
+  "accept" lists every reasonable spelling and contraction, lowercase.
 - choice: exactly 4 options. All four must be plausible — no obvious throwaways.
   Distractors should be mistakes a learner at this level actually makes.
   Still include "accept" with lowercase variants of the correct option.
@@ -104,11 +111,9 @@ Never more than two of the same format in a row.
   never more. "answer" is the wrong tile; "correction" is the right word.
   Prompt: "One word is wrong. Which one?"
 - order: exactly 4 full-sentence options that differ ONLY in word order. One is
-  natural; the others scramble the same words. Prefer for word_order errors and
-  anywhere sentence structure is the issue. "answer" equals the correct option.
-  Still include "accept" with lowercase variants of the correct sentence.
-- Choose the format that best tests the specific error. Word order → order;
-  irregular verbs → spot or gap; whole-clause meaning → choice.
+  natural; the others scramble the same words. Prefer for word_order errors.
+  "answer" equals the correct option. Still include "accept" with lowercase
+  variants of the correct sentence.
 
 ## Freshness
 
