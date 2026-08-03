@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-_REQUIRED_KEYS = ("DATABASE_URL", "TELEGRAM_BOT_TOKEN")
+_REQUIRED_KEYS = ("DATABASE_URL", "TELEGRAM_BOT_TOKEN", "ANTHROPIC_API_KEY")
 _PG_SCHEMES = ("postgresql", "postgres")
 
 
@@ -26,6 +26,9 @@ class ConfigError(Exception):
 class Settings:
     database_url: str
     telegram_bot_token: str
+    llm_api_key: str
+    llm_provider: str = ""
+    llm_model: str = "claude-sonnet-5"
     db_pool_min: int = 1
     db_pool_max: int = 5
     log_level: str = "INFO"
@@ -52,6 +55,12 @@ def load_settings() -> Settings:
 
     database_url = os.environ.get("DATABASE_URL", "").strip()
     telegram_bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    # Provider default lives in app.llm (keeps the SDK name out of this file).
+    llm_api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    llm_provider = os.environ.get("LLM_PROVIDER", "").strip()
+    llm_model = (
+        os.environ.get("LLM_MODEL", "claude-sonnet-5").strip() or "claude-sonnet-5"
+    )
 
     if database_url and not _is_postgres_dsn(database_url):
         errors.append(
@@ -81,6 +90,9 @@ def load_settings() -> Settings:
     settings = Settings(
         database_url=database_url,
         telegram_bot_token=telegram_bot_token,
+        llm_api_key=llm_api_key,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
         db_pool_min=db_pool_min,
         db_pool_max=db_pool_max,
         log_level=log_level,

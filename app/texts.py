@@ -344,3 +344,56 @@ REACTIONS: dict[str, str] = {
 
 # Every choosable option key that must have a reaction (for coverage tests).
 REACTION_OPTION_KEYS: frozenset[str] = frozenset(REACTIONS.keys())
+
+# --- Free correction (S2) ---------------------------------------------------
+
+TEXT_TOO_LONG = (
+    "That's a bit long for one pass — send something under 1000 characters?"
+)
+
+NOT_ENGLISH = (
+    "I can only correct English for now. Send me a sentence in English?"
+)
+
+LLM_RETRY = "Give me a second, trying again…"
+
+LLM_FAILED = "Something broke on my side — try that message again in a moment."
+
+
+def format_correction_block(
+    you_said: str,
+    correct_form: str,
+    explanation: str,
+    murphy_units: str | None,
+) -> str:
+    """One PRD §8 correction block. Omits the Murphy line when units is None."""
+    lines = [
+        f'✏️ "{you_said}"',
+        f"→ {correct_form}",
+        f"💡 {explanation}",
+    ]
+    if murphy_units:
+        lines.append(f"📗 Murphy {murphy_units}")
+    return "\n".join(lines)
+
+
+def format_correction_reply(
+    corrections: list[dict],
+    did_well: str,
+    murphy_by_code: dict[str, str | None],
+) -> str:
+    """Full correction reply: blocks separated by blank lines, then did_well."""
+    blocks = [
+        format_correction_block(
+            you_said=c["you_said"],
+            correct_form=c["correct_form"],
+            explanation=c["explanation"],
+            murphy_units=murphy_by_code.get(c["error_type"]),
+        )
+        for c in corrections
+    ]
+    return "\n\n".join(blocks) + f"\n{did_well}"
+
+
+def format_praise(did_well: str) -> str:
+    return did_well

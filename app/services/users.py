@@ -24,6 +24,7 @@ class User:
     name: str
     native_language: str
     cefr_level: str
+    explanation_language_fallback: bool
     efset_baseline: int | None
     work_domain: str | None
     why_statement: str | None
@@ -56,6 +57,7 @@ def get_user(telegram_user_id: int) -> User | None:
         row = conn.execute(
             """
             SELECT telegram_user_id, name, native_language, cefr_level,
+                   explanation_language_fallback,
                    efset_baseline, work_domain, why_statement, track_weights,
                    morning_time, evening_time, onboarded
               FROM users
@@ -73,6 +75,7 @@ def get_user(telegram_user_id: int) -> User | None:
         name=row["name"],
         native_language=row["native_language"],
         cefr_level=row["cefr_level"],
+        explanation_language_fallback=bool(row["explanation_language_fallback"]),
         efset_baseline=row["efset_baseline"],
         work_domain=row["work_domain"],
         why_statement=row["why_statement"],

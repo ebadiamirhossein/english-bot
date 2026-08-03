@@ -11,6 +11,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from app import texts
 from app.config import ConfigError, load_settings
 from app.handlers.access import build_access_handler
+from app.handlers.correction import build_correction_handler, init_correction_prompt
 from app.handlers.onboarding import build_onboarding_handler
 
 
@@ -34,6 +35,8 @@ def main() -> int:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
+    init_correction_prompt()
+
     app = (
         ApplicationBuilder()
         .token(settings.telegram_bot_token)
@@ -41,6 +44,7 @@ def main() -> int:
     )
     app.add_handler(build_onboarding_handler())
     app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(build_correction_handler())
     app.add_handler(build_access_handler(), group=1)
 
     logging.getLogger(__name__).info("Starting bot (polling)")

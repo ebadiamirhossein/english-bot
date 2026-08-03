@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-03
-**Current slice:** S1d
-**Status:** S1d code-complete — awaiting Telegram verification
+**Current slice:** S2
+**Status:** S2 code-complete — awaiting Telegram verification
 
 ---
 
@@ -28,7 +28,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S1b | Onboarding rebuild | 🟡 code-complete | 2026-08-03 | Single-message `edit_message_text` wizard; 8 taps / 0 typing common path; why multi-select → sentence; HTML + escape. |
 | S1c | Onboarding content | 🟡 code-complete | 2026-08-03 | Self-assessment A2/B1/B2; domain category→specific drill-down; situation-based why options; EF SET nudge on save. |
 | S1d | Onboarding personality | 🟡 code-complete | 2026-08-03 | Layout helper (≤12 shared rows); emoji on options; static reactions; warmer copy. Sticker skipped (no stable file_id). |
-| S2 | LLM wrapper + correction | ⬜ not started | | |
+| S2 | LLM wrapper + correction | 🟡 code-complete | 2026-08-03 | `llm.py` + free correction; pytest 30 green; await Telegram verify. |
 | S3 | Daily quiz + scheduler | ⬜ not started | | |
 | S4 | Streaks, freeze, rescue | ⬜ not started | | |
 | — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | |
@@ -58,7 +58,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 | DATABASE_URL (session pooler) | ⬜ | put in `.env` from `.env.example` |
 | Telegram bot token | ✅ | in `.env` |
 | Shared group created | ⬜ | — |
-| LLM provider + key | ⬜ | — |
+| LLM provider + key | 🟡 | `LLM_PROVIDER`/`LLM_MODEL`/`ANTHROPIC_API_KEY` in config; add real key to `.env` before Telegram verify |
 | Whisper/TTS key | ⬜ | — |
 | YouTube Data API key (S9b) | ⬜ | — |
 | systemd unit | ⬜ | — |
@@ -74,6 +74,11 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-03 | S2: `claude-sonnet-5` (~$3.40/mo at ~900 corrections) over Haiku (~$1.20) | Wrong `error_type` poisons the journal permanently; ARCHITECTURE principle 3 treats the journal as the product itself. Two euros/month is not worth weaker taxonomy accuracy. |
+| 2026-08-03 | S2: keep schema row-level `resolved`/`streak_right`; compute type-level "resolved" by aggregation in S10/S11 | PRD §3 defines resolved per error *type*; schema stores it per error *row*. Spacing (S3) needs per-instance rows; reporting aggregates later. No schema change. |
+| 2026-08-03 | S2: length gates — under 10 chars silent, over 1000 → TEXT_TOO_LONG | Short ack messages (`ok`, `thanks`) must not spend API money; essay-length input is outside M2's "ordinary usage" frame and is where cost runs away. |
+| 2026-08-03 | S2: keep `cache_control` on the system prompt; log `cache_read`/`cache_creation` tokens | Anthropic's Sonnet cache floor is ~1024 tokens. Built system prompt is ~611 tokens — caching likely a no-op until the prompt grows. Confirm on first real call via INFO logs; do not remove the optimisation yet. |
+| 2026-08-03 | S2: additive `explanation_language_fallback` on `User`/`get_user()`; `save_onboarding` untouched | Correction prompt needs the flag; read-path layering belongs in `users.py`. Onboarding write path and its tests stay unchanged. |
 | 2026-08-03 | S1d: shared `layout_buttons` (≤12 chars to share a row); emoji on options; static reaction line after each choice; celebration sticker skipped | Truncation made step 5 unreadable; reactions make the bot feel like a partner. No stable public sticker `file_id` without bundling a file or adding a dependency — message count stays **2**. Further onboarding polish → S18 backlog. |
 | 2026-08-03 | S1c: EF SET "Not yet" → CEFR can-do self-assessment (A2/B1/B2), not silent B1; domain is category→specific drill-down (store specific, lowercased); why options describe real situations (meetings, friends here, freezing up) | Silent B1 mis-pitches all content until S12. Broad domains ("Marketing") starve S9/S14. Generic why clauses motivate nobody when S10 quotes them back. Immigrants in Vilnius need local/work stakes in the list. |
 | 2026-08-03 | S1b: replace S1/S1a multi-bubble onboarding with a single-message `edit_message_text` wizard | Message accumulation made onboarding read as a transcript wall; echoing answers (S1a) made it taller. Forced free-text for why produced weak data (`social talking`) that S10 must quote — presets yield better sentences. PRD §8 already required buttons over typing. |
@@ -114,6 +119,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 1 | S0 not yet executed | — | S0 | ✅ closed — verified 2026-07-31 |
 | 2 | `.cursorrules` needs human review against the required clauses in `specs/S0-repo-skeleton.md` | low | S0 | ⬜ open |
 | 3 | Timezone not collected in S1; all users get schema default `Europe/Vilnius`. S20 (Generalize) must add timezone selection when location assumptions are removed. | medium | S1 → S20 | ⬜ open — assumption recorded |
+| 4 | System prompt ~611 tokens; Anthropic Sonnet cache minimum ~1024 — `cache_control` likely inert until prompt grows. Confirm via `cache_read`/`cache_creation` INFO logs on first real correction. | low | S2 | ⬜ open — observe on first real call |
 
 ---
 
@@ -124,9 +130,9 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | Path | Purpose | Status |
 |---|---|---|
 | `.cursorrules` | Project constitution for every slice | ✅ |
-| `.env.example` | Dummy env keys + session-pooler comment | ✅ |
+| `.env.example` | Dummy env keys + session-pooler comment + LLM keys | ✅ |
 | `.gitignore` | Ignores `.env`, venv, pycache, pytest | ✅ |
-| `requirements.txt` | ptb, psycopg[binary,pool], python-dotenv, pytest | ✅ |
+| `requirements.txt` | ptb, psycopg[binary,pool], python-dotenv, pytest, anthropic | ✅ |
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
 | `docs/ARCHITECTURE.md` | Stack, structure, interfaces (+ `services/users.py`) | ✅ |
@@ -137,27 +143,34 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `specs/S1b-onboarding-rebuild.md` | S1b single-message wizard spec | ✅ |
 | `specs/S1c-onboarding-content.md` | S1c level / domain / motivation content | ✅ |
 | `specs/S1d-onboarding-personality.md` | S1d layout / emoji / reactions | ✅ |
+| `specs/S2-llm-correction.md` | S2 LLM wrapper + free correction | ✅ |
 | `migrations/001_init_postgres.sql` | Initial schema + 19 error_types | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
-| `app/config.py` | Env → frozen `Settings`, `ConfigError` | ✅ |
+| `app/config.py` | Env → frozen `Settings`, `ConfigError` (+ LLM keys) | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
-| `app/texts.py` | User-facing strings + S1d reactions/emoji | ✅ |
-| `app/main.py` | Bot entrypoint; `/ping`, `/start`, access control | ✅ |
+| `app/llm.py` | Anthropic chat wrapper; only provider SDK import | ✅ |
+| `app/texts.py` | User-facing strings + S1d reactions/emoji + S2 correction | ✅ |
+| `app/main.py` | Bot entrypoint; `/ping`, `/start`, correction, access control | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
 | `app/handlers/access.py` | Shared unregistered-user ignore + onboarding allowlist | ✅ |
 | `app/handlers/onboarding.py` | `/start` wizard + `layout_buttons` + reactions (S1d) | ✅ |
+| `app/handlers/correction.py` | Free-text correction (S2) | ✅ |
 | `app/services/__init__.py` | Services package | ✅ |
-| `app/services/users.py` | get/save user, EF SET → CEFR | ✅ |
-| `app/prompts/.gitkeep` | Empty prompts dir | ✅ |
-| `tests/test_onboarding.py` | S1 persistence + CEFR mapping tests (untouched by S1b/S1c) | ✅ |
+| `app/services/users.py` | get/save user, EF SET → CEFR (+ explanation_language_fallback read) | ✅ |
+| `app/services/errors.py` | `record_errors` write path (S2); spacing in S3 | ✅ |
+| `app/prompts/correction.txt` | Correction system prompt template | ✅ |
+| `tests/conftest.py` | Dummy `ANTHROPIC_API_KEY` for test settings load | ✅ |
+| `tests/test_onboarding.py` | S1 persistence + CEFR mapping tests (untouched by S1b/S1c/S2) | ✅ |
 | `tests/test_onboarding_validation.py` | S1b validation re-ask via wizard edit | ✅ |
 | `tests/test_why_sentence.py` | Why multi-select → sentence grammar (S1c clauses) | ✅ |
 | `tests/test_s1c_content.py` | Self-assessment CEFR map + domain drill-down table | ✅ |
 | `tests/test_s1d_personality.py` | Layout helper + full reaction coverage | ✅ |
+| `tests/test_llm.py` | LLM retry / json_mode / images (mocked provider) | ✅ |
+| `tests/test_correction.py` | record_errors + handler + prompt fallback assertions | ✅ |
 | `scripts/.gitkeep` | Empty scripts dir | ✅ |
 
 ---
 
 ## Next action
 
-**Human:** run the six Telegram verification steps in `specs/S1d-onboarding-personality.md`. Mark S1d (and S1) ✅ when it feels like a partner. Onboarding is then closed — further polish goes to the S18 backlog. Do not start S2 until both users are onboarded.
+**Human:** add a real `ANTHROPIC_API_KEY` to `.env`, restart the bot, then run the eight Telegram verification steps in `specs/S2-llm-correction.md`. Mark S2 ✅ when they pass. Do not start S3 until then.
