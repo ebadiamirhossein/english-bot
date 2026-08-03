@@ -5,9 +5,9 @@
 
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
-**Last updated:** 2026-07-31
-**Current slice:** S1
-**Status:** S1 code-complete — awaiting Telegram verification
+**Last updated:** 2026-08-03
+**Current slice:** S1d
+**Status:** S1d code-complete — awaiting Telegram verification
 
 ---
 
@@ -24,6 +24,10 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 |---|---|---|---|---|
 | S0 | Repo skeleton | ✅ done & verified | 2026-07-31 | Config, db migrate/status, `/ping` verified against local PG 16.14. |
 | S1 | Onboarding | 🟡 code-complete | 2026-07-31 | ConversationHandler `/start`; users+streaks upsert; access control; pytest green on :5433. |
+| S1a | Onboarding UX polish | 🟡 code-complete | 2026-08-01 | Superseded interaction model by S1b; data layer unchanged. |
+| S1b | Onboarding rebuild | 🟡 code-complete | 2026-08-03 | Single-message `edit_message_text` wizard; 8 taps / 0 typing common path; why multi-select → sentence; HTML + escape. |
+| S1c | Onboarding content | 🟡 code-complete | 2026-08-03 | Self-assessment A2/B1/B2; domain category→specific drill-down; situation-based why options; EF SET nudge on save. |
+| S1d | Onboarding personality | 🟡 code-complete | 2026-08-03 | Layout helper (≤12 shared rows); emoji on options; static reactions; warmer copy. Sticker skipped (no stable file_id). |
 | S2 | LLM wrapper + correction | ⬜ not started | | |
 | S3 | Daily quiz + scheduler | ⬜ not started | | |
 | S4 | Streaks, freeze, rescue | ⬜ not started | | |
@@ -70,8 +74,15 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-03 | S1d: shared `layout_buttons` (≤12 chars to share a row); emoji on options; static reaction line after each choice; celebration sticker skipped | Truncation made step 5 unreadable; reactions make the bot feel like a partner. No stable public sticker `file_id` without bundling a file or adding a dependency — message count stays **2**. Further onboarding polish → S18 backlog. |
+| 2026-08-03 | S1c: EF SET "Not yet" → CEFR can-do self-assessment (A2/B1/B2), not silent B1; domain is category→specific drill-down (store specific, lowercased); why options describe real situations (meetings, friends here, freezing up) | Silent B1 mis-pitches all content until S12. Broad domains ("Marketing") starve S9/S14. Generic why clauses motivate nobody when S10 quotes them back. Immigrants in Vilnius need local/work stakes in the list. |
+| 2026-08-03 | S1b: replace S1/S1a multi-bubble onboarding with a single-message `edit_message_text` wizard | Message accumulation made onboarding read as a transcript wall; echoing answers (S1a) made it taller. Forced free-text for why produced weak data (`social talking`) that S10 must quote — presets yield better sentences. PRD §8 already required buttons over typing. |
+| 2026-08-03 | S1b: ParseMode.HTML + `html.escape` on user-supplied values; ignore BadRequest "message is not modified"; time callbacks via `split(":", 2)` | Markdown breaks on `_` / `&` mid-flow; double-taps crash edits; naive colon split truncates `07:00` to `07`. |
+| 2026-08-03 | S1b: native language presets add Russian + Polish; why is multi-select joined into one natural sentence | Matches local language mix; S10 quotes why verbatim so grammar must be correct. |
+| 2026-08-01 | S1a: keep `work_domain` as free text with examples in the question, not preset buttons | Superseded for the common path by S1b presets + "Something else" escape hatch; specificity still available via free text. |
+| 2026-08-01 | S1a: fix `PTBUserWarning` by nesting callback-only ConversationHandlers with `per_message=True` under a parent with `per_message=False` (MessageHandlers only + nested CHs) | Mixed MessageHandler + CallbackQueryHandler in one CH always warns; nesting matches how each update type is tracked. Do not `filterwarnings`. Kept in S1b. |
 | 2026-07-31 | S1 open decision 5: do not ask timezone in onboarding; keep schema default `Europe/Vilnius` | Both users are in Vilnius; S20 (Generalize) must add timezone selection when assumptions are removed |
-| 2026-07-31 | S1 open decision 4: second `/start` shows profile summary with Redo onboarding / Keep as is; redo overwrites `users`, never resets `streaks` | Full per-field edit is `/settings` (S18); streak history must survive redo |
+| 2026-07-31 | S1 open decision 4: second `/start` shows profile summary with Redo onboarding / Keep as is; redo overwrites `users`, never resets `streaks` | Full per-field edit is `/settings` (S18); streak history must survive redo. S1b renames buttons to Change something / Keep as is. |
 | 2026-07-31 | S1 open decision 3: track weights via three preset buttons only (Balanced 40/40/20, More work 60/25/15, More everyday 25/60/15) | PRD §8 buttons over typing; fine-grained weights come from S9 ratings |
 | 2026-07-31 | S1 open decision 2: EF SET step offers "Not yet"; `efset_baseline` stays NULL, `cefr_level` defaults to B1 | Test takes 50 minutes; PRD baseline is week 1, not day 1 |
 | 2026-07-31 | S1 open decision 1: EF SET → CEFR uses official EF bands; PRD §3 target corrected to B2 (51–60) | PRD's "B2 (57–70)" spanned B2+C1; official B2 is 51–60 |
@@ -122,23 +133,31 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `docs/TASKS.md` | Vertical slice list | ✅ |
 | `specs/S0-repo-skeleton.md` | S0 spec | ✅ |
 | `specs/S1-onboarding.md` | S1 spec | ✅ |
+| `specs/S1a-onboarding-ux.md` | S1a onboarding UX polish spec | ✅ |
+| `specs/S1b-onboarding-rebuild.md` | S1b single-message wizard spec | ✅ |
+| `specs/S1c-onboarding-content.md` | S1c level / domain / motivation content | ✅ |
+| `specs/S1d-onboarding-personality.md` | S1d layout / emoji / reactions | ✅ |
 | `migrations/001_init_postgres.sql` | Initial schema + 19 error_types | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
 | `app/config.py` | Env → frozen `Settings`, `ConfigError` | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
-| `app/texts.py` | User-facing strings (pong + onboarding) | ✅ |
+| `app/texts.py` | User-facing strings + S1d reactions/emoji | ✅ |
 | `app/main.py` | Bot entrypoint; `/ping`, `/start`, access control | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
 | `app/handlers/access.py` | Shared unregistered-user ignore + onboarding allowlist | ✅ |
-| `app/handlers/onboarding.py` | `/start` ConversationHandler | ✅ |
+| `app/handlers/onboarding.py` | `/start` wizard + `layout_buttons` + reactions (S1d) | ✅ |
 | `app/services/__init__.py` | Services package | ✅ |
 | `app/services/users.py` | get/save user, EF SET → CEFR | ✅ |
 | `app/prompts/.gitkeep` | Empty prompts dir | ✅ |
-| `tests/test_onboarding.py` | S1 persistence + CEFR mapping tests | ✅ |
+| `tests/test_onboarding.py` | S1 persistence + CEFR mapping tests (untouched by S1b/S1c) | ✅ |
+| `tests/test_onboarding_validation.py` | S1b validation re-ask via wizard edit | ✅ |
+| `tests/test_why_sentence.py` | Why multi-select → sentence grammar (S1c clauses) | ✅ |
+| `tests/test_s1c_content.py` | Self-assessment CEFR map + domain drill-down table | ✅ |
+| `tests/test_s1d_personality.py` | Layout helper + full reaction coverage | ✅ |
 | `scripts/.gitkeep` | Empty scripts dir | ✅ |
 
 ---
 
 ## Next action
 
-**Human:** run the five Telegram verification steps in `specs/S1-onboarding.md`. Mark S1 ✅ in this file when both users are onboarded. Then start S2 — do not start S2 before that.
+**Human:** run the six Telegram verification steps in `specs/S1d-onboarding-personality.md`. Mark S1d (and S1) ✅ when it feels like a partner. Onboarding is then closed — further polish goes to the S18 backlog. Do not start S2 until both users are onboarded.

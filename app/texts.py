@@ -6,50 +6,65 @@ user-visible message inline in a handler or service.
 
 PONG = "pong"
 
-# --- Onboarding -----------------------------------------------------------
+# --- Onboarding (S1b/S1c + S1d personality) --------------------------------
 
-ONBOARD_WELCOME = (
-    "Hey — I'm your English practice partner. "
-    "A few quick questions so I can set things up for you."
+ONBOARD_GREETING = (
+    "Hi {name} 👋\n\n"
+    "I'm going to learn your mistakes and keep testing you on them until they're "
+    "gone. Eight quick questions first.\n\n"
+    "Should I call you {name}?"
 )
 
 ONBOARD_ASK_NAME = "What should I call you?"
 
-ONBOARD_ASK_NATIVE_LANG = "What's your native language?"
+ONBOARD_ASK_NATIVE_LANG = "What's your first language?"
 
 ONBOARD_ASK_NATIVE_LANG_OTHER = "Which language?"
 
-ONBOARD_ASK_EFSET = (
-    "What's your EF SET score? "
-    "If you haven't taken it yet, tap Not yet — we can fill it in later."
-)
+ONBOARD_ASK_EFSET = "Do you know your EF SET score?"
 
-ONBOARD_ASK_DOMAIN = "What do you work in?"
+ONBOARD_ASK_EFSET_HELPER = "It's a free 50-minute test — we can do this later."
 
-ONBOARD_ASK_WHY = (
-    "Why do you want better English? "
-    "One honest sentence — I'll bring it back when motivation dips."
-)
+ONBOARD_ASK_EFSET_SCORE = "What's your EF SET score? (1–100)"
 
-ONBOARD_ASK_WEIGHTS = "What should we focus on?"
+ONBOARD_ASK_LEVEL = "Roughly where are you in English?"
+
+ONBOARD_ASK_DOMAIN = "What do you do all day?"
+
+ONBOARD_ASK_DOMAIN_SPECIFIC = "Which fits best?"
+
+ONBOARD_ASK_DOMAIN_OTHER = "What do you work in? Be as specific as you like."
+
+ONBOARD_ASK_WHY = "Why does this matter to you?"
+
+ONBOARD_ASK_WHY_HELPER = "Pick as many as you like."
+
+ONBOARD_WHY_NUDGE = "Pick at least one, then tap Done."
+
+ONBOARD_ASK_WEIGHTS = "Where should I aim the practice?"
 
 ONBOARD_ASK_MORNING = "When should the morning task arrive?"
 
 ONBOARD_ASK_MORNING_OTHER = "What time? Use 24-hour HH:MM, like 07:30."
 
-ONBOARD_ASK_EVENING = "And the evening task?"
+ONBOARD_ASK_EVENING = "When should the evening task arrive?"
 
 ONBOARD_ASK_EVENING_OTHER = "What time? Use 24-hour HH:MM, like 20:30."
 
-ONBOARD_CONFIRM_INTRO = "Does this look right?"
+ONBOARD_CONFIRM_INTRO = "Right — here's the plan."
 
-ONBOARD_SAVED = "You're set. I'll message you at the times you chose."
+ONBOARD_SAVED = "You're set, {name}. First task lands tomorrow at {morning_time}."
+
+ONBOARD_SAVED_EFSET_NUDGE = (
+    "You're set, {name}.\n"
+    "First task lands tomorrow at {morning_time}.\n\n"
+    "When you have 50 minutes, take the free EF SET — I'll tune everything to your "
+    "real level. Just send me the score."
+)
 
 ONBOARD_CANCELLED = "Okay — nothing saved. Say /start whenever you're ready."
 
 ONBOARD_KEEP = "Alright — leaving your profile as it is."
-
-ONBOARD_REDO = "Okay, let's start over."
 
 ONBOARD_SAVE_FAILED = (
     "Something broke on my side — try /start again in a moment."
@@ -57,30 +72,275 @@ ONBOARD_SAVE_FAILED = (
 
 ONBOARD_INVALID_NAME = "I need a name I can use — try again?"
 
-ONBOARD_INVALID_EFSET = "Send a number from 1 to 100, or tap Not yet."
+ONBOARD_INVALID_EFSET = "Send a number from 1 to 100, or go back and tap Not yet."
 
 ONBOARD_INVALID_TIME = "That doesn't look like HH:MM. Try something like 08:00."
 
 ONBOARD_INVALID_LANG = "Type the language name — any language is fine."
 
-ONBOARD_PROFILE_INTRO = "You're already set up. Here's your profile:"
+ONBOARD_PROFILE_INTRO = "You're already set up. Here's your profile."
 
-# Button labels
-BTN_LANG_FARSI = "Farsi"
-BTN_LANG_LITHUANIAN = "Lithuanian"
-BTN_LANG_OTHER = "Other"
-BTN_EFSET_NOT_YET = "Not yet"
-BTN_WEIGHTS_BALANCED = "Balanced"
-BTN_WEIGHTS_WORK = "More work English"
-BTN_WEIGHTS_LIFE = "More everyday English"
-BTN_TIME_OTHER = "Other"
-BTN_SAVE = "Save"
-BTN_START_OVER = "Start over"
-BTN_REDO = "Redo onboarding"
+# Button labels (emoji leading; layout helper enforces ≤12 for shared rows)
+BTN_NAME_YES = "👍 Yes, that's me"
+BTN_NAME_OTHER = "✏️ Call me something else"
+BTN_LANG_FARSI = "🇮🇷 Farsi"
+BTN_LANG_LITHUANIAN = "🇱🇹 Lithuanian"
+BTN_LANG_RUSSIAN = "🇷🇺 Russian"
+BTN_LANG_POLISH = "🇵🇱 Polish"
+BTN_LANG_OTHER = "🌍 Other"
+BTN_EFSET_KNOW = "📊 I know my score"
+BTN_EFSET_NOT_YET = "🤷 Not yet"
+BTN_LEVEL_A2 = "🌱 I manage simple, everyday things"
+BTN_LEVEL_B1 = "🚶 I get by, but I hesitate a lot"
+BTN_LEVEL_B2 = "🏃 I'm comfortable — I want precision"
+BTN_DOMAIN_OTHER = "✏️ Something else"
+BTN_WHY_DONE = "Done →"
+BTN_WEIGHTS_BALANCED = "⚖️ A bit of everything"
+BTN_WEIGHTS_WORK = "💼 Mostly work English"
+BTN_WEIGHTS_LIFE = "🏠 Mostly everyday English"
+BTN_TIME_OTHER = "🕐 Another time"
+BTN_MORNING_07 = "🌅 07:00"
+BTN_MORNING_08 = "☀️ 08:00"
+BTN_MORNING_09 = "🌤 09:00"
+BTN_EVENING_19 = "🌆 19:00"
+BTN_EVENING_20 = "🌙 20:00"
+BTN_EVENING_21 = "🌃 21:00"
+BTN_BACK = "← Back"
+BTN_SAVE = "🚀 Start learning"
+BTN_CHANGE = "✏️ Change something"
 BTN_KEEP = "Keep as is"
 
-# Language display names for summaries
+# Self-assessment after EF SET "Not yet" → cefr_level (efset_baseline stays NULL)
+SELF_ASSESS_OPTIONS: list[tuple[str, str, str]] = [
+    ("a2", BTN_LEVEL_A2, "A2"),
+    ("b1", BTN_LEVEL_B1, "B1"),
+    ("b2", BTN_LEVEL_B2, "B2"),
+]
+
+# Domain categories — short labels so two fit per row; specifics carry detail.
+DOMAIN_CATEGORIES: list[tuple[str, str]] = [
+    ("marketing", "📣 Marketing"),
+    ("tech", "💻 Tech"),
+    ("business", "📊 Business"),
+    ("health", "🩺 Health"),
+    ("education", "🎓 Education"),
+    ("creative", "🎨 Creative"),
+    ("trades", "🔧 Trades"),
+    ("law", "⚖️ Law"),
+    ("other", "🧭 Other"),
+]
+
+# Stored work_domain is the specific label, lowercased (unchanged from S1c).
+DOMAIN_SPECIFICS: dict[str, list[tuple[str, str]]] = {
+    "marketing": [
+        ("digital_marketing", "Digital marketing"),
+        ("content_social", "Content & social"),
+        ("sales", "Sales"),
+        ("brand_pr", "Brand & PR"),
+        ("market_research", "Market research"),
+    ],
+    "tech": [
+        ("software_eng", "Software engineering"),
+        ("data_ai", "Data & AI"),
+        ("it_infra", "IT & infrastructure"),
+        ("product_mgmt", "Product management"),
+        ("qa_testing", "QA & testing"),
+        ("design_ux", "Design (UX/UI)"),
+    ],
+    "business": [
+        ("finance_acct", "Finance & accounting"),
+        ("operations", "Operations"),
+        ("hr_recruiting", "HR & recruiting"),
+        ("consulting", "Consulting"),
+        ("logistics", "Logistics"),
+        ("entrepreneur", "Entrepreneur"),
+    ],
+    "health": [
+        ("medicine", "Medicine"),
+        ("nursing", "Nursing"),
+        ("dentistry", "Dentistry"),
+        ("pharmacy", "Pharmacy"),
+        ("therapy", "Therapy & rehab"),
+        ("care_work", "Care work"),
+    ],
+    "education": [
+        ("teaching", "Teaching"),
+        ("academic", "Academic research"),
+        ("training", "Training & coaching"),
+        ("edu_admin", "Education admin"),
+    ],
+    "creative": [
+        ("design", "Design"),
+        ("writing", "Writing & editing"),
+        ("film_video", "Film & video"),
+        ("music", "Music"),
+        ("photography", "Photography"),
+    ],
+    "trades": [
+        ("construction", "Construction"),
+        ("automotive", "Automotive"),
+        ("hospitality", "Hospitality"),
+        ("retail", "Retail"),
+        ("beauty", "Beauty"),
+        ("driving", "Driving & transport"),
+    ],
+    "law": [
+        ("law", "Law"),
+        ("government", "Government"),
+        ("nonprofit", "Non-profit"),
+        ("police", "Police & emergency"),
+    ],
+    "other": [
+        ("student", "Student"),
+        ("between_jobs", "Between jobs"),
+        ("parenting", "Parenting full-time"),
+        ("retired", "Retired"),
+    ],
+}
+
+# Why multi-select: key → (button label without checkmark, sentence clause)
+WHY_OPTIONS: list[tuple[str, str, str]] = [
+    ("freeze", "😰 Speak without freezing up", "speak without freezing up"),
+    ("meetings", "💼 Do better in meetings", "do better in meetings"),
+    ("job", "🚀 Get a better job", "get a better job"),
+    ("friends", "🫂 Make friends here", "make friends here"),
+    ("films", "🎬 Watch films without subtitles", "watch films without subtitles"),
+    (
+        "embarrassed",
+        "😳 Stop feeling embarrassed",
+        "stop feeling embarrassed about my English",
+    ),
+    ("travel", "✈️ Travel more easily", "travel more easily"),
+    ("study", "🎓 Study or pass an exam", "study or pass an exam"),
+]
+
+# Language display names for summaries (no emoji)
 LANG_LABELS = {
     "fa": "Farsi",
     "lt": "Lithuanian",
+    "ru": "Russian",
+    "pl": "Polish",
 }
+
+WEIGHT_SUMMARY_LABELS = {
+    "balanced": "Balanced",
+    "work": "More work",
+    "life": "More everyday",
+}
+
+# --- Reactions (one line, <60 chars, every option keyed) -------------------
+# Keys must cover every choice; tests fail if any option key is missing.
+
+REACTIONS: dict[str, str] = {
+    # Step 1
+    "name:yes": "Good — we'll stick with that.",
+    "name:other": "Got it — tell me what to call you.",
+    "name:typed": "Nice to meet you.",
+    # Step 2
+    "lang:fa": "Farsi — articles and word order are our battleground.",
+    "lang:lt": "Lithuanian — so articles will be the fun part.",
+    "lang:ru": "Russian base — English articles will keep us busy.",
+    "lang:pl": "Polish — you know cases; articles are the new puzzle.",
+    "lang:other": "Any language works — I'll adapt explanations when needed.",
+    "lang:typed": "Noted — I'll keep that in mind for explanations.",
+    # Step 3
+    "efset:know": "Paste the number when you have it.",
+    "efset:skip": "No problem. Rough guess is fine for now.",
+    "efset_score:A1": "A1 start. We'll build steadily from the ground.",
+    "efset_score:A2": "A2 — everyday basics are there; next is fluency.",
+    "efset_score:B1": "Solid B1. That's exactly the jump this is built for.",
+    "efset_score:B2": "B2 already. Then we're sharpening, not building.",
+    "efset_score:C1": "C1 territory — precision and polish from here.",
+    "efset_score:C2": "C2 — rare. We'll chase the last stubborn habits.",
+    # Step 3b
+    "level:a2": "Everyday basics — we'll grow from there.",
+    "level:b1": "Hesitation is normal at B1. We'll chip away at it.",
+    "level:b2": "Comfortable base — now we hunt precision.",
+    # Step 4 categories
+    "domain:cat:marketing": "Marketing world — campaigns and clients ahead.",
+    "domain:cat:tech": "Tech it is — standups and specs incoming.",
+    "domain:cat:business": "Business side — meetings and numbers.",
+    "domain:cat:health": "Care work — high-stakes talk every day.",
+    "domain:cat:education": "Education — clear explanations matter here.",
+    "domain:cat:creative": "Creative field — voice and style count.",
+    "domain:cat:trades": "Hands-on work — practical English first.",
+    "domain:cat:law": "Law & public — precision is non-negotiable.",
+    "domain:cat:other": "Outside a single field — we'll keep it flexible.",
+    # Step 4b named specifics (required) + rest
+    "domain:pick:digital_marketing": "Campaigns, clients, pitches. I'll pull examples from there.",
+    "domain:pick:content_social": "Content and social — hooks and captions.",
+    "domain:pick:sales": "Sales talk — persuasion under pressure.",
+    "domain:pick:brand_pr": "Brand and PR — careful wording.",
+    "domain:pick:market_research": "Research — clear findings, clear English.",
+    "domain:pick:software_eng": "Standups, code review, specs. Noted.",
+    "domain:pick:data_ai": "Data and AI — precise terms matter.",
+    "domain:pick:it_infra": "Infra — tickets, outages, clear status.",
+    "domain:pick:product_mgmt": "Product — roadmaps and stakeholder talk.",
+    "domain:pick:qa_testing": "QA — bugs need clear reports.",
+    "domain:pick:design_ux": "UX/UI — critique without friction.",
+    "domain:pick:finance_acct": "Finance — numbers with clean English.",
+    "domain:pick:operations": "Ops — processes said simply.",
+    "domain:pick:hr_recruiting": "HR — interviews and sensitive talk.",
+    "domain:pick:consulting": "Consulting — slides and client rooms.",
+    "domain:pick:logistics": "Logistics — status updates that land.",
+    "domain:pick:entrepreneur": "Building something — pitches and hustle.",
+    "domain:pick:medicine": "Medicine — clarity under pressure.",
+    "domain:pick:nursing": "Handovers and patient talk. That's a demanding register.",
+    "domain:pick:dentistry": "Dentistry — calm chairside talk.",
+    "domain:pick:pharmacy": "Pharmacy — instructions people follow.",
+    "domain:pick:therapy": "Therapy — careful, human language.",
+    "domain:pick:care_work": "Care work — warmth plus clarity.",
+    "domain:pick:teaching": "Teaching — explain, then check understanding.",
+    "domain:pick:academic": "Research — abstracts and argument.",
+    "domain:pick:training": "Training — instructions that stick.",
+    "domain:pick:edu_admin": "Edu admin — email that doesn't spiral.",
+    "domain:pick:design": "Design — feedback that's useful.",
+    "domain:pick:writing": "Writing — edit until it breathes.",
+    "domain:pick:film_video": "Film and video — scripts and notes.",
+    "domain:pick:music": "Music — gigs, briefs, collaboration.",
+    "domain:pick:photography": "Photography — clients and shoots.",
+    "domain:pick:construction": "Construction — site talk that works.",
+    "domain:pick:automotive": "Automotive — diagnosis said clearly.",
+    "domain:pick:hospitality": "Hospitality — guests and rush hour.",
+    "domain:pick:retail": "Retail — customers, returns, calm.",
+    "domain:pick:beauty": "Beauty — consults and aftercare.",
+    "domain:pick:driving": "Transport — routes and radio English.",
+    "domain:pick:law": "Law — every word earns its place.",
+    "domain:pick:government": "Government — formal and careful.",
+    "domain:pick:nonprofit": "Non-profit — mission without fluff.",
+    "domain:pick:police": "Emergency work — short and clear.",
+    "domain:pick:student": "Student life — essays and seminars.",
+    "domain:pick:between_jobs": "Between roles — interviews upcoming.",
+    "domain:pick:parenting": "Full-time parenting — real-life English.",
+    "domain:pick:retired": "Retired — keep the mind sharp.",
+    "domain:other": "Specific is better — I'll use what you type.",
+    "domain:typed": "Specific beats generic — thanks.",
+    # Step 5
+    "why:freeze": "That's the one that changes everything.",
+    "why:meetings": "Meetings are where B1 becomes B2.",
+    "why:job": "Then we'll spend real time on interviews.",
+    "why:friends": "Small talk is harder than any grammar. We'll work on it.",
+    "why:films": "Good one — HIMYM's already on the plan.",
+    "why:embarrassed": "That feeling fades with reps. We'll get you there.",
+    "why:travel": "Travel English — practical and forgiving.",
+    "why:study": "Exams reward precision — we'll train for that.",
+    "why:done": "Those reasons stay on the wall. Let's aim practice.",
+    # Step 6
+    "weights:balanced": "Balanced mix — work, life, curiosity.",
+    "weights:work": "Work-heavy it is.",
+    "weights:life": "Everyday English front and centre.",
+    # Steps 7–8
+    "morning:07:00": "Early start. Respect.",
+    "morning:08:00": "Classic morning slot.",
+    "morning:09:00": "Gentle morning — still on time.",
+    "morning:other": "Your clock — tell me the time.",
+    "morning:typed": "Morning slot locked.",
+    "evening:19:00": "Early evening — good for a short task.",
+    "evening:20:00": "Evening practice — solid habit time.",
+    "evening:21:00": "Night owl. Noted.",
+    "evening:other": "Your evening — name the time.",
+    "evening:typed": "Evening slot locked.",
+}
+
+# Every choosable option key that must have a reaction (for coverage tests).
+REACTION_OPTION_KEYS: frozenset[str] = frozenset(REACTIONS.keys())
