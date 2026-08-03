@@ -5,12 +5,27 @@ Their practice track weights are: {track_weights_json}.
 You receive due error rows from their journal. Produce exactly one question per
 row, in the same order. Never invent an error_id. Never drop a row.
 
-Each due error includes a "track" (work, life, or curiosity). Write that
-question's sentence in that track. Topic ideas:
+Each due error includes a "track" (work, life, or curiosity). Honour the track
+mix, but put ALL questions inside ONE everyday situation (see below). Topic ideas
+when choosing the situation:
 - work: campaigns, client email, negotiation, standups, interviews, pricing
 - life: apartments, doctors, arguments, cooking, travel, humour, small talk
 - curiosity: space, psychology, history, mysteries, technology, sport, nature
-Do not label the track in the prompt — the learner should just notice variety.
+Do not label the track or the scenario in any prompt — the learner should just
+notice the questions belong together.
+
+## One situation for the whole quiz
+
+Pick ONE everyday situation that fits the track mix — e.g. a weekend trip, a
+flatmate argument, a busy Monday, dinner with friends, a work chat about a
+deadline. Every question shares the same people, places and thread. Each
+question still tests its own error_id.
+
+Return a top-level "scenario" string naming the situation in a few words (for
+the system's memory only — never shown to the learner).
+
+Avoid these previously used scenarios (do not repeat or lightly rephrase):
+{avoid_scenarios}
 
 Output MUST be a single JSON object. The examples below illustrate FORMAT and
 SHAPE only. Never reuse their sentences, names, places, times, or situations.
@@ -18,11 +33,12 @@ Vary names across questions and across quizzes — do not default to the same
 handful of people.
 
 {{
+  "scenario": "weekend trip with flatmates",
   "questions": [
     {{
       "error_id": 12,
       "format": "gap",
-      "prompt": "Her English ___ very good, but she's improving fast.",
+      "prompt": "Marta's English ___ great yet, but she's trying.",
       "accept": ["isn't", "is not", "isnt"],
       "answer": "isn't"
     }},
@@ -35,37 +51,48 @@ handful of people.
       "answer": "I agree with Marta"
     }},
     {{
-      "error_id": 18,
-      "format": "reorder",
-      "prompt": "Put this in order:",
-      "tiles": ["I", "usually", "check", "my", "email", "at", "eight"],
-      "answer": "I usually check my email at eight"
-    }},
-    {{
       "error_id": 21,
       "format": "spot",
-      "prompt": "Tap the word that's wrong:",
-      "tiles": ["She", "buyed", "coffee", "before", "the", "meeting"],
+      "prompt": "One word is wrong. Which one?",
+      "tiles": ["She", "buyed", "coffee", "before", "we", "left"],
       "answer": "buyed",
       "correction": "bought"
+    }},
+    {{
+      "error_id": 18,
+      "format": "order",
+      "prompt": "Which one sounds right?",
+      "options": [
+        "She went to the pharmacy yesterday morning",
+        "She went yesterday morning to the pharmacy",
+        "Yesterday morning she to the pharmacy went",
+        "She yesterday morning went to the pharmacy"
+      ],
+      "answer": "She went to the pharmacy yesterday morning"
     }}
   ]
 }}
 
-## Sentence quality
+## Spoken register — sentences people SAY
 
-- Every sentence must describe a concrete situation with real details: a
-  specific place, object, person or time. Not "the strategy", "the process",
-  "the solution".
-- Write like a person talking, not like a textbook. Contractions are good.
-- Vary the subject. Not every sentence is "I".
-- The situation should be one this learner might actually be in, given their
-  work_domain and the track for that question.
+- Write sentences people SAY, not sentences people write. Test: would this
+  appear in a text message or a conversation over coffee? If it sounds like a
+  report or a textbook, rewrite it.
+- Prefer contractions, everyday vocabulary, and short sentences.
+- Use ordinary people and situations: friends, family, neighbours, colleagues
+  you actually talk to. Not "the museum team", "the department", "stakeholders".
+- Even work-track sentences are CONVERSATIONS about work, not documents about
+  work. "Did you send Marta that pricing email yet?" — not "The pricing
+  proposal was distributed to the client."
+- No sentence longer than 12 words.
 
-Bad:  "I ___ with your strategy."
-Good: "I ___ with Marta about moving the launch to Friday."
+Bad:  "The museum team acquired an old telescope from a private collector."
+Good: "My sister got me a secondhand bike for my birthday."
 
-## Formats — distribute roughly gap 40% · choice 25% · reorder 20% · spot 15%.
+Bad:  "The quarterly campaign metrics were reviewed by the department."
+Good: "Did you see how the Friday campaign did?"
+
+## Formats — distribute roughly gap 40% · choice 25% · spot 20% · order 15%.
 Never more than two of the same format in a row.
 
 - gap: one missing word or short phrase, typed. "accept" lists every reasonable
@@ -73,12 +100,15 @@ Never more than two of the same format in a row.
 - choice: exactly 4 options. All four must be plausible — no obvious throwaways.
   Distractors should be mistakes a learner at this level actually makes.
   Still include "accept" with lowercase variants of the correct option.
-- reorder: 5–9 tiles. Prefer for word_order and any error where sentence
-  structure is the issue. "answer" is the full correct sentence.
-- spot: exactly one wrong word among 5–9 tiles. "answer" is the wrong tile;
-  "correction" is the right word so feedback can show it.
-- Choose the format that best tests the specific error. Word order → reorder;
-  irregular verbs → spot or gap; whole-clause errors → choice.
+- spot: exactly one wrong word among the tiles. At most 8 tiles (8 words) —
+  never more. "answer" is the wrong tile; "correction" is the right word.
+  Prompt: "One word is wrong. Which one?"
+- order: exactly 4 full-sentence options that differ ONLY in word order. One is
+  natural; the others scramble the same words. Prefer for word_order errors and
+  anywhere sentence structure is the issue. "answer" equals the correct option.
+  Still include "accept" with lowercase variants of the correct sentence.
+- Choose the format that best tests the specific error. Word order → order;
+  irregular verbs → spot or gap; whole-clause meaning → choice.
 
 ## Freshness
 
@@ -88,8 +118,8 @@ memorise one sentence. Each due error may include "avoid_prompts": never reuse
 or lightly rephrase those prompts.
 
 Keep each prompt under 140 characters.
-"answer" is the canonical form for feedback. For gap/choice, "accept" is what
-grading matches.
+"answer" is the canonical form for feedback. For gap/choice/order, "accept" is
+what grading matches.
 
 Due errors (JSON):
 {due_errors_json}

@@ -45,7 +45,7 @@ _prompt_template: str | None = None
 _error_labels: dict[str, str] = {}
 
 _APOSTROPHES = ("'", "\u2019", "\u2018", "`", "´")
-_VALID_FORMATS = frozenset({"gap", "choice", "reorder", "spot"})
+_VALID_FORMATS = frozenset({"gap", "choice", "spot", "order"})
 _TRACKS = ("work", "life", "curiosity")
 
 
@@ -110,7 +110,7 @@ def distribute_tracks(
 
 
 def normalize_answer(text: str) -> str:
-    """Deterministic normalisation for gap / reorder grading."""
+    """Deterministic normalisation for gap / choice / order grading."""
     s = text.strip().lower()
     for a in _APOSTROPHES:
         s = s.replace(a, "'")
@@ -125,10 +125,6 @@ def grade_answer(raw: str, accept: list[str]) -> bool:
     return normalised in accepted
 
 
-def grade_reorder(assembled: str, answer: str) -> bool:
-    return normalize_answer(assembled) == normalize_answer(answer)
-
-
 def grade_spot(tapped: str, answer: str) -> bool:
     return normalize_answer(tapped) == normalize_answer(answer)
 
@@ -139,11 +135,7 @@ def recent_prompts_for_errors(
     *,
     limit_per: int = 3,
 ) -> dict[int, list[str]]:
-    """Last ``limit_per`` prompts per error_id from prior quiz session payloads.
-
-    Chosen over a new column: sessions.payload already stores every quiz
-    question; no migration needed.
-    """
+    """Last ``limit_per`` prompts per error_id from prior quiz session payloads."""
     wanted = set(error_ids)
     found: dict[int, list[str]] = {eid: [] for eid in error_ids}
     if not wanted:
@@ -183,6 +175,34 @@ def recent_prompts_for_errors(
         if all(len(found[eid]) >= limit_per for eid in wanted):
             break
     return {eid: prompts for eid, prompts in found.items() if prompts}
+
+
+def recent_scenarios(user_id: int, *, limit: int = 5) -> list[str]:
+    """Recent quiz scenario labels from prior sessions (avoid repeats)."""
+    out: list[str] = []
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT payload FROM sessions
+             WHERE user_id = %s
+               AND task_type = 'quiz'
+               AND payload IS NOT NULL
+             ORDER BY id DESC
+             LIMIT 30
+            """,
+            (user_id,),
+        ).fetchall()
+    for row in rows:
+        payload = row["payload"]
+        if not isinstance(payload, dict):
+            continue
+        scenario = str(payload.get("scenario") or "").strip()
+        if not scenario or scenario in out:
+            continue
+        out.append(scenario)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _user_timezone(user_id: int) -> str:
@@ -229,32 +249,46 @@ def _progress_dots(index: int, total: int) -> str:
     return "".join("●" if i == index else "○" for i in range(total))
 
 
-def _reorder_assembly(q: dict[str, Any], placed: list[int]) -> str:
-    tiles = list(q.get("tiles") or [])
-    return " ".join(tiles[i] for i in placed if 0 <= i < len(tiles))
+def _spot_sentence(q: dict[str, Any]) -> str:
+    """Full sentence for reading — never leave spot body as tiles-only."""
+    explicit = str(q.get("sentence") or "").strip()
+    if explicit:
+        return explicit
+    return " ".join(str(t) for t in (q.get("tiles") or []))
 
 
 def _question_text(payload: dict[str, Any]) -> str:
+    """Message body for READING. Buttons are separate (tapping only)."""
     questions = payload["questions"]
     index = int(payload["index"])
     q = questions[index]
     dots = _progress_dots(index, len(questions))
-    body = f"{dots}\n\n{q['prompt']}"
-    if q.get("format") == "reorder":
-        placed = list(payload.get("reorder_placed") or [])
-        assembled = _reorder_assembly(q, placed)
-        line = assembled if assembled else "…"
-        body = f"{body}\n\n{line}"
-    return body
+    fmt = q.get("format")
+
+    if fmt == "spot":
+        instruction = str(q.get("prompt") or texts.QUIZ_SPOT_PROMPT).strip()
+        sentence = _spot_sentence(q)
+        return f'{dots}\n\n{instruction}\n\n"{sentence}"'
+
+    return f"{dots}\n\n{q['prompt']}"
+
+
+def compose_body(*, feedback: str | None, question_body: str) -> str:
+    """Feedback then next question, separated by a blank line (no divider)."""
+    if feedback:
+        return f"{feedback}\n\n{question_body}"
+    return question_body
 
 
 def _keyboard_for_question(
     q: dict[str, Any],
     payload: dict[str, Any],
 ) -> InlineKeyboardMarkup | None:
+    del payload  # reserved for formats that keep mid-question state
     fmt = q.get("format")
-    if fmt == "choice":
+    if fmt in ("choice", "order"):
         options = list(q.get("options") or [])
+        # One option per row so each full sentence reads as a sentence.
         items = [(opt, f"quiz:opt:{i}") for i, opt in enumerate(options)]
         rows = layout_buttons(items, max_per_row=1)
         return InlineKeyboardMarkup(
@@ -263,41 +297,6 @@ def _keyboard_for_question(
                 for row in rows
             ]
         )
-    if fmt == "reorder":
-        tiles = list(q.get("tiles") or [])
-        placed = list(payload.get("reorder_placed") or [])
-        placed_set = set(placed)
-        rows: list[list[InlineKeyboardButton]] = []
-        if placed:
-            placed_items = [
-                (tiles[i], f"quiz:runplace:{pos}")
-                for pos, i in enumerate(placed)
-                if 0 <= i < len(tiles)
-            ]
-            for row in layout_buttons(placed_items, max_per_row=3):
-                rows.append(
-                    [
-                        InlineKeyboardButton(label, callback_data=cb)
-                        for label, cb in row
-                    ]
-                )
-        remaining = [
-            (tiles[i], f"quiz:rtile:{i}")
-            for i in range(len(tiles))
-            if i not in placed_set
-        ]
-        for row in layout_buttons(remaining, max_per_row=3):
-            rows.append(
-                [InlineKeyboardButton(label, callback_data=cb) for label, cb in row]
-            )
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    texts.BTN_QUIZ_CLEAR, callback_data="quiz:clear"
-                )
-            ]
-        )
-        return InlineKeyboardMarkup(rows)
     if fmt == "spot":
         tiles = list(q.get("tiles") or [])
         items = [(t, f"quiz:stile:{i}") for i, t in enumerate(tiles)]
@@ -338,8 +337,11 @@ def _build_quiz_questions(
     errors: list[Error],
     *,
     chat_fn: Any = None,
-) -> list[dict]:
-    """Generate quiz questions. ``chat_fn`` injectable for tests."""
+) -> tuple[list[dict], str]:
+    """Generate quiz questions. Returns (questions, scenario).
+
+    ``chat_fn`` is injectable for tests.
+    """
     user = get_user(user_id)
     if user is None:
         raise RuntimeError(f"quiz: missing user {user_id}")
@@ -349,6 +351,7 @@ def _build_quiz_questions(
 
     tracks = distribute_tracks(len(errors), user.track_weights)
     recent = recent_prompts_for_errors(user_id, [e.id for e in errors])
+    avoid_sc = recent_scenarios(user_id)
     due_payload = []
     for i, e in enumerate(errors):
         item: dict[str, Any] = {
@@ -364,11 +367,15 @@ def _build_quiz_questions(
             item["avoid_prompts"] = avoid
         due_payload.append(item)
 
+    avoid_scenarios_text = (
+        json.dumps(avoid_sc, ensure_ascii=False) if avoid_sc else "(none yet)"
+    )
     system = _prompt_template.format(
         cefr_level=user.cefr_level,
         native_language=user.native_language,
         work_domain=user.work_domain or "everyday life",
         track_weights_json=json.dumps(user.track_weights, ensure_ascii=False),
+        avoid_scenarios=avoid_scenarios_text,
         due_errors_json=json.dumps(due_payload, ensure_ascii=False),
     )
     call = chat_fn or chat
@@ -380,6 +387,7 @@ def _build_quiz_questions(
     )
     if not isinstance(result, dict):
         raise LLMError("quiz response was not a JSON object")
+    scenario = str(result.get("scenario") or "").strip()
     questions = list(result.get("questions") or [])
     by_id = {e.id: e for e in errors}
     cleaned: list[dict] = []
@@ -392,7 +400,7 @@ def _build_quiz_questions(
             fmt = "gap"
         accept = [str(a).lower() for a in (q.get("accept") or [])]
         answer = str(q.get("answer") or err.correct_form)
-        if not accept and fmt in ("gap", "choice"):
+        if not accept and fmt in ("gap", "choice", "order"):
             accept = [normalize_answer(answer)]
         code = by_id[eid].error_type
         item = {
@@ -405,16 +413,15 @@ def _build_quiz_questions(
             "error_type_label": error_type_label(code),
             "explanation": by_id[eid].explanation,
         }
-        if fmt == "choice":
+        if fmt in ("choice", "order"):
             item["options"] = [str(o) for o in (q.get("options") or [])]
-        if fmt in ("reorder", "spot"):
-            item["tiles"] = [str(t) for t in (q.get("tiles") or [])]
         if fmt == "spot":
+            item["tiles"] = [str(t) for t in (q.get("tiles") or [])]
             item["correction"] = str(
                 q.get("correction") or by_id[eid].correct_form
             )
         cleaned.append(item)
-    return cleaned
+    return cleaned, scenario
 
 
 async def deliver_morning(
@@ -443,7 +450,7 @@ async def deliver_morning(
         return "free_practice"
 
     try:
-        questions = _build_quiz_questions(user_id, errors)
+        questions, scenario = _build_quiz_questions(user_id, errors)
     except (LLMError, Exception):
         logger.exception(
             "quiz generation failed user_id=%s handler=%s",
@@ -474,9 +481,9 @@ async def deliver_morning(
         "correct_count": 0,
         "answered": 0,
         "questions": questions,
+        "scenario": scenario,
         "chat_id": user_id,
         "message_id": None,
-        "reorder_placed": [],
     }
     session_id = insert_session(
         user_id, "quiz", day, payload=payload, completed=False
@@ -497,36 +504,48 @@ async def deliver_morning(
 
 
 def _feedback_for(question: dict[str, Any], *, correct: bool) -> str:
+    answer = str(question.get("answer") or "")
     if question.get("format") == "spot":
-        correction = question.get("correction") or question.get("answer", "")
         if correct:
-            return texts.QUIZ_SPOT_CORRECT.format(correction=correction)
-        return texts.QUIZ_SPOT_WRONG.format(correction=correction)
+            return texts.QUIZ_CORRECT.format(answer=answer)
+        return texts.QUIZ_SPOT_WRONG.format(
+            answer=answer,
+            correction=str(question.get("correction") or ""),
+        )
     if correct:
-        return texts.QUIZ_CORRECT
+        return texts.QUIZ_CORRECT.format(answer=answer)
     expl = (question.get("explanation") or "").strip()
     if expl:
-        return texts.QUIZ_WRONG.format(
-            answer=question.get("answer", ""),
-            explanation=expl,
-        )
-    return texts.QUIZ_WRONG_SHORT.format(answer=question.get("answer", ""))
+        return texts.QUIZ_WRONG.format(answer=answer, explanation=expl)
+    return texts.QUIZ_WRONG_SHORT.format(answer=answer)
 
 
 def format_completion_message(
     *,
     correct_count: int,
     total: int,
-    improved_labels: list[str],
+    improved_labels: list[str] | None = None,
+    struggled_labels: list[str] | None = None,
 ) -> str:
-    """Score line + optional improved-type line (labels only, never codes)."""
-    improved_line = ""
-    if improved_labels:
-        improved_line = texts.QUIZ_IMPROVED.format(label=improved_labels[0])
-    return texts.QUIZ_DONE.format(
-        correct=correct_count,
-        total=total,
-        improved_line=improved_line,
+    """Score line + progress / came-back lines (labels only, never codes)."""
+    improved = list(improved_labels or [])
+    struggled = list(struggled_labels or [])
+    lines = [texts.QUIZ_DONE.format(correct=correct_count, total=total)]
+    detail: list[str] = []
+    if improved:
+        detail.append(texts.QUIZ_IMPROVED.format(label=improved[0]))
+    if struggled:
+        detail.append(texts.QUIZ_CAME_BACK.format(label=struggled[0]))
+    if detail:
+        lines.append("")
+        lines.extend(detail)
+    return "\n".join(lines)
+
+
+def _label_for_question(question: dict[str, Any]) -> str:
+    return str(
+        question.get("error_type_label")
+        or error_type_label(str(question.get("error_type") or ""))
     )
 
 
@@ -541,15 +560,18 @@ async def _advance_after_answer(
 ) -> None:
     mark_result(int(question["error_id"]), correct)
     payload["answered"] = int(payload.get("answered", 0)) + 1
+    label = _label_for_question(question)
     if correct:
         payload["correct_count"] = int(payload.get("correct_count", 0)) + 1
         improved = list(payload.get("improved_labels") or [])
-        label = question.get("error_type_label") or error_type_label(
-            str(question.get("error_type") or "")
-        )
         if label and label not in improved:
             improved.append(label)
         payload["improved_labels"] = improved
+    else:
+        struggled = list(payload.get("struggled_labels") or [])
+        if label and label not in struggled:
+            struggled.append(label)
+        payload["struggled_labels"] = struggled
 
     chat_id = int(payload["chat_id"])
     message_id = int(payload["message_id"])
@@ -566,9 +588,9 @@ async def _advance_after_answer(
             correct_count=int(payload["correct_count"]),
             total=total,
             improved_labels=list(payload.get("improved_labels") or []),
+            struggled_labels=list(payload.get("struggled_labels") or []),
         )
-        body = f"{feedback}\n\n{summary}".strip()
-        payload["reorder_placed"] = []
+        body = compose_body(feedback=feedback, question_body=summary)
         update_session_payload(session_id, payload)
         await _safe_edit(
             context,
@@ -580,9 +602,11 @@ async def _advance_after_answer(
         return
 
     payload["index"] = index + 1
-    payload["reorder_placed"] = []
     next_q = payload["questions"][payload["index"]]
-    body = f"{feedback}\n\n{_question_text(payload)}"
+    body = compose_body(
+        feedback=feedback,
+        question_body=_question_text(payload),
+    )
     update_session_payload(session_id, payload)
     await _safe_edit(
         context,
@@ -624,22 +648,6 @@ async def on_quiz_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
-async def _refresh_reorder_view(
-    context: ContextTypes.DEFAULT_TYPE,
-    session_id: int,
-    payload: dict[str, Any],
-    q: dict[str, Any],
-) -> None:
-    update_session_payload(session_id, payload)
-    await _safe_edit(
-        context,
-        chat_id=int(payload["chat_id"]),
-        message_id=int(payload["message_id"]),
-        text=_question_text(payload),
-        reply_markup=_keyboard_for_question(q, payload),
-    )
-
-
 async def on_quiz_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -662,7 +670,7 @@ async def on_quiz_callback(
     q = questions[index]
     parts = data.split(":")
 
-    if data.startswith("quiz:opt:") and q.get("format") == "choice":
+    if data.startswith("quiz:opt:") and q.get("format") in ("choice", "order"):
         try:
             opt_index = int(parts[-1])
         except ValueError:
@@ -683,47 +691,6 @@ async def on_quiz_callback(
             question=q,
         )
         return
-
-    if q.get("format") == "reorder":
-        placed = list(payload.get("reorder_placed") or [])
-        tiles = list(q.get("tiles") or [])
-        if data == "quiz:clear":
-            payload["reorder_placed"] = []
-            await _refresh_reorder_view(context, session.id, payload, q)
-            return
-        if data.startswith("quiz:runplace:"):
-            try:
-                pos = int(parts[-1])
-            except ValueError:
-                return
-            if 0 <= pos < len(placed):
-                placed.pop(pos)
-                payload["reorder_placed"] = placed
-                await _refresh_reorder_view(context, session.id, payload, q)
-            return
-        if data.startswith("quiz:rtile:"):
-            try:
-                tile_i = int(parts[-1])
-            except ValueError:
-                return
-            if tile_i < 0 or tile_i >= len(tiles) or tile_i in placed:
-                return
-            placed.append(tile_i)
-            payload["reorder_placed"] = placed
-            if len(placed) >= len(tiles):
-                assembled = _reorder_assembly(q, placed)
-                correct = grade_reorder(assembled, str(q.get("answer") or ""))
-                await _advance_after_answer(
-                    context,
-                    user_id,
-                    session.id,
-                    payload,
-                    correct=correct,
-                    question=q,
-                )
-            else:
-                await _refresh_reorder_view(context, session.id, payload, q)
-            return
 
     if data.startswith("quiz:stile:") and q.get("format") == "spot":
         try:

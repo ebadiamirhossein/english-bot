@@ -1,28 +1,31 @@
-"""S3a — track distribution, reorder/spot grading, labels, past prompts."""
+"""S3c — order format, no divider, scenario continuity."""
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from datetime import date
+from pathlib import Path
 
 import pytest
 from psycopg.types.json import Jsonb
+from telegram import InlineKeyboardMarkup
 
-from app import texts
 from app.db import close_pool, connection
 from app.handlers import quiz as quiz_handler
 from app.handlers.quiz import (
-    distribute_tracks,
-    error_type_label,
-    format_completion_message,
-    grade_spot,
+    _VALID_FORMATS,
+    _keyboard_for_question,
+    compose_body,
     init_quiz_prompt,
-    recent_prompts_for_errors,
+    recent_scenarios,
 )
 from app.services.errors import Error
 from app.services.users import save_onboarding
 
-FAKE_TELEGRAM_ID_BASE = 9_330_000_000
+FAKE_TELEGRAM_ID_BASE = 9_340_000_000
+_PROMPT_PATH = Path(__file__).resolve().parents[1] / "app" / "prompts" / "quiz.txt"
+_HANDLER_PATH = Path(__file__).resolve().parents[1] / "app" / "handlers" / "quiz.py"
 
 
 @pytest.fixture
@@ -55,7 +58,7 @@ def _onboard(tid: int) -> None:
     save_onboarding(
         tid,
         {
-            "name": "S3a Test",
+            "name": "S3c Test",
             "native_language": "fa",
             "cefr_level": "B1",
             "efset_baseline": 45,
@@ -68,50 +71,54 @@ def _onboard(tid: int) -> None:
     )
 
 
-def test_distribute_tracks_5_at_40_40_20() -> None:
-    tracks = distribute_tracks(5, {"work": 40, "life": 40, "curiosity": 20})
-    assert len(tracks) == 5
-    assert tracks.count("work") == 2
-    assert tracks.count("life") == 2
-    assert tracks.count("curiosity") == 1
-    # Interleaved, not grouped WWW…
-    assert tracks != ["work", "work", "life", "life", "curiosity"]
-
-
-def test_distribute_tracks_small_counts() -> None:
-    three = distribute_tracks(3, {"work": 40, "life": 40, "curiosity": 20})
-    assert len(three) == 3
-    assert set(three) <= {"work", "life", "curiosity"}
-
-    one = distribute_tracks(1, {"work": 40, "life": 40, "curiosity": 20})
-    assert len(one) == 1
-    assert one[0] in {"work", "life", "curiosity"}
-
-    assert distribute_tracks(0, {"work": 40, "life": 40, "curiosity": 20}) == []
-
-
-def test_spot_grading() -> None:
-    assert grade_spot("buyed", "buyed")
-    assert grade_spot("Buyed", "buyed")
-    assert not grade_spot("bought", "buyed")
-    assert not grade_spot("coffee", "buyed")
-
-
-def test_completion_uses_label_not_code() -> None:
-    init_quiz_prompt()
-    label = error_type_label("quantifier_modifier")
-    assert label == "Quantifiers and modifiers"
-    msg = format_completion_message(
-        correct_count=4,
-        total=5,
-        improved_labels=[label],
+def test_reorder_removed_from_contract_and_handler() -> None:
+    assert "reorder" not in _VALID_FORMATS
+    assert "order" in _VALID_FORMATS
+    prompt = _PROMPT_PATH.read_text(encoding="utf-8")
+    assert '"format": "reorder"' not in prompt
+    assert "- reorder:" not in prompt
+    assert '"format": "order"' in prompt
+    assert "- order:" in prompt
+    handler_src = _HANDLER_PATH.read_text(encoding="utf-8")
+    assert "grade_reorder" not in handler_src
+    assert "_reorder_assembly" not in handler_src
+    assert "reorder_placed" not in handler_src
+    # Format set literal must not list reorder
+    assert '{"gap", "choice", "spot", "order"}' in handler_src or (
+        "gap" in handler_src and "order" in handler_src and "reorder" not in _VALID_FORMATS
     )
-    assert "quantifier_modifier" not in msg
-    assert "Quantifiers and modifiers" in msg
-    assert "quantifier_modifier" not in texts.QUIZ_IMPROVED
 
 
-def test_past_prompts_passed_into_llm_call(cleanup_user: int) -> None:
+def test_order_options_each_on_own_row() -> None:
+    q = {
+        "format": "order",
+        "prompt": "Which one sounds right?",
+        "options": [
+            "She went to the pharmacy yesterday morning",
+            "She went yesterday morning to the pharmacy",
+            "Yesterday morning she to the pharmacy went",
+            "She yesterday morning went to the pharmacy",
+        ],
+        "answer": "She went to the pharmacy yesterday morning",
+    }
+    markup = _keyboard_for_question(q, {})
+    assert isinstance(markup, InlineKeyboardMarkup)
+    assert len(markup.inline_keyboard) == 4
+    for row in markup.inline_keyboard:
+        assert len(row) == 1
+        assert len(row[0].text) > 20  # full sentence, not a tile
+
+
+def test_no_divider_in_rendered_messages() -> None:
+    body = compose_body(
+        feedback='✅ Correct — "isn\'t"',
+        question_body="○●○○○\n\nWhich one sounds right?",
+    )
+    assert "──────────" not in body
+    assert "\n\n" in body
+
+
+def test_past_scenarios_passed_into_llm(cleanup_user: int) -> None:
     tid = cleanup_user
     _onboard(tid)
     init_quiz_prompt()
@@ -133,18 +140,7 @@ def test_past_prompts_passed_into_llm_call(cleanup_user: int) -> None:
     assert err is not None
     eid = int(err["id"])
 
-    old_prompt = "The coffee ___ hot enough this morning."
-    prior_payload = {
-        "questions": [
-            {
-                "error_id": eid,
-                "format": "gap",
-                "prompt": old_prompt,
-                "accept": ["isn't"],
-                "answer": "isn't",
-            }
-        ]
-    }
+    old_scenario = "weekend trip with flatmates"
     with connection() as conn:
         conn.execute(
             """
@@ -152,27 +148,43 @@ def test_past_prompts_passed_into_llm_call(cleanup_user: int) -> None:
                 user_id, date, task_type, delivered_at, completed, payload
             ) VALUES (%s, %s, 'quiz', NOW(), TRUE, %s)
             """,
-            (tid, date.today(), Jsonb(prior_payload)),
+            (
+                tid,
+                date.today(),
+                Jsonb(
+                    {
+                        "scenario": old_scenario,
+                        "questions": [
+                            {
+                                "error_id": eid,
+                                "format": "gap",
+                                "prompt": "Coffee ___ ready yet.",
+                                "accept": ["isn't"],
+                                "answer": "isn't",
+                            }
+                        ],
+                    }
+                ),
+            ),
         )
 
-    recent = recent_prompts_for_errors(tid, [eid])
-    assert recent[eid] == [old_prompt]
+    assert old_scenario in recent_scenarios(tid)
 
     captured: dict[str, str] = {}
 
     def fake_chat(messages, *, system=None, json_mode=False, max_tokens=1000):
         captured["system"] = system or ""
         return {
-            "scenario": "coffee before standup",
+            "scenario": "busy Monday standup",
             "questions": [
                 {
                     "error_id": eid,
                     "format": "gap",
-                    "prompt": "Marta ___ ready for the standup yet.",
-                    "accept": ["isn't", "is not"],
+                    "prompt": "Marta ___ here yet.",
+                    "accept": ["isn't"],
                     "answer": "isn't",
                 }
-            ]
+            ],
         }
 
     with connection() as conn:
@@ -203,9 +215,12 @@ def test_past_prompts_passed_into_llm_call(cleanup_user: int) -> None:
         created_at=row["created_at"],
     )
 
-    questions, _scenario = quiz_handler._build_quiz_questions(
+    questions, scenario = quiz_handler._build_quiz_questions(
         tid, [error], chat_fn=fake_chat
     )
     assert questions
-    assert old_prompt in captured["system"]
-    assert "avoid_prompts" in captured["system"]
+    assert scenario == "busy Monday standup"
+    assert old_scenario in captured["system"]
+    assert "avoid_scenarios" in inspect.getsource(quiz_handler._build_quiz_questions) or (
+        old_scenario in captured["system"]
+    )

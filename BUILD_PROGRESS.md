@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-03
-**Current slice:** S3a
-**Status:** S3a code-complete — awaiting Telegram verification
+**Current slice:** S3c
+**Status:** S3c code-complete — awaiting Telegram verification
 
 ---
 
@@ -30,7 +30,9 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S1d | Onboarding personality | 🟡 code-complete | 2026-08-03 | Layout helper (≤12 shared rows); emoji on options; static reactions; warmer copy. Sticker skipped (no stable file_id). |
 | S2 | LLM wrapper + correction | 🟡 code-complete | 2026-08-03 | `llm.py` + free correction; pytest green; await Telegram verify. |
 | S3 | Daily quiz + scheduler | 🟡 code-complete | 2026-08-03 | Spacing ladder + quiz + 5-min poll; await Telegram verify. |
-| S3a | Quiz content + formats | 🟡 code-complete | 2026-08-03 | Labels not codes; track mix; gap/choice/reorder/spot; 53 pytest green. |
+| S3a | Quiz content + formats | 🟡 code-complete | 2026-08-03 | Labels not codes; track mix; gap/choice/reorder/spot. |
+| S3b | Quiz question layout | 🟡 code-complete | 2026-08-03 | Body reads / buttons tap; feedback blank line. |
+| S3c | Quiz formats + register | 🟡 code-complete | 2026-08-03 | Reorder→order; spoken register; one scenario; 59 pytest green. |
 | S4 | Streaks, freeze, rescue | ⬜ not started | | |
 | — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | |
 | S5 | Voice partner | ⬜ not started | | |
@@ -75,6 +77,11 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-03 | S3c: one everyday scenario per quiz (shared people/places); avoid past scenarios from session payload | Five unrelated sentences felt like a worksheet; a thread makes the quiz feel like a conversation. |
+| 2026-08-03 | S3c: spoken-register rule (≤12 words, text-message test, conversations about work not documents) | Live sentences read like reports ("the museum team…"); people don't talk that way. |
+| 2026-08-03 | S3c: remove reorder tile format; replace with `order` (4 full-sentence word-order choices) | Failed twice in live testing — a 3-column button grid gives no visual signal that tiles form one sentence. Chat grids can't express a sentence; full options on their own rows can. |
+| 2026-08-03 | S3b: spot sentences capped at 8 words in the generation prompt | Nine tiles = three button rows; too much to scan on a phone. |
+| 2026-08-03 | S3b: message body is for reading; buttons are only for tapping | Live bug: spot/reorder existed only as a tile grid — the sentence was unreadable. |
 | 2026-08-03 | S3a: past prompts read from prior quiz `sessions.payload` (last 3 per error_id) — no new column | Payload already stores every question; a column would duplicate data and need a migration for no gain. |
 | 2026-08-03 | S3a: four formats (gap/choice/reorder/spot), not more multiple-choice | Reorder and spot keep tapping without collapsing to 25%-guess recognition; gap still forces production. |
 | 2026-08-03 | S3a: quiz sentences distributed by `track_weights` (interleaved) | PRD §6 — all-work quizzes ignore the weight the user set at onboarding. |
@@ -159,6 +166,8 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `specs/S2-llm-correction.md` | S2 LLM wrapper + free correction | ✅ |
 | `specs/S3-daily-quiz.md` | S3 daily quiz + scheduler | ✅ |
 | `specs/S3a-quiz-content.md` | S3a quiz content + four formats | ✅ |
+| `specs/S3b-quiz-layout.md` | S3b readable layout + feedback | ✅ |
+| `specs/S3c-quiz-formats.md` | S3c order format + spoken register | ✅ |
 | `migrations/001_init_postgres.sql` | Initial schema + 19 error_types | ✅ |
 | `migrations/002_quiz_scheduler.sql` | sessions.payload + bot_message_counts | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
@@ -191,10 +200,12 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_quiz.py` | Grading, mark_result once, abandon, free_practice | ✅ |
 | `tests/test_scheduler.py` | Local-time eligibility + 24h dual-TZ poll | ✅ |
 | `tests/test_quiz_s3a.py` | Tracks, reorder/spot, labels, past prompts | ✅ |
+| `tests/test_quiz_s3b.py` | Readable body, blank-line sep, no-guilt copy | ✅ |
+| `tests/test_quiz_s3c.py` | No reorder; order rows; scenarios; no divider | ✅ |
 | `scripts/.gitkeep` | Empty scripts dir | ✅ |
 
 ---
 
 ## Next action
 
-**Human:** verify S3a in Telegram (handoff steps). Mark S3a ✅ when they pass. Do not start S4 until then.
+**Human:** verify S3c in Telegram (handoff steps). Mark S3c ✅ when they pass. Do not start S4 until then.
