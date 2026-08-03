@@ -392,8 +392,8 @@ def format_correction_reply(
         )
         for c in corrections
     ]
-    return "\n\n".join(blocks) + f"\n{did_well}"
+    return "\n\n".join(blocks) + f"\n\n👍 {did_well}"
 
 
 def format_praise(did_well: str) -> str:
-    return did_well
+    return f"👍 {did_well}"

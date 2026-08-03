@@ -189,7 +189,7 @@ def test_has_errors_false_writes_zero_rows(cleanup_user: int) -> None:
     with patch("app.handlers.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
     assert _count_errors(tid) == 0
-    update.message.reply_text.assert_awaited_with("Natural word order.")
+    update.message.reply_text.assert_awaited_with("👍 Natural word order.")
 
 
 def test_is_english_false_writes_zero_rows(cleanup_user: int) -> None:
@@ -258,7 +258,7 @@ def test_rendered_message_matches_prd_shape(cleanup_user: int) -> None:
         expected_first
         + "\n\n"
         + expected_second
-        + "\nClean word order in the whole sentence."
+        + "\n\n👍 Clean word order in the whole sentence."
     )
 
 
@@ -290,6 +290,43 @@ def test_system_prompt_fallback_false_omits_native_rule(
     assert "write that explanation in their native language" not in prompt
     assert ", ".join(ABSTRACT_ERROR_TYPES) not in prompt
     assert "Write every explanation in English" in prompt
+
+
+def test_short_single_error_includes_nonempty_did_well(cleanup_user: int) -> None:
+    """Short inputs still get a present, non-empty did_well line (not filler about the error)."""
+    tid = cleanup_user
+    _onboard(tid)
+    user = get_user(tid)
+    assert user is not None
+    prompt = build_system_prompt(user)
+    assert "Never restate, paraphrase, or reference the error being corrected" in prompt
+    assert "Short and clear." in prompt
+
+    update = _make_update(tid, "I go yesterday")
+    context = _make_context()
+    payload = {
+        "is_english": True,
+        "has_errors": True,
+        "corrections": [
+            {
+                "you_said": "I go",
+                "correct_form": "I went",
+                "error_type": "verb_tense_past",
+                "explanation": 'Yesterday needs the past form "went".',
+            }
+        ],
+        "did_well": "Short and clear.",
+    }
+    with patch("app.handlers.correction.chat", return_value=payload):
+        asyncio.run(correction_handler.correct_text(update, context))
+
+    assert _count_errors(tid) == 1
+    reply = update.message.reply_text.await_args.args[0]
+    assert "\n\n👍 " in reply
+    did_well = reply.split("\n\n👍 ", 1)[1].strip()
+    assert did_well
+    assert "went" not in did_well.lower()
+    assert "past participle" not in did_well.lower()
 
 
 def test_format_correction_block_no_murphy_when_null() -> None:

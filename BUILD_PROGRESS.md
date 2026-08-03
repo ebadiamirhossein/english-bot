@@ -77,7 +77,8 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 2026-08-03 | S2: `claude-sonnet-5` (~$3.40/mo at ~900 corrections) over Haiku (~$1.20) | Wrong `error_type` poisons the journal permanently; ARCHITECTURE principle 3 treats the journal as the product itself. Two euros/month is not worth weaker taxonomy accuracy. |
 | 2026-08-03 | S2: keep schema row-level `resolved`/`streak_right`; compute type-level "resolved" by aggregation in S10/S11 | PRD §3 defines resolved per error *type*; schema stores it per error *row*. Spacing (S3) needs per-instance rows; reporting aggregates later. No schema change. |
 | 2026-08-03 | S2: length gates — under 10 chars silent, over 1000 → TEXT_TOO_LONG | Short ack messages (`ok`, `thanks`) must not spend API money; essay-length input is outside M2's "ordinary usage" frame and is where cost runs away. |
-| 2026-08-03 | S2: keep `cache_control` on the system prompt; log `cache_read`/`cache_creation` tokens | Anthropic's Sonnet cache floor is ~1024 tokens. Built system prompt is ~611 tokens — caching likely a no-op until the prompt grows. Confirm on first real call via INFO logs; do not remove the optimisation yet. |
+| 2026-08-03 | S2: keep `cache_control`; confirmed working after prompt grew | First system prompt was ~611 tokens (under Sonnet’s ~1024 floor). Two extra worked examples pushed it over; live calls show call1 `cache_creation=1641` / call2 `cache_read=1641`. |
+| 2026-08-03 | S2: `did_well` prefixed with blank line + 👍 | Without a marker it read as part of the last correction block. |
 | 2026-08-03 | S2: additive `explanation_language_fallback` on `User`/`get_user()`; `save_onboarding` untouched | Correction prompt needs the flag; read-path layering belongs in `users.py`. Onboarding write path and its tests stay unchanged. |
 | 2026-08-03 | S1d: shared `layout_buttons` (≤12 chars to share a row); emoji on options; static reaction line after each choice; celebration sticker skipped | Truncation made step 5 unreadable; reactions make the bot feel like a partner. No stable public sticker `file_id` without bundling a file or adding a dependency — message count stays **2**. Further onboarding polish → S18 backlog. |
 | 2026-08-03 | S1c: EF SET "Not yet" → CEFR can-do self-assessment (A2/B1/B2), not silent B1; domain is category→specific drill-down (store specific, lowercased); why options describe real situations (meetings, friends here, freezing up) | Silent B1 mis-pitches all content until S12. Broad domains ("Marketing") starve S9/S14. Generic why clauses motivate nobody when S10 quotes them back. Immigrants in Vilnius need local/work stakes in the list. |
@@ -119,7 +120,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 1 | S0 not yet executed | — | S0 | ✅ closed — verified 2026-07-31 |
 | 2 | `.cursorrules` needs human review against the required clauses in `specs/S0-repo-skeleton.md` | low | S0 | ⬜ open |
 | 3 | Timezone not collected in S1; all users get schema default `Europe/Vilnius`. S20 (Generalize) must add timezone selection when location assumptions are removed. | medium | S1 → S20 | ⬜ open — assumption recorded |
-| 4 | System prompt ~611 tokens; Anthropic Sonnet cache minimum ~1024 — `cache_control` likely inert until prompt grows. Confirm via `cache_read`/`cache_creation` INFO logs on first real correction. | low | S2 | ⬜ open — observe on first real call |
+| 4 | System prompt was under Anthropic Sonnet cache minimum (~1024). Fixed by adding two worked examples; live verify: call2 `cache_read=1641`. | low | S2 | ✅ closed — 2026-08-03 |
 
 ---
 
