@@ -5,9 +5,9 @@
 
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
-**Last updated:** 2026-08-03
-**Current slice:** S4
-**Status:** S4 code-complete — awaiting Telegram / SQL verification
+**Last updated:** 2026-08-04
+**Current slice:** S4b
+**Status:** S4b code-complete — awaiting human crontab paste + spot-check
 
 ---
 
@@ -35,6 +35,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S3c | Quiz formats + register | 🟡 code-complete | 2026-08-03 | Reorder→order; spoken register; one scenario. |
 | S3d | Quiz feedback + format mix | 🟡 code-complete | 2026-08-03 | Full-sentence feedback; 2 typed/3 tapped; 63 pytest green. |
 | S4 | Streaks, freeze, rescue | 🟡 code-complete | 2026-08-03 | 03:00 local rollover; freeze; rescue 3Q; 83 pytest green. |
+| S4b | Database backups | 🟡 code-complete | 2026-08-04 | pg_dump/restore scripts; restore verified; off-site stub. |
 | — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | await S4 verify + 14-day use |
 | S5 | Voice partner | ⬜ not started | | |
 | S6 | Book ingestion | ⬜ not started | | |
@@ -66,7 +67,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 | Whisper/TTS key | ⬜ | — |
 | YouTube Data API key (S9b) | ⬜ | — |
 | systemd unit | ⬜ | — |
-| Weekly pg_dump to independent storage | ⬜ | — |
+| Weekly pg_dump to independent storage | 🟡 | Daily local dump ✅ (`~/english-bot-backups`); weekly off-site copy still a stub (known issue #6) |
 | User A onboarded | ⬜ | EF SET: — |
 | User B onboarded | ⬜ | EF SET: — |
 
@@ -78,6 +79,10 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-04 | S4b: refuse `BACKUP_DIR` inside the git repo | Dumps contain the user's private writing (PRD §10); a path under the repo is one `git add` away from a leak. |
+| 2026-08-04 | S4b: 10 KB sanity floor before counting a dump as success | A 0-byte / tiny file that silently replaces a good backup is worse than no backup; never prune on failure. |
+| 2026-08-04 | S4b: restore defaults to `english_bot_restore_test`; live `english_bot` needs `--force` | An untested backup is not a backup — and a careless restore must not destroy production. |
+| 2026-08-04 | S4b: off-site copy left as a documented stub (`offsite_copy_stub`) | TASKS requires independent storage; this slice must not add cloud credentials. Options: rsync / rclone / manual weekly copy. |
 | 2026-08-03 | S4: 03:00 **local** rollover (15-min poll), never UTC midnight | PRD §7 rule 1 — Monday's quiz stays open until 03:00 Tuesday. UTC midnight would close Vilnius days mid-evening and break streaks for completions that were still on time. |
 | 2026-08-03 | S4: no `roll_over_day` on quiz complete; show `current_streak+1` optimistically | Early evaluation advances `last_evaluated_date` and can close the next day before its quiz is delivered. Real evaluation is only the 03:00 job. |
 | 2026-08-03 | S4: idempotency via `streaks.last_evaluated_date` | Freeze-covered misses do not move `last_active_date`; without a separate marker a second rollover would consume another freeze. |
@@ -152,6 +157,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 3 | Timezone not collected in S1; all users get schema default `Europe/Vilnius`. S20 (Generalize) must add timezone selection when location assumptions are removed. | medium | S1 → S20 | ⬜ open — assumption recorded |
 | 4 | System prompt was under Anthropic Sonnet cache minimum (~1024). Fixed by adding two worked examples; live verify: call2 `cache_read=1641`. | low | S2 | ✅ closed — 2026-08-03 |
 | 5 | Chat-message UI has reached its design ceiling; a Telegram Mini App is the real answer for quiz UX — revisit after the 14-day usage gate, sharing design work with S23. | medium | S3d → post-gate / S23 | ⬜ open |
+| 6 | S4b off-site weekly copy is a stub (`offsite_copy_stub` in `scripts/backup.sh`). Local 14-day dumps exist; independent storage (rsync / rclone / manual) is not automated yet. Wire before relying on the Hetzner box alone. | high | S4b | ⬜ open |
 
 ---
 
@@ -182,6 +188,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `specs/S3c-quiz-formats.md` | S3c order format + spoken register | ✅ |
 | `specs/S3d-quiz-feedback.md` | S3d feedback + typed/tapped mix | ✅ |
 | `specs/S4-streaks.md` | S4 streaks / freeze / rescue | ✅ |
+| `specs/S4b-backups.md` | S4b pg_dump / restore | ✅ |
 | `migrations/001_init_postgres.sql` | Initial schema + 19 error_types | ✅ |
 | `migrations/002_quiz_scheduler.sql` | sessions.payload + bot_message_counts | ✅ |
 | `migrations/003_streaks.sql` | last_evaluated_date, freeze_reset_on, pending_freeze_notice | ✅ |
@@ -221,10 +228,11 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_quiz_s3d.py` | Full-sentence feedback; 2/3 mix; dots last | ✅ |
 | `tests/test_streaks.py` | Freeze / rescue / idempotency / monthly reset (ARCHITECTURE §8) | ✅ |
 | `tests/test_rescue_quiz.py` | Rescue 3Q vs 5Q; no backlog | ✅ |
-| `scripts/.gitkeep` | Empty scripts dir | ✅ |
+| `scripts/backup.sh` | Daily pg_dump (−Fc), 14-day retain, off-site stub | ✅ |
+| `scripts/restore.sh` | Restore into scratch DB; `--force` for live | ✅ |
 
 ---
 
 ## Next action
 
-**Human:** verify S4 with the SQL + Telegram steps from the slice handoff. Mark S4 ✅ when they pass. Then Phase 1 usage gate (14 days). Do not start S4b until S4 is ✅ (backups are immediate after Phase 1 ships).
+**Human:** paste the daily 04:00 crontab line from the S4b handoff. Mark S4b ✅ after you have confirmed a second dump appears overnight (or re-run `scripts/backup.sh`). Keep known issue #6 open until off-site is wired. Do not start Phase 2 / S5 until the 14-day usage gate.
