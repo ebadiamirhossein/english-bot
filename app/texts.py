@@ -387,10 +387,27 @@ QUIZ_CAME_BACK = "📌 {label} came back — I'll ask again tomorrow."
 
 QUIZ_RESCUE = "Shorter one today — three questions."
 
+# Freeze notice (S5 choice b): keep remaining count when tokens remain;
+# omit the inventory clause when zero — "None left" is guilt (PRD §7 rule 4).
 QUIZ_FREEZE_USED = (
     "Yesterday got away from you — I used a freeze, your streak's intact. "
     "{remaining} left this month."
 )
+
+QUIZ_FREEZE_USED_NO_REMAINING = (
+    "Yesterday got away from you — I used a freeze, your streak's intact."
+)
+
+
+def format_freeze_notice(remaining_tokens: int) -> str:
+    """Freeze-used line. Count only when tokens remain."""
+    if remaining_tokens <= 0:
+        return QUIZ_FREEZE_USED_NO_REMAINING
+    if remaining_tokens == 1:
+        remaining = "One"
+    else:
+        remaining = str(remaining_tokens)
+    return QUIZ_FREEZE_USED.format(remaining=remaining)
 
 
 def format_correction_block(
@@ -430,3 +447,14 @@ def format_correction_reply(
 
 def format_praise(did_well: str) -> str:
     return f"👍 {did_well}"
+
+
+# --- Voice partner (S5) ------------------------------------------------------
+
+VOICE_TOO_LONG = (
+    "That one's a bit long for a chat — send something under two minutes?"
+)
+
+VOICE_DIDNT_CATCH = (
+    "I didn't catch that — try again when you're ready?"
+)

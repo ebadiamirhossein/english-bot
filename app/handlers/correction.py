@@ -79,6 +79,13 @@ def murphy_lookup() -> dict[str, str | None]:
     return dict(_murphy_by_code)
 
 
+def error_type_list_text() -> str:
+    """Return the cached error-type bullet list for prompts."""
+    if not _error_type_list:
+        init_correction_prompt()
+    return _error_type_list
+
+
 def build_system_prompt(user: User) -> str:
     """Parameterise the correction system prompt for this learner."""
     if _prompt_template is None:
@@ -221,5 +228,23 @@ async def _handle_model_result(message, user_id: int, result: dict) -> None:
         await message.reply_text(texts.format_praise(did_well or "Nice."))
         return
 
-    reply = texts.format_correction_reply(kept, did_well, valid)
-    await message.reply_text(reply)
+    await message.reply_text(render_correction_message(corrections, did_well))
+
+
+def render_correction_message(
+    corrections: list[dict],
+    did_well: str,
+) -> str:
+    """Shared PRD §8 correction text. Cap 3; drop unknown types; praise if empty.
+
+    Pure formatting move for voice (S5) and text (S2) — no behaviour change.
+    """
+    corrections = list(corrections or [])[:3]
+    did = (did_well or "").strip() or "Nice."
+    if not corrections:
+        return texts.format_praise(did)
+    valid = murphy_lookup()
+    kept = [c for c in corrections if c.get("error_type") in valid]
+    if not kept:
+        return texts.format_praise(did)
+    return texts.format_correction_reply(kept, did, valid)

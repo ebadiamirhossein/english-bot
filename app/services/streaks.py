@@ -139,16 +139,24 @@ def roll_over_day(user_id: int, day: date) -> StreakResult:
                     total_active_days=int(row["total_active_days"]),
                 )
 
-            session = conn.execute(
+            # Day-state precedence (S5): Active > Missed > Neutral.
+            # Any completed session (any task_type) makes the day Active, even
+            # if an incomplete quiz also exists. Missed only when there is an
+            # incomplete quiz and no completed session. Do not use ORDER BY id
+            # LIMIT 1 — insert order must not decide engagement.
+            day_rows = conn.execute(
                 """
                 SELECT task_type, completed
                   FROM sessions
                  WHERE user_id = %s AND date = %s
-                 ORDER BY id DESC
-                 LIMIT 1
                 """,
                 (user_id, day),
-            ).fetchone()
+            ).fetchall()
+            any_completed = any(bool(r["completed"]) for r in day_rows)
+            incomplete_quiz = any(
+                (not bool(r["completed"])) and str(r["task_type"]) == "quiz"
+                for r in day_rows
+            )
 
             current = int(row["current_streak"])
             longest = int(row["longest_streak"])
@@ -161,18 +169,14 @@ def roll_over_day(user_id: int, day: date) -> StreakResult:
             rescue_started = False
             outcome: Outcome = "neutral"
 
-            if session is not None and bool(session["completed"]):
+            if any_completed:
                 outcome = "active"
                 current += 1
                 total_active += 1
                 last_active = day
                 if current > longest:
                     longest = current
-            elif (
-                session is not None
-                and not bool(session["completed"])
-                and str(session["task_type"]) == "quiz"
-            ):
+            elif incomplete_quiz:
                 outcome = "missed"
                 if tokens > 0:
                     tokens -= 1
@@ -186,7 +190,7 @@ def roll_over_day(user_id: int, day: date) -> StreakResult:
                     if rescue_until is None or day > rescue_until:
                         rescue_until = day + timedelta(days=RESCUE_DURATION_DAYS)
                         rescue_started = True
-            # else: Neutral (no session, or incomplete free_practice)
+            # else: Neutral (no session, or incomplete free_practice / voice)
 
             conn.execute(
                 """
@@ -341,27 +345,29 @@ def _set_last_evaluated(user_id: int, day: date) -> None:
         )
 
 
+def _day_is_missed(conn, user_id: int, day: date) -> bool:
+    """True when the day is Missed under Active > Missed > Neutral precedence."""
+    day_rows = conn.execute(
+        """
+        SELECT task_type, completed
+          FROM sessions
+         WHERE user_id = %s AND date = %s
+        """,
+        (user_id, day),
+    ).fetchall()
+    if any(bool(r["completed"]) for r in day_rows):
+        return False
+    return any(
+        (not bool(r["completed"])) and str(r["task_type"]) == "quiz"
+        for r in day_rows
+    )
+
+
 def _consecutive_missed_ending_at(conn, user_id: int, day: date) -> int:
-    """Count consecutive incomplete quiz days ending at day (inclusive)."""
+    """Count consecutive Missed days ending at day (inclusive)."""
     count = 0
     cursor = day
-    while True:
-        session = conn.execute(
-            """
-            SELECT task_type, completed
-              FROM sessions
-             WHERE user_id = %s AND date = %s
-             ORDER BY id DESC
-             LIMIT 1
-            """,
-            (user_id, cursor),
-        ).fetchone()
-        if (
-            session is None
-            or bool(session["completed"])
-            or str(session["task_type"]) != "quiz"
-        ):
-            break
+    while _day_is_missed(conn, user_id, cursor):
         count += 1
         cursor -= timedelta(days=1)
     return count

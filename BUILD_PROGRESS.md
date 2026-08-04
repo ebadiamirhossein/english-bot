@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-04
-**Current slice:** S4b
-**Status:** S4b code-complete — awaiting human crontab paste + spot-check
+**Current slice:** S5
+**Status:** S5 code-complete — awaiting human Telegram verify
 
 ---
 
@@ -37,7 +37,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S4 | Streaks, freeze, rescue | 🟡 code-complete | 2026-08-03 | 03:00 local rollover; freeze; rescue 3Q; 83 pytest green. |
 | S4b | Database backups | 🟡 code-complete | 2026-08-04 | pg_dump/restore scripts; restore verified; off-site stub. |
 | — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | await S4 verify + 14-day use |
-| S5 | Voice partner | ⬜ not started | | |
+| S5 | Voice partner | 🟡 code-complete | 2026-08-04 | Whisper+TTS; voice sessions; Active>Missed; 98 pytest green. |
 | S6 | Book ingestion | ⬜ not started | | |
 | S7 | Anki export | ⬜ not started | | |
 | S8 | Couple challenge | ⬜ not started | | |
@@ -64,7 +64,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 | Telegram bot token | ✅ | in `.env` |
 | Shared group created | ⬜ | — |
 | LLM provider + key | 🟡 | `LLM_PROVIDER`/`LLM_MODEL`/`ANTHROPIC_API_KEY` in config; add real key to `.env` before Telegram verify |
-| Whisper/TTS key | ⬜ | — |
+| Whisper/TTS key | 🟡 | `OPENAI_API_KEY` + STT/TTS model env in config; optional at boot, required before first voice message |
 | YouTube Data API key (S9b) | ⬜ | — |
 | systemd unit | ⬜ | — |
 | Weekly pg_dump to independent storage | 🟡 | Daily local dump ✅ (`~/english-bot-backups`); weekly off-site copy still a stub (known issue #6) |
@@ -79,6 +79,14 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-04 | S5: day-state precedence Active > Missed > Neutral over **all** sessions for the local day (not latest row) | After voice no longer blocks quiz delivery, voice-then-ignored-quiz left an incomplete quiz as latest and burned a freeze on a day of real usage — inverts PRD §4 and can push engaged users into rescue. |
+| 2026-08-04 | S5: freeze notice keeps remaining count when tokens > 0; omits inventory clause when zero | "One left" is informational; "None left this month" scores scarcity and violates PRD §7 rule 4. |
+| 2026-08-04 | S5: voice sessions marked `completed=TRUE` as soon as an exchange succeeds | Abandoned mid-conversation must not leave an incomplete row that rollover could misread; live conversation is found by recency + turn count, not `completed`. |
+| 2026-08-04 | S5: morning `has_session_on` scoped to `task_type IN ('quiz','free_practice')` | A 07:40 voice message must not silently cancel that day's quiz. |
+| 2026-08-04 | S5: voice replies do not increment `bot_message_counts` | PRD §7 rule 9 caps bot-initiated messages; voice answers are replies to the user. |
+| 2026-08-04 | S5: max 3 corrections per voice turn | Spoken turns generate more errors; a six-item wall ends the conversation. Untaken errors recur naturally. |
+| 2026-08-04 | S5: conversation window 120 min since last turn, hard cap 10 exchanges | Past either, next voice starts a fresh session. |
+| 2026-08-04 | S5: voice >120s declined before download; TTS failure falls back to text reply | M3 is conversation not monologue (S13); losing the turn is worse than losing audio. |
 | 2026-08-04 | S4b: refuse `BACKUP_DIR` inside the git repo | Dumps contain the user's private writing (PRD §10); a path under the repo is one `git add` away from a leak. |
 | 2026-08-04 | S4b: 10 KB sanity floor before counting a dump as success | A 0-byte / tiny file that silently replaces a good backup is worse than no backup; never prune on failure. |
 | 2026-08-04 | S4b: restore defaults to `english_bot_restore_test`; live `english_bot` needs `--force` | An untested backup is not a backup — and a careless restore must not destroy production. |
@@ -168,9 +176,9 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | Path | Purpose | Status |
 |---|---|---|
 | `.cursorrules` | Project constitution for every slice | ✅ |
-| `.env.example` | Dummy env keys + session-pooler comment + LLM keys | ✅ |
+| `.env.example` | Dummy env keys + session-pooler comment + LLM + Whisper/TTS keys | ✅ |
 | `.gitignore` | Ignores `.env`, venv, pycache, pytest | ✅ |
-| `requirements.txt` | ptb[job-queue], psycopg, dotenv, pytest, anthropic | ✅ |
+| `requirements.txt` | ptb[job-queue], psycopg, dotenv, pytest, anthropic, openai | ✅ |
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
 | `docs/ARCHITECTURE.md` | Stack, structure, interfaces (+ `services/users.py`) | ✅ |
@@ -189,28 +197,32 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `specs/S3d-quiz-feedback.md` | S3d feedback + typed/tapped mix | ✅ |
 | `specs/S4-streaks.md` | S4 streaks / freeze / rescue | ✅ |
 | `specs/S4b-backups.md` | S4b pg_dump / restore | ✅ |
+| `specs/S5-voice-partner.md` | S5 voice partner (M3) | ✅ |
 | `migrations/001_init_postgres.sql` | Initial schema + 19 error_types | ✅ |
 | `migrations/002_quiz_scheduler.sql` | sessions.payload + bot_message_counts | ✅ |
 | `migrations/003_streaks.sql` | last_evaluated_date, freeze_reset_on, pending_freeze_notice | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
-| `app/config.py` | Env → frozen `Settings`, `ConfigError` (+ LLM keys) | ✅ |
+| `app/config.py` | Env → frozen `Settings`, `ConfigError` (+ LLM + STT/TTS keys) | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
-| `app/llm.py` | Anthropic chat wrapper; only provider SDK import | ✅ |
+| `app/llm.py` | Anthropic chat wrapper; only LLM provider SDK import | ✅ |
+| `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning poll + streak rollover + monthly freeze reset | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S4 quiz/streak/freeze/rescue | ✅ |
-| `app/main.py` | Bot entrypoint; `/ping`, `/start`, correction, quiz, scheduler | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S5 quiz/streak/freeze/voice | ✅ |
+| `app/main.py` | Bot entrypoint; `/ping`, `/start`, correction, quiz, voice, scheduler | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
 | `app/handlers/access.py` | Shared unregistered-user ignore + onboarding allowlist | ✅ |
 | `app/handlers/onboarding.py` | `/start` wizard + `layout_buttons` + reactions (S1d) | ✅ |
-| `app/handlers/correction.py` | Free-text correction (S2) + free_practice complete hook (S4) | ✅ |
+| `app/handlers/correction.py` | Free-text correction (S2) + shared `render_correction_message` | ✅ |
 | `app/handlers/quiz.py` | Daily quiz delivery + grading UI (S3–S4 rescue/streak) | ✅ |
+| `app/handlers/voice.py` | Voice partner handler (S5) | ✅ |
 | `app/services/__init__.py` | Services package | ✅ |
 | `app/services/users.py` | get/save user, EF SET → CEFR (+ explanation_language_fallback read) | ✅ |
 | `app/services/errors.py` | record_errors + due_errors + mark_result spacing (S3) | ✅ |
-| `app/services/sessions.py` | sessions + bot_message_counts + free_practice complete (S3/S4) | ✅ |
-| `app/services/streaks.py` | Streak rollover, freeze, rescue (S4) | ✅ |
+| `app/services/sessions.py` | sessions + bot_message_counts + voice helpers (S3/S5) | ✅ |
+| `app/services/streaks.py` | Streak rollover, freeze, rescue; Active>Missed precedence (S4/S5) | ✅ |
 | `app/prompts/correction.txt` | Correction system prompt template | ✅ |
 | `app/prompts/quiz.txt` | Quiz generation (tracks, 4 formats, freshness) | ✅ |
+| `app/prompts/voice.txt` | Voice conversation + correction JSON prompt | ✅ |
 | `tests/conftest.py` | Dummy `ANTHROPIC_API_KEY` for test settings load | ✅ |
 | `tests/test_onboarding.py` | S1 persistence + CEFR mapping tests | ✅ |
 | `tests/test_onboarding_validation.py` | S1b validation re-ask via wizard edit | ✅ |
@@ -226,8 +238,10 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_quiz_s3b.py` | Readable body, blank-line sep, no-guilt copy | ✅ |
 | `tests/test_quiz_s3c.py` | No reorder; order rows; scenarios; no divider | ✅ |
 | `tests/test_quiz_s3d.py` | Full-sentence feedback; 2/3 mix; dots last | ✅ |
-| `tests/test_streaks.py` | Freeze / rescue / idempotency / monthly reset (ARCHITECTURE §8) | ✅ |
+| `tests/test_streaks.py` | Freeze / rescue / Active>Missed / monthly reset (S4/S5) | ✅ |
 | `tests/test_rescue_quiz.py` | Rescue 3Q vs 5Q; no backlog | ✅ |
+| `tests/test_speech.py` | STT/TTS in-memory + retry (mocked OpenAI) | ✅ |
+| `tests/test_voice.py` | Voice session gate, conversation, errors, TTS fallback | ✅ |
 | `scripts/backup.sh` | Daily pg_dump (−Fc), 14-day retain, off-site stub | ✅ |
 | `scripts/restore.sh` | Restore into scratch DB; `--force` for live | ✅ |
 
@@ -235,4 +249,13 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 
 ## Next action
 
-**Human:** paste the daily 04:00 crontab line from the S4b handoff. Mark S4b ✅ after you have confirmed a second dump appears overnight (or re-run `scripts/backup.sh`). Keep known issue #6 open until off-site is wired. Do not start Phase 2 / S5 until the 14-day usage gate.
+**Human:** add `OPENAI_API_KEY` (and optional STT/TTS model overrides) to `.env`, restart the bot, and verify S5 in Telegram per `specs/S5-voice-partner.md` §12:
+
+1. Voice with 2 deliberate mistakes → spoken reply + separate text correction block
+2. Both errors in `errors` with `source='voice'`
+3. Reply to the reply → bot remembers the topic
+4. Restart mid-conversation → still remembers
+5. Next morning's quiz still arrives
+6. A 3-minute voice is declined warmly
+
+Mark S5 ✅ only after that. Do not start S6 until S5 is verified.

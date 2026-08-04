@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 _REQUIRED_KEYS = ("DATABASE_URL", "TELEGRAM_BOT_TOKEN", "ANTHROPIC_API_KEY")
 _PG_SCHEMES = ("postgresql", "postgres")
+_KNOWN_STT_PROVIDERS = frozenset({"openai"})
+_KNOWN_TTS_PROVIDERS = frozenset({"openai"})
 
 
 class ConfigError(Exception):
@@ -32,6 +34,18 @@ class Settings:
     db_pool_min: int = 1
     db_pool_max: int = 5
     log_level: str = "INFO"
+    # Voice / STT / TTS (S5). OPENAI_API_KEY is optional at load — required
+    # only when speech.transcribe / synthesize actually run.
+    stt_provider: str = "openai"
+    tts_provider: str = "openai"
+    openai_api_key: str = ""
+    whisper_model: str = "whisper-1"
+    tts_model: str = "tts-1"
+    tts_voice: str = "alloy"
+    tts_format: str = "opus"
+    voice_max_seconds: int = 120
+    voice_context_minutes: int = 120
+    voice_max_turns: int = 10
 
     def database_url_for_logs(self) -> str:
         """Return DATABASE_URL with the password stripped for safe logging."""
@@ -62,6 +76,25 @@ def load_settings() -> Settings:
         os.environ.get("LLM_MODEL", "claude-sonnet-5").strip() or "claude-sonnet-5"
     )
 
+    stt_provider = (
+        os.environ.get("STT_PROVIDER", "openai").strip() or "openai"
+    )
+    tts_provider = (
+        os.environ.get("TTS_PROVIDER", "openai").strip() or "openai"
+    )
+    openai_api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    whisper_model = (
+        os.environ.get("WHISPER_MODEL", "whisper-1").strip() or "whisper-1"
+    )
+    tts_model = os.environ.get("TTS_MODEL", "tts-1").strip() or "tts-1"
+    tts_voice = os.environ.get("TTS_VOICE", "alloy").strip() or "alloy"
+    tts_format = os.environ.get("TTS_FORMAT", "opus").strip() or "opus"
+
+    if stt_provider not in _KNOWN_STT_PROVIDERS:
+        errors.append(f"Unknown STT_PROVIDER: {stt_provider!r}")
+    if tts_provider not in _KNOWN_TTS_PROVIDERS:
+        errors.append(f"Unknown TTS_PROVIDER: {tts_provider!r}")
+
     if database_url and not _is_postgres_dsn(database_url):
         errors.append(
             "DATABASE_URL must be a postgresql:// or postgres:// DSN "
@@ -71,6 +104,22 @@ def load_settings() -> Settings:
     db_pool_min = _parse_int("DB_POOL_MIN", os.environ.get("DB_POOL_MIN", "1"), errors)
     db_pool_max = _parse_int("DB_POOL_MAX", os.environ.get("DB_POOL_MAX", "5"), errors)
     log_level = os.environ.get("LOG_LEVEL", "INFO").strip() or "INFO"
+
+    voice_max_seconds = _parse_int(
+        "VOICE_MAX_SECONDS",
+        os.environ.get("VOICE_MAX_SECONDS", "120"),
+        errors,
+    )
+    voice_context_minutes = _parse_int(
+        "VOICE_CONTEXT_MINUTES",
+        os.environ.get("VOICE_CONTEXT_MINUTES", "120"),
+        errors,
+    )
+    voice_max_turns = _parse_int(
+        "VOICE_MAX_TURNS",
+        os.environ.get("VOICE_MAX_TURNS", "10"),
+        errors,
+    )
 
     if db_pool_min is not None and db_pool_min < 1:
         errors.append(f"DB_POOL_MIN must be >= 1 (got {db_pool_min})")
@@ -87,6 +136,9 @@ def load_settings() -> Settings:
         raise ConfigError("; ".join(errors))
 
     assert db_pool_min is not None and db_pool_max is not None  # for type checker
+    assert voice_max_seconds is not None
+    assert voice_context_minutes is not None
+    assert voice_max_turns is not None
     settings = Settings(
         database_url=database_url,
         telegram_bot_token=telegram_bot_token,
@@ -96,6 +148,16 @@ def load_settings() -> Settings:
         db_pool_min=db_pool_min,
         db_pool_max=db_pool_max,
         log_level=log_level,
+        stt_provider=stt_provider,
+        tts_provider=tts_provider,
+        openai_api_key=openai_api_key,
+        whisper_model=whisper_model,
+        tts_model=tts_model,
+        tts_voice=tts_voice,
+        tts_format=tts_format,
+        voice_max_seconds=voice_max_seconds,
+        voice_context_minutes=voice_context_minutes,
+        voice_max_turns=voice_max_turns,
     )
 
     _warn_if_transaction_pooler(settings.database_url)

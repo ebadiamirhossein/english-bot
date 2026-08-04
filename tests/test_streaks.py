@@ -466,6 +466,46 @@ def test_free_practice_never_consumes_freeze(cleanup_user: int) -> None:
     assert get_streak(tid).pending_freeze_notice is False
 
 
+def test_incomplete_quiz_plus_completed_voice_is_active(cleanup_user: int) -> None:
+    """S5: Active wins over Missed when both exist on the same local day.
+
+    Voice-then-ignored-quiz (or ignore-quiz-then-voice) must not burn a freeze.
+    """
+    tid = cleanup_user
+    _onboard(tid)
+    day = date(2026, 7, 10)
+    _set_streak(
+        tid,
+        current=5,
+        longest=5,
+        tokens=2,
+        total_active=5,
+        last_active=date(2026, 7, 9),
+        last_eval=date(2026, 7, 9),
+    )
+    # Voice first (completed), then incomplete quiz with higher id — the
+    # dangerous insert order after morning delivery is no longer blocked by voice.
+    insert_session(
+        tid,
+        "voice",
+        day,
+        payload={"messages": [], "turn_count": 1},
+        completed=True,
+    )
+    _quiz(tid, day, completed=False)
+
+    result = roll_over_day(tid, day)
+    streak = get_streak(tid)
+
+    assert result.outcome == "active"
+    assert result.freeze_consumed is False
+    assert streak.freeze_tokens == 2
+    assert streak.pending_freeze_notice is False
+    assert streak.last_active_date == day
+    assert streak.current_streak == 6
+    assert streak.total_active_days == 6
+
+
 def test_completing_quiz_does_not_change_last_evaluated(cleanup_user: int) -> None:
     tid = cleanup_user
     _onboard(tid)

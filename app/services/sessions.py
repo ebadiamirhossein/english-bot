@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -44,12 +44,16 @@ def local_time_hhmm(timezone: str, now: datetime) -> tuple[int, int]:
 
 
 def has_session_on(user_id: int, local_date: date) -> bool:
-    """True if any sessions row exists for this user on local_date."""
+    """True if a quiz or free_practice session exists for this user on local_date.
+
+    Voice (and future non-morning) sessions must not block morning delivery.
+    """
     with connection() as conn:
         row = conn.execute(
             """
             SELECT 1 FROM sessions
              WHERE user_id = %s AND date = %s
+               AND task_type IN ('quiz', 'free_practice')
              LIMIT 1
             """,
             (user_id, local_date),
@@ -223,3 +227,99 @@ def increment_bot_messages(user_id: int, local_date: date) -> int:
 
 def under_message_ceiling(user_id: int, local_date: date) -> bool:
     return bot_initiated_count(user_id, local_date) < BOT_MESSAGE_CEILING
+
+
+def get_continuable_voice_session(
+    user_id: int,
+    *,
+    now: datetime,
+    context_minutes: int,
+    max_turns: int,
+) -> SessionRow | None:
+    """Most recent voice session still inside the conversation window.
+
+    Live conversation is found by recency and turn count, not by completed
+    (voice exchanges are marked completed as soon as they succeed).
+    """
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, completed, score, payload,
+                   completed_at
+              FROM sessions
+             WHERE user_id = %s
+               AND task_type = 'voice'
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    completed_at = row["completed_at"]
+    if completed_at is None:
+        return None
+    if completed_at.tzinfo is None:
+        completed_at = completed_at.replace(tzinfo=timezone.utc)
+    age = now - completed_at
+    if age.total_seconds() > context_minutes * 60:
+        return None
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    payload = payload or {}
+    turn_count = int(payload.get("turn_count") or 0)
+    if turn_count >= max_turns:
+        return None
+    return SessionRow(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        date=row["date"],
+        task_type=row["task_type"],
+        completed=bool(row["completed"]),
+        score=float(row["score"]) if row["score"] is not None else None,
+        payload=payload,
+    )
+
+
+def save_voice_exchange(
+    session_id: int | None,
+    user_id: int,
+    local_date: date,
+    payload: dict[str, Any],
+) -> int:
+    """Insert or update a voice session after a successful exchange.
+
+    Always sets completed=TRUE and completed_at=NOW() so abandoned mid-turn
+    failures that never reach this function leave no incomplete voice row.
+    """
+    with connection() as conn:
+        if session_id is None:
+            row = conn.execute(
+                """
+                INSERT INTO sessions (
+                    user_id, date, task_type, delivered_at,
+                    completed, completed_at, payload
+                ) VALUES (
+                    %s, %s, 'voice', NOW(), TRUE, NOW(), %s
+                )
+                RETURNING id
+                """,
+                (user_id, local_date, Jsonb(payload)),
+            ).fetchone()
+            assert row is not None
+            return int(row["id"])
+        conn.execute(
+            """
+            UPDATE sessions
+               SET payload = %s,
+                   completed = TRUE,
+                   completed_at = NOW()
+             WHERE id = %s
+               AND user_id = %s
+            """,
+            (Jsonb(payload), session_id, user_id),
+        )
+        return session_id

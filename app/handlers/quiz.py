@@ -463,24 +463,12 @@ def _spot_sentence(q: dict[str, Any]) -> str:
     return " ".join(str(t) for t in (q.get("tiles") or []))
 
 
-def _freeze_remaining_word(n: int) -> str:
-    if n <= 0:
-        return "None"
-    if n == 1:
-        return "One"
-    return str(n)
-
-
 def _quiz_preface(user_id: int, *, rescue: bool) -> str:
     """Freeze notice and/or rescue line for the opening quiz message."""
     parts: list[str] = []
     if consume_freeze_notice(user_id):
         remaining = get_streak(user_id).freeze_tokens
-        parts.append(
-            texts.QUIZ_FREEZE_USED.format(
-                remaining=_freeze_remaining_word(remaining)
-            )
-        )
+        parts.append(texts.format_freeze_notice(remaining))
     if rescue:
         parts.append(texts.QUIZ_RESCUE)
     return "\n\n".join(parts)
