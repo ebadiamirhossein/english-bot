@@ -12,8 +12,10 @@ from app import texts
 from app.config import ConfigError, load_settings
 from app.handlers.access import build_access_handler
 from app.handlers.correction import build_correction_handler, init_correction_prompt
+from app.handlers.interests import build_interests_handler
 from app.handlers.onboarding import build_onboarding_handler
 from app.handlers.quiz import build_quiz_handlers, init_quiz_prompt
+from app.handlers.reading import init_reading_prompt
 from app.handlers.voice import build_voice_handler, init_voice_prompt
 from app.scheduler import start_scheduler, stop_scheduler
 
@@ -50,6 +52,7 @@ def main() -> int:
     init_correction_prompt()
     init_quiz_prompt()
     init_voice_prompt()
+    init_reading_prompt()
 
     app = (
         ApplicationBuilder()
@@ -64,6 +67,7 @@ def main() -> int:
     app.add_handler(quiz_choice)
     app.add_handler(quiz_text)  # before correction — open-quiz filter
     app.add_handler(build_voice_handler())
+    app.add_handler(build_interests_handler())
     app.add_handler(build_correction_handler())
     app.add_handler(build_access_handler(), group=1)
 

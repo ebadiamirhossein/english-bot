@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-04
-**Current slice:** S5
-**Status:** S5 code-complete — awaiting human Telegram verify
+**Current slice:** S9a
+**Status:** S9a code-complete — awaiting human Telegram verify
 
 ---
 
@@ -38,11 +38,14 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S4b | Database backups | 🟡 code-complete | 2026-08-04 | pg_dump/restore scripts; restore verified; off-site stub. |
 | — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | await S4 verify + 14-day use |
 | S5 | Voice partner | 🟡 code-complete | 2026-08-04 | Whisper+TTS; voice sessions; Active>Missed; 98 pytest green. |
+| S5a | Voice processing status | 🟡 code-complete | 2026-08-04 | Repeating chat action + 3-stage status message; await Telegram verify. |
 | S6 | Book ingestion | ⬜ not started | | |
 | S7 | Anki export | ⬜ not started | | |
 | S8 | Couple challenge | ⬜ not started | | |
-| S9 | Interests + reading | ⬜ not started | | |
+| S9 | Interests profile | 🟡 code-complete | 2026-08-04 | `/interests` wizard seeds `interests`; 112 pytest green; reading engine is S9a. |
+| S9a | Reading delivery + chunks | 🟡 code-complete | 2026-08-04 | Mon/Wed/Fri evening poll; readings+chunks+session; ceiling; 134 pytest green. |
 | S9b | Video engine (YouTube) | ⬜ not started | | |
+| S9c | Reading comprehension + rating | ⬜ not started | | Questions delivery, grading, 1–5 rating → weight adjust. |
 | S10 | Motivation engine | ⬜ not started | | |
 | S11 | Weekly test + Murphy routing | ⬜ not started | | |
 | S12 | Calibration + anti-fossilization | ⬜ not started | | |
@@ -79,6 +82,15 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-04 | Split TASKS S9 into **S9a** (delivery + chunks) and **S9c** (comprehension + rating) | Chunks unblock S7 Anki before Q&A UX lands; same vertical-slice pattern as S3→S3d. S9 itself stayed interests-only. |
+| 2026-08-04 | S9a: commit readings/chunks/session only after Telegram send succeeds (txn held across send) | A send failure after persist would poison the chunk pool with text the user never read; Anki (S7) would export untraceable cards. Day stays unclaimed → next 5-min tick retries. |
+| 2026-08-04 | S9a: chunk-in-body check normalises casefold / whitespace / apostrophes+quotes; store model text as-is | Strict `in` rejects valid capitalised / curly-apostrophe chunks; retry then silent-skip wasted the day. |
+| 2026-08-04 | S9a: NULL `last_used` scores as 30 days; exact score ties → alphabetically first topic | Huge NULL constant drowned weight/track_weights; argmax over ties was DB-order-dependent. |
+| 2026-08-04 | S9a: every skip path logs WARNING with user_id + reason (ceiling, no interests, LLM, validation) | Soft to the user, loud to the operator (ARCHITECTURE principle 4) — a quiet no-op is indistinguishable from a working engine. |
+| 2026-08-04 | S9: `/interests` is a standalone ConversationHandler, not an onboarding extension | Partner not yet onboarded; the S1 wizard is verified and must not be re-opened. TASKS "onboarding extension" wording overridden for this reason. |
+| 2026-08-04 | S9: callback_data carries option indexes (`int:tw:3`), never topic text; option lists live in `user_data` | Telegram 64-byte limit; free-text topics can contain `:` (S1b colon-split bug) or be arbitrarily long. |
+| 2026-08-04 | S9: Change preload rebuilds option lists as presets + stored non-presets so customs stay toggleable | Without that, a no-op Change→Done silently deletes "Something else" topics because save writes `user_data` only. |
+| 2026-08-04 | S5a: honest stage names (listening / thinking / recording) over a percentage or ▓▓▓░░░ progress bar | Stage durations are unpredictable (Whisper on 60s ≫ 10s); a bar that stalls at 80% reads as a crash. |
 | 2026-08-04 | S5: day-state precedence Active > Missed > Neutral over **all** sessions for the local day (not latest row) | After voice no longer blocks quiz delivery, voice-then-ignored-quiz left an incomplete quiz as latest and burned a freeze on a day of real usage — inverts PRD §4 and can push engaged users into rescue. |
 | 2026-08-04 | S5: freeze notice keeps remaining count when tokens > 0; omits inventory clause when zero | "One left" is informational; "None left this month" scores scarcity and violates PRD §7 rule 4. |
 | 2026-08-04 | S5: voice sessions marked `completed=TRUE` as soon as an exchange succeeds | Abandoned mid-conversation must not leave an incomplete row that rollover could misread; live conversation is found by recency + turn count, not `completed`. |
@@ -206,23 +218,29 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
 | `app/llm.py` | Anthropic chat wrapper; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
-| `app/scheduler.py` | Morning poll + streak rollover + monthly freeze reset | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S5 quiz/streak/freeze/voice | ✅ |
-| `app/main.py` | Bot entrypoint; `/ping`, `/start`, correction, quiz, voice, scheduler | ✅ |
+| `app/scheduler.py` | Morning + evening reading poll + streak rollover + monthly freeze reset | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S9a quiz/streak/freeze/voice/status/interests/reading | ✅ |
+| `app/main.py` | Bot entrypoint; `/ping`, `/start`, correction, quiz, voice, `/interests`, reading prompt init, scheduler | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
 | `app/handlers/access.py` | Shared unregistered-user ignore + onboarding allowlist | ✅ |
 | `app/handlers/onboarding.py` | `/start` wizard + `layout_buttons` + reactions (S1d) | ✅ |
 | `app/handlers/correction.py` | Free-text correction (S2) + shared `render_correction_message` | ✅ |
 | `app/handlers/quiz.py` | Daily quiz delivery + grading UI (S3–S4 rescue/streak) | ✅ |
-| `app/handlers/voice.py` | Voice partner handler (S5) | ✅ |
+| `app/handlers/voice.py` | Voice partner handler (S5) + status stages / repeating chat action (S5a) | ✅ |
+| `app/handlers/interests.py` | `/interests` multi-select wizard (S9); index callbacks; custom-topic preload | ✅ |
+| `app/handlers/reading.py` | Evening reading delivery (S9a); title+body only; commit-after-send | ✅ |
 | `app/services/__init__.py` | Services package | ✅ |
 | `app/services/users.py` | get/save user, EF SET → CEFR (+ explanation_language_fallback read) | ✅ |
 | `app/services/errors.py` | record_errors + due_errors + mark_result spacing (S3) | ✅ |
-| `app/services/sessions.py` | sessions + bot_message_counts + voice helpers (S3/S5) | ✅ |
+| `app/services/sessions.py` | sessions + bot_message_counts + voice + has_reading_session_on (S3/S5/S9a) | ✅ |
 | `app/services/streaks.py` | Streak rollover, freeze, rescue; Active>Missed precedence (S4/S5) | ✅ |
+| `app/services/interests.py` | list/replace/select_topic/mark_last_used (S9/S9a) | ✅ |
+| `app/services/chunks.py` | Chunk inserts for reading (S9a) | ✅ |
+| `app/services/reading.py` | Validate + persist_and_send under open txn (S9a) | ✅ |
 | `app/prompts/correction.txt` | Correction system prompt template | ✅ |
 | `app/prompts/quiz.txt` | Quiz generation (tracks, 4 formats, freshness) | ✅ |
 | `app/prompts/voice.txt` | Voice conversation + correction JSON prompt | ✅ |
+| `app/prompts/reading.txt` | Reading passage + questions + chunks JSON prompt (S9a) | ✅ |
 | `tests/conftest.py` | Dummy `ANTHROPIC_API_KEY` for test settings load | ✅ |
 | `tests/test_onboarding.py` | S1 persistence + CEFR mapping tests | ✅ |
 | `tests/test_onboarding_validation.py` | S1b validation re-ask via wizard edit | ✅ |
@@ -241,7 +259,10 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_streaks.py` | Freeze / rescue / Active>Missed / monthly reset (S4/S5) | ✅ |
 | `tests/test_rescue_quiz.py` | Rescue 3Q vs 5Q; no backlog | ✅ |
 | `tests/test_speech.py` | STT/TTS in-memory + retry (mocked OpenAI) | ✅ |
-| `tests/test_voice.py` | Voice session gate, conversation, errors, TTS fallback | ✅ |
+| `tests/test_voice.py` | Voice session gate, conversation, errors, TTS fallback + S5a status | ✅ |
+| `tests/test_interests.py` | S9 save/replace/preserve/custom-survive/min-2/free-text/layout | ✅ |
+| `tests/test_reading.py` | S9a eligibility, ceiling, topic pick, validate, rollback, persist | ✅ |
+| `specs/S5a-voice-status.md` | S5a voice processing status | ✅ |
 | `scripts/backup.sh` | Daily pg_dump (−Fc), 14-day retain, off-site stub | ✅ |
 | `scripts/restore.sh` | Restore into scratch DB; `--force` for live | ✅ |
 
@@ -249,13 +270,12 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 
 ## Next action
 
-**Human:** add `OPENAI_API_KEY` (and optional STT/TTS model overrides) to `.env`, restart the bot, and verify S5 in Telegram per `specs/S5-voice-partner.md` §12:
+**Human:** verify S9a in Telegram (user must already be onboarded with `/interests` seeded):
 
-1. Voice with 2 deliberate mistakes → spoken reply + separate text correction block
-2. Both errors in `errors` with `source='voice'`
-3. Reply to the reply → bot remembers the topic
-4. Restart mid-conversation → still remembers
-5. Next morning's quiz still arrives
-6. A 3-minute voice is declined warmly
+1. On a Mon/Wed/Fri after `evening_time`, with message ceiling free: receive one message = title + body (~300–400 words on an interest topic). No questions yet.
+2. DB: 1 `readings` row (`completed=FALSE`, questions JSONB present), 5 `chunks` (`source=reading_<id>`, `exported_to_anki=FALSE`), 1 `sessions` row (`task_type=reading`, `payload.reading_id`, `completed=FALSE`); chosen interest `last_used` = local today; `bot_message_counts` +1.
+3. Second poll same evening: no second reading.
+4. With ceiling already at 3: no reading, no new rows.
+5. Next morning: quiz still delivers (reading session does not block).
 
-Mark S5 ✅ only after that. Do not start S6 until S5 is verified.
+Mark S9a ✅ only after that. Next slice after verify: S9c (comprehension + rating) or S7 (Anki — chunks now exist).

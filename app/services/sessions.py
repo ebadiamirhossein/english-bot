@@ -61,6 +61,21 @@ def has_session_on(user_id: int, local_date: date) -> bool:
     return row is not None
 
 
+def has_reading_session_on(user_id: int, local_date: date) -> bool:
+    """True if a reading session exists for this user on local_date."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM sessions
+             WHERE user_id = %s AND date = %s
+               AND task_type = 'reading'
+             LIMIT 1
+            """,
+            (user_id, local_date),
+        ).fetchone()
+    return row is not None
+
+
 def insert_session(
     user_id: int,
     task_type: str,

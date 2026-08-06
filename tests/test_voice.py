@@ -26,6 +26,7 @@ from app.services.sessions import (
 )
 from app.services.users import save_onboarding
 from app.speech import SpeechError
+from telegram.error import BadRequest
 
 FAKE_TELEGRAM_ID_BASE = 9_350_000_000
 
@@ -116,7 +117,9 @@ def _make_voice_update(
     message.chat_id = tid
     message.from_user = MagicMock(id=tid)
     message.voice = MagicMock(duration=duration, file_id=file_id)
-    message.reply_text = AsyncMock()
+    status = MagicMock()
+    status.message_id = 9001
+    message.reply_text = AsyncMock(return_value=status)
     message.reply_voice = AsyncMock()
     message.reply_audio = AsyncMock()
     update.message = message
@@ -127,6 +130,8 @@ def _make_context() -> MagicMock:
     context = MagicMock()
     context.bot = MagicMock()
     context.bot.send_chat_action = AsyncMock()
+    context.bot.edit_message_text = AsyncMock()
+    context.bot.delete_message = AsyncMock()
     tg_file = MagicMock()
     tg_file.download_as_bytearray = AsyncMock(return_value=bytearray(b"ogg"))
     context.bot.get_file = AsyncMock(return_value=tg_file)
@@ -495,3 +500,213 @@ def test_tts_failure_delivers_text_and_records_errors(cleanup_user: int) -> None
         ).fetchall()
     assert len(rows) == 1
     assert rows[0]["source"] == "voice"
+
+
+# --- S5a: processing status + repeating chat action --------------------------
+
+
+def test_s5a_happy_path_status_order(cleanup_user: int) -> None:
+    """Status created once, edited twice, deleted before voice send."""
+    tid = cleanup_user
+    _onboard(tid)
+    day = date(2026, 8, 3)
+    update = _make_voice_update(tid)
+    context = _make_context()
+    order: list[str] = []
+
+    async def _reply_text(text: str, **_kwargs: object) -> MagicMock:
+        order.append(f"reply:{text}")
+        msg = MagicMock()
+        msg.message_id = 9001
+        return msg
+
+    async def _edit(*, chat_id: int, message_id: int, text: str) -> None:
+        order.append(f"edit:{text}")
+
+    async def _delete(*, chat_id: int, message_id: int) -> None:
+        order.append("delete")
+
+    async def _reply_voice(**_kwargs: object) -> None:
+        order.append("voice")
+
+    update.message.reply_text = AsyncMock(side_effect=_reply_text)
+    update.message.reply_voice = AsyncMock(side_effect=_reply_voice)
+    context.bot.edit_message_text = AsyncMock(side_effect=_edit)
+    context.bot.delete_message = AsyncMock(side_effect=_delete)
+
+    with (
+        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("app.handlers.voice.local_today", return_value=day),
+        patch("app.handlers.voice.transcribe", return_value="Hello there friend"),
+        patch("app.handlers.voice.chat", return_value=_llm_payload(errors=[])),
+        patch("app.handlers.voice.synthesize", return_value=b"opus"),
+    ):
+        asyncio.run(handle_voice(update, context))
+
+    # First reply_text is status; later reply_text is correction (after voice).
+    assert order[0] == f"reply:{texts.VOICE_STATUS_LISTENING}"
+    assert order[1] == f"edit:{texts.VOICE_STATUS_THINKING}"
+    assert order[2] == f"edit:{texts.VOICE_STATUS_RECORDING}"
+    assert order[3] == "delete"
+    assert order[4] == "voice"
+    assert any(s.startswith("reply:") and "👍" in s for s in order[5:])
+
+
+def test_s5a_empty_transcript_edits_status(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    update = _make_voice_update(tid)
+    context = _make_context()
+
+    with (
+        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("app.handlers.voice.transcribe", return_value=" "),
+    ):
+        asyncio.run(handle_voice(update, context))
+
+    context.bot.edit_message_text.assert_awaited()
+    edit_texts = [
+        c.kwargs.get("text") or (c.args[0] if c.args else None)
+        for c in context.bot.edit_message_text.await_args_list
+    ]
+    # edit_message_text is called with keyword text=
+    edit_texts = [
+        c.kwargs["text"] for c in context.bot.edit_message_text.await_args_list
+    ]
+    assert texts.VOICE_DIDNT_CATCH in edit_texts
+    # No separate user-facing message beyond the initial status create.
+    assert update.message.reply_text.await_count == 1
+    update.message.reply_text.assert_awaited_with(texts.VOICE_STATUS_LISTENING)
+    context.bot.delete_message.assert_not_awaited()
+
+
+def test_s5a_llm_failure_ends_as_failure_text(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    day = date(2026, 8, 3)
+    update = _make_voice_update(tid)
+    context = _make_context()
+
+    from app.llm import LLMError
+
+    with (
+        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("app.handlers.voice.local_today", return_value=day),
+        patch("app.handlers.voice.transcribe", return_value="Hello there friend"),
+        patch(
+            "app.handlers.voice.chat",
+            side_effect=LLMError("down"),
+        ),
+    ):
+        asyncio.run(handle_voice(update, context))
+
+    edit_texts = [
+        c.kwargs["text"] for c in context.bot.edit_message_text.await_args_list
+    ]
+    assert texts.VOICE_STATUS_THINKING in edit_texts
+    assert texts.LLM_RETRY in edit_texts
+    assert texts.LLM_FAILED in edit_texts
+    assert edit_texts[-1] == texts.LLM_FAILED
+    assert texts.VOICE_STATUS_THINKING != edit_texts[-1]
+    context.bot.delete_message.assert_not_awaited()
+    update.message.reply_voice.assert_not_awaited()
+
+
+def test_s5a_exception_clears_status_and_cancels_action(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    update = _make_voice_update(tid)
+    context = _make_context()
+    cancelled: dict[str, bool] = {"seen": False}
+
+    real_create = asyncio.create_task
+
+    def _tracking_create(coro, **kwargs):  # type: ignore[no-untyped-def]
+        task = real_create(coro, **kwargs)
+
+        def _on_done(t: asyncio.Task) -> None:
+            if t.cancelled():
+                cancelled["seen"] = True
+
+        task.add_done_callback(_on_done)
+        return task
+
+    with (
+        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("app.handlers.voice.asyncio.create_task", side_effect=_tracking_create),
+        patch(
+            "app.handlers.voice.transcribe",
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        asyncio.run(handle_voice(update, context))
+
+    edit_texts = [
+        c.kwargs["text"] for c in context.bot.edit_message_text.await_args_list
+    ]
+    assert texts.LLM_FAILED in edit_texts
+    assert cancelled["seen"] is True
+
+
+def test_s5a_over_length_no_status_no_chat_action(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    update = _make_voice_update(tid, duration=180)
+    context = _make_context()
+
+    with (
+        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("app.handlers.voice.transcribe") as mock_stt,
+    ):
+        asyncio.run(handle_voice(update, context))
+        mock_stt.assert_not_called()
+
+    update.message.reply_text.assert_awaited_once_with(texts.VOICE_TOO_LONG)
+    context.bot.send_chat_action.assert_not_awaited()
+    context.bot.edit_message_text.assert_not_awaited()
+    context.bot.get_file.assert_not_called()
+
+
+def test_s5a_status_does_not_increment_bot_message_counts(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    day = date(2026, 8, 3)
+    update = _make_voice_update(tid)
+    context = _make_context()
+
+    with (
+        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("app.handlers.voice.local_today", return_value=day),
+        patch("app.handlers.voice.transcribe", return_value="Hello there friend"),
+        patch("app.handlers.voice.chat", return_value=_llm_payload(errors=[])),
+        patch("app.handlers.voice.synthesize", return_value=b"opus"),
+    ):
+        asyncio.run(handle_voice(update, context))
+
+    assert bot_initiated_count(tid, day) == 0
+
+
+def test_s5a_failed_delete_still_sends_voice(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    day = date(2026, 8, 3)
+    update = _make_voice_update(tid)
+    context = _make_context()
+    context.bot.delete_message = AsyncMock(
+        side_effect=BadRequest("message to delete not found")
+    )
+
+    with (
+        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("app.handlers.voice.local_today", return_value=day),
+        patch("app.handlers.voice.transcribe", return_value="Hello there friend"),
+        patch("app.handlers.voice.chat", return_value=_llm_payload(errors=[])),
+        patch("app.handlers.voice.synthesize", return_value=b"opus"),
+    ):
+        asyncio.run(handle_voice(update, context))
+
+    update.message.reply_voice.assert_awaited()

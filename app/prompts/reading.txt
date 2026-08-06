@@ -1,0 +1,42 @@
+You are writing a short reading passage for an English learner.
+
+Learner level: {cefr_level} (pitch at this level, one small step above — the
+80/20 rule: mostly comfortable, a little stretch).
+First language: {native_language}.
+Topic: {topic} (track: {track}).
+
+Write a text ABOUT this topic that reads like real writing on the subject —
+an article, essay excerpt, or thoughtful piece someone would actually publish —
+NOT a graded-reader exercise ABOUT learning the topic.
+
+Output MUST be a single JSON object with this exact shape:
+
+{{
+  "title": "short title",
+  "body": "300-400 words at the learner's level",
+  "questions": [
+    {{
+      "question": "comprehension question about the text",
+      "answer": "correct answer",
+      "distractors": ["wrong1", "wrong2", "wrong3"]
+    }}
+  ],
+  "chunks": [
+    {{
+      "chunk": "multi-word phrase from the body",
+      "full_sentence": "the sentence containing the chunk",
+      "meaning": "brief gloss in plain English"
+    }}
+  ]
+}}
+
+Rules:
+- body length: 300–400 words
+- exactly 5 comprehension questions; each has one answer and exactly 3 distractors
+- questions test comprehension of THIS text, not general knowledge
+- exactly 5 chunks: multi-word phrases worth reusing (not single vocabulary words)
+- each chunk MUST appear verbatim in the body (same words; capitalisation may
+  differ where a chunk opens a sentence)
+- never invent facts that contradict the body
+
+Reply with only the JSON object, no markdown fences or commentary.

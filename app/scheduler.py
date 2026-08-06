@@ -1,6 +1,7 @@
 """In-process scheduled jobs via PTB JobQueue (APScheduler).
 
 S3: morning poll. S4: streak rollover + monthly freeze reset.
+S9a: evening reading poll (Mon/Wed/Fri).
 """
 
 from __future__ import annotations
@@ -9,10 +10,13 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from app.db import connection
 from app.handlers import quiz as quiz_handler
+from app.handlers import reading as reading_handler
 from app.services.sessions import (
+    has_reading_session_on,
     has_session_on,
     local_time_hhmm,
     local_today,
@@ -32,7 +36,10 @@ logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 5 * 60
 STREAK_POLL_SECONDS = 15 * 60
+# Monday=0, Wednesday=2, Friday=4 in the user's local timezone.
+READING_WEEKDAYS = frozenset({0, 2, 4})
 _MORNING_JOB = "morning_poll"
+_EVENING_JOB = "evening_poll"
 _STREAK_JOB = "streak_rollover"
 _FREEZE_JOB = "monthly_freeze_reset"
 
@@ -43,12 +50,13 @@ class EligibleUser:
     timezone: str
     morning_time: time
     paused_until: date | None
+    evening_time: time = time(21, 0)
 
 
-def _time_reached(local_hhmm: tuple[int, int], morning: time) -> bool:
-    """True when local hour:minute is at or past morning_time (minute precision)."""
+def _time_reached(local_hhmm: tuple[int, int], slot: time) -> bool:
+    """True when local hour:minute is at or past slot (minute precision)."""
     hour, minute = local_hhmm
-    return (hour, minute) >= (morning.hour, morning.minute)
+    return (hour, minute) >= (slot.hour, slot.minute)
 
 
 def list_candidate_users() -> list[EligibleUser]:
@@ -56,7 +64,8 @@ def list_candidate_users() -> list[EligibleUser]:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT telegram_user_id, timezone, morning_time, paused_until
+            SELECT telegram_user_id, timezone, morning_time, evening_time,
+                   paused_until
               FROM users
              WHERE onboarded = TRUE
             """
@@ -67,6 +76,7 @@ def list_candidate_users() -> list[EligibleUser]:
             timezone=str(row["timezone"] or "Europe/Vilnius"),
             morning_time=row["morning_time"],
             paused_until=row["paused_until"],
+            evening_time=row["evening_time"] or time(21, 0),
         )
         for row in rows
     ]
@@ -88,11 +98,37 @@ def is_user_due_for_morning(user: EligibleUser, now: datetime) -> bool:
     return True
 
 
+def is_user_due_for_evening(user: EligibleUser, now: datetime) -> bool:
+    """Whether this user should receive a reading delivery at ``now``."""
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    day = local_today(user.timezone, now)
+    local_dt = now.astimezone(ZoneInfo(user.timezone))
+    if local_dt.weekday() not in READING_WEEKDAYS:
+        return False
+    if user.paused_until is not None and user.paused_until >= day:
+        return False
+    if not _time_reached(local_time_hhmm(user.timezone, now), user.evening_time):
+        return False
+    if has_reading_session_on(user.telegram_user_id, day):
+        return False
+    if not under_message_ceiling(user.telegram_user_id, day):
+        return False
+    return True
+
+
 def users_due_for_morning(now: datetime) -> list[EligibleUser]:
     """Users whose local morning slot is due and who have no session today."""
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     return [u for u in list_candidate_users() if is_user_due_for_morning(u, now)]
+
+
+def users_due_for_evening(now: datetime) -> list[EligibleUser]:
+    """Users whose local evening reading slot is due."""
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    return [u for u in list_candidate_users() if is_user_due_for_evening(u, now)]
 
 
 async def run_morning_poll(
@@ -120,6 +156,37 @@ async def run_morning_poll(
         except Exception:
             logger.exception(
                 "Morning delivery failed user_id=%s",
+                user.telegram_user_id,
+            )
+            results.append((user.telegram_user_id, "error"))
+    return results
+
+
+async def run_evening_poll(
+    application: Application,
+    now: datetime | None = None,
+) -> list[tuple[int, str]]:
+    """Run one evening reading poll. Returns list of (user_id, action)."""
+    instant = now or datetime.now(timezone.utc)
+    due = users_due_for_evening(instant)
+    logger.info("Evening poll: %s user(s) due", len(due))
+    results: list[tuple[int, str]] = []
+    for user in due:
+        try:
+            action = await reading_handler.deliver_evening(
+                application,
+                user.telegram_user_id,
+                now=instant,
+            )
+            results.append((user.telegram_user_id, action))
+            logger.info(
+                "Evening delivery user_id=%s action=%s",
+                user.telegram_user_id,
+                action,
+            )
+        except Exception:
+            logger.exception(
+                "Evening delivery failed user_id=%s",
                 user.telegram_user_id,
             )
             results.append((user.telegram_user_id, "error"))
@@ -164,6 +231,10 @@ async def _morning_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_morning_poll(context.application)
 
 
+async def _evening_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await run_evening_poll(context.application)
+
+
 async def _streak_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     run_streak_rollover()
 
@@ -173,14 +244,14 @@ async def _freeze_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def start_scheduler(application: Application) -> None:
-    """Register morning, streak, and freeze jobs on the PTB JobQueue."""
+    """Register morning, evening, streak, and freeze jobs on the PTB JobQueue."""
     jq = application.job_queue
     if jq is None:
         raise RuntimeError(
             "JobQueue unavailable — install apscheduler "
             "(see requirements.txt)"
         )
-    known = {_MORNING_JOB, _STREAK_JOB, _FREEZE_JOB}
+    known = {_MORNING_JOB, _EVENING_JOB, _STREAK_JOB, _FREEZE_JOB}
     for job in jq.jobs():
         if job.name in known:
             job.schedule_removal()
@@ -190,6 +261,12 @@ def start_scheduler(application: Application) -> None:
         interval=POLL_SECONDS,
         first=10,
         name=_MORNING_JOB,
+    )
+    jq.run_repeating(
+        _evening_job,
+        interval=POLL_SECONDS,
+        first=15,
+        name=_EVENING_JOB,
     )
     jq.run_repeating(
         _streak_job,
@@ -204,9 +281,10 @@ def start_scheduler(application: Application) -> None:
         name=_FREEZE_JOB,
     )
     logger.info(
-        "Scheduler started jobs=%s,%s,%s "
-        "(morning every %ss; streak/freeze every %ss)",
+        "Scheduler started jobs=%s,%s,%s,%s "
+        "(morning/evening every %ss; streak/freeze every %ss)",
         _MORNING_JOB,
+        _EVENING_JOB,
         _STREAK_JOB,
         _FREEZE_JOB,
         POLL_SECONDS,
@@ -218,7 +296,7 @@ def stop_scheduler(application: Application | None = None) -> None:
     """Remove scheduler jobs if present."""
     if application is None or application.job_queue is None:
         return
-    known = {_MORNING_JOB, _STREAK_JOB, _FREEZE_JOB}
+    known = {_MORNING_JOB, _EVENING_JOB, _STREAK_JOB, _FREEZE_JOB}
     for job in application.job_queue.jobs():
         if job.name in known:
             job.schedule_removal()

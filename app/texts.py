@@ -458,3 +458,112 @@ VOICE_TOO_LONG = (
 VOICE_DIDNT_CATCH = (
     "I didn't catch that — try again when you're ready?"
 )
+
+# Processing stages (S5a) — honest names, not a progress bar.
+VOICE_STATUS_LISTENING = "🎧 Got it, listening…"
+VOICE_STATUS_THINKING = "💭 Thinking…"
+VOICE_STATUS_RECORDING = "🔊 Recording my reply…"
+
+
+# --- Interests profile (S9) ---------------------------------------------------
+
+INTERESTS_INTRO = (
+    "What do you actually want to read and watch about?\n"
+    "I'll use this for the reading and video picks."
+)
+
+INTERESTS_ASK_WORK = "Work — pick topics you care about."
+INTERESTS_ASK_LIFE = "Life & Social — what comes up in your day?"
+INTERESTS_ASK_CURIOSITY = "Curiosity — what do you dig into for fun?"
+
+INTERESTS_ASK_OTHER = "What topic? One short phrase is enough."
+
+INTERESTS_INVALID_OTHER = "I need a short topic — try again?"
+
+INTERESTS_PROFILE_INTRO = "Here's what I'm aiming at for reading and video."
+
+INTERESTS_SAVED = "Got it — I'll lean on these for reading and video."
+
+INTERESTS_KEEP = "Alright — leaving your interests as they are."
+
+INTERESTS_CANCELLED = "Okay — nothing changed. Say /interests whenever you're ready."
+
+INTERESTS_SAVE_FAILED = (
+    "Something broke on my side — try /interests again in a moment."
+)
+
+# Toast when Done is tapped with fewer than 2 selections (callback query answer).
+INTERESTS_DONE_TOAST = "Pick at least two first."
+
+# --- Reading delivery (S9a) ---------------------------------------------------
+
+# Title + body; PRD §8 exempts reading from the 400-character scheduled limit.
+READING_DELIVERY = "{title}\n\n{body}"
+
+INTERESTS_TRACK_LABELS: dict[str, str] = {
+    "work": "Work",
+    "life": "Life & Social",
+    "curiosity": "Curiosity",
+}
+
+# Every preset gets a leading emoji; customs use the topic text with none.
+INTEREST_TOPIC_LABELS: dict[str, str] = {
+    "campaigns": "📣 Campaigns",
+    "client email": "📧 Client email",
+    "negotiation": "🤝 Negotiation",
+    "standups": "🗣️ Standups",
+    "interviews": "💼 Interviews",
+    "pricing": "💰 Pricing",
+    "positioning": "🎯 Positioning",
+    "apartments": "🏠 Apartments",
+    "doctors": "🩺 Doctors",
+    "arguments": "💢 Arguments",
+    "cooking": "🍳 Cooking",
+    "travel": "✈️ Travel",
+    "humour": "😄 Humour",
+    "opinions": "💭 Opinions",
+    "small talk": "💬 Small talk",
+    "space": "🚀 Space",
+    "psychology": "🧠 Psychology",
+    "history": "📜 History",
+    "mysteries": "🕵️ Mysteries",
+    "technology": "💻 Technology",
+    "sport": "⚽ Sport",
+    "nature": "🌿 Nature",
+}
+
+INTEREST_PRESETS: dict[str, list[str]] = {
+    "work": [
+        "campaigns",
+        "client email",
+        "negotiation",
+        "standups",
+        "interviews",
+        "pricing",
+        "positioning",
+    ],
+    "life": [
+        "apartments",
+        "doctors",
+        "arguments",
+        "cooking",
+        "travel",
+        "humour",
+        "opinions",
+        "small talk",
+    ],
+    "curiosity": [
+        "space",
+        "psychology",
+        "history",
+        "mysteries",
+        "technology",
+        "sport",
+        "nature",
+    ],
+}
+
+BTN_INTERESTS_OTHER = BTN_DOMAIN_OTHER
+BTN_INTERESTS_DONE_NEED_2 = "Pick 2 to continue"
+BTN_INTERESTS_DONE_NEED_1 = "Pick 1 more"
+BTN_INTERESTS_DONE_READY = "Done →"
