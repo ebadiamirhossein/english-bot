@@ -44,6 +44,10 @@ This file is the project's constitution. Every slice reads it first.
   trace or an exception message.
 - Copy follows `docs/PRD.md` §8: under 400 characters for scheduled messages,
   one idea per message, never guilt, buttons over typing.
+- Telegram truncates inline button labels to the button width. Never put content
+  the user must READ inside a button label. Buttons carry short labels only
+  (numbers, single words, ≤20 chars). Anything longer goes in the message body.
+  This applies to every current and future question format.
 - Audio is never written to disk.
 - Max 2 nudges per user per day. Max 3 bot-initiated messages per user per day.
 - Tasks stay open until 03:00 the following night. Never expire content.

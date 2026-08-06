@@ -16,6 +16,22 @@ After every slice, Cursor must update `BUILD_PROGRESS.md`.
 **Build:** `/start` conversation collecting name, native language, EF SET score → mapped to `cefr_level`, work domain, why-statement, track weights, morning/evening times. Writes `users` + `streaks` rows. Idempotent — running `/start` again offers to edit, not duplicate.
 **Accept:** both users complete onboarding; rows correct in DB; second `/start` does not create a duplicate.
 
+### S1a · Onboarding UX polish
+**Build:** Early UX polish on the S1 flow (later superseded by S1b's interaction model; data layer unchanged).
+**Accept:** onboarding remains completable; no duplicate user rows.
+
+### S1b · Onboarding rebuild
+**Build:** Replace multi-bubble onboarding with a single-message `edit_message_text` wizard; common path ~8 taps / 0 typing; why multi-select joined into one sentence; HTML + escape.
+**Accept:** wizard stays one editable message; Save writes `users` + `streaks` once; second `/start` offers Change / Keep as is.
+
+### S1c · Onboarding content
+**Build:** EF SET "Not yet" → CEFR can-do self-assessment (A2/B1/B2); work domain category→specific drill-down; situation-based why options; EF SET nudge on save.
+**Accept:** skipping EF SET stores a chosen A2/B1/B2 (not silent B1); domain and why are specific enough for later motivation/content.
+
+### S1d · Onboarding personality
+**Build:** Shared `layout_buttons` (≤12 chars to share a row); emoji on options; static reaction line after each choice; warmer copy. Celebration sticker skipped (no stable `file_id`).
+**Accept:** long labels stay readable; reactions appear without adding extra bot messages beyond the wizard contract.
+
 ### S2 · LLM wrapper + free correction (M2)
 **Build:** `llm.py` per ARCHITECTURE §4 with retry/backoff and `LLMError`. `prompts/correction.txt`. Handler: any non-command text → correction → reply in the fixed visual format from PRD §8 → write rows to `errors` with `next_review = tomorrow`.
 **Accept:** send "her english is not so much good" → correct reply in the right shape → row exists in `errors` with `error_type='quantifier_modifier'`.
@@ -24,6 +40,22 @@ After every slice, Cursor must update `BUILD_PROGRESS.md`.
 **Build:** `services/errors.py` (`due_errors`, `mark_result`, spacing ladder 1→3→7→21→60). `prompts/quiz.txt`. `scheduler.py` with `send_daily_quiz` at each user's `morning_time`. Inline-button answers where the format allows. Writes `sessions`.
 **Accept:** an error recorded today appears in tomorrow's quiz; answering correctly pushes `next_review` to +3 days; answering wrong resets to +1 day and increments `times_wrong`.
 **Tests required:** unit tests for the spacing ladder.
+
+### S3a · Quiz content + formats
+**Build:** User-facing `error_types.label` (never codes); quiz sentences distributed by `track_weights`; four formats gap/choice/reorder/spot; past prompts from prior quiz session payload.
+**Accept:** a quiz mixes tracks per weights; labels read as language, not `quantifier_modifier`.
+
+### S3b · Quiz question layout
+**Build:** Message body is for reading; buttons are only for tapping. Spot body shows the full sentence; feedback separated by a blank line (no divider wall).
+**Accept:** spot/order questions are readable without relying on truncated button text alone.
+
+### S3c · Quiz formats + spoken register
+**Build:** Remove reorder tile grid; replace with `order` (4 full-sentence word-order choices). Spoken-register prompt rules; one shared everyday scenario per quiz.
+**Accept:** order options are full sentences; quiz feels like one situation, not five unrelated worksheets.
+
+### S3d · Quiz feedback + format mix
+**Build:** Full-sentence feedback; hard mix 2 typed (gap) / 3 tapped per 5-question quiz; progress dots last.
+**Accept:** feedback quotes a full sentence; production stays present without making daily completion brittle.
 
 ### S4 · Streaks, freeze, rescue mode
 **Build:** `services/streaks.py` implementing PRD §7 rules 5–7 exactly. Monthly freeze reset job. Rescue mode shrinks the daily task to 3 questions for 7 days after 3 consecutive missed days.
@@ -45,6 +77,10 @@ After every slice, Cursor must update `BUILD_PROGRESS.md`.
 **Build:** `speech.py` (`transcribe`, `synthesize`; audio never touches disk). `prompts/voice.txt`. Voice message in → transcript → conversational voice reply + separate text correction block → errors written with `source='voice'`. Conversation state held for 5–10 turns.
 **Accept:** send a voice message with 2 mistakes → receive a spoken reply that continues the conversation plus a text correction block → both errors in the journal.
 
+### S5a · Voice processing status
+**Build:** Repeating chat action while processing; editable 3-stage status message (listening → thinking → recording) instead of a fake progress bar.
+**Accept:** user sees honest stage names during a voice turn; over-length voice is declined before download with no status flash.
+
 ### S6 · Book ingestion (M5)
 **Build:** `/book` conversation → accepts a photo album → vision call via `llm.py` → `prompts/book_ocr.txt` extracts book, unit number, title, target items → writes `book_units`. `/test unit 12` pulls questions from a stored unit.
 **Accept:** photograph 10 pages of Murphy → correct units appear in `book_units` with sensible `target_items`; `/test unit N` produces questions grounded in that unit.
@@ -61,13 +97,21 @@ After every slice, Cursor must update `BUILD_PROGRESS.md`.
 
 ## Phase 3 — Intelligence
 
-### S9 · Interests + reading engine (M4)
-**Build:** onboarding extension asking ~10 interest questions → `interests`. `prompts/reading.txt`. 3×/week text at the user's level, 5 comprehension questions, chunk extraction, 1–5 rating that adjusts weights.
-**Accept:** texts match stated interests; a 1-star rating measurably lowers that topic's weight.
+### S9 · Interests profile
+**Build:** Standalone `/interests` ConversationHandler (not an onboarding extension). Multi-select per track → seeds `interests`; Change/Keep on re-entry; preserves `weight`/`last_used` across replace.
+**Accept:** ≥2 topics per track saved; custom topics survive a no-op Change→Done; unregistered users ignored.
+
+### S9a · Reading delivery + chunks (M4 delivery)
+**Build:** Mon/Wed/Fri evening poll at `evening_time`; LLM reading on a weighted interest topic; validates body/chunks; persists `readings` + 5 `chunks` + incomplete `reading` session; sends title+body only; respects 3-message ceiling; commit-after-send.
+**Accept:** reading arrives on a reading evening; DB has 1 reading / 5 chunks / 1 session; questions stored unsent; ceiling skip writes nothing; reading session does not block next morning's quiz.
 
 ### S9b · Video engine (M16)
 **Build:** YouTube Data API integration. 2×/week (Tue/Thu) selection on interest weights + track rotation + `cefr_level`. Filter to videos with human-written captions. Return one 3-minute segment with start timestamp, not a whole video. Track accent exposure per user and bias selection toward unfamiliar accents.
 **Accept:** suggestions match stated interests and level; auto-caption-only videos are excluded; the same accent is never suggested three times running; the message names a specific segment, not just a link.
+
+### S9c · Reading comprehension + rating (M4 Q&A)
+**Build:** Deliver the five stored comprehension questions; grade answers; 1–5 topic rating that adjusts `interests.weight`; mark reading/session complete.
+**Accept:** answering the questions completes the reading; a 1-star rating measurably lowers that topic's weight.
 
 ### S10 · Motivation engine (M7)
 **Build:** nudge ladder per PRD §7 rules 1–4 and 9 (max 2 nudges, second offers a smaller task, 3-message daily ceiling, never guilt). Sunday report leading with resolved error types.

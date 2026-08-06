@@ -5,9 +5,9 @@
 
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
-**Last updated:** 2026-08-04
-**Current slice:** S9a
-**Status:** S9a code-complete — awaiting human Telegram verify
+**Last updated:** 2026-08-07
+**Current slice:** S9c
+**Status:** S9c not started — unrun Telegram checks remain on S5 / S5a / S9 / S9a / S3 truncation fix
 
 ---
 
@@ -23,27 +23,27 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | Slice | Name | Status | Date | Notes |
 |---|---|---|---|---|
 | S0 | Repo skeleton | ✅ done & verified | 2026-07-31 | Config, db migrate/status, `/ping` verified against local PG 16.14. |
-| S1 | Onboarding | 🟡 code-complete | 2026-07-31 | ConversationHandler `/start`; users+streaks upsert; access control; pytest green on :5433. |
-| S1a | Onboarding UX polish | 🟡 code-complete | 2026-08-01 | Superseded interaction model by S1b; data layer unchanged. |
-| S1b | Onboarding rebuild | 🟡 code-complete | 2026-08-03 | Single-message `edit_message_text` wizard; 8 taps / 0 typing common path; why multi-select → sentence; HTML + escape. |
-| S1c | Onboarding content | 🟡 code-complete | 2026-08-03 | Self-assessment A2/B1/B2; domain category→specific drill-down; situation-based why options; EF SET nudge on save. |
-| S1d | Onboarding personality | 🟡 code-complete | 2026-08-03 | Layout helper (≤12 shared rows); emoji on options; static reactions; warmer copy. Sticker skipped (no stable file_id). |
-| S2 | LLM wrapper + correction | 🟡 code-complete | 2026-08-03 | `llm.py` + free correction; pytest green; await Telegram verify. |
-| S3 | Daily quiz + scheduler | 🟡 code-complete | 2026-08-03 | Spacing ladder + quiz + 5-min poll; await Telegram verify. |
-| S3a | Quiz content + formats | 🟡 code-complete | 2026-08-03 | Labels not codes; track mix; gap/choice/reorder/spot. |
-| S3b | Quiz question layout | 🟡 code-complete | 2026-08-03 | Body reads / buttons tap; feedback blank line. |
-| S3c | Quiz formats + register | 🟡 code-complete | 2026-08-03 | Reorder→order; spoken register; one scenario. |
-| S3d | Quiz feedback + format mix | 🟡 code-complete | 2026-08-03 | Full-sentence feedback; 2 typed/3 tapped; 63 pytest green. |
-| S4 | Streaks, freeze, rescue | 🟡 code-complete | 2026-08-03 | 03:00 local rollover; freeze; rescue 3Q; 83 pytest green. |
-| S4b | Database backups | 🟡 code-complete | 2026-08-04 | pg_dump/restore scripts; restore verified; off-site stub. |
-| — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | await S4 verify + 14-day use |
-| S5 | Voice partner | 🟡 code-complete | 2026-08-04 | Whisper+TTS; voice sessions; Active>Missed; 98 pytest green. |
-| S5a | Voice processing status | 🟡 code-complete | 2026-08-04 | Repeating chat action + 3-stage status message; await Telegram verify. |
+| S1 | Onboarding | ✅ done & verified | 2026-07-31 | ConversationHandler `/start`; users+streaks upsert; access control. Verified live. |
+| S1a | Onboarding UX polish | ✅ done & verified | 2026-08-01 | Superseded interaction model by S1b; data layer unchanged. Verified live. |
+| S1b | Onboarding rebuild | ✅ done & verified | 2026-08-03 | Single-message `edit_message_text` wizard; 8 taps / 0 typing common path; why multi-select → sentence; HTML + escape. Verified live. |
+| S1c | Onboarding content | ✅ done & verified | 2026-08-03 | Self-assessment A2/B1/B2; domain category→specific drill-down; situation-based why options; EF SET nudge on save. Verified live. |
+| S1d | Onboarding personality | ✅ done & verified | 2026-08-03 | Layout helper (≤12 shared rows); emoji on options; static reactions; warmer copy. Sticker skipped (no stable file_id). Verified live. |
+| S2 | LLM wrapper + correction | ✅ done & verified | 2026-08-03 | `llm.py` + free correction. Verified live. |
+| S3 | Daily quiz + scheduler | ✅ done & verified | 2026-08-03 | Spacing ladder + quiz + 5-min poll. Core verified live; order/choice body+1–4 buttons check still open (2026-08-07 truncation fix). |
+| S3a | Quiz content + formats | ✅ done & verified | 2026-08-03 | Labels not codes; track mix; gap/choice/reorder/spot. Verified live. |
+| S3b | Quiz question layout | ✅ done & verified | 2026-08-03 | Body reads / buttons tap; feedback blank line. Verified live. |
+| S3c | Quiz formats + register | ✅ done & verified | 2026-08-03 | Reorder→order; spoken register; one scenario. Verified live. |
+| S3d | Quiz feedback + format mix | ✅ done & verified | 2026-08-03 | Full-sentence feedback; 2 typed/3 tapped. Verified live. |
+| S4 | Streaks, freeze, rescue | ✅ done & verified | 2026-08-03 | 03:00 local rollover; freeze; rescue 3Q. Verified live. |
+| S4b | Database backups | ✅ done & verified | 2026-08-04 | pg_dump/restore scripts; restore verified; off-site stub. Verified live. |
+| — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | Phase 1 slices verified; 14-day use gate still open |
+| S5 | Voice partner | 🟡 code-complete | 2026-08-04 | Whisper+TTS; voice sessions; Active>Missed. Unrun: mid-conversation restart. |
+| S5a | Voice processing status | 🟡 code-complete | 2026-08-04 | Repeating chat action + 3-stage status message. Unrun: never tested in Telegram. |
 | S6 | Book ingestion | ⬜ not started | | |
 | S7 | Anki export | ⬜ not started | | |
 | S8 | Couple challenge | ⬜ not started | | |
-| S9 | Interests profile | 🟡 code-complete | 2026-08-04 | `/interests` wizard seeds `interests`; 112 pytest green; reading engine is S9a. |
-| S9a | Reading delivery + chunks | 🟡 code-complete | 2026-08-04 | Mon/Wed/Fri evening poll; readings+chunks+session; ceiling; 134 pytest green. |
+| S9 | Interests profile | 🟡 code-complete | 2026-08-04 | `/interests` wizard seeds `interests`. Unrun: custom-topic weight/last_used across Change→Done. |
+| S9a | Reading delivery + chunks | 🟡 code-complete | 2026-08-06 | Mon/Wed/Fri evening poll; readings+chunks+session; ceiling; LLM off event loop. Unrun: same-day second poll / ceiling / morning quiz unblock. |
 | S9b | Video engine (YouTube) | ⬜ not started | | |
 | S9c | Reading comprehension + rating | ⬜ not started | | Questions delivery, grading, 1–5 rating → weight adjust. |
 | S10 | Motivation engine | ⬜ not started | | |
@@ -82,6 +82,10 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-07 | Standing rule — every slice ends with a `BUILD_PROGRESS.md` update (slice row, decisions with reasons, known issues, file inventory, Next action carrying forward every unrun check) | This file is the only memory between sessions; a stale file causes settled work to be re-litigated. |
+| 2026-08-07 | S9c split from S9a — comprehension delivery, grading and the 1–5 rating are their own slice | Chunks unblock S7 before the Q&A UX lands. |
+| 2026-08-07 | Quiz `order`/`choice`: options as numbered list in the message body; buttons are `1`–`4` only. Permanent ≤20-char button-label rule in `.cursorrules` | Live: Telegram truncates full-sentence button labels ("I went to Vilnius l...for a conference") — question unanswerable. Restates S3b (body reads / buttons tap). Spot tiles stay single words (audit: gap has no buttons; spot under contract stays ≤20). |
+| 2026-08-06 | S9a: scheduled LLM via `asyncio.to_thread`; evening job `first=EVENING_FIRST_SECONDS` (mid-interval) | Live 2026-08-06: morning quiz LLM blocked the event loop ~17s; APScheduler skipped the evening poll (jobs were only 5s apart). Soft to the user looked like "reading never fires." |
 | 2026-08-04 | Split TASKS S9 into **S9a** (delivery + chunks) and **S9c** (comprehension + rating) | Chunks unblock S7 Anki before Q&A UX lands; same vertical-slice pattern as S3→S3d. S9 itself stayed interests-only. |
 | 2026-08-04 | S9a: commit readings/chunks/session only after Telegram send succeeds (txn held across send) | A send failure after persist would poison the chunk pool with text the user never read; Anki (S7) would export untraceable cards. Day stays unclaimed → next 5-min tick retries. |
 | 2026-08-04 | S9a: chunk-in-body check normalises casefold / whitespace / apostrophes+quotes; store model text as-is | Strict `in` rejects valid capitalised / curly-apostrophe chunks; retry then silent-skip wasted the day. |
@@ -178,6 +182,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 4 | System prompt was under Anthropic Sonnet cache minimum (~1024). Fixed by adding two worked examples; live verify: call2 `cache_read=1641`. | low | S2 | ✅ closed — 2026-08-03 |
 | 5 | Chat-message UI has reached its design ceiling; a Telegram Mini App is the real answer for quiz UX — revisit after the 14-day usage gate, sharing design work with S23. | medium | S3d → post-gate / S23 | ⬜ open |
 | 6 | S4b off-site weekly copy is a stub (`offsite_copy_stub` in `scripts/backup.sh`). Local 14-day dumps exist; independent storage (rsync / rclone / manual) is not automated yet. Wire before relying on the Hetzner box alone. | high | S4b | ⬜ open |
+| 7 | Morning quiz LLM blocked the event loop (~17s); APScheduler skipped that tick's evening reading poll (jobs first=10/15). | high | S9a | ✅ closed — 2026-08-06 (`asyncio.to_thread` + mid-interval evening offset) |
 
 ---
 
@@ -270,12 +275,21 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 
 ## Next action
 
-**Human:** verify S9a in Telegram (user must already be onboarded with `/interests` seeded):
+Unrun human Telegram checks (do not start S9c until these are cleared or explicitly deferred):
 
-1. On a Mon/Wed/Fri after `evening_time`, with message ceiling free: receive one message = title + body (~300–400 words on an interest topic). No questions yet.
-2. DB: 1 `readings` row (`completed=FALSE`, questions JSONB present), 5 `chunks` (`source=reading_<id>`, `exported_to_anki=FALSE`), 1 `sessions` row (`task_type=reading`, `payload.reading_id`, `completed=FALSE`); chosen interest `last_used` = local today; `bot_message_counts` +1.
-3. Second poll same evening: no second reading.
-4. With ceiling already at 3: no reading, no new rows.
-5. Next morning: quiz still delivers (reading session does not block).
+**S5**
+- Mid-conversation restart — bot still remembers the topic after Ctrl-C + restart
 
-Mark S9a ✅ only after that. Next slice after verify: S9c (comprehension + rating) or S7 (Anki — chunks now exist).
+**S5a**
+- Status message shows 🎧 → 💭 → 🔊 then disappears; header "recording" persists the whole wait; over-length declined with no status message first
+
+**S9**
+- Set a non-default weight on one interest row, then `/interests` → Change → Done changing nothing → weight and `last_used` survive
+
+**S9a**
+- Second evening poll same day delivers no second reading
+- With `bot_message_counts` at 3, no reading and no new rows
+- Next morning's quiz still delivers (reading session does not block it)
+
+**S3**
+- Order/choice questions — all four options readable in the message body, buttons are 1–4 (verifies the 2026-08-07 truncation fix)

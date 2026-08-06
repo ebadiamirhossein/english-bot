@@ -90,6 +90,8 @@ def test_reorder_removed_from_contract_and_handler() -> None:
 
 
 def test_order_options_each_on_own_row() -> None:
+    # Superseded 2026-08-07: full sentences moved to the message body;
+    # buttons are numbers on one shared row (see test_quiz_s3b numbered labels).
     q = {
         "format": "order",
         "prompt": "Which one sounds right?",
@@ -103,10 +105,8 @@ def test_order_options_each_on_own_row() -> None:
     }
     markup = _keyboard_for_question(q, {})
     assert isinstance(markup, InlineKeyboardMarkup)
-    assert len(markup.inline_keyboard) == 4
-    for row in markup.inline_keyboard:
-        assert len(row) == 1
-        assert len(row[0].text) > 20  # full sentence, not a tile
+    labels = [btn.text for row in markup.inline_keyboard for btn in row]
+    assert labels == ["1", "2", "3", "4"]
 
 
 def test_no_divider_in_rendered_messages() -> None:

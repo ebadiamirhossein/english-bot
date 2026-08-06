@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import logging
@@ -474,6 +475,20 @@ def _quiz_preface(user_id: int, *, rescue: bool) -> str:
     return "\n\n".join(parts)
 
 
+# Telegram truncates inline button labels to button width. Never put readable
+# content in a label — numbers / single words only (see .cursorrules).
+_MAX_BUTTON_LABEL_CHARS = 20
+
+
+def _numbered_options_block(options: list[str]) -> str:
+    """Full options for the message body — one numbered line each."""
+    lines = [
+        f"{i}. {html.escape(str(opt), quote=False)}"
+        for i, opt in enumerate(options, start=1)
+    ]
+    return "\n".join(lines)
+
+
 def _question_text(payload: dict[str, Any]) -> str:
     """Message body for READING. Hint → sentence → dots last."""
     questions = payload["questions"]
@@ -490,11 +505,13 @@ def _question_text(payload: dict[str, Any]) -> str:
         sentence = gap_prompt_with_bold_blank(str(q.get("prompt") or ""))
         body = f"{hint}\n\n{sentence}\n\n{dots}"
     else:
-        # choice / order — short instruction prompt, options on buttons
+        # choice / order — options in the body; buttons are numbers only
         prompt = html.escape(
             str(q.get("prompt") or "Which one sounds right?"), quote=False
         )
-        body = f"{hint}\n\n{prompt}\n\n{dots}"
+        options = [str(o) for o in (q.get("options") or [])]
+        opts_block = _numbered_options_block(options)
+        body = f"{hint}\n\n{prompt}\n\n{opts_block}\n\n{dots}"
 
     # Preface (freeze / rescue) only on the first question.
     preface = str(payload.get("preface") or "").strip()
@@ -518,9 +535,9 @@ def _keyboard_for_question(
     fmt = q.get("format")
     if fmt in ("choice", "order"):
         options = list(q.get("options") or [])
-        # One option per row so each full sentence reads as a sentence.
-        items = [(opt, f"quiz:opt:{i}") for i, opt in enumerate(options)]
-        rows = layout_buttons(items, max_per_row=1)
+        # Numbers only — full sentences live in the message body.
+        items = [(str(i + 1), f"quiz:opt:{i}") for i in range(len(options))]
+        rows = layout_buttons(items, max_per_row=4)
         return InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton(label, callback_data=cb) for label, cb in row]
@@ -692,7 +709,11 @@ async def deliver_morning(
         return "free_practice"
 
     try:
-        questions, scenario = _build_quiz_questions(user_id, errors)
+        # Off the event loop — a blocking LLM call would make APScheduler
+        # skip the evening poll (misfire grace) for that tick.
+        questions, scenario = await asyncio.to_thread(
+            _build_quiz_questions, user_id, errors
+        )
     except (LLMError, Exception):
         logger.exception(
             "quiz generation failed user_id=%s handler=%s",

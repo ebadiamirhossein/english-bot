@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 5 * 60
 STREAK_POLL_SECONDS = 15 * 60
+# Offset evening from morning within the same interval so a slow morning
+# LLM cannot land in APScheduler's misfire window for the evening tick.
+EVENING_FIRST_SECONDS = POLL_SECONDS // 2
 # Monday=0, Wednesday=2, Friday=4 in the user's local timezone.
 READING_WEEKDAYS = frozenset({0, 2, 4})
 _MORNING_JOB = "morning_poll"
@@ -262,10 +265,12 @@ def start_scheduler(application: Application) -> None:
         first=10,
         name=_MORNING_JOB,
     )
+    # Mid-interval offset so morning and evening never share a 5s window.
+    # (LLM also runs via asyncio.to_thread; this is belt-and-suspenders.)
     jq.run_repeating(
         _evening_job,
         interval=POLL_SECONDS,
-        first=15,
+        first=EVENING_FIRST_SECONDS,
         name=_EVENING_JOB,
     )
     jq.run_repeating(
@@ -282,12 +287,14 @@ def start_scheduler(application: Application) -> None:
     )
     logger.info(
         "Scheduler started jobs=%s,%s,%s,%s "
-        "(morning/evening every %ss; streak/freeze every %ss)",
+        "(morning/evening every %ss, evening first=%ss; "
+        "streak/freeze every %ss)",
         _MORNING_JOB,
         _EVENING_JOB,
         _STREAK_JOB,
         _FREEZE_JOB,
         POLL_SECONDS,
+        EVENING_FIRST_SECONDS,
         STREAK_POLL_SECONDS,
     )
 

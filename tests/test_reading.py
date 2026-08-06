@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time as time_mod
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
@@ -14,6 +15,8 @@ import pytest
 from app.db import close_pool, connection
 from app.handlers.reading import deliver_evening, init_reading_prompt
 from app.scheduler import (
+    EVENING_FIRST_SECONDS,
+    POLL_SECONDS,
     EligibleUser,
     is_user_due_for_evening,
     is_user_due_for_morning,
@@ -619,3 +622,46 @@ def test_successful_run_writes_exact_rows(cleanup_user: int) -> None:
         ).fetchone()
         assert session["completed"] is False
         assert "reading_id" in session["payload"]
+
+
+def test_evening_job_offset_mid_interval() -> None:
+    """Evening must not share morning's 5s first-window (live miss 2026-08-06)."""
+    assert EVENING_FIRST_SECONDS == POLL_SECONDS // 2
+    assert EVENING_FIRST_SECONDS >= 60
+
+
+def test_reading_llm_does_not_block_event_loop(cleanup_user: int) -> None:
+    """asyncio.to_thread must let other coroutines run during chat()."""
+    tid = cleanup_user
+    _onboard(tid)
+    _seed_interests(tid, [("campaigns", "work"), ("travel", "life")])
+    progress: list[str] = []
+
+    def slow_chat(*a: Any, **k: Any) -> dict[str, Any]:
+        progress.append("chat_start")
+        time_mod.sleep(0.25)
+        progress.append("chat_end")
+        return _valid_llm_payload()
+
+    async def watcher() -> None:
+        while "chat_start" not in progress:
+            await asyncio.sleep(0.01)
+        progress.append("watcher_ran")
+        while "chat_end" not in progress:
+            await asyncio.sleep(0.01)
+
+    async def main() -> str:
+        results = await asyncio.gather(
+            deliver_evening(
+                _mock_app(),
+                tid,
+                now=_MONDAY_EVENING_UTC,
+                chat_fn=slow_chat,
+            ),
+            watcher(),
+        )
+        return results[0]
+
+    action = asyncio.run(main())
+    assert action == "reading"
+    assert progress.index("watcher_ran") < progress.index("chat_end")

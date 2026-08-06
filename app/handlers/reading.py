@@ -5,6 +5,7 @@ Sends title+body only. Questions are stored unsent for S9c.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -142,7 +143,9 @@ async def deliver_evening(
     last_err: Exception | None = None
     for attempt in range(2):
         try:
-            raw = _generate(
+            # Off the event loop — sync chat() must not block JobQueue ticks.
+            raw = await asyncio.to_thread(
+                _generate,
                 cefr_level=user.cefr_level,
                 native_language=user.native_language,
                 topic=topic_row.topic,
