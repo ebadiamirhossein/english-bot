@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-09
-**Current slice:** S13
-**Status:** S13 diary code-complete — verify in Telegram; unrun checks remain on S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Current slice:** S14
+**Status:** S14 prep code-complete — verify in Telegram; unrun checks remain on S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -53,7 +53,8 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S18 | Hardening | 🟡 code-complete | 2026-08-08 | Global error handler + file-backed throttle; heartbeat (touch on success); rotating log; flock single-instance; `/pause` + `/stats`. |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
 | S13 | Voice diary (M9) | 🟡 code-complete | 2026-08-09 | Tue/Thu prompts + `/diary`; live M3 wins voice routing; max 2 corrections; no TTS; full transcript discarded. |
-| S14, S16–S17, S19 | Phase 4 depth | ⬜ not started | | |
+| S14 | Load-up mode (M10) | 🟡 code-complete | 2026-08-09 | `/prep <topic>` → 10 chunks + 3 frames; persist `prep_<slug>` to Anki pool; no sessions/errors; commit-after-send. |
+| S16–S17, S19 | Phase 4 depth | ⬜ not started | | |
 | S20–S23 | Phase 5 commercial | ⬜ not started | | |
 
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
@@ -86,6 +87,14 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-09 | S14 prep chunks **persist** to `chunks` (Anki pool) | Highest-intent vocabulary in the product — user asked for them for a real situation with real stakes; S7 TSV is the retention path. |
+| 2026-08-09 | S14 `chunks.source = prep_<slug>` (slug = lowercase topic, non-alnum → `_`, max 48) | Distinguishable in TSV from `capture`, `reading_17`, `book_unit_12`. Topic may name a client — logged never; source column is user-facing Anki metadata. |
+| 2026-08-09 | S14 **no `sessions` row** | `/prep` is a lookup, not a task: must not claim quiz/reading slots, affect streaks, or make the day Active. “Any completed session = Active” makes inventing a session type the wrong easy choice. |
+| 2026-08-09 | S14 never writes `errors` | User has not produced English; nothing to correct. Same reasoning as S15. |
+| 2026-08-09 | S14 partial-result-over-failure: fewer than 10 valid chunks after validation → send survivors + WARNING with count | Nine useful phrases beat an error message; S7 gap needs chunk inside sentence so broken pairs are dropped, not padded. |
+| 2026-08-09 | S14 reply may exceed 400 characters | PRD §8’s 400-char limit is for scheduled messages; `/prep` is a user-requested reference list meant for a phone 30 minutes before a meeting. |
+| 2026-08-09 | S14 frames are reply-only (never DB) | Reusable skeletons with `___` slots for the moment; Anki cloze contract is chunk/full_sentence/meaning — frames are not cards. |
+| 2026-08-09 | S14 `track` NULL when omitted/invalid — never invent `'work'` | Same as S15; CHECK permits NULL; inventing work would bias tags. |
 | 2026-08-09 | S13 voice routing (ordered): live M3 (`get_continuable_voice_session`) wins → else open incomplete `diary` for local today → else M3 | A Tue/Thu diary prompt routinely lands inside the 120-min M3 window; claiming that turn as diary breaks mid-conversation with no explanation. Diary stays open until 03:00. Lookups are disjoint by `task_type` + completion semantics; only one branch runs. |
 | 2026-08-09 | S13 bot diary prompts **Tue/Thu** only (`DIARY_WEEKDAYS={1,3}`); separate `diary_poll`; never same day as reading/Anki/report | Ceiling + existing evening owners. ARCHITECTURE “rotating M3/M4/M9” refined: evening = M4 Mon/Wed/Fri + M9 Tue/Thu; M3 stays user-initiated. |
 | 2026-08-09 | S13 `/diary` is user-initiated any night — no `bot_message_counts`, no ceiling; reuses open session; warm already-done after complete | Restores PRD “every night” without spending rule-9 slots. Tue/Thu prompts are the reminder; `/diary` is the habit. |
@@ -345,8 +354,12 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/streak/freeze + M13 + heartbeat | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18 + S15 capture + S13 diary copy | ✅ |
-| `app/main.py` | Entrypoint; flock; rotating log; error handler; `/diary`; capture; `/pause` `/stats`; scheduler | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18 + S15 capture + S13 diary + S14 prep copy | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; `/prep`; `/diary`; capture; `/pause` `/stats`; scheduler | ✅ |
+| `app/handlers/prep.py` | `/prep <topic>` load-up mode (S14); CommandHandler only; never errors/sessions | ✅ |
+| `app/services/prep.py` | Prep validate + persist-after-send; source=`prep_<slug>`; track NULL default (S14) | ✅ |
+| `app/prompts/prep.txt` | Prep JSON prompt — 10 chunks + 3 frames; pitch cefr + work_domain (S14) | ✅ |
+| `tests/test_prep.py` | Prep validation, persist/rollback, Anki source, privacy, partial, labels (S14) | ✅ |
 | `app/instance_lock.py` | `fcntl.flock` single-instance guard (S18) | ✅ |
 | `app/services/alerts.py` | File-backed throttle + `notify_operator` + `on_error` (S18) | ✅ |
 | `app/services/heartbeat.py` | last_job_fire touch/check helpers (S18) | ✅ |
@@ -382,7 +395,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/services/anki.py` | Chunk→TSV gap/escape/export; weekly deliver + `/anki`; mark-after-send (S7) | ✅ |
 | `app/services/streaks.py` | Streak rollover, freeze, rescue; Active>Missed precedence (S4/S5) | ✅ |
 | `app/services/interests.py` | list/replace/select_topic/mark_last_used + adjust_weight_for_rating (S9/S9a/S9c) | ✅ |
-| `app/services/chunks.py` | Chunk inserts for reading (S9a) + capture; `track` nullable (S15) | ✅ |
+| `app/services/chunks.py` | Chunk inserts for reading (S9a) + capture + prep; `track` nullable (S15/S14) | ✅ |
 | `app/services/reading.py` | MCQ validate + parse_stored_questions + persist_and_send + complete_reading (S9a/S9c) | ✅ |
 | `app/services/books.py` | OCR parse/merge, upsert, summary; list/find/top-up + word-bank/dedup; studied Murphy units (S6/S6a/S11) | ✅ |
 | `app/prompts/correction.txt` | Correction system prompt template | ✅ |
@@ -442,6 +455,12 @@ Do not start S8 / S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S14** — `/prep marketing budget meeting` → Phrases (numbered) + Reply frames (`▸`); scannable; may exceed 400 chars
+- [ ] **S14** — bare `/prep` → usage hint with example; no LLM
+- [ ] **S14** — over-long topic (~200+) → warm refusal; no LLM
+- [ ] **S14** — after success: 10 `chunks` with `source` like `prep_marketing_budget_meeting`; zero new `errors`; zero new `sessions`
+- [ ] **S14** — `/anki` TSV includes a `prep_` source marker
+- [ ] **S14** — logs show `user_id`/handler only (topic/company name absent)
 - [ ] **S13** — `/diary` opens a warm prompt; send ≤60s voice → ≤2 corrections + specific praise; no spoken reply
 - [ ] **S13** — second `/diary` same day reuses open session; after complete → warm already-done
 - [ ] **S13** — with no open diary, voice still reaches M3 with TTS

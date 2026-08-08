@@ -843,3 +843,27 @@ CAPTURE_SELF_HINT = (
     "Want your own writing corrected? Type it — don't forward it."
 )
 
+
+# --- Load-up mode (S14 / M10) -------------------------------------------------
+
+PREP_USAGE = (
+    "Tell me what you're walking into, like:\n"
+    "/prep marketing budget meeting"
+)
+
+PREP_TOO_LONG = (
+    "That's a bit long for a topic — keep it to a short phrase "
+    "(under 200 characters)?"
+)
+
+PREP_FAILED = (
+    "Something broke on my side — try that prep again in a moment."
+)
+
+PREP_TITLE = "Prep: {topic}"
+
+PREP_SECTION_CHUNKS = "Phrases"
+
+PREP_SECTION_FRAMES = "Reply frames"
+
+
