@@ -741,3 +741,38 @@ SUNDAY_WHY = "{why}"
 LEVEL_RAISE = (
     "Your English is settling at {level} — I'll pitch things a step up from here."
 )
+
+
+# --- Settings / pause / stats (S18) -------------------------------------------
+
+SOFT_UNHANDLED = "Something broke on my side — try that again in a moment."
+
+PAUSE_PICK = "How long should I hold scheduled messages?"
+
+PAUSE_ACTIVE = (
+    "You're paused until {until}. Scheduled quizzes and readings stay quiet."
+)
+
+PAUSE_SET = "Paused until {until}. Tap /pause anytime to resume."
+
+PAUSE_RESUMED = "You're back — scheduled messages will return at your usual times."
+
+BTN_PAUSE_1D = "1 day"
+BTN_PAUSE_3D = "3 days"
+BTN_PAUSE_7D = "1 week"
+BTN_PAUSE_RESUME = "Resume"
+
+STATS_HEADER = "Your snapshot"
+
+STATS_LEVEL = "Level: {level}"
+STATS_STREAK = "Streak: {streak} day(s) · freeze tokens: {freezes}"
+STATS_ACTIVE = "{active_line}"
+STATS_DUE = "Due errors: {n}"
+STATS_RESOLVED = "Quiet types: {labels}"
+STATS_RESOLVED_NONE = "Quiet types: none yet"
+STATS_CHUNKS = "Chunks: {total} · unexported: {unexported}"
+STATS_BOOKS = "Book units stored: {n}"
+STATS_CALIBRATION = "Calibration: {accuracy} · last change: {change}"
+STATS_CALIBRATION_NONE = "Calibration: not enough recent evidence yet"
+STATS_OPERATOR_SWEEP = "Sweep (ops): pending {pending} · done {done}"
+

@@ -15,12 +15,15 @@ from datetime import date, datetime, time, timezone
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from app.config import load_settings
 from app.db import connection
 from app.handlers import quiz as quiz_handler
 from app.handlers import reading as reading_handler
 from app.services import anki as anki_service
 from app.services import motivation as motivation_service
+from app.services.alerts import notify_operator
 from app.services.errors import run_monthly_fossil_sweep
+from app.services import heartbeat as heartbeat_service
 from app.services.sessions import (
     has_anki_session_on,
     has_reading_session_on,
@@ -43,6 +46,8 @@ logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 5 * 60
 STREAK_POLL_SECONDS = 15 * 60
+HEARTBEAT_POLL_SECONDS = 60 * 60
+HEARTBEAT_FIRST_SECONDS = 60
 # Offset evening from morning within the same interval so a slow morning
 # LLM cannot land in APScheduler's misfire window for the evening tick.
 EVENING_FIRST_SECONDS = POLL_SECONDS // 2
@@ -61,6 +66,15 @@ _ANKI_JOB = "anki_poll"
 _NUDGE_JOB = "nudge_poll"
 _STREAK_JOB = "streak_rollover"
 _FREEZE_JOB = "monthly_freeze_reset"
+_HEARTBEAT_JOB = "heartbeat"
+
+
+def _touch_job_fire_success() -> None:
+    """Record successful completion of a delivery/maintenance job."""
+    settings = load_settings()
+    heartbeat_service.touch_job_fire(
+        settings.heartbeat_file, now=datetime.now(timezone.utc)
+    )
 
 
 @dataclass(frozen=True)
@@ -339,34 +353,72 @@ def run_monthly_reset(now: datetime | None = None) -> tuple[int, int]:
 
 async def _morning_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_morning_poll(context.application)
+    _touch_job_fire_success()
 
 
 async def _evening_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_evening_poll(context.application)
+    _touch_job_fire_success()
 
 
 async def _anki_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_anki_poll(context.application)
+    _touch_job_fire_success()
 
 
 async def _sunday_report_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_sunday_report_poll(context.application)
+    _touch_job_fire_success()
 
 
 async def _nudge_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_nudge_poll(context.application)
+    _touch_job_fire_success()
 
 
 async def _streak_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     run_streak_rollover()
+    _touch_job_fire_success()
 
 
 async def _freeze_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     run_monthly_reset()
+    _touch_job_fire_success()
+
+
+async def run_heartbeat_check(
+    application: Application,
+    *,
+    now: datetime | None = None,
+) -> str:
+    """Check last successful job fire; alert operator if stale. Does not touch."""
+    instant = now or datetime.now(timezone.utc)
+    settings = load_settings()
+    status = heartbeat_service.check_heartbeat(
+        settings.heartbeat_file, now=instant
+    )
+    if status == "stale":
+        last = heartbeat_service.read_last_fire(settings.heartbeat_file)
+        last_s = last.isoformat() if last is not None else "never"
+        await notify_operator(
+            application,
+            key="heartbeat",
+            text=(
+                f"Heartbeat STALE: no successful scheduled job in "
+                f"{heartbeat_service.MAX_AGE_HOURS}h (last_fire={last_s})"
+            ),
+            now=instant,
+        )
+        logger.error("Heartbeat stale last_fire=%s", last_s)
+    return status
+
+
+async def _heartbeat_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await run_heartbeat_check(context.application)
 
 
 def start_scheduler(application: Application) -> None:
-    """Register morning, evening, sunday report, anki, nudge, streak, freeze."""
+    """Register morning, evening, sunday report, anki, nudge, streak, freeze, heartbeat."""
     jq = application.job_queue
     if jq is None:
         raise RuntimeError(
@@ -381,6 +433,7 @@ def start_scheduler(application: Application) -> None:
         _NUDGE_JOB,
         _STREAK_JOB,
         _FREEZE_JOB,
+        _HEARTBEAT_JOB,
     }
     for job in jq.jobs():
         if job.name in known:
@@ -430,10 +483,17 @@ def start_scheduler(application: Application) -> None:
         first=30,
         name=_FREEZE_JOB,
     )
+    jq.run_repeating(
+        _heartbeat_job,
+        interval=HEARTBEAT_POLL_SECONDS,
+        first=HEARTBEAT_FIRST_SECONDS,
+        name=_HEARTBEAT_JOB,
+    )
     logger.info(
-        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s "
+        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s "
         "(poll every %ss; evening first=%ss; sunday_report first=%ss; "
-        "anki first=%ss; nudge first=%ss; streak/freeze every %ss)",
+        "anki first=%ss; nudge first=%ss; streak/freeze every %ss; "
+        "heartbeat every %ss)",
         _MORNING_JOB,
         _EVENING_JOB,
         _SUNDAY_REPORT_JOB,
@@ -441,12 +501,14 @@ def start_scheduler(application: Application) -> None:
         _NUDGE_JOB,
         _STREAK_JOB,
         _FREEZE_JOB,
+        _HEARTBEAT_JOB,
         POLL_SECONDS,
         EVENING_FIRST_SECONDS,
         SUNDAY_REPORT_FIRST_SECONDS,
         ANKI_FIRST_SECONDS,
         NUDGE_FIRST_SECONDS,
         STREAK_POLL_SECONDS,
+        HEARTBEAT_POLL_SECONDS,
     )
 
 
@@ -462,6 +524,7 @@ def stop_scheduler(application: Application | None = None) -> None:
         _NUDGE_JOB,
         _STREAK_JOB,
         _FREEZE_JOB,
+        _HEARTBEAT_JOB,
     }
     for job in application.job_queue.jobs():
         if job.name in known:

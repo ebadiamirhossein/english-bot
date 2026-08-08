@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -22,9 +24,16 @@ from app.handlers.nudge import build_nudge_handler
 from app.handlers.onboarding import build_onboarding_handler
 from app.handlers.quiz import build_quiz_handlers, init_quiz_prompt
 from app.handlers.reading import build_reading_handler, init_reading_prompt
+from app.handlers.settings import build_settings_handlers
 from app.handlers.voice import build_voice_handler, init_voice_prompt
+from app.instance_lock import InstanceLock, InstanceLockError
 from app.scheduler import start_scheduler, stop_scheduler
+from app.services.alerts import on_error
 from app.services.anki import handle_anki_command
+
+logger = logging.getLogger(__name__)
+
+_instance_lock: InstanceLock | None = None
 
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -39,22 +48,55 @@ async def _post_init(application) -> None:
 
 async def _post_shutdown(application) -> None:
     stop_scheduler(application)
+    global _instance_lock
+    if _instance_lock is not None:
+        _instance_lock.release()
+        _instance_lock = None
+
+
+def _configure_logging(settings) -> None:
+    level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    fmt = logging.Formatter("%(levelname)s %(name)s: %(message)s")
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(level)
+
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    log_path = Path(settings.log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(
+        log_path,
+        maxBytes=settings.log_max_bytes,
+        backupCount=settings.log_backup_count,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(fmt)
+    root.addHandler(file_handler)
+
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 
 def main() -> int:
+    global _instance_lock
     try:
         settings = load_settings()
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         return 1
 
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format="%(levelname)s %(name)s: %(message)s",
-    )
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    try:
+        _instance_lock = InstanceLock(settings.instance_lock_file)
+        _instance_lock.acquire()
+    except InstanceLockError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    _configure_logging(settings)
 
     init_correction_prompt()
     init_quiz_prompt()
@@ -70,9 +112,14 @@ def main() -> int:
         .post_shutdown(_post_shutdown)
         .build()
     )
+    app.add_error_handler(on_error)
     app.add_handler(build_onboarding_handler())
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("anki", handle_anki_command))
+    pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
+    app.add_handler(pause_cmd)
+    app.add_handler(stats_cmd)
+    app.add_handler(pause_cb)
     quiz_text, quiz_choice = build_quiz_handlers()
     app.add_handler(quiz_choice)
     app.add_handler(quiz_text)  # before correction — open-quiz filter
@@ -87,7 +134,7 @@ def main() -> int:
     app.add_handler(build_correction_handler())
     app.add_handler(build_access_handler(), group=1)
 
-    logging.getLogger(__name__).info("Starting bot (polling)")
+    logger.info("Starting bot (polling)")
     app.run_polling(drop_pending_updates=True)
     return 0
 

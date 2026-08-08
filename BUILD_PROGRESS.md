@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-08
-**Current slice:** S11
-**Status:** S11 weekly test + Murphy routing code-complete — verify in Telegram; unrun checks remain on S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Current slice:** S18
+**Status:** S18 hardening code-complete — verify in Telegram; unrun checks remain on S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -50,7 +50,8 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S10 | Motivation engine | 🟡 code-complete | 2026-08-08 | Nudge ladder (quiz/reading, max 2/day, Just do 2) + Sunday report (all-clear resolved_types, no LLM); human Telegram verify pending. |
 | S11 | Weekly test + Murphy routing | 🟡 code-complete | 2026-08-08 | Sun 15Q weekly test (replaces morning quiz); Anki→Sat; Murphy rec on complete; weekly excluded from M14 window. | |
 | S12 | Calibration + anti-fossilization | 🟡 code-complete | 2026-08-08 | M14 windowed raise/silent drop + M13 monthly fossil_sweep inject; human Telegram verify pending. |
-| S13–S19 | Phase 4 depth | ⬜ not started | | |
+| S18 | Hardening | 🟡 code-complete | 2026-08-08 | Global error handler + file-backed throttle; heartbeat (touch on success); rotating log; flock single-instance; `/pause` + `/stats`. |
+| S13–S17, S19 | Phase 4 depth | ⬜ not started | | |
 | S20–S23 | Phase 5 commercial | ⬜ not started | | |
 
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
@@ -83,6 +84,16 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-08 | S18 alert channel = Telegram DM to `OPERATOR_TELEGRAM_ID`; second channel (email/PagerDuty) deferred until Hetzner | Same bot token already reaches the operator; no new infra while the process runs on a laptop. |
+| 2026-08-08 | S18 alert throttle = **15 minutes**, keyed by `(exc_type, handler)`, persisted in `{RUNTIME_DIR}/alert_throttle.json` | A 5‑min poll or per-user tick would flood; in-memory alone resets on every diagnostic restart — exactly when mute risk is highest. |
+| 2026-08-08 | S18 operator alerts do **not** increment `bot_message_counts` | PRD §7 rule 9 caps learning messages. Operator and learner currently share one chat — **throttling** protects that chat, not the ceiling of 3. |
+| 2026-08-08 | S18 heartbeat touches `last_job_fire` only after **successful job completion**; hourly checker never touches | Start-touch hides hangs; at 26h no legitimate job runs long enough for completion-only to false-alarm. Silent APScheduler drops and hung jobs both go stale. |
+| 2026-08-08 | S18 heartbeat is in-process (+ `scripts/heartbeat.py` CLI for future cron) | Catches “process up, jobs not firing.” Cannot detect total process death — needs external checker; out of scope on laptop. |
+| 2026-08-08 | S18 runtime artifacts under `RUNTIME_DIR` default `$HOME/english-bot-runtime` (last_job_fire, throttle JSON, bot.log, bot.lock) | Same reason as S4b: private data / PID / logs must not live inside the git tree. |
+| 2026-08-08 | S18 single-instance guard = `fcntl.flock` on `bot.lock` | Kernel drops the lock when the holder dies — stale PID files cannot block forever. Works on macOS and Linux. |
+| 2026-08-08 | S18 logs/alerts: `user_id` + handler + exception only — never message bodies, transcripts, or image bytes | PRD §10; error journal is private writing. Existing LLM `raw=` truncate (300) stays. |
+| 2026-08-08 | S18 `/stats` omits M13 fossil-sweep from learner view; optional ops line only when `user_id == OPERATOR_TELEGRAM_ID`; calibration kept | Sweep must stay indistinguishable from ordinary questions — leaking pending retests changes answers and destroys the measurement. Level/accuracy are actable and not designed to be hidden. |
+| 2026-08-08 | S18 pause-day Missed: pre-pause incomplete quiz still rolls over as Missed (`streaks.py` untouched); pure pause days are Neutral and do not feed rescue | Quiz was delivered before pause — pause stops future sends, not history. Feels harsh vs rule 4; pin with a test. Forgiveness would be a separate slice. Neutral no-session pause days break consecutive-Missed for rescue. |
 | 2026-08-08 | S11 weekly test **replaces** Sunday morning quiz (`task_type='quiz'`, 15Q) — does not add a fourth bot-initiated message | Sunday was already at the hard ceiling of 3 (quiz + Anki + report). Yielding would silently suppress the test; a weekly test that skips itself is not a weekly test. |
 | 2026-08-08 | S11 Anki export moved from Sunday to **Saturday** evening | Nothing about the export needs Sunday; frees Sunday to weekly test + report = 2, leaving a nudge slot. Supersedes S10 “report beats Anki on last Sunday slot.” |
 | 2026-08-08 | S11 `mark_result` applies to weekly-test error answers (including not-yet-due) | Genuine evidence either way; the alternative (test without recording) would make the weekly test the only place answers don’t count. Book-sourced answers still journal (S6a fork). |
@@ -268,6 +279,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 18 | S6 `conversation_timeout` is a documented no-op under nested ConversationHandlers (PTB warning). Abandoned book `user_data` still cleared on TIMEOUT when the outer job fires; do not silence the warning. | low | S6 | ⬜ open — note only |
 | 19 | S10 nudge timing (+3h / +6h) cannot be validated until the bot runs unattended — process currently only lives while the laptop is open, so a +3h nudge requires the process still alive 3 hours after delivery. | medium | S10 | ⬜ open — needs unattended host |
 | 20 | S12 rolling accuracy is an **approximation** from completed quiz/reading session aggregates (no per-question outcome log / timestamps). Level changes act on this estimate. | medium | S12 | ⬜ open — by design without migration |
+| 21 | S18 in-process heartbeat cannot detect total process death — only silent job drops / hung jobs while the process lives. External cron on Hetzner can run `scripts/heartbeat.py` later. | high | S18 | ⬜ open — by design on laptop |
 
 ---
 
@@ -278,7 +290,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | Path | Purpose | Status |
 |---|---|---|
 | `.cursorrules` | Project constitution for every slice | ✅ |
-| `.env.example` | Dummy env keys + session-pooler comment + LLM + Whisper/TTS keys | ✅ |
+| `.env.example` | Dummy env keys + session-pooler + LLM + Whisper/TTS + S18 operator/runtime keys | ✅ |
 | `.gitignore` | Ignores `.env`, venv, pycache, pytest | ✅ |
 | `requirements.txt` | ptb[job-queue], psycopg, dotenv, pytest, anthropic, openai | ✅ |
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
@@ -304,13 +316,20 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `migrations/002_quiz_scheduler.sql` | sessions.payload + bot_message_counts | ✅ |
 | `migrations/003_streaks.sql` | last_evaluated_date, freeze_reset_on, pending_freeze_notice | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
-| `app/config.py` | Env → frozen `Settings`, `ConfigError` (+ LLM + STT/TTS keys) | ✅ |
+| `app/config.py` | Env → frozen `Settings` (+ LLM/STT/TTS + S18 operator/runtime/log/lock/heartbeat/throttle) | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
-| `app/scheduler.py` | Morning + evening + Sunday report + Saturday Anki + nudge polls + streak/freeze + M13 fossil sweep | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S12 (incl. LEVEL_RAISE, QUIZ_WEEKLY, Murphy rec) | ✅ |
-| `app/main.py` | Bot entrypoint; `/ping`, `/anki`, `/test`, `/start`, correction, quiz, reading, nudge, book_test, voice, `/interests`, `/book`, scheduler | ✅ |
+| `app/scheduler.py` | Morning/evening/Sunday report/Anki/nudge/streak/freeze + M13 + hourly heartbeat; touch last_job_fire on success | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18 (pause/stats/soft unhandled) | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; `/pause` `/stats`; existing handlers + scheduler | ✅ |
+| `app/instance_lock.py` | `fcntl.flock` single-instance guard (S18) | ✅ |
+| `app/services/alerts.py` | File-backed throttle + `notify_operator` + `on_error` (S18) | ✅ |
+| `app/services/heartbeat.py` | last_job_fire touch/check helpers (S18) | ✅ |
+| `app/services/stats.py` | Read-only `/stats` assembly; learner omits sweep (S18) | ✅ |
+| `app/handlers/settings.py` | `/pause` + `/stats` + `pause:` callbacks (S18) | ✅ |
+| `scripts/heartbeat.py` | CLI stale check for future external cron (S18) | ✅ |
+| `tests/test_hardening.py` | Alerts/throttle/heartbeat/lock/log privacy/pause/stats/Missed pin (S18) | ✅ |
 | `app/services/calibration.py` | M14 rolling accuracy (excludes book_test + weekly_test), daily calibration_log upsert, raise/lower, raise notice | ✅ |
 | `app/handlers/nudge.py` | Tap-only `nudge:short:` early-limit callbacks; Murphy append on weekly early-complete (S10/S11) | ✅ |
 | `app/services/motivation.py` | Nudge ladder + Sunday report assembly (no LLM) (S10) | ✅ |
@@ -326,7 +345,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/handlers/book_test.py` | `/test unit N`; tap-only `btest:` callbacks; abandon prior open book_test (S6a) | ✅ |
 | `app/prompts/book_quiz.txt` | Unit practice JSON — choice/order/spot only; taxonomy-bound error_type (S6a) | ✅ |
 | `app/services/__init__.py` | Services package | ✅ |
-| `app/services/users.py` | get/save user, EF SET → CEFR, `update_cefr_level` (S12) | ✅ |
+| `app/services/users.py` | get/save user, EF SET → CEFR, `update_cefr_level`, `get/set_paused_until` (S12/S18) | ✅ |
 | `app/services/errors.py` | record_errors + due_errors + weekly select + Murphy expand/lookup + mark_result + resolved_types + M13 (S3/S10/S11/S12) | ✅ |
 | `app/services/sessions.py` | sessions + ceiling + fossil_sweep helpers + sunday_report + active_days (S3–S12) | ✅ |
 | `app/services/anki.py` | Chunk→TSV gap/escape/export; weekly deliver + `/anki`; mark-after-send (S7) | ✅ |
@@ -363,7 +382,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_reading.py` | S9a eligibility, ceiling, topic pick, MCQ validate, rollback, persist + message_id | ✅ |
 | `tests/test_reading_s9c.py` | S9c grading, resume, message_id resolve, rating clamps, legacy NULL score, edit resend, labels | ✅ |
 | `tests/test_book.py` | S6 debounce, merge, upsert, failures, Page/Pages / All-N collapse, CTA agreement, prose soft-skip, over-cap, labels, SDK/disk greps | ✅ |
-| `tests/test_dispatch_m2.py` | Application dispatch: quiz gap/non-gap vs correction; nudged open quiz → correction; book_test/reading/book (S3+S6+S6a+S9c+S10) | ✅ |
+| `tests/test_dispatch_m2.py` | Application dispatch + S18 error handler /pause/stats registered; quiz gap/non-gap vs correction (S3+S6+S6a+S9c+S10+S18) | ✅ |
 | `tests/test_s6a.py` | Top-up counts, word-bank/dedup fixtures, journal fork (typed+tap), streak Missed vs Neutral, `/test` parse/disambiguate/abandon, labels (S6a) | ✅ |
 | `tests/test_anki.py` | S7 gap/escape/order/mark-after-send/ceiling/idempotency/empty `/anki` | ✅ |
 | `tests/test_motivation.py` | S10 nudge ladder, ceiling, dual-TZ, resolved_types all-clear, active-days bands, Sunday report, Just do 2 score, no-guilt/labels | ✅ |
@@ -374,13 +393,23 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `scripts/backup.sh` | Daily pg_dump (−Fc), 14-day retain, off-site stub | ✅ |
 | `scripts/restore.sh` | Restore into scratch DB; `--force` for live | ✅ |
 
+**Operator log tail (S18):** `tail -f ~/english-bot-runtime/bot.log`
+
 ---
 
 ## Next action
 
 Unrun human Telegram checks (do not start S8 / S9b until these are cleared or explicitly deferred):
 
-**S11 (weekly test + Murphy routing — this slice)**
+**S18 (hardening — this slice)**
+- Force an unhandled exception → soft user line, operator alert (set `OPERATOR_TELEGRAM_ID`), no traceback in chat
+- Repeat / restart mid-outage → file throttle holds; suppressed count rather than a flood
+- Second `python -m app.main` → refuses with lock message; after killing the first, start succeeds
+- `/pause` → pick duration → scheduled sends skip; `/pause` again → resume only; after resume, delivery returns
+- `/stats` as learner → no sweep mention; calibration/level visible; “N of 5” framing; no guilt; labels not codes
+- `tail -f ~/english-bot-runtime/bot.log` shows traffic without message bodies
+
+**S11 (weekly test + Murphy routing)**
 - Local Sunday morning → 15-question weekly test (preface line); finish → completion includes Murphy recommendation matching top error types (labels, studied vs new); no codes; under 400
 - Local Monday–Saturday morning → still 5Q (rescue → 3Q); Sunday in rescue → 3Q, not 15
 - Mid-weekly-test on a choice question → free text reaches correction

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import time
+from datetime import date, time
 from typing import Any
 
 from psycopg.types.json import Jsonb
@@ -113,6 +113,42 @@ def update_cefr_level(telegram_user_id: int, new_level: str) -> None:
         "Updated cefr_level user_id=%s level=%s",
         telegram_user_id,
         new_level,
+    )
+
+
+def get_paused_until(telegram_user_id: int) -> date | None:
+    """Return users.paused_until for this telegram id, or None."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT paused_until
+              FROM users
+             WHERE telegram_user_id = %s
+            """,
+            (telegram_user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return row["paused_until"]
+
+
+def set_paused_until(
+    telegram_user_id: int, paused_until: date | None
+) -> None:
+    """Set or clear users.paused_until for this telegram id only."""
+    with connection() as conn:
+        conn.execute(
+            """
+            UPDATE users
+               SET paused_until = %s
+             WHERE telegram_user_id = %s
+            """,
+            (paused_until, telegram_user_id),
+        )
+    logger.info(
+        "Updated paused_until user_id=%s until=%s",
+        telegram_user_id,
+        paused_until,
     )
 
 

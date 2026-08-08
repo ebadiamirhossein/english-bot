@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from dotenv import load_dotenv
@@ -18,6 +19,9 @@ _REQUIRED_KEYS = ("DATABASE_URL", "TELEGRAM_BOT_TOKEN", "ANTHROPIC_API_KEY")
 _PG_SCHEMES = ("postgresql", "postgres")
 _KNOWN_STT_PROVIDERS = frozenset({"openai"})
 _KNOWN_TTS_PROVIDERS = frozenset({"openai"})
+_DEFAULT_RUNTIME_DIR = Path.home() / "english-bot-runtime"
+_DEFAULT_LOG_MAX_BYTES = 5_000_000
+_DEFAULT_LOG_BACKUP_COUNT = 3
 
 
 class ConfigError(Exception):
@@ -46,6 +50,15 @@ class Settings:
     voice_max_seconds: int = 120
     voice_context_minutes: int = 120
     voice_max_turns: int = 10
+    # S18 hardening — operator alerts + runtime files (optional ids).
+    operator_telegram_id: int | None = None
+    runtime_dir: str = ""
+    log_file: str = ""
+    log_max_bytes: int = _DEFAULT_LOG_MAX_BYTES
+    log_backup_count: int = _DEFAULT_LOG_BACKUP_COUNT
+    instance_lock_file: str = ""
+    heartbeat_file: str = ""
+    alert_throttle_file: str = ""
 
     def database_url_for_logs(self) -> str:
         """Return DATABASE_URL with the password stripped for safe logging."""
@@ -121,6 +134,43 @@ def load_settings() -> Settings:
         errors,
     )
 
+    operator_telegram_id = _parse_optional_int(
+        "OPERATOR_TELEGRAM_ID",
+        os.environ.get("OPERATOR_TELEGRAM_ID", ""),
+        errors,
+    )
+
+    runtime_dir = (
+        os.environ.get("RUNTIME_DIR", "").strip()
+        or str(_DEFAULT_RUNTIME_DIR)
+    )
+    log_file = (
+        os.environ.get("LOG_FILE", "").strip()
+        or str(Path(runtime_dir) / "bot.log")
+    )
+    log_max_bytes = _parse_int(
+        "LOG_MAX_BYTES",
+        os.environ.get("LOG_MAX_BYTES", str(_DEFAULT_LOG_MAX_BYTES)),
+        errors,
+    )
+    log_backup_count = _parse_int(
+        "LOG_BACKUP_COUNT",
+        os.environ.get("LOG_BACKUP_COUNT", str(_DEFAULT_LOG_BACKUP_COUNT)),
+        errors,
+    )
+    instance_lock_file = (
+        os.environ.get("INSTANCE_LOCK_FILE", "").strip()
+        or str(Path(runtime_dir) / "bot.lock")
+    )
+    heartbeat_file = (
+        os.environ.get("HEARTBEAT_FILE", "").strip()
+        or str(Path(runtime_dir) / "last_job_fire")
+    )
+    alert_throttle_file = (
+        os.environ.get("ALERT_THROTTLE_FILE", "").strip()
+        or str(Path(runtime_dir) / "alert_throttle.json")
+    )
+
     if db_pool_min is not None and db_pool_min < 1:
         errors.append(f"DB_POOL_MIN must be >= 1 (got {db_pool_min})")
     if (
@@ -131,6 +181,12 @@ def load_settings() -> Settings:
         errors.append(
             f"DB_POOL_MAX ({db_pool_max}) must be >= DB_POOL_MIN ({db_pool_min})"
         )
+    if log_max_bytes is not None and log_max_bytes < 1:
+        errors.append(f"LOG_MAX_BYTES must be >= 1 (got {log_max_bytes})")
+    if log_backup_count is not None and log_backup_count < 0:
+        errors.append(
+            f"LOG_BACKUP_COUNT must be >= 0 (got {log_backup_count})"
+        )
 
     if errors:
         raise ConfigError("; ".join(errors))
@@ -139,6 +195,8 @@ def load_settings() -> Settings:
     assert voice_max_seconds is not None
     assert voice_context_minutes is not None
     assert voice_max_turns is not None
+    assert log_max_bytes is not None
+    assert log_backup_count is not None
     settings = Settings(
         database_url=database_url,
         telegram_bot_token=telegram_bot_token,
@@ -158,6 +216,14 @@ def load_settings() -> Settings:
         voice_max_seconds=voice_max_seconds,
         voice_context_minutes=voice_context_minutes,
         voice_max_turns=voice_max_turns,
+        operator_telegram_id=operator_telegram_id,
+        runtime_dir=runtime_dir,
+        log_file=log_file,
+        log_max_bytes=log_max_bytes,
+        log_backup_count=log_backup_count,
+        instance_lock_file=instance_lock_file,
+        heartbeat_file=heartbeat_file,
+        alert_throttle_file=alert_throttle_file,
     )
 
     _warn_if_transaction_pooler(settings.database_url)
@@ -167,6 +233,20 @@ def load_settings() -> Settings:
 def _parse_int(name: str, raw: str, errors: list[str]) -> int | None:
     try:
         return int(raw.strip())
+    except ValueError:
+        errors.append(f"{name} must be an integer (got {raw!r})")
+        return None
+
+
+def _parse_optional_int(
+    name: str, raw: str, errors: list[str]
+) -> int | None:
+    """Parse an optional integer; empty string means unset (None)."""
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    try:
+        return int(stripped)
     except ValueError:
         errors.append(f"{name} must be an integer (got {raw!r})")
         return None

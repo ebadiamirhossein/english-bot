@@ -43,6 +43,8 @@ from app.handlers.quiz import (
     open_quiz_awaits_gap_answer,
 )
 from app.handlers.reading import build_reading_handler
+from app.handlers.settings import build_settings_handlers
+from app.services.alerts import on_error
 from app.services.sessions import insert_session
 from app.services.users import save_onboarding
 
@@ -134,7 +136,12 @@ async def _build_app(
         book = build_book_handler()
         correction = build_correction_handler()
 
+    pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
     app = ApplicationBuilder().token("1:FAKE-DISPATCH-TEST").build()
+    app.add_error_handler(on_error)
+    app.add_handler(pause_cmd)
+    app.add_handler(stats_cmd)
+    app.add_handler(pause_cb)
     app.add_handler(quiz_choice)
     app.add_handler(quiz_text)
     app.add_handler(reading)  # callbacks only — must not swallow free text
