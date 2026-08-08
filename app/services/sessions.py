@@ -475,6 +475,138 @@ def update_session_payload(session_id: int, payload: dict[str, Any]) -> None:
         )
 
 
+def get_fossil_sweep_session(user_id: int, month_start: date) -> SessionRow | None:
+    """fossil_sweep marker for this user on the local month-start date."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, completed, score, payload
+              FROM sessions
+             WHERE user_id = %s
+               AND date = %s
+               AND task_type = 'fossil_sweep'
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (user_id, month_start),
+        ).fetchone()
+    if row is None:
+        return None
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    return SessionRow(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        date=row["date"],
+        task_type=str(row["task_type"]),
+        completed=bool(row["completed"]),
+        score=float(row["score"]) if row["score"] is not None else None,
+        payload=payload,
+    )
+
+
+def create_fossil_sweep_session(
+    user_id: int,
+    month_start: date,
+    *,
+    pending: list[int],
+) -> int:
+    """Insert monthly M13 queue. Returns session id."""
+    payload = {"pending": [int(i) for i in pending], "done": []}
+    with connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO sessions (
+                user_id, date, task_type, delivered_at, completed, payload
+            ) VALUES (
+                %s, %s, 'fossil_sweep', NOW(), FALSE, %s
+            )
+            RETURNING id
+            """,
+            (user_id, month_start, Jsonb(payload)),
+        ).fetchone()
+    assert row is not None
+    return int(row["id"])
+
+
+def open_fossil_sweep_for_user(user_id: int) -> SessionRow | None:
+    """Most recent incomplete fossil_sweep with pending ids (any month)."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, completed, score, payload
+              FROM sessions
+             WHERE user_id = %s
+               AND task_type = 'fossil_sweep'
+               AND completed = FALSE
+             ORDER BY date DESC, id DESC
+             LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    pending = list((payload or {}).get("pending") or [])
+    if not pending:
+        return None
+    return SessionRow(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        date=row["date"],
+        task_type=str(row["task_type"]),
+        completed=bool(row["completed"]),
+        score=float(row["score"]) if row["score"] is not None else None,
+        payload=payload,
+    )
+
+
+def mark_fossil_retest_done(session_id: int, error_id: int) -> None:
+    """Move error_id from pending to done; complete session when pending empty."""
+    with connection() as conn:
+        with conn.transaction():
+            row = conn.execute(
+                """
+                SELECT payload FROM sessions
+                 WHERE id = %s AND task_type = 'fossil_sweep'
+                 FOR UPDATE
+                """,
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                return
+            payload = row["payload"]
+            if payload is not None and not isinstance(payload, dict):
+                payload = dict(payload)
+            data = dict(payload or {})
+            pending = [int(x) for x in (data.get("pending") or [])]
+            done = [int(x) for x in (data.get("done") or [])]
+            eid = int(error_id)
+            if eid in pending:
+                pending = [x for x in pending if x != eid]
+            if eid not in done:
+                done.append(eid)
+            data["pending"] = pending
+            data["done"] = done
+            completed = len(pending) == 0
+            conn.execute(
+                """
+                UPDATE sessions
+                   SET payload = %s,
+                       completed = %s,
+                       completed_at = CASE
+                           WHEN %s THEN NOW()
+                           ELSE completed_at
+                       END
+                 WHERE id = %s
+                """,
+                (Jsonb(data), completed, completed, session_id),
+            )
+
+
 def get_open_quiz_session(user_id: int, local_date: date | None = None) -> SessionRow | None:
     """Incomplete quiz session for this user.
 

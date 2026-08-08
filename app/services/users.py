@@ -98,6 +98,24 @@ def is_registered(telegram_user_id: int) -> bool:
     return row is not None
 
 
+def update_cefr_level(telegram_user_id: int, new_level: str) -> None:
+    """Set users.cefr_level for this telegram id only."""
+    with connection() as conn:
+        conn.execute(
+            """
+            UPDATE users
+               SET cefr_level = %s
+             WHERE telegram_user_id = %s
+            """,
+            (new_level, telegram_user_id),
+        )
+    logger.info(
+        "Updated cefr_level user_id=%s level=%s",
+        telegram_user_id,
+        new_level,
+    )
+
+
 def save_onboarding(telegram_user_id: int, data: dict[str, Any]) -> None:
     """Persist onboarding answers and ensure a streaks row exists.
 

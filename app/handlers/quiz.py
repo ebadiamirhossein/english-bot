@@ -8,7 +8,7 @@ import json
 import logging
 import re
 import string
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,14 +28,24 @@ from app.handlers.correction import error_type_list_text
 from app.handlers.onboarding import layout_buttons
 from app.llm import LLMError, chat
 from app.services.books import select_topup_items
-from app.services.errors import Error, due_errors, mark_result, record_errors
+from app.services.calibration import deliver_raise_notice, maybe_calibrate
+from app.services.errors import (
+    Error,
+    due_errors,
+    get_error_for_user,
+    mark_result,
+    record_errors,
+)
 from app.services.sessions import (
     complete_session,
     get_open_quiz_session,
+    get_session_by_id,
     has_session_on,
     increment_bot_messages,
     insert_session,
     local_today,
+    mark_fossil_retest_done,
+    open_fossil_sweep_for_user,
     under_message_ceiling,
     update_session_payload,
 )
@@ -832,7 +842,23 @@ async def deliver_morning(
     quiz_limit = 3 if rescue else 5
     preface = _quiz_preface(user_id, rescue=rescue)
 
-    errors = due_errors(user_id, limit=quiz_limit)
+    retest_error: Error | None = None
+    fossil_session_id: int | None = None
+    # Rescue shrinks the ask (PRD §7 rule 7) — never spend a slot on M13.
+    if not rescue:
+        fossil = open_fossil_sweep_for_user(user_id)
+        if fossil is not None and fossil.payload:
+            pending = list(fossil.payload.get("pending") or [])
+            if pending:
+                candidate = get_error_for_user(user_id, int(pending[0]))
+                if candidate is not None and candidate.resolved:
+                    retest_error = candidate
+                    fossil_session_id = fossil.id
+
+    due_limit = quiz_limit - (1 if retest_error is not None else 0)
+    errors = due_errors(user_id, limit=max(0, due_limit))
+    if retest_error is not None:
+        errors = [retest_error] + [e for e in errors if e.id != retest_error.id]
     need = quiz_limit - len(errors)
     book_items = select_topup_items(user_id, need) if need else []
     if not errors and not book_items:
@@ -879,6 +905,12 @@ async def deliver_morning(
         return "free_practice"
 
     questions = questions[:quiz_limit]
+    if retest_error is not None:
+        for q in questions:
+            if q.get("error_id") == retest_error.id:
+                # Internal only — never render in user-facing copy.
+                q["retest"] = True
+                break
 
     payload: dict[str, Any] = {
         "index": 0,
@@ -890,6 +922,8 @@ async def deliver_morning(
         "message_id": None,
         "preface": preface,
     }
+    if fossil_session_id is not None:
+        payload["fossil_sweep_session_id"] = fossil_session_id
     session_id = insert_session(
         user_id, "quiz", day, payload=payload, completed=False
     )
@@ -978,9 +1012,17 @@ async def _advance_after_answer(
 ) -> None:
     # Book-sourced questions have no errors row — never mark_result.
     # Typed (gap) and tapped paths both funnel here.
+    # M13 retest: wrong → mark_result (un-resolves); correct → leave the row
+    # alone so resolved_at is not refreshed (S10 newly-quiet lead).
     if question.get("source") == "book":
         if not correct:
             _journal_book_miss(user_id, question, user_answer=user_answer)
+    elif question.get("retest"):
+        if not correct:
+            mark_result(int(question["error_id"]), False)
+        fossil_sid = payload.get("fossil_sweep_session_id")
+        if fossil_sid is not None and question.get("error_id") is not None:
+            mark_fossil_retest_done(int(fossil_sid), int(question["error_id"]))
     else:
         mark_result(int(question["error_id"]), correct)
     payload["answered"] = int(payload.get("answered", 0)) + 1
@@ -1039,6 +1081,19 @@ async def _advance_after_answer(
             text=body,
             reply_markup=None,
         )
+        # M14: book_test shares this path — calibrate quiz sessions only.
+        session = get_session_by_id(user_id, session_id)
+        if session is not None and session.task_type == "quiz":
+            instant = datetime.now(timezone.utc)
+            outcome = maybe_calibrate(user_id, now=instant)
+            if outcome.raise_notice:
+                day = local_today(_user_timezone(user_id), instant)
+                await deliver_raise_notice(
+                    context.bot,
+                    user_id,
+                    day=day,
+                    notice=outcome.raise_notice,
+                )
         return
 
     payload["index"] = index + 1

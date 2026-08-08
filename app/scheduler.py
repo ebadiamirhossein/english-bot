@@ -4,6 +4,7 @@ S3: morning poll. S4: streak rollover + monthly freeze reset.
 S9a: evening reading poll (Mon/Wed/Fri).
 S7: Sunday Anki export poll (at evening_time or later).
 S10: nudge ladder + Sunday report (report before Anki for ceiling priority).
+S12: M13 fossil sweep on the monthly freeze poll (per-user local 1st).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from app.handlers import quiz as quiz_handler
 from app.handlers import reading as reading_handler
 from app.services import anki as anki_service
 from app.services import motivation as motivation_service
+from app.services.errors import run_monthly_fossil_sweep
 from app.services.sessions import (
     has_anki_session_on,
     has_reading_session_on,
@@ -325,6 +327,16 @@ def run_monthly_freeze_reset(now: datetime | None = None) -> int:
     return updated
 
 
+def run_monthly_reset(now: datetime | None = None) -> tuple[int, int]:
+    """Freeze token reset + M13 fossil sweep (ARCHITECTURE monthly_reset)."""
+    instant = now or datetime.now(timezone.utc)
+    freezes = run_monthly_freeze_reset(now=instant)
+    sweeps = run_monthly_fossil_sweep(now=instant)
+    if sweeps:
+        logger.info("Monthly fossil sweep: %s user(s)", sweeps)
+    return freezes, sweeps
+
+
 async def _morning_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_morning_poll(context.application)
 
@@ -350,7 +362,7 @@ async def _streak_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _freeze_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    run_monthly_freeze_reset()
+    run_monthly_reset()
 
 
 def start_scheduler(application: Application) -> None:

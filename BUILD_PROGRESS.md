@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-08
-**Current slice:** S10
-**Status:** S10 motivation engine code-complete — verify in Telegram; unrun checks remain on S10 / S6a / S9c / S9a / S9 / S7 / S6 / S5 / S5a / S3
+**Current slice:** S12
+**Status:** S12 calibration + anti-fossilization code-complete — verify in Telegram; unrun checks remain on S12 / S11 / S10 / S6a / S9c / S9a / S9 / S7 / S6 / S5 / S5a / S3
 
 ---
 
@@ -49,7 +49,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S9c | Reading comprehension + rating | 🟡 code-complete | 2026-08-08 | MCQ taps only; session resolve by message_id; edit-failure resend; rating→additive weight; legacy skip score=NULL. |
 | S10 | Motivation engine | 🟡 code-complete | 2026-08-08 | Nudge ladder (quiz/reading, max 2/day, Just do 2) + Sunday report (all-clear resolved_types, no LLM); human Telegram verify pending. |
 | S11 | Weekly test + Murphy routing | ⬜ not started | | |
-| S12 | Calibration + anti-fossilization | ⬜ not started | | |
+| S12 | Calibration + anti-fossilization | 🟡 code-complete | 2026-08-08 | M14 windowed raise/silent drop + M13 monthly fossil_sweep inject; human Telegram verify pending. |
 | S13–S19 | Phase 4 depth | ⬜ not started | | |
 | S20–S23 | Phase 5 commercial | ⬜ not started | | |
 
@@ -83,6 +83,14 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-08 | S12 rolling “30-question” accuracy = session-aggregate walk over completed `quiz`+`reading` (`correct_count`/`answered` or `score×n`), newest-first until ≥30 answers (may slightly overshoot). Not a true per-question event stream — `mark_result` has no timestamps and quiz payloads lack per-question outcomes. | No migration; honesty over false precision. Known issue #20. |
+| 2026-08-08 | S12 calibration window excludes `book_test` | `/test` is user-chosen material; easy self-selected units would inflate accuracy and raise `cefr_level` on choice rather than ability. Book answers still journal / feed the ladder. Hook gates on `task_type=='quiz'` despite shared `_advance_after_answer`. |
+| 2026-08-08 | S12 daily `calibration_log` upsert (SELECT then INSERT/UPDATE) when sample ≥30; same-day second completion refreshes `accuracy_30` | First-write-wins would discard the day’s full evidence; a change row already written today is preserved when only accuracy refreshes. |
+| 2026-08-08 | S12 raise = last 14 local days, **≥8 logged days**, every log (and today) `>85%`, current window `>85%`. Skipped days are not failures. Min 8 ≈ rule-6 5/7 over a fortnight (exact pace ≈10). | Consecutive 14 active days contradicts PRD §7 rule 6 and would make raise dead code. |
+| 2026-08-08 | S12 drop when current window `<70%` (no multi-day sustain); cooldown 14 days after any level change; bounds A2–C1; min sample 30 before any change | PRD states two weeks only for raises; hysteresis prevents day-after oscillation; A2/C1 match onboarding/EF bands without inventing C2 pitch. |
+| 2026-08-08 | S12 **raise announced** (warm, ceiling-aware; skip message + WARNING if at 3, level still changes); **drop silent** (log + apply, never message) | Raise is earned progress; announcing a drop is guilt (PRD §7 rule 4) and punishes a bad fortnight. |
+| 2026-08-08 | S12 M13: monthly poll (with freeze) queues ≤2 aged resolved rows (`resolved_at` ≤ today−30) into `fossil_sweep` session `{pending,done}`; inject 1/quiz; **skip entirely in rescue**; correct → `done` only (**never mutate `resolved_at`**); wrong → existing `mark_result` un-resolve | `resolved_at` bump would fake “newly quiet” on Sunday (S10). Rescue must not spend 1/3 of a 3Q re-engagement ask on sweep material. No migration for last_retested_at. |
+| 2026-08-08 | S12 un-resolving one row drops that type from S10 `resolved_types` (all-clear) — intended | M13 exists to prevent the illusion of progress the Sunday lead would otherwise keep showing. |
 | 2026-08-08 | **Contract from S6 onward:** Cursor prompt + PRD is the slice contract; no `specs/S10-*.md` (same as S6/S6a/S7/S9c). Decisions log is the source of truth. **`.cursorrules` still says stop if specs/ is missing — amend it separately; S10 does not edit `.cursorrules`.** | A parallel spec file drifts; Amirhossein amends the constitution deliberately. |
 | 2026-08-08 | S10 nudges only `quiz` and `reading` | `book_test` is user-initiated (nagging); voice has no scheduled delivery; `free_practice` is a soft empty-journal day. |
 | 2026-08-08 | S10 “Just do 2” sets `payload.early_limit=2`; completes at 2 answers with `score = correct_count / 2.0`; remainder ungraded (stay due) | A button that promised less work and still delivered 5 would be worse than no button (PRD §7 rule 3). |
@@ -250,6 +258,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 17 | Reading 17 ("Finding a Place to Call Home"): legacy question shape + session 803 has no `message_id` / no Questions keyboard — cannot complete in Telegram; orphan stays incomplete forever. Manual Q&A verify on a **fresh** reading after S9c. Covered by legacy-skip unit test. | medium | S9c | ⬜ open — note only |
 | 18 | S6 `conversation_timeout` is a documented no-op under nested ConversationHandlers (PTB warning). Abandoned book `user_data` still cleared on TIMEOUT when the outer job fires; do not silence the warning. | low | S6 | ⬜ open — note only |
 | 19 | S10 nudge timing (+3h / +6h) cannot be validated until the bot runs unattended — process currently only lives while the laptop is open, so a +3h nudge requires the process still alive 3 hours after delivery. | medium | S10 | ⬜ open — needs unattended host |
+| 20 | S12 rolling accuracy is an **approximation** from completed quiz/reading session aggregates (no per-question outcome log / timestamps). Level changes act on this estimate. | medium | S12 | ⬜ open — by design without migration |
 
 ---
 
@@ -290,26 +299,27 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
-| `app/scheduler.py` | Morning + evening + Sunday report (before Anki) + Anki + nudge polls + streak/freeze | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S10 nudge/Sunday report copy | ✅ |
+| `app/scheduler.py` | Morning + evening + Sunday report (before Anki) + Anki + nudge polls + streak/freeze + M13 fossil sweep | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S12 (incl. LEVEL_RAISE) | ✅ |
 | `app/main.py` | Bot entrypoint; `/ping`, `/anki`, `/test`, `/start`, correction, quiz, reading, nudge, book_test, voice, `/interests`, `/book`, scheduler | ✅ |
+| `app/services/calibration.py` | M14 rolling accuracy, daily calibration_log upsert, raise/lower, raise notice | ✅ |
 | `app/handlers/nudge.py` | Tap-only `nudge:short:` early-limit callbacks (S10) | ✅ |
 | `app/services/motivation.py` | Nudge ladder + Sunday report assembly (no LLM) (S10) | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
 | `app/handlers/access.py` | Shared unregistered-user ignore + onboarding allowlist | ✅ |
 | `app/handlers/onboarding.py` | `/start` wizard + `layout_buttons` + reactions (S1d) | ✅ |
 | `app/handlers/correction.py` | Free-text correction (S2) + shared `render_correction_message` | ✅ |
-| `app/handlers/quiz.py` | Daily quiz + top-up; book grading fork; `early_limit` early complete (S3–S6a/S10); `OpenQuizFilter` gap-only | ✅ |
+| `app/handlers/quiz.py` | Daily quiz + top-up; book grading fork; `early_limit`; M13 retest inject (skip rescue); M14 calibrate on quiz complete only; `OpenQuizFilter` gap-only | ✅ |
 | `app/handlers/voice.py` | Voice partner handler (S5) + status stages / repeating chat action (S5a) | ✅ |
 | `app/handlers/interests.py` | `/interests` multi-select wizard (S9); index callbacks; custom-topic preload | ✅ |
-| `app/handlers/reading.py` | Evening reading + S9c Q&A/rating; `early_limit` (S9a/S9c/S10); no text filter | ✅ |
+| `app/handlers/reading.py` | Evening reading + S9c Q&A/rating; `early_limit`; M14 calibrate on scored complete | ✅ |
 | `app/handlers/book.py` | `/book` ConversationHandler; album debounce; vision OCR; Done/Add more; 1h conversation_timeout (S6) | ✅ |
 | `app/handlers/book_test.py` | `/test unit N`; tap-only `btest:` callbacks; abandon prior open book_test (S6a) | ✅ |
 | `app/prompts/book_quiz.txt` | Unit practice JSON — choice/order/spot only; taxonomy-bound error_type (S6a) | ✅ |
 | `app/services/__init__.py` | Services package | ✅ |
-| `app/services/users.py` | get/save user, EF SET → CEFR (+ explanation_language_fallback read) | ✅ |
-| `app/services/errors.py` | record_errors + due_errors + mark_result + resolved_types/top_error_types (S3/S10) | ✅ |
-| `app/services/sessions.py` | sessions + ceiling + nudges_sent helpers + sunday_report marker + active_days (S3–S10) | ✅ |
+| `app/services/users.py` | get/save user, EF SET → CEFR, `update_cefr_level` (S12) | ✅ |
+| `app/services/errors.py` | record_errors + due_errors + mark_result + resolved_types + M13 pick/sweep (S3/S10/S12) | ✅ |
+| `app/services/sessions.py` | sessions + ceiling + fossil_sweep helpers + sunday_report + active_days (S3–S12) | ✅ |
 | `app/services/anki.py` | Chunk→TSV gap/escape/export; weekly deliver + `/anki`; mark-after-send (S7) | ✅ |
 | `app/services/streaks.py` | Streak rollover, freeze, rescue; Active>Missed precedence (S4/S5) | ✅ |
 | `app/services/interests.py` | list/replace/select_topic/mark_last_used + adjust_weight_for_rating (S9/S9a/S9c) | ✅ |
@@ -348,6 +358,8 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_s6a.py` | Top-up counts, word-bank/dedup fixtures, journal fork (typed+tap), streak Missed vs Neutral, `/test` parse/disambiguate/abandon, labels (S6a) | ✅ |
 | `tests/test_anki.py` | S7 gap/escape/order/mark-after-send/ceiling/idempotency/empty `/anki` | ✅ |
 | `tests/test_motivation.py` | S10 nudge ladder, ceiling, dual-TZ, resolved_types all-clear, active-days bands, Sunday report, Just do 2 score, no-guilt/labels | ✅ |
+| `tests/test_calibration.py` | S12 M14 windowed raise, drop silent, cooldown, bounds, book_test excluded, upsert, pause, no-guilt | ✅ |
+| `tests/test_fossilization.py` | S12 M13 sweep queue, un-resolve, resolved_at untouched, rescue skip, no marker leak, resolved_types | ✅ |
 | `specs/S5a-voice-status.md` | S5a voice processing status | ✅ |
 | `scripts/backup.sh` | Daily pg_dump (−Fc), 14-day retain, off-site stub | ✅ |
 | `scripts/restore.sh` | Restore into scratch DB; `--force` for live | ✅ |
@@ -356,9 +368,19 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 
 ## Next action
 
-Unrun human Telegram checks (do not start S8 / S9b / S11 until these are cleared or explicitly deferred):
+Unrun human Telegram checks (do not start S8 / S9b until these are cleared or explicitly deferred; S11 remains not started):
 
-**S10 (motivation — this slice)**
+**S12 (calibration + anti-fossilization — this slice)**
+- Seed / complete enough scored quizzes that `calibration_log` accrues ≥8 days >85% in a fortnight → warm level-raise message once; `users.cefr_level` and log `old≠new`
+- Force a low-accuracy window → level drops in DB, **no** user message
+- With `bot_message_counts = 3` on raise day → level still rises, notice skipped (WARNING in logs)
+- On local 1st (or forced `now`): `fossil_sweep` session with ≤2 pending; next non-rescue morning quiz includes one ordinary-looking item; wrong answer → `resolved=FALSE` / `unresolved_count++`; correct → `resolved_at` unchanged, id in `done`
+- In rescue: morning 3Q has no retest; pending stays queued
+- `/test` completions do not write `calibration_log` / do not change level
+
+**S11 (weekly test + Murphy routing)** — not started; build then verify: Sunday 15-question spread; Murphy unit recommendation matches top error types
+
+**S10 (motivation)**
 - Leave morning quiz unfinished with bot process alive ≥3h → first warm nudge; at +6h second with `Just do 2`; third never
 - Tap `Just do 2` → completes after 2 answers; DB `score = correct/2`; day can count Active
 - With `bot_message_counts = 3`, no nudge; `nudges_sent` unchanged
@@ -397,6 +419,8 @@ Unrun human Telegram checks (do not start S8 / S9b / S11 until these are cleared
 - Re-send a stored page → still 5 rows not 6; richer `target_items`, fresh `studied_at`
 - Single-page portrait / 2-page merge / blurry page / document / 25-page over-cap / scheduler responsive during multi-page — as still needed
 - After cost is known: fill known issue #8 (S6 vision cost still unmeasured)
+- Gap-question grading path still needs live confirm where not already covered
+- `conversation_timeout` nested-CH no-op remains known issue #18
 
 **S5**
 - Mid-conversation restart — bot still remembers the topic after Ctrl-C + restart

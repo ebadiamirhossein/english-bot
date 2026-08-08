@@ -722,3 +722,10 @@ SUNDAY_ACTIVE_SHORT = "{n} of {target} active days."
 SUNDAY_SHORTFALL = "Room for a couple more next week."
 
 SUNDAY_WHY = "{why}"
+
+
+# --- Calibration (S12 / M14) --------------------------------------------------
+
+LEVEL_RAISE = (
+    "Your English is settling at {level} — I'll pitch things a step up from here."
+)

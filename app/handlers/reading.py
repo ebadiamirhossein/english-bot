@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -22,6 +22,7 @@ from telegram.ext import CallbackQueryHandler, ContextTypes
 from app import texts
 from app.handlers.onboarding import layout_buttons
 from app.llm import LLMError, chat
+from app.services.calibration import deliver_raise_notice, maybe_calibrate
 from app.services.interests import adjust_weight_for_rating, select_topic
 from app.services.reading import (
     ReadingMcq,
@@ -676,6 +677,19 @@ async def _on_rating(
         text=close,
         reply_markup=None,
     )
+
+    # M14: only assessed readings vote on level (NULL score = skip/legacy).
+    if score is not None:
+        instant = datetime.now(timezone.utc)
+        outcome = maybe_calibrate(user_id, now=instant)
+        if outcome.raise_notice:
+            day = local_today(_user_timezone(user_id), instant)
+            await deliver_raise_notice(
+                context.bot,
+                user_id,
+                day=day,
+                notice=outcome.raise_notice,
+            )
 
 
 def build_reading_handler() -> CallbackQueryHandler:
