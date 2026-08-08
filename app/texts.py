@@ -776,3 +776,32 @@ STATS_CALIBRATION = "Calibration: {accuracy} · last change: {change}"
 STATS_CALIBRATION_NONE = "Calibration: not enough recent evidence yet"
 STATS_OPERATOR_SWEEP = "Sweep (ops): pending {pending} · done {done}"
 
+
+# --- Real-life capture (S15 / M11) --------------------------------------------
+
+CAPTURE_USAGE = (
+    "Paste the English after the command, like:\n"
+    "/capture Could you circle back on this by Friday?"
+)
+
+CAPTURE_TOO_SHORT = (
+    "That snippet is too short to mine — send a bit more English?"
+)
+
+CAPTURE_TOO_LONG = (
+    "That's a bit long for one pass — send something under 4000 characters?"
+)
+
+CAPTURE_NOTHING_USEFUL = (
+    "I couldn't pull useful phrases from that — try another bit of English?"
+)
+
+CAPTURE_FAILED = (
+    "Something broke on my side — try that capture again in a moment."
+)
+
+# Shown under a successful capture when the whole reply stays ≤400 chars.
+CAPTURE_SELF_HINT = (
+    "Want your own writing corrected? Type it — don't forward it."
+)
+

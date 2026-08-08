@@ -17,6 +17,8 @@ from telegram import (
     CallbackQuery,
     Chat,
     Message,
+    MessageEntity,
+    MessageOriginUser,
     PhotoSize,
     Update,
     User,
@@ -36,6 +38,7 @@ from app.handlers.book import (
     start,
 )
 from app.handlers.book_test import build_book_test_handlers
+from app.handlers.capture import build_capture_handlers
 from app.handlers.correction import build_correction_handler
 from app.handlers.nudge import build_nudge_handler
 from app.handlers.quiz import (
@@ -50,6 +53,7 @@ from app.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_470_000_000
 SAMPLE_TEXT = "her english is not so much good"
+CAPTURE_SAMPLE = "Could you circle back on this by Friday please?"
 
 
 @pytest.fixture
@@ -120,16 +124,19 @@ async def _build_app(
     *,
     quiz_spy: AsyncMock,
     correction_spy: AsyncMock,
+    capture_spy: AsyncMock | None = None,
 ):
-    """Application with quiz → reading → nudge → book_test → book → correction.
-
-    Mirrors main.py registration order.
-    """
+    """Application mirroring main.py: capture → quiz text → … → correction."""
+    if capture_spy is None:
+        capture_spy = AsyncMock()
     with (
         patch("app.handlers.quiz.on_quiz_text", quiz_spy),
         patch("app.handlers.correction.correct_text", correction_spy),
+        patch("app.handlers.capture.on_forwarded_capture", capture_spy),
+        patch("app.handlers.capture.on_capture_command", capture_spy),
     ):
         quiz_text, quiz_choice = build_quiz_handlers()
+        capture_fwd, capture_cmd = build_capture_handlers()
         reading = build_reading_handler()
         nudge = build_nudge_handler()
         test_cmd, test_cb = build_book_test_handlers()
@@ -143,6 +150,8 @@ async def _build_app(
     app.add_handler(stats_cmd)
     app.add_handler(pause_cb)
     app.add_handler(quiz_choice)
+    app.add_handler(capture_fwd)
+    app.add_handler(capture_cmd)
     app.add_handler(quiz_text)
     app.add_handler(reading)  # callbacks only — must not swallow free text
     app.add_handler(nudge)  # nudge: taps only — must not swallow free text
@@ -173,6 +182,60 @@ def _text_update(
         chat=chat,
         from_user=user,
         text=text,
+    )
+    return Update(update_id=update_id, message=msg)
+
+
+def _forwarded_text_update(
+    user_id: int,
+    text: str,
+    *,
+    update_id: int = 1,
+    message_id: int = 11,
+) -> Update:
+    user = User(id=user_id, first_name="A", is_bot=False)
+    origin_user = User(id=user_id + 1, first_name="Client", is_bot=False)
+    chat = Chat(id=user_id, type="private")
+    origin = MessageOriginUser(
+        date=datetime.now(timezone.utc),
+        sender_user=origin_user,
+    )
+    msg = Message(
+        message_id=message_id,
+        date=datetime.now(timezone.utc),
+        chat=chat,
+        from_user=user,
+        text=text,
+        forward_origin=origin,
+    )
+    return Update(update_id=update_id, message=msg)
+
+
+def _command_update(
+    user_id: int,
+    text: str,
+    *,
+    update_id: int = 1,
+    message_id: int = 12,
+) -> Update:
+    """Build a private command update with a bot_command entity."""
+    user = User(id=user_id, first_name="A", is_bot=False)
+    chat = Chat(id=user_id, type="private")
+    cmd = text.split()[0]
+    cmd_len = len(cmd)
+    msg = Message(
+        message_id=message_id,
+        date=datetime.now(timezone.utc),
+        chat=chat,
+        from_user=user,
+        text=text,
+        entities=(
+            MessageEntity(
+                type=MessageEntity.BOT_COMMAND,
+                offset=0,
+                length=cmd_len,
+            ),
+        ),
     )
     return Update(update_id=update_id, message=msg)
 
@@ -421,8 +484,11 @@ def test_dispatch_idle_reaches_correction(cleanup_user: int) -> None:
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
+        capture_spy = AsyncMock()
         app, _book = await _build_app(
-            quiz_spy=quiz_spy, correction_spy=correction_spy
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            capture_spy=capture_spy,
         )
         try:
             update = _text_update(tid, SAMPLE_TEXT)
@@ -430,7 +496,99 @@ def test_dispatch_idle_reaches_correction(cleanup_user: int) -> None:
             update.message._bot = app.bot
             await app.process_update(update)
             quiz_spy.assert_not_awaited()
+            capture_spy.assert_not_awaited()
             correction_spy.assert_awaited_once()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_forwarded_reaches_capture_not_correction(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        capture_spy = AsyncMock()
+        app, _book = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            capture_spy=capture_spy,
+        )
+        try:
+            update = _forwarded_text_update(tid, CAPTURE_SAMPLE)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            capture_spy.assert_awaited_once()
+            correction_spy.assert_not_awaited()
+            quiz_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_capture_command_reaches_capture_not_correction(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        capture_spy = AsyncMock()
+        app, _book = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            capture_spy=capture_spy,
+        )
+        try:
+            update = _command_update(tid, f"/capture {CAPTURE_SAMPLE}")
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            capture_spy.assert_awaited_once()
+            correction_spy.assert_not_awaited()
+            quiz_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_forwarded_during_gap_quiz_reaches_capture(
+    cleanup_user: int,
+) -> None:
+    """A forward must not be graded as a typed gap answer."""
+    tid = cleanup_user
+    _onboard(tid)
+    insert_session(
+        tid, "quiz", date(2026, 8, 8), payload=_quiz_payload("gap"), completed=False
+    )
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        capture_spy = AsyncMock()
+        app, _book = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            capture_spy=capture_spy,
+        )
+        try:
+            update = _forwarded_text_update(tid, CAPTURE_SAMPLE)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            capture_spy.assert_awaited_once()
+            quiz_spy.assert_not_awaited()
+            correction_spy.assert_not_awaited()
         finally:
             app._initialized = False
 

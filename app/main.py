@@ -18,6 +18,7 @@ from app.handlers.book_test import (
     build_book_test_handlers,
     init_book_test_prompt,
 )
+from app.handlers.capture import build_capture_handlers, init_capture_prompt
 from app.handlers.correction import build_correction_handler, init_correction_prompt
 from app.handlers.interests import build_interests_handler
 from app.handlers.nudge import build_nudge_handler
@@ -104,6 +105,7 @@ def main() -> int:
     init_reading_prompt()
     init_book_prompt()
     init_book_test_prompt()
+    init_capture_prompt()
 
     app = (
         ApplicationBuilder()
@@ -122,6 +124,11 @@ def main() -> int:
     app.add_handler(pause_cb)
     quiz_text, quiz_choice = build_quiz_handlers()
     app.add_handler(quiz_choice)
+    # S15: FORWARDED before gap quiz so a forward is never graded as an answer.
+    # Narrow filter — ordinary typed CH answers (book Other, interests) cannot match.
+    capture_fwd, capture_cmd = build_capture_handlers()
+    app.add_handler(capture_fwd)
+    app.add_handler(capture_cmd)
     app.add_handler(quiz_text)  # before correction — open-quiz filter
     app.add_handler(build_reading_handler())  # callbacks only; no text filter
     app.add_handler(build_nudge_handler())  # nudge: taps only; no text filter

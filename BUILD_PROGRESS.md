@@ -5,9 +5,9 @@
 
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
-**Last updated:** 2026-08-08
-**Current slice:** S18
-**Status:** S18 hardening code-complete — verify in Telegram; unrun checks remain on S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Last updated:** 2026-08-09
+**Current slice:** S15
+**Status:** S15 capture code-complete — verify in Telegram; unrun checks remain on S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -51,7 +51,8 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S11 | Weekly test + Murphy routing | 🟡 code-complete | 2026-08-08 | Sun 15Q weekly test (replaces morning quiz); Anki→Sat; Murphy rec on complete; weekly excluded from M14 window. | |
 | S12 | Calibration + anti-fossilization | 🟡 code-complete | 2026-08-08 | M14 windowed raise/silent drop + M13 monthly fossil_sweep inject; human Telegram verify pending. |
 | S18 | Hardening | 🟡 code-complete | 2026-08-08 | Global error handler + file-backed throttle; heartbeat (touch on success); rotating log; flock single-instance; `/pause` + `/stats`. |
-| S13–S17, S19 | Phase 4 depth | ⬜ not started | | |
+| S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
+| S13–S14, S16–S17, S19 | Phase 4 depth | ⬜ not started | | |
 | S20–S23 | Phase 5 commercial | ⬜ not started | | |
 
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
@@ -84,6 +85,17 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-09 | S15 routes on `filters.FORWARDED` (PTB 22.8: `forward_origin`; no `forward_date`) + `/capture <text>` at registration — never a broad TEXT filter that decides internally | Plain-text capture would swallow M2 (S3 OpenQuizFilter outage shape). A forward is unambiguous third-party text. |
+| 2026-08-09 | S15 capture registers after quiz choice / before gap `quiz_text` and correction; interests/book CHs stay later | Forwards must not be graded as gap answers. Ordinary typed CH answers lack `forward_origin` so they cannot match; a mid-flow forward is intentional capture, not “Other” free text. |
+| 2026-08-09 | S15 lives in `handlers/capture.py`, not `correction.py` (ARCHITECTURE §3 tree comment overridden) | Constraint: do not modify `correction.py`; M2 must stay a clean text owner. |
+| 2026-08-09 | S15 never writes `errors` despite schema CHECK allowing `source='capture'` | Forwarded English is someone else’s production; journaling it would poison spacing, weekly test, calibration, Sunday report (ARCHITECTURE principle 3). Chunks only. |
+| 2026-08-09 | S15 `chunks.source = 'capture'` (literal); adaptive 1–5 chunks (~1 per 40 words, never pad) | Distinct from `reading_17` / `book_unit_12` in Anki. Reading’s fixed 5 assumes 300–400 words — wrong for a Slack line. |
+| 2026-08-09 | S15 does not persist the full forward body; stores only mined `chunk` / `full_sentence` / `meaning` | Feature needs patterns, not a third-party email archive (PRD §10). |
+| 2026-08-09 | S15 accepts that `full_sentence` still leaves the box: DB → S7 TSV → Telegram → Anki → may sync to AnkiWeb; prompt prefers generic carriers (no names/amounts/companies when a neutral sentence teaches the same pattern); no code redaction | Deliberate export path, not an emergent leak. User controls Anki sync. Prompt + test document the mitigation. |
+| 2026-08-09 | S15 `chunks.track` defaults to NULL when omitted/invalid — never invent `'work'` | CHECK permits NULL; inventing work would systematically bias a marketing user’s tags. No consumer requires track on chunks. |
+| 2026-08-09 | S15 length gates: under 20 warm short, over 4000 warm long, no LLM; empty forward silent / bare `/capture` usage hint | Capture is intentional and longer than M2’s 1000; 4000 ≈ one dense page, cost bounded. |
+| 2026-08-09 | S15 text-only; forwarded photos/captions out of scope | Vision path has its own failure modes (S6); follow-up candidate. |
+| 2026-08-09 | S15 no `sessions` row, no `bot_message_counts`, `has_session_on` untouched | User-initiated; must not claim quiz/reading slots or affect streaks. |
 | 2026-08-08 | S18 alert channel = Telegram DM to `OPERATOR_TELEGRAM_ID`; second channel (email/PagerDuty) deferred until Hetzner | Same bot token already reaches the operator; no new infra while the process runs on a laptop. |
 | 2026-08-08 | S18 alert throttle = **15 minutes**, keyed by `(exc_type, handler)`, persisted in `{RUNTIME_DIR}/alert_throttle.json` | A 5‑min poll or per-user tick would flood; in-memory alone resets on every diagnostic restart — exactly when mute risk is highest. |
 | 2026-08-08 | S18 operator alerts do **not** increment `bot_message_counts` | PRD §7 rule 9 caps learning messages. Operator and learner currently share one chat — **throttling** protects that chat, not the ceiling of 3. |
@@ -280,6 +292,8 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 19 | S10 nudge timing (+3h / +6h) cannot be validated until the bot runs unattended — process currently only lives while the laptop is open, so a +3h nudge requires the process still alive 3 hours after delivery. | medium | S10 | ⬜ open — needs unattended host |
 | 20 | S12 rolling accuracy is an **approximation** from completed quiz/reading session aggregates (no per-question outcome log / timestamps). Level changes act on this estimate. | medium | S12 | ⬜ open — by design without migration |
 | 21 | S18 in-process heartbeat cannot detect total process death — only silent job drops / hung jobs while the process lives. External cron on Hetzner can run `scripts/heartbeat.py` later. | high | S18 | ⬜ open — by design on laptop |
+| 22 | S15 text-only: forwarded photos / captions (PRD “a sign”) out of scope — needs a vision path; candidate follow-up. | medium | S15 | ⬜ open — deliberate exclusion |
+| 23 | S15 self-forward → capture, not M2. `forward_origin` cannot reliably detect self (`MessageOriginHiddenUser`). Workaround: paste own English as plain text (reply hint). Guessing wrong would journal someone else’s sentences. | medium | S15 | ⬜ open — by design |
 
 ---
 
@@ -321,8 +335,8 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/Sunday report/Anki/nudge/streak/freeze + M13 + hourly heartbeat; touch last_job_fire on success | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18 (pause/stats/soft unhandled) | ✅ |
-| `app/main.py` | Entrypoint; flock; rotating log; error handler; `/pause` `/stats`; existing handlers + scheduler | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18 + S15 capture copy | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; capture before quiz text; `/pause` `/stats`; scheduler | ✅ |
 | `app/instance_lock.py` | `fcntl.flock` single-instance guard (S18) | ✅ |
 | `app/services/alerts.py` | File-backed throttle + `notify_operator` + `on_error` (S18) | ✅ |
 | `app/services/heartbeat.py` | last_job_fire touch/check helpers (S18) | ✅ |
@@ -337,6 +351,10 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/handlers/access.py` | Shared unregistered-user ignore + onboarding allowlist | ✅ |
 | `app/handlers/onboarding.py` | `/start` wizard + `layout_buttons` + reactions (S1d) | ✅ |
 | `app/handlers/correction.py` | Free-text correction (S2) + shared `render_correction_message` | ✅ |
+| `app/handlers/capture.py` | Forward + `/capture` real-life capture (S15); never writes errors | ✅ |
+| `app/services/capture.py` | Capture validate + persist-after-send; source=`capture`; track NULL default (S15) | ✅ |
+| `app/prompts/capture.txt` | Capture JSON prompt — adaptive chunks, generic carriers (S15) | ✅ |
+| `tests/test_capture.py` | Capture validation, persist/rollback, PII fixture, handler, anki source, labels (S15) | ✅ |
 | `app/handlers/quiz.py` | Daily/weekly quiz + top-up; evenly spaced `plan_formats`; book grading fork; `early_limit`; Murphy append on weekly complete; M13/M14; `OpenQuizFilter` gap-only | ✅ |
 | `app/handlers/voice.py` | Voice partner handler (S5) + status stages / repeating chat action (S5a) | ✅ |
 | `app/handlers/interests.py` | `/interests` multi-select wizard (S9); index callbacks; custom-topic preload | ✅ |
@@ -351,7 +369,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/services/anki.py` | Chunk→TSV gap/escape/export; weekly deliver + `/anki`; mark-after-send (S7) | ✅ |
 | `app/services/streaks.py` | Streak rollover, freeze, rescue; Active>Missed precedence (S4/S5) | ✅ |
 | `app/services/interests.py` | list/replace/select_topic/mark_last_used + adjust_weight_for_rating (S9/S9a/S9c) | ✅ |
-| `app/services/chunks.py` | Chunk inserts for reading (S9a) | ✅ |
+| `app/services/chunks.py` | Chunk inserts for reading (S9a) + capture; `track` nullable (S15) | ✅ |
 | `app/services/reading.py` | MCQ validate + parse_stored_questions + persist_and_send + complete_reading (S9a/S9c) | ✅ |
 | `app/services/books.py` | OCR parse/merge, upsert, summary; list/find/top-up + word-bank/dedup; studied Murphy units (S6/S6a/S11) | ✅ |
 | `app/prompts/correction.txt` | Correction system prompt template | ✅ |
@@ -382,7 +400,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_reading.py` | S9a eligibility, ceiling, topic pick, MCQ validate, rollback, persist + message_id | ✅ |
 | `tests/test_reading_s9c.py` | S9c grading, resume, message_id resolve, rating clamps, legacy NULL score, edit resend, labels | ✅ |
 | `tests/test_book.py` | S6 debounce, merge, upsert, failures, Page/Pages / All-N collapse, CTA agreement, prose soft-skip, over-cap, labels, SDK/disk greps | ✅ |
-| `tests/test_dispatch_m2.py` | Application dispatch + S18 error handler /pause/stats registered; quiz gap/non-gap vs correction (S3+S6+S6a+S9c+S10+S18) | ✅ |
+| `tests/test_dispatch_m2.py` | Application dispatch + capture forward/`/capture` spies vs correction (S3+S6+S6a+S9c+S10+S15+S18) | ✅ |
 | `tests/test_s6a.py` | Top-up counts, word-bank/dedup fixtures, journal fork (typed+tap), streak Missed vs Neutral, `/test` parse/disambiguate/abandon, labels (S6a) | ✅ |
 | `tests/test_anki.py` | S7 gap/escape/order/mark-after-send/ceiling/idempotency/empty `/anki` | ✅ |
 | `tests/test_motivation.py` | S10 nudge ladder, ceiling, dual-TZ, resolved_types all-clear, active-days bands, Sunday report, Just do 2 score, no-guilt/labels | ✅ |
@@ -401,7 +419,16 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 
 Unrun human Telegram checks (do not start S8 / S9b until these are cleared or explicitly deferred):
 
-**S18 (hardening — this slice)**
+**S15 (real-life capture — this slice)**
+- Type ordinary English → correction (M2); journal grows; capture does not fire
+- Forward an English Slack/email snippet → explanation + chunks; **no** new `errors` row; `chunks.source='capture'`
+- `/capture` + paste (≥20 chars) → same as forward; bare `/capture` → usage hint
+- Forward non-English / tiny snippet → warm fail, no crash
+- `/anki` → TSV includes `capture` in the source column
+- Confirm logs show `user_id`/handler only (no message body)
+- (Optional) Forward own message → capture not correction; paste same text → M2
+
+**S18 (hardening)**
 - Force an unhandled exception → soft user line, operator alert (set `OPERATOR_TELEGRAM_ID`), no traceback in chat
 - Repeat / restart mid-outage → file throttle holds; suppressed count rather than a flood
 - Second `python -m app.main` → refuses with lock message; after killing the first, start succeeds

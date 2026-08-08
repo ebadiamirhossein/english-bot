@@ -10,13 +10,14 @@ def insert_chunks(
     user_id: int,
     *,
     source: str,
-    track: str,
+    track: str | None,
     chunks: Sequence[dict[str, str]],
 ) -> None:
     """Insert chunk rows on an open connection (caller owns the transaction).
 
     Each item in ``chunks`` must have keys ``chunk``, ``full_sentence``,
     ``meaning``. Values are stored as provided (not normalised).
+    ``track`` may be NULL (S15 capture when classification is uncertain).
     """
     for item in chunks:
         conn.execute(
