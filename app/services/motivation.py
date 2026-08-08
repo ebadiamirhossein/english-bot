@@ -152,12 +152,19 @@ def nudge_keyboard(session_id: int) -> InlineKeyboardMarkup:
 
 
 def format_nudge_message(session: NudgeableSession) -> tuple[str, InlineKeyboardMarkup | None]:
-    """Return (body, optional keyboard). Second nudge differs and offers Just do 2."""
+    """Return (body, optional keyboard). Second quiz/reading nudge offers Just do 2.
+
+    Diary nudges are text-only — no early_limit button (S13).
+    """
     if session.nudges_sent == 0:
         if session.task_type == "reading":
             return texts.NUDGE_FIRST_READING, None
+        if session.task_type == "diary":
+            return texts.NUDGE_FIRST_DIARY, None
         return texts.NUDGE_FIRST_QUIZ, None
     # Second (and only second) nudge.
+    if session.task_type == "diary":
+        return texts.NUDGE_SECOND_DIARY, None
     if session.task_type == "reading":
         body = texts.NUDGE_SECOND_READING
     else:
@@ -408,8 +415,10 @@ def s10_user_facing_strings() -> list[str]:
     samples = [
         texts.NUDGE_FIRST_QUIZ,
         texts.NUDGE_FIRST_READING,
+        texts.NUDGE_FIRST_DIARY,
         texts.NUDGE_SECOND_QUIZ,
         texts.NUDGE_SECOND_READING,
+        texts.NUDGE_SECOND_DIARY,
         texts.NUDGE_SHORT_ACK,
         texts.NUDGE_SHORT_DONE,
         texts.SUNDAY_LEAD_QUIET.format(labels="Prepositions"),

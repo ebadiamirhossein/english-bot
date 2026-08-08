@@ -2,6 +2,7 @@
 
 S3: morning poll. S4: streak rollover + monthly freeze reset.
 S9a: evening reading poll (Mon/Wed/Fri).
+S13: evening diary poll (Tue/Thu).
 S7: Sunday Anki export poll (at evening_time or later).
 S10: nudge ladder + Sunday report (report before Anki for ceiling priority).
 S12: M13 fossil sweep on the monthly freeze poll (per-user local 1st).
@@ -17,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from app.config import load_settings
 from app.db import connection
+from app.handlers import diary as diary_handler
 from app.handlers import quiz as quiz_handler
 from app.handlers import reading as reading_handler
 from app.services import anki as anki_service
@@ -26,6 +28,7 @@ from app.services.errors import run_monthly_fossil_sweep
 from app.services import heartbeat as heartbeat_service
 from app.services.sessions import (
     has_anki_session_on,
+    has_diary_session_on,
     has_reading_session_on,
     has_session_on,
     local_time_hhmm,
@@ -51,16 +54,21 @@ HEARTBEAT_FIRST_SECONDS = 60
 # Offset evening from morning within the same interval so a slow morning
 # LLM cannot land in APScheduler's misfire window for the evening tick.
 EVENING_FIRST_SECONDS = POLL_SECONDS // 2
+# Diary between reading and Sunday report; weekdays never overlap reading.
+DIARY_FIRST_SECONDS = EVENING_FIRST_SECONDS + 10
 # Sunday report offset; Anki is Saturday (S11) so they no longer compete.
 SUNDAY_REPORT_FIRST_SECONDS = EVENING_FIRST_SECONDS + 15
 ANKI_FIRST_SECONDS = EVENING_FIRST_SECONDS + 30
 NUDGE_FIRST_SECONDS = EVENING_FIRST_SECONDS + 45
 # Monday=0, Wednesday=2, Friday=4 in the user's local timezone.
 READING_WEEKDAYS = frozenset({0, 2, 4})
+# Tuesday=1, Thursday=3 — remaining evenings without reading/Anki/report (S13).
+DIARY_WEEKDAYS = frozenset({1, 3})
 # Saturday=5 — moved off Sunday so weekly test + report fit under the ceiling (S11).
 ANKI_WEEKDAY = 5
 _MORNING_JOB = "morning_poll"
 _EVENING_JOB = "evening_poll"
+_DIARY_JOB = "diary_poll"
 _SUNDAY_REPORT_JOB = "sunday_report_poll"
 _ANKI_JOB = "anki_poll"
 _NUDGE_JOB = "nudge_poll"
@@ -150,6 +158,25 @@ def is_user_due_for_evening(user: EligibleUser, now: datetime) -> bool:
     return True
 
 
+def is_user_due_for_diary(user: EligibleUser, now: datetime) -> bool:
+    """Whether this user should receive a diary prompt at ``now`` (Tue/Thu)."""
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    day = local_today(user.timezone, now)
+    local_dt = now.astimezone(ZoneInfo(user.timezone))
+    if local_dt.weekday() not in DIARY_WEEKDAYS:
+        return False
+    if user.paused_until is not None and user.paused_until >= day:
+        return False
+    if not _time_reached(local_time_hhmm(user.timezone, now), user.evening_time):
+        return False
+    if has_diary_session_on(user.telegram_user_id, day):
+        return False
+    if not under_message_ceiling(user.telegram_user_id, day):
+        return False
+    return True
+
+
 def is_user_due_for_anki(user: EligibleUser, now: datetime) -> bool:
     """Whether this user should receive a Saturday Anki export at ``now``."""
     if now.tzinfo is None:
@@ -181,6 +208,13 @@ def users_due_for_evening(now: datetime) -> list[EligibleUser]:
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     return [u for u in list_candidate_users() if is_user_due_for_evening(u, now)]
+
+
+def users_due_for_diary(now: datetime) -> list[EligibleUser]:
+    """Users whose local evening diary slot is due."""
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    return [u for u in list_candidate_users() if is_user_due_for_diary(u, now)]
 
 
 def users_due_for_anki(now: datetime) -> list[EligibleUser]:
@@ -246,6 +280,37 @@ async def run_evening_poll(
         except Exception:
             logger.exception(
                 "Evening delivery failed user_id=%s",
+                user.telegram_user_id,
+            )
+            results.append((user.telegram_user_id, "error"))
+    return results
+
+
+async def run_diary_poll(
+    application: Application,
+    now: datetime | None = None,
+) -> list[tuple[int, str]]:
+    """Run one evening diary poll. Returns list of (user_id, action)."""
+    instant = now or datetime.now(timezone.utc)
+    due = users_due_for_diary(instant)
+    logger.info("Diary poll: %s user(s) due", len(due))
+    results: list[tuple[int, str]] = []
+    for user in due:
+        try:
+            action = await diary_handler.deliver_diary(
+                application,
+                user.telegram_user_id,
+                now=instant,
+            )
+            results.append((user.telegram_user_id, action))
+            logger.info(
+                "Diary delivery user_id=%s action=%s",
+                user.telegram_user_id,
+                action,
+            )
+        except Exception:
+            logger.exception(
+                "Diary delivery failed user_id=%s",
                 user.telegram_user_id,
             )
             results.append((user.telegram_user_id, "error"))
@@ -361,6 +426,11 @@ async def _evening_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     _touch_job_fire_success()
 
 
+async def _diary_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await run_diary_poll(context.application)
+    _touch_job_fire_success()
+
+
 async def _anki_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_anki_poll(context.application)
     _touch_job_fire_success()
@@ -428,6 +498,7 @@ def start_scheduler(application: Application) -> None:
     known = {
         _MORNING_JOB,
         _EVENING_JOB,
+        _DIARY_JOB,
         _SUNDAY_REPORT_JOB,
         _ANKI_JOB,
         _NUDGE_JOB,
@@ -452,6 +523,12 @@ def start_scheduler(application: Application) -> None:
         interval=POLL_SECONDS,
         first=EVENING_FIRST_SECONDS,
         name=_EVENING_JOB,
+    )
+    jq.run_repeating(
+        _diary_job,
+        interval=POLL_SECONDS,
+        first=DIARY_FIRST_SECONDS,
+        name=_DIARY_JOB,
     )
     jq.run_repeating(
         _sunday_report_job,
@@ -490,12 +567,13 @@ def start_scheduler(application: Application) -> None:
         name=_HEARTBEAT_JOB,
     )
     logger.info(
-        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s "
-        "(poll every %ss; evening first=%ss; sunday_report first=%ss; "
-        "anki first=%ss; nudge first=%ss; streak/freeze every %ss; "
-        "heartbeat every %ss)",
+        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s,%s "
+        "(poll every %ss; evening first=%ss; diary first=%ss; "
+        "sunday_report first=%ss; anki first=%ss; nudge first=%ss; "
+        "streak/freeze every %ss; heartbeat every %ss)",
         _MORNING_JOB,
         _EVENING_JOB,
+        _DIARY_JOB,
         _SUNDAY_REPORT_JOB,
         _ANKI_JOB,
         _NUDGE_JOB,
@@ -504,6 +582,7 @@ def start_scheduler(application: Application) -> None:
         _HEARTBEAT_JOB,
         POLL_SECONDS,
         EVENING_FIRST_SECONDS,
+        DIARY_FIRST_SECONDS,
         SUNDAY_REPORT_FIRST_SECONDS,
         ANKI_FIRST_SECONDS,
         NUDGE_FIRST_SECONDS,
@@ -519,6 +598,7 @@ def stop_scheduler(application: Application | None = None) -> None:
     known = {
         _MORNING_JOB,
         _EVENING_JOB,
+        _DIARY_JOB,
         _SUNDAY_REPORT_JOB,
         _ANKI_JOB,
         _NUDGE_JOB,

@@ -22,9 +22,11 @@ from telegram import (
     PhotoSize,
     Update,
     User,
+    Voice,
 )
 from telegram.ext import ApplicationBuilder, ConversationHandler
 
+from app.config import Settings
 from app.db import close_pool, connection
 from app.handlers.book import (
     ASK_BOOK,
@@ -47,8 +49,9 @@ from app.handlers.quiz import (
 )
 from app.handlers.reading import build_reading_handler
 from app.handlers.settings import build_settings_handlers
+from app.handlers.voice import build_voice_handler
 from app.services.alerts import on_error
-from app.services.sessions import insert_session
+from app.services.sessions import insert_session, local_today, save_voice_exchange
 from app.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_470_000_000
@@ -120,13 +123,26 @@ def _quiz_payload(fmt: str, *, index: int = 0) -> dict[str, Any]:
     }
 
 
+def _voice_settings() -> Settings:
+    return Settings(
+        database_url="postgresql://x:y@localhost:5433/english_bot",
+        telegram_bot_token="token",
+        llm_api_key="test-key",
+        openai_api_key="test-openai-key",
+        diary_max_seconds=90,
+        voice_max_seconds=120,
+        voice_context_minutes=120,
+        voice_max_turns=10,
+    )
+
+
 async def _build_app(
     *,
     quiz_spy: AsyncMock,
     correction_spy: AsyncMock,
     capture_spy: AsyncMock | None = None,
 ):
-    """Application mirroring main.py: capture → quiz text → … → correction."""
+    """Application mirroring main.py: capture → quiz text → voice → correction."""
     if capture_spy is None:
         capture_spy = AsyncMock()
     with (
@@ -140,6 +156,7 @@ async def _build_app(
         reading = build_reading_handler()
         nudge = build_nudge_handler()
         test_cmd, test_cb = build_book_test_handlers()
+        voice = build_voice_handler()
         book = build_book_handler()
         correction = build_correction_handler()
 
@@ -157,6 +174,7 @@ async def _build_app(
     app.add_handler(nudge)  # nudge: taps only — must not swallow free text
     app.add_handler(test_cb)
     app.add_handler(test_cmd)
+    app.add_handler(voice)
     app.add_handler(book)
     app.add_handler(correction)
 
@@ -182,6 +200,30 @@ def _text_update(
         chat=chat,
         from_user=user,
         text=text,
+    )
+    return Update(update_id=update_id, message=msg)
+
+
+def _voice_update(
+    user_id: int,
+    *,
+    duration: int = 20,
+    update_id: int = 50,
+    message_id: int = 50,
+) -> Update:
+    user = User(id=user_id, first_name="A", is_bot=False)
+    chat = Chat(id=user_id, type="private")
+    voice = Voice(
+        file_id="voice-dispatch-1",
+        file_unique_id="voice-unique-1",
+        duration=duration,
+    )
+    msg = Message(
+        message_id=message_id,
+        date=datetime.now(timezone.utc),
+        chat=chat,
+        from_user=user,
+        voice=voice,
     )
     return Update(update_id=update_id, message=msg)
 
@@ -897,6 +939,128 @@ def test_dispatch_open_reading_mid_qa_reaches_correction(cleanup_user: int) -> N
             await app.process_update(update)
             quiz_spy.assert_not_awaited()
             correction_spy.assert_awaited_once()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+# --- Voice / diary routing (S13) ---------------------------------------------
+
+
+def test_dispatch_open_diary_reaches_diary_not_m3(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    day = local_today("Europe/Vilnius", datetime.now(timezone.utc))
+    insert_session(
+        tid, "diary", day, payload={"source": "poll"}, completed=False
+    )
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        diary_spy = AsyncMock()
+        m3_spy = AsyncMock()
+        app, _book = await _build_app(
+            quiz_spy=quiz_spy, correction_spy=correction_spy
+        )
+        try:
+            update = _voice_update(tid)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            with (
+                patch(
+                    "app.handlers.voice.load_settings",
+                    return_value=_voice_settings(),
+                ),
+                patch("app.handlers.diary.handle_diary_voice", diary_spy),
+                patch("app.handlers.voice._handle_voice_locked", m3_spy),
+            ):
+                await app.process_update(update)
+            diary_spy.assert_awaited_once()
+            m3_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_no_diary_reaches_m3_not_diary(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        diary_spy = AsyncMock()
+        m3_spy = AsyncMock()
+        app, _book = await _build_app(
+            quiz_spy=quiz_spy, correction_spy=correction_spy
+        )
+        try:
+            update = _voice_update(tid)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            with (
+                patch(
+                    "app.handlers.voice.load_settings",
+                    return_value=_voice_settings(),
+                ),
+                patch("app.handlers.diary.handle_diary_voice", diary_spy),
+                patch("app.handlers.voice._handle_voice_locked", m3_spy),
+            ):
+                await app.process_update(update)
+            m3_spy.assert_awaited_once()
+            diary_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_live_m3_beats_open_diary(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    day = local_today("Europe/Vilnius", datetime.now(timezone.utc))
+    save_voice_exchange(
+        None,
+        tid,
+        day,
+        {
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hey"},
+            ],
+            "turn_count": 2,
+        },
+    )
+    insert_session(
+        tid, "diary", day, payload={"source": "poll"}, completed=False
+    )
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        diary_spy = AsyncMock()
+        m3_spy = AsyncMock()
+        app, _book = await _build_app(
+            quiz_spy=quiz_spy, correction_spy=correction_spy
+        )
+        try:
+            update = _voice_update(tid)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            with (
+                patch(
+                    "app.handlers.voice.load_settings",
+                    return_value=_voice_settings(),
+                ),
+                patch("app.handlers.diary.handle_diary_voice", diary_spy),
+                patch("app.handlers.voice._handle_voice_locked", m3_spy),
+            ):
+                await app.process_update(update)
+            m3_spy.assert_awaited_once()
+            diary_spy.assert_not_awaited()
         finally:
             app._initialized = False
 

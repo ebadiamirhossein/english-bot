@@ -20,6 +20,7 @@ from app.handlers.book_test import (
 )
 from app.handlers.capture import build_capture_handlers, init_capture_prompt
 from app.handlers.correction import build_correction_handler, init_correction_prompt
+from app.handlers.diary import build_diary_handlers, init_diary_prompt
 from app.handlers.interests import build_interests_handler
 from app.handlers.nudge import build_nudge_handler
 from app.handlers.onboarding import build_onboarding_handler
@@ -102,6 +103,7 @@ def main() -> int:
     init_correction_prompt()
     init_quiz_prompt()
     init_voice_prompt()
+    init_diary_prompt()
     init_reading_prompt()
     init_book_prompt()
     init_book_test_prompt()
@@ -118,6 +120,7 @@ def main() -> int:
     app.add_handler(build_onboarding_handler())
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("anki", handle_anki_command))
+    app.add_handler(build_diary_handlers())
     pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
     app.add_handler(pause_cmd)
     app.add_handler(stats_cmd)

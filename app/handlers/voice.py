@@ -1,9 +1,12 @@
-"""Voice partner (M3 / S5).
+"""Voice partner (M3 / S5) + diary voice router (M9 / S13).
 
 Voice in → Whisper → conversational reply as voice + correction as text.
 Conversation state lives in sessions.payload. Never bot_data.
 
 S5a: repeating chat action + in-place status message through three stages.
+
+S13 routing (ordered): live M3 conversation wins; else open diary for local
+today claims the voice; else M3 as today.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from app.llm import LLMError, chat
 from app.services.errors import record_errors
 from app.services.sessions import (
     get_continuable_voice_session,
+    get_open_diary_session,
     local_today,
     save_voice_exchange,
 )
@@ -115,13 +119,43 @@ async def handle_voice(
         return
 
     settings = load_settings()
+    now = datetime.now(timezone.utc)
+    tz = _user_timezone(user_id)
+    day = local_today(tz, now)
+
+    # Ordered route: live M3 wins over open diary (S13).
+    live_m3 = get_continuable_voice_session(
+        user_id,
+        now=now,
+        context_minutes=settings.voice_context_minutes,
+        max_turns=settings.voice_max_turns,
+    )
+    open_diary = (
+        None
+        if live_m3 is not None
+        else get_open_diary_session(user_id, day)
+    )
+    route_diary = open_diary is not None
+
     # Over-length decline happens before status or chat action exist.
-    if message.voice.duration > settings.voice_max_seconds:
-        await message.reply_text(texts.VOICE_TOO_LONG)
+    max_seconds = (
+        settings.diary_max_seconds
+        if route_diary
+        else settings.voice_max_seconds
+    )
+    if message.voice.duration > max_seconds:
+        await message.reply_text(
+            texts.DIARY_TOO_LONG if route_diary else texts.VOICE_TOO_LONG
+        )
         return
 
     async with _lock_for(user_id):
-        await _handle_voice_locked(update, context, settings)
+        if route_diary:
+            from app.handlers.diary import handle_diary_voice
+
+            await handle_diary_voice(update, context, settings)
+        else:
+            await _handle_voice_locked(update, context, settings)
 
 
 async def _repeat_record_voice(bot: Any, chat_id: int) -> None:

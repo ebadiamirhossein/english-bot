@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-09
-**Current slice:** S15
-**Status:** S15 capture code-complete — verify in Telegram; unrun checks remain on S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Current slice:** S13
+**Status:** S13 diary code-complete — verify in Telegram; unrun checks remain on S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -29,7 +29,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S1c | Onboarding content | ✅ done & verified | 2026-08-03 | Self-assessment A2/B1/B2; domain category→specific drill-down; situation-based why options; EF SET nudge on save. Verified live. |
 | S1d | Onboarding personality | ✅ done & verified | 2026-08-03 | Layout helper (≤12 shared rows); emoji on options; static reactions; warmer copy. Sticker skipped (no stable file_id). Verified live. |
 | S2 | LLM wrapper + correction | ✅ done & verified | 2026-08-03 | `llm.py` + free correction. Verified live. |
-| S3 | Daily quiz + scheduler | ✅ done & verified | 2026-08-03 | Spacing ladder + quiz + 5-min poll. Core verified live; order/choice body+1–4 buttons check still open (2026-08-07 truncation fix). **2026-08-08:** `OpenQuizFilter` narrowed to current format `gap` only — non-gap open quizzes were silently swallowing free text and killing M2 (dispatch fix; Telegram re-verify pending). |
+| S3 | Daily quiz + scheduler | ✅ done & verified | 2026-08-03 | Spacing ladder + quiz + 5-min poll. Core verified live. **2026-08-09:** order/choice body+1–4 button layout verified live; dispatch fix verified live (free text after open non-gap quiz reached correction at 17:59). Gap-path live check still in Verification checklist. |
 | S3a | Quiz content + formats | ✅ done & verified | 2026-08-03 | Labels not codes; track mix; gap/choice/reorder/spot. Verified live. |
 | S3b | Quiz question layout | ✅ done & verified | 2026-08-03 | Body reads / buttons tap; feedback blank line. Verified live. |
 | S3c | Quiz formats + register | ✅ done & verified | 2026-08-03 | Reorder→order; spoken register; one scenario. Verified live. |
@@ -39,20 +39,21 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | Phase 1 slices verified; 14-day use gate still open |
 | S5 | Voice partner | 🟡 code-complete | 2026-08-04 | Whisper+TTS; voice sessions; Active>Missed. Unrun: mid-conversation restart. |
 | S5a | Voice processing status | 🟡 code-complete | 2026-08-04 | Repeating chat action + 3-stage status message. Unrun: never tested in Telegram. |
-| S6 | Book ingestion | 🟡 code-complete | 2026-08-08 | `/book` → album debounce → vision OCR → `book_units` upsert; Done/Add more ends CH. Live: 10 pages → 5 units, clean merge/dedup path. Suspected “correction collision” was S3 OpenQuizFilter, not the book CH. Light hardening: `collecting` gates late photos; 1h `conversation_timeout` clears abandoned `user_data["book"]`. Human checks still pending. |
+| S6 | Book ingestion | 🟡 code-complete | 2026-08-08 | `/book` → album debounce → vision OCR → `book_units` upsert; Done/Add more ends CH. Live: 10 pages → 5 units. **2026-08-09:** OCR, two-page merge, album debounce, re-ingest dedup, and text-after-Done reaching correction verified live. Suspected “correction collision” was S3 OpenQuizFilter, not the book CH. Light hardening: `collecting` gates late photos; 1h `conversation_timeout` clears abandoned `user_data["book"]`. Remaining human checks in Verification checklist. |
 | S6a | `/test` + quiz top-up | 🟡 code-complete | 2026-08-08 | `book_test` session; tap-only `/test unit N`; morning top-up from `book_units` when due < size; selection-time dedup/word-bank; journal on book miss with taxonomy guard. |
-| S7 | Anki export | ✅ done & verified | 2026-08-08 | TSV from `chunks` only; poll + `/anki`; mark-after-send. Human imported TSV into Anki; second `/anki` reported nothing new. S11 moved weekly poll to Saturday. |
+| S7 | Anki export | ✅ done & verified | 2026-08-08 | TSV from `chunks` only; poll + `/anki`; mark-after-send. Human imported TSV into Anki; second `/anki` reported nothing new. **2026-08-09:** full Anki path verified live. S11 moved weekly poll to Saturday. |
 | S8 | Couple challenge | ⬜ not started | | |
 | S9 | Interests profile | 🟡 code-complete | 2026-08-04 | `/interests` wizard seeds `interests`. Unrun: custom-topic weight/last_used across Change→Done. |
 | S9a | Reading delivery + chunks | 🟡 code-complete | 2026-08-06 | Mon/Wed/Fri evening poll; readings+chunks+session; ceiling; LLM off event loop. Unrun: same-day second poll / ceiling / morning quiz unblock. |
 | S9b | Video engine (YouTube) | ⬜ not started | | |
 | S9c | Reading comprehension + rating | 🟡 code-complete | 2026-08-08 | MCQ taps only; session resolve by message_id; edit-failure resend; rating→additive weight; legacy skip score=NULL. |
-| S10 | Motivation engine | 🟡 code-complete | 2026-08-08 | Nudge ladder (quiz/reading, max 2/day, Just do 2) + Sunday report (all-clear resolved_types, no LLM); human Telegram verify pending. |
+| S10 | Motivation engine | 🟡 code-complete | 2026-08-08 | Nudge ladder (quiz/reading/diary, max 2/day; Just do 2 for quiz/reading only) + Sunday report; human Telegram verify pending. |
 | S11 | Weekly test + Murphy routing | 🟡 code-complete | 2026-08-08 | Sun 15Q weekly test (replaces morning quiz); Anki→Sat; Murphy rec on complete; weekly excluded from M14 window. | |
 | S12 | Calibration + anti-fossilization | 🟡 code-complete | 2026-08-08 | M14 windowed raise/silent drop + M13 monthly fossil_sweep inject; human Telegram verify pending. |
 | S18 | Hardening | 🟡 code-complete | 2026-08-08 | Global error handler + file-backed throttle; heartbeat (touch on success); rotating log; flock single-instance; `/pause` + `/stats`. |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
-| S13–S14, S16–S17, S19 | Phase 4 depth | ⬜ not started | | |
+| S13 | Voice diary (M9) | 🟡 code-complete | 2026-08-09 | Tue/Thu prompts + `/diary`; live M3 wins voice routing; max 2 corrections; no TTS; full transcript discarded. |
+| S14, S16–S17, S19 | Phase 4 depth | ⬜ not started | | |
 | S20–S23 | Phase 5 commercial | ⬜ not started | | |
 
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
@@ -85,6 +86,15 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-09 | S13 voice routing (ordered): live M3 (`get_continuable_voice_session`) wins → else open incomplete `diary` for local today → else M3 | A Tue/Thu diary prompt routinely lands inside the 120-min M3 window; claiming that turn as diary breaks mid-conversation with no explanation. Diary stays open until 03:00. Lookups are disjoint by `task_type` + completion semantics; only one branch runs. |
+| 2026-08-09 | S13 bot diary prompts **Tue/Thu** only (`DIARY_WEEKDAYS={1,3}`); separate `diary_poll`; never same day as reading/Anki/report | Ceiling + existing evening owners. ARCHITECTURE “rotating M3/M4/M9” refined: evening = M4 Mon/Wed/Fri + M9 Tue/Thu; M3 stays user-initiated. |
+| 2026-08-09 | S13 `/diary` is user-initiated any night — no `bot_message_counts`, no ceiling; reuses open session; warm already-done after complete | Restores PRD “every night” without spending rule-9 slots. Tue/Thu prompts are the reminder; `/diary` is the habit. |
+| 2026-08-09 | S13 diary is nudgeable (`NUDGEABLE_TASK_TYPES`); text-only ladder; **no** Just do 2 | Open until 03:00 needs a recovery path. Just do 2 is quiz/reading `early_limit`. Tue/Thu quiz+diary = 2/3 ceiling → ≤1 nudge; oldest session wins. |
+| 2026-08-09 | S13 no TTS reply | Diary is a monologue; spoken reply would double cost and turn it into a conversation. |
+| 2026-08-09 | S13 `DIARY_MAX_SECONDS=90` (separate from M3’s 120) | ~60s ask with headroom; caps Whisper at 1.5 min without lowering partner turns. |
+| 2026-08-09 | S13 hard cap 2 corrections in code (`[:2]`) before `record_errors`/`render` | Volume over precision; model returning 6 must yield 2 rows. |
+| 2026-08-09 | S13 full transcript discarded (never in `sessions.payload` / logs); quoted fragments in `errors.you_said` retained like every other source | PRD §10: audio deleted after STT; error journal *is* the product — not a diary archive. |
+| 2026-08-09 | S13 never mines chunks from diary | Chunks → S7 TSV → Anki → may sync AnkiWeb; diary is the last material for that path. |
 | 2026-08-09 | S15 routes on `filters.FORWARDED` (PTB 22.8: `forward_origin`; no `forward_date`) + `/capture <text>` at registration — never a broad TEXT filter that decides internally | Plain-text capture would swallow M2 (S3 OpenQuizFilter outage shape). A forward is unambiguous third-party text. |
 | 2026-08-09 | S15 capture registers after quiz choice / before gap `quiz_text` and correction; interests/book CHs stay later | Forwards must not be graded as gap answers. Ordinary typed CH answers lack `forward_origin` so they cannot match; a mid-flow forward is intentional capture, not “Other” free text. |
 | 2026-08-09 | S15 lives in `handlers/capture.py`, not `correction.py` (ARCHITECTURE §3 tree comment overridden) | Constraint: do not modify `correction.py`; M2 must stay a clean text owner. |
@@ -330,13 +340,13 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `migrations/002_quiz_scheduler.sql` | sessions.payload + bot_message_counts | ✅ |
 | `migrations/003_streaks.sql` | last_evaluated_date, freeze_reset_on, pending_freeze_notice | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
-| `app/config.py` | Env → frozen `Settings` (+ LLM/STT/TTS + S18 operator/runtime/log/lock/heartbeat/throttle) | ✅ |
+| `app/config.py` | Env → frozen `Settings` (+ LLM/STT/TTS + `DIARY_MAX_SECONDS` + S18 runtime) | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
-| `app/scheduler.py` | Morning/evening/Sunday report/Anki/nudge/streak/freeze + M13 + hourly heartbeat; touch last_job_fire on success | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18 + S15 capture copy | ✅ |
-| `app/main.py` | Entrypoint; flock; rotating log; error handler; capture before quiz text; `/pause` `/stats`; scheduler | ✅ |
+| `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/streak/freeze + M13 + heartbeat | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18 + S15 capture + S13 diary copy | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; `/diary`; capture; `/pause` `/stats`; scheduler | ✅ |
 | `app/instance_lock.py` | `fcntl.flock` single-instance guard (S18) | ✅ |
 | `app/services/alerts.py` | File-backed throttle + `notify_operator` + `on_error` (S18) | ✅ |
 | `app/services/heartbeat.py` | last_job_fire touch/check helpers (S18) | ✅ |
@@ -346,7 +356,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_hardening.py` | Alerts/throttle/heartbeat/lock/log privacy/pause/stats/Missed pin (S18) | ✅ |
 | `app/services/calibration.py` | M14 rolling accuracy (excludes book_test + weekly_test), daily calibration_log upsert, raise/lower, raise notice | ✅ |
 | `app/handlers/nudge.py` | Tap-only `nudge:short:` early-limit callbacks; Murphy append on weekly early-complete (S10/S11) | ✅ |
-| `app/services/motivation.py` | Nudge ladder + Sunday report assembly (no LLM) (S10) | ✅ |
+| `app/services/motivation.py` | Nudge ladder (incl. diary text-only) + Sunday report assembly (no LLM) (S10/S13) | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
 | `app/handlers/access.py` | Shared unregistered-user ignore + onboarding allowlist | ✅ |
 | `app/handlers/onboarding.py` | `/start` wizard + `layout_buttons` + reactions (S1d) | ✅ |
@@ -356,7 +366,10 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/prompts/capture.txt` | Capture JSON prompt — adaptive chunks, generic carriers (S15) | ✅ |
 | `tests/test_capture.py` | Capture validation, persist/rollback, PII fixture, handler, anki source, labels (S15) | ✅ |
 | `app/handlers/quiz.py` | Daily/weekly quiz + top-up; evenly spaced `plan_formats`; book grading fork; `early_limit`; Murphy append on weekly complete; M13/M14; `OpenQuizFilter` gap-only | ✅ |
-| `app/handlers/voice.py` | Voice partner handler (S5) + status stages / repeating chat action (S5a) | ✅ |
+| `app/handlers/voice.py` | Voice partner (S5) + S13 router (live M3 → diary → M3); S5a status helpers | ✅ |
+| `app/handlers/diary.py` | Voice diary deliver + `/diary` + voice processing (S13); no TTS; cap 2 | ✅ |
+| `app/prompts/diary.txt` | Diary JSON prompt — max 2 errors + specific did_well (S13) | ✅ |
+| `tests/test_diary.py` | Schedule, ceiling, pause, `/diary`, routing, cap 2, privacy, streaks, labels (S13) | ✅ |
 | `app/handlers/interests.py` | `/interests` multi-select wizard (S9); index callbacks; custom-topic preload | ✅ |
 | `app/handlers/reading.py` | Evening reading + S9c Q&A/rating; `early_limit`; M14 calibrate on scored complete | ✅ |
 | `app/handlers/book.py` | `/book` ConversationHandler; album debounce; vision OCR; Done/Add more; 1h conversation_timeout (S6) | ✅ |
@@ -365,7 +378,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/services/__init__.py` | Services package | ✅ |
 | `app/services/users.py` | get/save user, EF SET → CEFR, `update_cefr_level`, `get/set_paused_until` (S12/S18) | ✅ |
 | `app/services/errors.py` | record_errors + due_errors + weekly select + Murphy expand/lookup + mark_result + resolved_types + M13 (S3/S10/S11/S12) | ✅ |
-| `app/services/sessions.py` | sessions + ceiling + fossil_sweep helpers + sunday_report + active_days (S3–S12) | ✅ |
+| `app/services/sessions.py` | sessions + ceiling + diary helpers + nudgeable quiz/reading/diary + fossil_sweep + sunday_report (S3–S13) | ✅ |
 | `app/services/anki.py` | Chunk→TSV gap/escape/export; weekly deliver + `/anki`; mark-after-send (S7) | ✅ |
 | `app/services/streaks.py` | Streak rollover, freeze, rescue; Active>Missed precedence (S4/S5) | ✅ |
 | `app/services/interests.py` | list/replace/select_topic/mark_last_used + adjust_weight_for_rating (S9/S9a/S9c) | ✅ |
@@ -400,7 +413,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_reading.py` | S9a eligibility, ceiling, topic pick, MCQ validate, rollback, persist + message_id | ✅ |
 | `tests/test_reading_s9c.py` | S9c grading, resume, message_id resolve, rating clamps, legacy NULL score, edit resend, labels | ✅ |
 | `tests/test_book.py` | S6 debounce, merge, upsert, failures, Page/Pages / All-N collapse, CTA agreement, prose soft-skip, over-cap, labels, SDK/disk greps | ✅ |
-| `tests/test_dispatch_m2.py` | Application dispatch + capture forward/`/capture` spies vs correction (S3+S6+S6a+S9c+S10+S15+S18) | ✅ |
+| `tests/test_dispatch_m2.py` | Application dispatch + capture + voice/diary routing spies (S3+S6+S6a+S9c+S10+S13+S15+S18) | ✅ |
 | `tests/test_s6a.py` | Top-up counts, word-bank/dedup fixtures, journal fork (typed+tap), streak Missed vs Neutral, `/test` parse/disambiguate/abandon, labels (S6a) | ✅ |
 | `tests/test_anki.py` | S7 gap/escape/order/mark-after-send/ceiling/idempotency/empty `/anki` | ✅ |
 | `tests/test_motivation.py` | S10 nudge ladder, ceiling, dual-TZ, resolved_types all-clear, active-days bands, Sunday report, Just do 2 score, no-guilt/labels | ✅ |
@@ -415,89 +428,94 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 
 ---
 
-## Next action
+## Verification checklist
 
-Unrun human Telegram checks (do not start S8 / S9b until these are cleared or explicitly deferred):
+Do not start S8 / S9b until these are cleared or explicitly deferred.
 
-**S15 (real-life capture — this slice)**
-- Type ordinary English → correction (M2); journal grows; capture does not fire
-- Forward an English Slack/email snippet → explanation + chunks; **no** new `errors` row; `chunks.source='capture'`
-- `/capture` + paste (≥20 chars) → same as forward; bare `/capture` → usage hint
-- Forward non-English / tiny snippet → warm fail, no crash
-- `/anki` → TSV includes `capture` in the source column
-- Confirm logs show `user_id`/handler only (no message body)
-- (Optional) Forward own message → capture not correction; paste same text → M2
+### How to verify
 
-**S18 (hardening)**
-- Force an unhandled exception → soft user line, operator alert (set `OPERATOR_TELEGRAM_ID`), no traceback in chat
-- Repeat / restart mid-outage → file throttle holds; suppressed count rather than a flood
-- Second `python -m app.main` → refuses with lock message; after killing the first, start succeeds
-- `/pause` → pick duration → scheduled sends skip; `/pause` again → resume only; after resume, delivery returns
-- `/stats` as learner → no sweep mention; calibration/level visible; “N of 5” framing; no guilt; labels not codes
-- `tail -f ~/english-bot-runtime/bot.log` shows traffic without message bodies
+1. Start the bot: `.venv/bin/python -m app.main`
+2. Watch the terminal alongside Telegram.
+3. Tail the rotating log: `tail -f ~/english-bot-runtime/bot.log`
 
-**S11 (weekly test + Murphy routing)**
-- Local Sunday morning → 15-question weekly test (preface line); finish → completion includes Murphy recommendation matching top error types (labels, studied vs new); no codes; under 400
-- Local Monday–Saturday morning → still 5Q (rescue → 3Q); Sunday in rescue → 3Q, not 15
-- Mid-weekly-test on a choice question → free text reaches correction
-- Tap `Just do 2` on an open weekly test → completes at 2; `score = correct/2`
-- Saturday evening → Anki document (if unexported chunks); Sunday evening → report only, no `anki_export` session; Sunday bot-initiated count = weekly test + report ≤ 2
-- Confirm a completed weekly alone does not write `calibration_log` / does not raise level
+### 1. Can run any time at the desk
 
-**S12 (calibration + anti-fossilization)**
-- Seed / complete enough scored quizzes that `calibration_log` accrues ≥8 days >85% in a fortnight → warm level-raise message once; `users.cefr_level` and log `old≠new`
-- Force a low-accuracy window → level drops in DB, **no** user message
-- With `bot_message_counts = 3` on raise day → level still rises, notice skipped (WARNING in logs)
-- On local 1st (or forced `now`): `fossil_sweep` session with ≤2 pending; next non-rescue morning quiz includes one ordinary-looking item; wrong answer → `resolved=FALSE` / `unresolved_count++`; correct → `resolved_at` unchanged, id in `done`
-- In rescue: morning 3Q has no retest; pending stays queued
-- `/test` completions do not write `calibration_log` / do not change level
+Commands and taps needing only a running bot.
 
-**S10 (motivation)**
-- Leave morning quiz unfinished with bot process alive ≥3h → first warm nudge; at +6h second with `Just do 2`; third never
-- Tap `Just do 2` → completes after 2 answers; DB `score = correct/2`; day can count Active
-- With `bot_message_counts = 3`, no nudge; `nudges_sent` unchanged
-- Sunday after `evening_time` → one progress-first report (`N of 5` or “N active days — full week”); second poll same Sunday → nothing
-- Mid-nudge free text → correction, not swallowed
-- Note: +3h/+6h timing needs unattended process (known issue #19)
+- [ ] **S13** — `/diary` opens a warm prompt; send ≤60s voice → ≤2 corrections + specific praise; no spoken reply
+- [ ] **S13** — second `/diary` same day reuses open session; after complete → warm already-done
+- [ ] **S13** — with no open diary, voice still reaches M3 with TTS
+- [ ] **S13** — mid-M3 conversation after a diary prompt → next voice continues M3; diary stays open for later
+- [ ] **S13** — logs show `user_id`/handler only (no full transcript)
+- [ ] **S15** — ordinary typed English gets a correction reply; journal grows; capture does not run
+- [ ] **S15** — forwarded English Slack/email yields explanation + chunks; no new `errors` row; `chunks.source='capture'`
+- [ ] **S15** — `/capture` with ≥20 chars of paste matches forward behaviour; bare `/capture` shows usage hint
+- [ ] **S15** — forwarded non-English or tiny snippet gets a warm fail; no crash
+- [ ] **S15** — `/anki` TSV includes `capture` in the source column
+- [ ] **S15** — logs show `user_id`/handler only (no message body)
+- [ ] **S15** — (optional) self-forward goes to capture; pasting the same text goes to M2
+- [ ] **S18** — unhandled exception → soft user line + operator alert (`OPERATOR_TELEGRAM_ID` set); no traceback in chat
+- [ ] **S18** — repeat/restart mid-outage → file throttle holds; suppressed count, not a flood
+- [ ] **S18** — second `python -m app.main` refuses with lock message; after killing the first, start succeeds
+- [ ] **S18** — `/pause` → pick duration → scheduled sends skip; `/pause` again → resume only; after resume, delivery returns
+- [ ] **S18** — `/stats` as learner returns level, streak, active days "of 5", due errors, resolved labels, chunk counts, book units; calibration visible; no guilt; no fossil-sweep fields
+- [ ] **S18** — `~/english-bot-runtime/bot.log` shows traffic without message bodies
+- [ ] **S6a** — with Murphy units 1–5 stored, `/test` shows unit buttons; `/test unit 3` opens a tap-only set that finishes cleanly; morning quiz remains eligible that day (or still delivers next morning)
+- [ ] **S6a** — `/test unit 99` shows a warm list of real units; same unit number in two books → which-book buttons
+- [ ] **S6a** — abandon mid-`/test` then start a new `/test` → prior session abandoned; new set works
+- [ ] **S6a** — free English typed mid-`/test` reaches correction (M2), not a grade
+- [ ] **S12** — `/test` completions do not write `calibration_log` / do not change level
+- [ ] **S6** — text after a summary without tapping Done reaches correction; Done clears the keyboard; Add more → photos → summary; second `/book` starts a clean session
+- [ ] **S6** — blurry page / non-book document / 25-page over-cap behave as specified; scheduler stays responsive during a multi-page batch
+- [ ] **S6** — after a real batch, known issue #8 records observed vision cost
+- [ ] **S3** — parked on a gap question, typed answer grades the quiz, not correction
+- [ ] **S9** — custom topic keeps its weight and `last_used` after Change → Done changing nothing
+- [ ] **S5** — after Ctrl-C + restart mid-conversation, the bot still remembers the topic
+- [ ] **S5a** — status message shows 🎧 → 💭 → 🔊 then disappears; header "recording" persists the whole wait; over-length voice is declined with no status message first
+- [ ] **S10** — tapping `Just do 2` completes after 2 answers; DB `score = correct/2`; day can count Active
+- [ ] **S10** — free text mid-nudge reaches correction, not swallowed
 
-**S6a (`/test` + quiz top-up)**
-- With Murphy units 1–5 stored: `/test` → unit buttons; `/test unit 3` → tap-only set; finish; confirm morning quiz still eligible that day (or next morning still delivers)
-- `/test unit 99` → warm list of real units; two books same number → which-book buttons
-- Abandon mid-`/test`, start a new `/test` → prior session abandoned; new set works
-- Mid-`/test`, type free English → correction (M2), not graded
-- Light journal day (<5 due) → morning quiz length 5 with book-flavored items; wrong book item → `errors` row with valid type
-- Gap-format book question in morning quiz: typed wrong answer → journal, no crash
+### 2. Needs a reading evening (Mon/Wed/Fri, laptop open at `evening_time`)
 
-**S9c (reading Q&A + rating)**
-- Wait for (or trigger) a **fresh** evening reading → message has `Questions`
-- Tap through 5 MCQs (options in body, buttons 1–4); wrong answers show `why`; after Q5 rate 1–5
-- Confirm `readings.completed/score/rating`, session completed, topic weight moved by the map
-- Mid-set free text → correction (not journal poison); abandon without Questions → Neutral at rollover
-- Reading 17 is test-fixture-only for legacy skip (no Telegram button / no message_id)
+- [ ] **S13** — Mon/Wed/Fri evening is still reading only (no diary prompt that night); `/diary` still works
+- [ ] **S9c** — fresh evening reading message has `Questions`
+- [ ] **S9c** — five MCQs show options in the body with buttons 1–4; wrong answers show `why`; after Q5 a 1–5 rating appears
+- [ ] **S9c** — `readings.completed` / `score` / `rating` and session completed; topic weight moved by the rating map
+- [ ] **S9c** — free text mid-set reaches correction (not journal poison); abandon without Questions → Neutral at rollover
+- [ ] **S9a** — second evening poll same day delivers no second reading
+- [ ] **S9a** — next morning's quiz still delivers (reading session does not block it)
 
-**S3 (M2 dispatch)**
-- With an open quiz still on a **choice** (or other non-gap) question — e.g. leave sessions 1133/802 incomplete — send free text → correction reply + `llm call` log
-- Park on a **gap** question → typed answer grades the quiz, not correction
-- Order/choice layout — all four options readable in the message body, buttons are 1–4 (2026-08-07 truncation fix; status stays until human marks ✅)
+### 2b. Needs a diary evening (Tue/Thu, laptop open at `evening_time`)
 
-**S6** (re-verify; OCR/merge/dedup/album debounce already exercised live on 10 pages → 5 units)
-- Text after summary **without** Done → correction; Done still clears keyboard; Add more → photos → summary; second `/book` clean session
-- Re-send a stored page → still 5 rows not 6; richer `target_items`, fresh `studied_at`
-- Single-page portrait / 2-page merge / blurry page / document / 25-page over-cap / scheduler responsive during multi-page — as still needed
-- After cost is known: fill known issue #8 (S6 vision cost still unmeasured)
-- Gap-question grading path still needs live confirm where not already covered
-- `conversation_timeout` nested-CH no-op remains known issue #18
+- [ ] **S13** — Tue or Thu at `evening_time` → one diary prompt; second poll same day → nothing; reading does not also fire
+- [ ] **S13** — paused user → no diary prompt
+- [ ] **S13** — with `bot_message_counts = 3` → diary prompt skipped (WARNING), no session row
 
-**S5**
-- Mid-conversation restart — bot still remembers the topic after Ctrl-C + restart
+### 3. Needs a Sunday
 
-**S5a**
-- Status message shows 🎧 → 💭 → 🔊 then disappears; header "recording" persists the whole wait; over-length declined with no status message first
+- [ ] **S11** — Sunday morning delivers a 15-question weekly test with preface; finish → Murphy recommendation matches top error types (labels, studied vs new); no codes; under 400 chars
+- [ ] **S11** — Sunday in rescue → 3Q, not 15
+- [ ] **S11** — mid-weekly-test on a choice question → free text reaches correction
+- [ ] **S11** — `Just do 2` on an open weekly test completes at 2; `score = correct/2`
+- [ ] **S11** — Sunday evening → report only, no `anki_export` session; Sunday bot-initiated count = weekly test + report ≤ 2
+- [ ] **S11** — a completed weekly alone does not write `calibration_log` / does not raise level
+- [ ] **S10** — Sunday after `evening_time` → one progress-first report (`N of 5` or "N active days — full week"); second poll same Sunday → nothing
 
-**S9**
-- Set a non-default weight on one interest row, then `/interests` → Change → Done changing nothing → weight and `last_used` survive
+### 4. Needs the process alive 6+ hours
 
-**S9a**
-- Second evening poll same day delivers no second reading
-- With `bot_message_counts = 3`, no reading and no new rows
-- Next morning's quiz still delivers (reading session does not block it)
+- [ ] **S10** — unfinished morning quiz with process alive ≥3h → first warm nudge; at +6h second with `Just do 2`; third never (known issue #19)
+- [ ] **S13** — unfinished diary with process alive ≥3h → warm diary nudge (no Just do 2); second at +6h text-only
+
+### 5. DB-seeded or hard to trigger deliberately
+
+- [ ] **S11** — Mon–Sat morning quiz is still 5Q (rescue → 3Q)
+- [ ] **S11** — Saturday evening → Anki document when unexported chunks exist
+- [ ] **S6a** — light journal day (<5 due) → morning quiz length 5 with book-flavored items; wrong book item → `errors` row with valid type
+- [ ] **S6** — gap-format book question in a morning quiz: typed wrong answer journals with no crash
+- [ ] **S10** — with `bot_message_counts = 3`, no nudge; `nudges_sent` unchanged
+- [ ] **S9a** — with `bot_message_counts = 3`, no reading and no new rows
+- [ ] **S12** — after `calibration_log` accrues ≥8 days >85% in a fortnight → warm level-raise once; `users.cefr_level` and log `old≠new`
+- [ ] **S12** — low-accuracy window → level drops in DB, no user message
+- [ ] **S12** — with `bot_message_counts = 3` on raise day → level still rises, notice skipped (WARNING in logs)
+- [ ] **S12** — on local 1st (or forced `now`): `fossil_sweep` session with ≤2 pending; next non-rescue morning quiz includes one ordinary-looking retest; wrong → `resolved=FALSE` / `unresolved_count++`; correct → `resolved_at` unchanged, id in `done`
+- [ ] **S12** — in rescue: morning 3Q has no retest; pending stays queued

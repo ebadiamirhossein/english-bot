@@ -477,6 +477,44 @@ VOICE_STATUS_THINKING = "💭 Thinking…"
 VOICE_STATUS_RECORDING = "🔊 Recording my reply…"
 
 
+# --- Voice diary (S13 / M9) ---------------------------------------------------
+
+# Rotating prompts — under 400 chars; concrete, warm, one idea each.
+DIARY_PROMPTS: tuple[str, ...] = (
+    "Sixty seconds about your day — what was the main thing that happened?",
+    "Voice note time: what went well today, even something small?",
+    "Tell me about one conversation you had today — who, and what about?",
+    "What took most of your energy today? About a minute is perfect.",
+    "Anything you figured out or decided today? Talk it through for ~60s.",
+    "How did the afternoon feel compared to the morning? Send a short voice note.",
+    "What are you glad is done for the day? About a minute of talking.",
+)
+
+DIARY_TOO_LONG = (
+    "That one's a bit long for the diary — try under a minute and a half?"
+)
+
+DIARY_ALREADY_OPEN = (
+    "Tonight's diary is already open — just send a voice note when you're ready."
+)
+
+DIARY_ALREADY_DONE = (
+    "You've already done today's diary — nice. Tomorrow's another one."
+)
+
+DIARY_DIDNT_CATCH = (
+    "I didn't catch that — send another voice note when you're ready?"
+)
+
+NUDGE_FIRST_DIARY = (
+    "Tonight's diary is still open — about a minute whenever you like."
+)
+
+NUDGE_SECOND_DIARY = (
+    "No time for a full minute? Even half a minute still counts."
+)
+
+
 # --- Interests profile (S9) ---------------------------------------------------
 
 INTERESTS_INTRO = (

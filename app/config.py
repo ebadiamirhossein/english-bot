@@ -50,6 +50,8 @@ class Settings:
     voice_max_seconds: int = 120
     voice_context_minutes: int = 120
     voice_max_turns: int = 10
+    # S13 diary — separate from M3's 120s; ~60s ask with headroom.
+    diary_max_seconds: int = 90
     # S18 hardening — operator alerts + runtime files (optional ids).
     operator_telegram_id: int | None = None
     runtime_dir: str = ""
@@ -133,6 +135,11 @@ def load_settings() -> Settings:
         os.environ.get("VOICE_MAX_TURNS", "10"),
         errors,
     )
+    diary_max_seconds = _parse_int(
+        "DIARY_MAX_SECONDS",
+        os.environ.get("DIARY_MAX_SECONDS", "90"),
+        errors,
+    )
 
     operator_telegram_id = _parse_optional_int(
         "OPERATOR_TELEGRAM_ID",
@@ -195,6 +202,7 @@ def load_settings() -> Settings:
     assert voice_max_seconds is not None
     assert voice_context_minutes is not None
     assert voice_max_turns is not None
+    assert diary_max_seconds is not None
     assert log_max_bytes is not None
     assert log_backup_count is not None
     settings = Settings(
@@ -216,6 +224,7 @@ def load_settings() -> Settings:
         voice_max_seconds=voice_max_seconds,
         voice_context_minutes=voice_context_minutes,
         voice_max_turns=voice_max_turns,
+        diary_max_seconds=diary_max_seconds,
         operator_telegram_id=operator_telegram_id,
         runtime_dir=runtime_dir,
         log_file=log_file,

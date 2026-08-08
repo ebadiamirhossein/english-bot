@@ -18,7 +18,7 @@ from app.db import connection
 logger = logging.getLogger(__name__)
 
 BOT_MESSAGE_CEILING = 3
-NUDGEABLE_TASK_TYPES = frozenset({"quiz", "reading"})
+NUDGEABLE_TASK_TYPES = frozenset({"quiz", "reading", "diary"})
 MAX_NUDGES_PER_DAY = 2
 MAX_NUDGES_PER_SESSION = 2
 
@@ -123,6 +123,71 @@ def has_sunday_report_session_on(user_id: int, local_date: date) -> bool:
     return row is not None
 
 
+def has_diary_session_on(user_id: int, local_date: date) -> bool:
+    """True if any diary session exists for this user on local_date."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM sessions
+             WHERE user_id = %s AND date = %s
+               AND task_type = 'diary'
+             LIMIT 1
+            """,
+            (user_id, local_date),
+        ).fetchone()
+    return row is not None
+
+
+def has_completed_diary_on(user_id: int, local_date: date) -> bool:
+    """True if a completed diary session exists for this user on local_date."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM sessions
+             WHERE user_id = %s AND date = %s
+               AND task_type = 'diary'
+               AND completed = TRUE
+             LIMIT 1
+            """,
+            (user_id, local_date),
+        ).fetchone()
+    return row is not None
+
+
+def get_open_diary_session(
+    user_id: int, local_date: date
+) -> SessionRow | None:
+    """Incomplete diary session for this user on local_date, if any."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, completed, score, payload
+              FROM sessions
+             WHERE user_id = %s
+               AND date = %s
+               AND task_type = 'diary'
+               AND completed = FALSE
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (user_id, local_date),
+        ).fetchone()
+    if row is None:
+        return None
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    return SessionRow(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        date=row["date"],
+        task_type=str(row["task_type"]),
+        completed=bool(row["completed"]),
+        score=float(row["score"]) if row["score"] is not None else None,
+        payload=payload,
+    )
+
+
 def daily_nudges_sent(user_id: int, local_date: date) -> int:
     """Sum of nudges_sent across all sessions for this user on local_date."""
     with connection() as conn:
@@ -166,7 +231,7 @@ def get_session_by_id(user_id: int, session_id: int) -> SessionRow | None:
 
 
 def list_open_nudgeable_sessions(user_id: int) -> list[NudgeableSession]:
-    """Incomplete quiz/reading sessions, oldest delivery first."""
+    """Incomplete quiz/reading/diary sessions, oldest delivery first."""
     with connection() as conn:
         rows = conn.execute(
             """
