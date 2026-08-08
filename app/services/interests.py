@@ -99,6 +99,69 @@ def _pick_best(
     return best
 
 
+# S9c: additive rating deltas; clamp keeps a bad evening from burying a topic.
+_RATING_DELTAS: dict[int, float] = {
+    1: -0.30,
+    2: -0.15,
+    3: 0.0,
+    4: 0.15,
+    5: 0.30,
+}
+_WEIGHT_FLOOR = 0.25
+_WEIGHT_CEILING = 3.00
+
+
+def adjust_weight_for_rating(
+    user_id: int,
+    topic: str,
+    rating: int,
+) -> float | None:
+    """Apply additive rating delta to interests.weight for ``topic``.
+
+    Clamped to [0.25, 3.00]. Returns the new weight, or None when no matching
+    interest row exists (WARNING logged; caller should still complete normally).
+    """
+    if rating not in _RATING_DELTAS:
+        logger.warning(
+            "adjust_weight_for_rating invalid rating user_id=%s topic=%s rating=%s",
+            user_id,
+            topic,
+            rating,
+        )
+        return None
+    delta = _RATING_DELTAS[rating]
+    with connection() as conn:
+        with conn.transaction():
+            row = conn.execute(
+                """
+                SELECT weight FROM interests
+                 WHERE user_id = %s AND topic = %s
+                 ORDER BY id
+                 LIMIT 1
+                 FOR UPDATE
+                """,
+                (user_id, topic),
+            ).fetchone()
+            if row is None:
+                logger.warning(
+                    "adjust_weight_for_rating missing topic user_id=%s topic=%s",
+                    user_id,
+                    topic,
+                )
+                return None
+            old = float(row["weight"]) if row["weight"] is not None else 1.0
+            new = max(_WEIGHT_FLOOR, min(_WEIGHT_CEILING, old + delta))
+            conn.execute(
+                """
+                UPDATE interests
+                   SET weight = %s
+                 WHERE user_id = %s AND topic = %s
+                """,
+                (new, user_id, topic),
+            )
+    return new
+
+
 def mark_last_used(
     user_id: int,
     topic: str,

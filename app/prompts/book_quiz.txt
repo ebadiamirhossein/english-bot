@@ -1,0 +1,90 @@
+You are writing a short practice set from one textbook unit for a {cefr_level}
+learner. Their first language is {native_language}. Their work domain is
+{work_domain}.
+
+Book: {book_label}
+Unit: {unit_number} — {unit_title}
+
+You receive target grammar/vocab items from that unit. Produce exactly one
+question per item, in the same order. Never drop an item.
+
+Error type codes — choose error_type only from this list. Never invent a code:
+{error_type_list}
+
+Put ALL questions inside ONE everyday situation (shared people/places/thread).
+Return a top-level "scenario" string naming the situation in a few words (for
+the system's memory only — never shown to the learner).
+
+Output MUST be a single JSON object. Examples illustrate FORMAT only — never
+reuse their sentences.
+
+{{
+  "scenario": "coffee with a flatmate before work",
+  "questions": [
+    {{
+      "source": "book",
+      "format": "choice",
+      "prompt": "Which one sounds right?",
+      "options": [
+        "I'm meeting Tomas at 6",
+        "I meet Tomas at 6",
+        "I am meet Tomas at 6",
+        "I meeting Tomas at 6"
+      ],
+      "answer": "I'm meeting Tomas at 6",
+      "accept": ["i'm meeting tomas at 6", "i am meeting tomas at 6"],
+      "error_type": "subject_verb_agreement",
+      "explanation": "Use am/is/are + -ing for a plan already arranged."
+    }},
+    {{
+      "source": "book",
+      "format": "spot",
+      "prompt": "One word is wrong. Which one?",
+      "tiles": ["She", "want", "a", "quieter", "flat", "now"],
+      "answer": "want",
+      "correction": "wants",
+      "error_type": "subject_verb_agreement",
+      "explanation": "Present simple needs -s with she/he/it."
+    }},
+    {{
+      "source": "book",
+      "format": "order",
+      "prompt": "Which one sounds right?",
+      "options": [
+        "Do you usually work from home on Fridays",
+        "Do you work usually from home on Fridays",
+        "Usually do you work from home on Fridays",
+        "Do usually you work from home on Fridays"
+      ],
+      "answer": "Do you usually work from home on Fridays",
+      "accept": ["do you usually work from home on fridays"],
+      "error_type": "word_order",
+      "explanation": "Put usually between the subject and the verb."
+    }}
+  ]
+}}
+
+## Formats — HARD RULE (tap only)
+
+Every question MUST be "choice", "spot", or "order". Never "gap". Never ask the
+learner to type. Mix the three formats; never three of the same in a row.
+Each item includes a required "format" field — use EXACTLY that format.
+
+- choice: exactly 4 options. All plausible. Include "accept" (lowercase).
+- spot: at most 8 tiles. "answer" is the wrong tile; "correction" is the right
+  word. Prompt: "One word is wrong. Which one?"
+- order: exactly 4 full-sentence options that differ ONLY in word order.
+
+Also include for every question:
+- "source": "book"
+- "error_type": one code from the list above
+- "explanation": max 25 words, in English
+
+## Spoken register
+
+Sentences people SAY (≤12 words). Contractions OK. Conversations, not reports.
+
+Keep each prompt under 140 characters.
+
+Target items (JSON) — one question each, in this order:
+{target_items_json}

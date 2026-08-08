@@ -1,6 +1,7 @@
 """Error journal writes and spacing ladder.
 
 S2: record_errors. S3: due_errors / mark_result / spacing.
+S10: resolved_types / top_error_types (type-level aggregation).
 """
 
 from __future__ import annotations
@@ -198,6 +199,68 @@ def mark_result(error_id: int, correct: bool) -> None:
                         """,
                         (error_id,),
                     )
+
+
+def resolved_types(user_id: int, since_days: int | None = None) -> list[str]:
+    """Labels of error types that are fully quiet for this user.
+
+    A type counts as resolved only when every row of that type is resolved
+    (at least one row, zero unresolved). Optional ``since_days`` keeps types
+    whose latest ``resolved_at`` falls within that many local calendar days
+    ending on CURRENT_DATE.
+    """
+    with connection() as conn:
+        if since_days is None:
+            rows = conn.execute(
+                """
+                SELECT et.label
+                  FROM errors e
+                  JOIN error_types et ON et.code = e.error_type
+                 WHERE e.user_id = %s
+                 GROUP BY e.error_type, et.label
+                HAVING BOOL_AND(e.resolved)
+                   AND COUNT(*) >= 1
+                 ORDER BY et.label
+                """,
+                (user_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT et.label
+                  FROM errors e
+                  JOIN error_types et ON et.code = e.error_type
+                 WHERE e.user_id = %s
+                 GROUP BY e.error_type, et.label
+                HAVING BOOL_AND(e.resolved)
+                   AND COUNT(*) >= 1
+                   AND MAX(e.resolved_at) >= CURRENT_DATE - %s::integer
+                 ORDER BY MAX(e.resolved_at) DESC NULLS LAST, et.label
+                """,
+                (user_id, since_days),
+            ).fetchall()
+    return [str(r["label"]) for r in rows]
+
+
+def top_error_types(user_id: int, n: int = 5) -> list[str]:
+    """Labels of the user's noisiest unresolved error types."""
+    if n < 1:
+        return []
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT et.label
+              FROM errors e
+              JOIN error_types et ON et.code = e.error_type
+             WHERE e.user_id = %s
+               AND e.resolved = FALSE
+             GROUP BY e.error_type, et.label
+             ORDER BY COUNT(*) DESC, SUM(e.times_wrong) DESC, et.label
+             LIMIT %s
+            """,
+            (user_id, n),
+        ).fetchall()
+    return [str(r["label"]) for r in rows]
 
 
 def _row_to_error(row: dict) -> Error:

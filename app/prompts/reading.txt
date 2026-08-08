@@ -16,9 +16,10 @@ Output MUST be a single JSON object with this exact shape:
   "body": "300-400 words at the learner's level",
   "questions": [
     {{
-      "question": "comprehension question about the text",
-      "answer": "correct answer",
-      "distractors": ["wrong1", "wrong2", "wrong3"]
+      "q": "comprehension question about the text",
+      "options": ["option A", "option B", "option C", "option D"],
+      "answer_index": 0,
+      "why": "short explanation under 25 words"
     }}
   ],
   "chunks": [
@@ -32,7 +33,10 @@ Output MUST be a single JSON object with this exact shape:
 
 Rules:
 - body length: 300–400 words
-- exactly 5 comprehension questions; each has one answer and exactly 3 distractors
+- exactly 5 comprehension questions
+- each question has exactly 4 options; answer_index is 0–3 and points at the correct option
+- shuffle the correct option among the four positions (do not always put it first)
+- why explains the correct answer in under 25 words, in English
 - questions test comprehension of THIS text, not general knowledge
 - exactly 5 chunks: multi-word phrases worth reusing (not single vocabulary words)
 - each chunk MUST appear verbatim in the body (same words; capitalisation may

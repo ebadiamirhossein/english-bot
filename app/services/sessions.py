@@ -1,4 +1,7 @@
-"""Session rows and bot-initiated message ceiling (S3)."""
+"""Session rows and bot-initiated message ceiling (S3).
+
+S10: nudges_sent helpers, nudgeable open sessions, sunday_report marker.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +18,9 @@ from app.db import connection
 logger = logging.getLogger(__name__)
 
 BOT_MESSAGE_CEILING = 3
+NUDGEABLE_TASK_TYPES = frozenset({"quiz", "reading"})
+MAX_NUDGES_PER_DAY = 2
+MAX_NUDGES_PER_SESSION = 2
 
 
 @dataclass(frozen=True)
@@ -25,6 +31,17 @@ class SessionRow:
     task_type: str
     completed: bool
     score: float | None
+    payload: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class NudgeableSession:
+    id: int
+    user_id: int
+    date: date
+    task_type: str
+    delivered_at: datetime
+    nudges_sent: int
     payload: dict[str, Any] | None
 
 
@@ -76,6 +93,204 @@ def has_reading_session_on(user_id: int, local_date: date) -> bool:
     return row is not None
 
 
+def has_anki_session_on(user_id: int, local_date: date) -> bool:
+    """True if an anki_export session exists for this user on local_date."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM sessions
+             WHERE user_id = %s AND date = %s
+               AND task_type = 'anki_export'
+             LIMIT 1
+            """,
+            (user_id, local_date),
+        ).fetchone()
+    return row is not None
+
+
+def has_sunday_report_session_on(user_id: int, local_date: date) -> bool:
+    """True if a sunday_report session exists for this user on local_date."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM sessions
+             WHERE user_id = %s AND date = %s
+               AND task_type = 'sunday_report'
+             LIMIT 1
+            """,
+            (user_id, local_date),
+        ).fetchone()
+    return row is not None
+
+
+def daily_nudges_sent(user_id: int, local_date: date) -> int:
+    """Sum of nudges_sent across all sessions for this user on local_date."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(nudges_sent), 0) AS total
+              FROM sessions
+             WHERE user_id = %s AND date = %s
+            """,
+            (user_id, local_date),
+        ).fetchone()
+    assert row is not None
+    return int(row["total"])
+
+
+def get_session_by_id(user_id: int, session_id: int) -> SessionRow | None:
+    """Load a session scoped by user_id (never cross-user)."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, completed, score, payload
+              FROM sessions
+             WHERE id = %s AND user_id = %s
+            """,
+            (session_id, user_id),
+        ).fetchone()
+    if row is None:
+        return None
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    return SessionRow(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        date=row["date"],
+        task_type=str(row["task_type"]),
+        completed=bool(row["completed"]),
+        score=float(row["score"]) if row["score"] is not None else None,
+        payload=payload,
+    )
+
+
+def list_open_nudgeable_sessions(user_id: int) -> list[NudgeableSession]:
+    """Incomplete quiz/reading sessions, oldest delivery first."""
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, delivered_at, nudges_sent,
+                   payload
+              FROM sessions
+             WHERE user_id = %s
+               AND completed = FALSE
+               AND task_type = ANY(%s)
+               AND delivered_at IS NOT NULL
+             ORDER BY delivered_at ASC, id ASC
+            """,
+            (user_id, list(NUDGEABLE_TASK_TYPES)),
+        ).fetchall()
+    out: list[NudgeableSession] = []
+    for row in rows:
+        delivered = row["delivered_at"]
+        if delivered.tzinfo is None:
+            delivered = delivered.replace(tzinfo=timezone.utc)
+        payload = row["payload"]
+        if payload is not None and not isinstance(payload, dict):
+            payload = dict(payload)
+        out.append(
+            NudgeableSession(
+                id=int(row["id"]),
+                user_id=int(row["user_id"]),
+                date=row["date"],
+                task_type=str(row["task_type"]),
+                delivered_at=delivered,
+                nudges_sent=int(row["nudges_sent"] or 0),
+                payload=payload,
+            )
+        )
+    return out
+
+
+def increment_nudges_sent(user_id: int, session_id: int) -> int:
+    """Increment nudges_sent for a session owned by user_id. Returns new value."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            UPDATE sessions
+               SET nudges_sent = nudges_sent + 1
+             WHERE id = %s AND user_id = %s
+            RETURNING nudges_sent
+            """,
+            (session_id, user_id),
+        ).fetchone()
+    if row is None:
+        raise ValueError(
+            f"increment_nudges_sent: no session id={session_id} user_id={user_id}"
+        )
+    return int(row["nudges_sent"])
+
+
+def set_session_delivered_at(
+    user_id: int,
+    session_id: int,
+    delivered_at: datetime,
+) -> None:
+    """Test/helper: backdate delivered_at (scoped by user_id)."""
+    if delivered_at.tzinfo is None:
+        raise ValueError("delivered_at must be timezone-aware")
+    with connection() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+               SET delivered_at = %s
+             WHERE id = %s AND user_id = %s
+            """,
+            (delivered_at, session_id, user_id),
+        )
+
+
+def count_active_days(
+    user_id: int,
+    *,
+    start: date,
+    end: date,
+) -> int:
+    """Distinct local dates with any completed session in [start, end]."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT date) AS n
+              FROM sessions
+             WHERE user_id = %s
+               AND completed = TRUE
+               AND date BETWEEN %s AND %s
+            """,
+            (user_id, start, end),
+        ).fetchone()
+    assert row is not None
+    return int(row["n"])
+
+
+def claim_sunday_report_session(
+    user_id: int,
+    local_date: date,
+    *,
+    payload: dict[str, Any] | None = None,
+) -> int:
+    """Insert completed sunday_report marker. Returns session id."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO sessions (
+                user_id, date, task_type, delivered_at, completed,
+                completed_at, payload
+            ) VALUES (
+                %s, %s, 'sunday_report', NOW(), TRUE, NOW(), %s
+            )
+            RETURNING id
+            """,
+            (
+                user_id,
+                local_date,
+                Jsonb(payload) if payload is not None else None,
+            ),
+        ).fetchone()
+    assert row is not None
+    return int(row["id"])
+
+
 def insert_session(
     user_id: int,
     task_type: str,
@@ -107,7 +322,8 @@ def insert_session(
     return int(row["id"])
 
 
-def complete_session(session_id: int, score: float) -> None:
+def complete_session(session_id: int, score: float | None) -> None:
+    """Mark a session completed. ``score`` may be NULL when not assessed (S9c)."""
     with connection() as conn:
         conn.execute(
             """
@@ -119,6 +335,48 @@ def complete_session(session_id: int, score: float) -> None:
             """,
             (score, session_id),
         )
+
+
+def get_reading_session_by_message(
+    user_id: int,
+    chat_id: int,
+    message_id: int,
+) -> SessionRow | None:
+    """Incomplete reading session whose payload matches this Telegram message.
+
+    Lookup key is message_id (+ chat_id), not "any open reading" — orphans
+    without a message_id (e.g. pre-S9c reading 17) cannot steal callbacks.
+    Not scoped to a local date so next-day taps still resolve.
+    """
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, completed, score, payload
+              FROM sessions
+             WHERE user_id = %s
+               AND task_type = 'reading'
+               AND completed = FALSE
+               AND (payload ->> 'message_id') = %s
+               AND (payload ->> 'chat_id') = %s
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (user_id, str(message_id), str(chat_id)),
+        ).fetchone()
+    if row is None:
+        return None
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    return SessionRow(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        date=row["date"],
+        task_type=str(row["task_type"]),
+        completed=bool(row["completed"]),
+        score=float(row["score"]) if row["score"] is not None else None,
+        payload=payload,
+    )
 
 
 def complete_open_free_practice(user_id: int, local_date: date) -> bool:
@@ -143,6 +401,66 @@ def complete_open_free_practice(user_id: int, local_date: date) -> bool:
             (user_id, local_date),
         ).fetchone()
     return row is not None
+
+
+def get_book_test_session_by_message(
+    user_id: int,
+    chat_id: int,
+    message_id: int,
+) -> SessionRow | None:
+    """Incomplete book_test whose payload matches this Telegram message."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, completed, score, payload
+              FROM sessions
+             WHERE user_id = %s
+               AND task_type = 'book_test'
+               AND completed = FALSE
+               AND (payload ->> 'message_id') = %s
+               AND (payload ->> 'chat_id') = %s
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (user_id, str(message_id), str(chat_id)),
+        ).fetchone()
+    if row is None:
+        return None
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    return SessionRow(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        date=row["date"],
+        task_type=str(row["task_type"]),
+        completed=bool(row["completed"]),
+        score=float(row["score"]) if row["score"] is not None else None,
+        payload=payload,
+    )
+
+
+def abandon_open_book_tests(user_id: int) -> int:
+    """Mark incomplete book_test sessions completed-as-abandoned (score NULL).
+
+    Returns the number of rows updated. Used when starting a fresh /test so
+    abandoned mid-sets do not accumulate forever.
+    """
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            UPDATE sessions
+               SET completed = TRUE,
+                   completed_at = NOW(),
+                   score = NULL
+             WHERE user_id = %s
+               AND task_type = 'book_test'
+               AND completed = FALSE
+            RETURNING id
+            """,
+            (user_id,),
+        ).fetchall()
+    return len(rows)
 
 
 def update_session_payload(session_id: int, payload: dict[str, Any]) -> None:

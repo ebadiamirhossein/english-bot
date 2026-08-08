@@ -495,10 +495,42 @@ INTERESTS_SAVE_FAILED = (
 # Toast when Done is tapped with fewer than 2 selections (callback query answer).
 INTERESTS_DONE_TOAST = "Pick at least two first."
 
-# --- Reading delivery (S9a) ---------------------------------------------------
+# --- Reading delivery (S9a) + comprehension (S9c) -----------------------------
 
 # Title + body; PRD §8 exempts reading from the 400-character scheduled limit.
 READING_DELIVERY = "{title}\n\n{body}"
+
+BTN_READING_QUESTIONS = "Questions"
+
+READING_Q_PROGRESS = "Question {n} of {total}"
+
+READING_CORRECT = "✅ That's right."
+
+READING_WRONG = "❌ Not quite.\n💡 {why}"
+
+READING_SCORE = "You got {correct} of {total}."
+
+READING_RATE_PROMPT = "How useful was this topic for you?"
+
+READING_CLOSE = "Thanks — I'll lean on that for the next picks."
+
+# --- Anki export (S7 / M6) ----------------------------------------------------
+
+ANKI_WEEKLY = (
+    "Your Anki pack for the week — {count} new card(s). "
+    "Import the TSV into Anki when you're ready."
+)
+
+ANKI_MANUAL = (
+    "Here's your Anki export — {count} new card(s). "
+    "Import the TSV when you're ready."
+)
+
+ANKI_EMPTY = "Nothing new to export yet — keep reading and they'll show up here."
+
+ANKI_SEND_FAILED = (
+    "Something broke on my side sending the file — try /anki again in a moment."
+)
 
 INTERESTS_TRACK_LABELS: dict[str, str] = {
     "work": "Work",
@@ -567,3 +599,126 @@ BTN_INTERESTS_OTHER = BTN_DOMAIN_OTHER
 BTN_INTERESTS_DONE_NEED_2 = "Pick 2 to continue"
 BTN_INTERESTS_DONE_NEED_1 = "Pick 1 more"
 BTN_INTERESTS_DONE_READY = "Done →"
+
+
+# --- Book ingestion (S6) ------------------------------------------------------
+
+BOOK_ASK_WHICH = (
+    "Which book are these pages from?\n"
+    "Pick one — I'll remember it for this batch."
+)
+
+BOOK_ASK_OTHER = "What's the book called? A short name is enough."
+
+BOOK_INVALID_OTHER = "I need a short book name — try again?"
+
+BOOK_ASK_PAGES = (
+    "Send photos of the pages (or uncompressed image files).\n"
+    "I'll wait a moment after the last one, then read them."
+)
+
+BOOK_CANCELLED = "Okay — cancelled. Say /book whenever you're ready."
+
+BOOK_NUDGE_AWAITING = "Tap Done or Add more pages below when you're ready."
+
+BOOK_STATUS_READING = "📖 Reading your pages…"
+BOOK_STATUS_SAVING = "💾 Saving units…"
+
+BOOK_SUMMARY_UNITS = "Saved {count} unit(s) from {book}: {units}."
+BOOK_SUMMARY_NO_UNITS = "I couldn't pull out any units from those pages."
+BOOK_SUMMARY_UNREADABLE = "{pages} couldn't be read — {cta}"
+BOOK_SUMMARY_LLM_FAIL = "{pages} hit a snag on my side — {cta}"
+BOOK_SUMMARY_RESHOOT_ONE = "re-shoot that page, one page per photo?"
+BOOK_SUMMARY_RESHOOT_MANY = "re-shoot those pages, one page per photo?"
+BOOK_SUMMARY_ORPHAN = (
+    "{pages} looked like a continuation with no unit before them, "
+    "so I skipped those."
+)
+BOOK_SUMMARY_OVER_CAP = (
+    "I only took the first 20 pages; send the rest with another /book."
+)
+BOOK_SUMMARY_FOOTER = "Done closes this; Add more pages keeps going."
+
+BOOK_PROCESS_FAILED = (
+    "Something broke on my side while reading those pages — "
+    "try /book again in a moment."
+)
+
+BTN_BOOK_MURPHY = "Murphy"
+BTN_BOOK_VOCAB = "Vocabulary in Use"
+BTN_BOOK_MARKETING = "Marketing"
+BTN_BOOK_OTHER = "Other"
+BTN_BOOK_DONE = "Done"
+BTN_BOOK_ADD_MORE = "Add more pages"
+
+
+# --- Book unit test /test (S6a) -----------------------------------------------
+
+TEST_EMPTY = (
+    "No book units saved yet — photograph some pages with /book first, "
+    "then try /test."
+)
+
+TEST_LIST = "Which unit should we practise?"
+
+TEST_UNKNOWN = (
+    "I don't have unit {unit} saved yet.\n"
+    "You do have: {available}."
+)
+
+TEST_UNKNOWN_NONE = (
+    "I don't have unit {unit} saved yet — and no other units either. "
+    "Try /book first?"
+)
+
+TEST_WHICH_BOOK = "Unit {unit} is in more than one book — which one?"
+
+TEST_NO_ITEMS = (
+    "Unit {unit} is saved, but I couldn't pull teachable points from it yet. "
+    "Try re-shooting that unit with /book?"
+)
+
+TEST_FAILED = (
+    "Something snagged while building that set — try /test again in a moment."
+)
+
+TEST_DONE = "Done — {correct}/{total} {stars}"
+
+BTN_TEST_UNIT_PREFIX = "Unit {unit}"
+
+
+# --- Motivation / nudges + Sunday report (S10) --------------------------------
+
+NUDGE_FIRST_QUIZ = (
+    "Your quiz is still here whenever you have a few minutes."
+)
+
+NUDGE_FIRST_READING = (
+    "Your reading is still here whenever you have a few minutes."
+)
+
+NUDGE_SECOND_QUIZ = (
+    "No time for the full set? Just do 2 — it still counts."
+)
+
+NUDGE_SECOND_READING = (
+    "No time for all five? Just do 2 questions — it still counts."
+)
+
+NUDGE_SHORT_ACK = "Two questions whenever you're free — tap on the task above."
+
+NUDGE_SHORT_DONE = "Nice — those two count. You're done for this one."
+
+BTN_NUDGE_JUST_2 = "Just do 2"
+
+SUNDAY_LEAD_QUIET = "Quiet this week: {labels}."
+
+SUNDAY_LEAD_KEEPING = "You've been showing up — keep the thread going."
+
+SUNDAY_ACTIVE_FULL = "{n} active days — full week."
+
+SUNDAY_ACTIVE_SHORT = "{n} of {target} active days."
+
+SUNDAY_SHORTFALL = "Room for a couple more next week."
+
+SUNDAY_WHY = "{why}"

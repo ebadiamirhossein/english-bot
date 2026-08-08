@@ -186,9 +186,10 @@ def _valid_llm_payload(
         "body": body,
         "questions": [
             {
-                "question": f"Q{i}?",
-                "answer": f"A{i}",
-                "distractors": ["x", "y", "z"],
+                "q": f"Q{i}?",
+                "options": [f"A{i}", "wrong1", "wrong2", "wrong3"],
+                "answer_index": 0,
+                "why": f"Because the text says A{i}.",
             }
             for i in range(5)
         ],
@@ -216,9 +217,17 @@ def _count_rows(tid: int) -> tuple[int, int, int]:
     return int(readings), int(chunks), int(sessions)
 
 
-def _mock_app(send_side_effect: Exception | None = None) -> MagicMock:
+def _mock_app(
+    send_side_effect: Exception | None = None,
+    *,
+    telegram_id: int = 1,
+    message_id: int = 100,
+) -> MagicMock:
     app = MagicMock()
-    send = AsyncMock()
+    msg = MagicMock()
+    msg.chat_id = telegram_id
+    msg.message_id = message_id
+    send = AsyncMock(return_value=msg)
     if send_side_effect is not None:
         send.side_effect = send_side_effect
     app.bot.send_message = send
@@ -366,7 +375,12 @@ def test_chunk_capital_and_apostrophe_normalise() -> None:
         "title": "T",
         "body": body,
         "questions": [
-            {"question": "q", "answer": "a", "distractors": ["x", "y", "z"]}
+            {
+                "q": "q?",
+                "options": ["a", "b", "c", "d"],
+                "answer_index": 0,
+                "why": "The text says so clearly.",
+            }
             for _ in range(5)
         ],
         "chunks": [
@@ -414,6 +428,27 @@ def test_validate_rejects_four_chunks() -> None:
         validate_reading_payload(raw)
 
 
+def test_validate_rejects_legacy_question_shape() -> None:
+    raw = _valid_llm_payload()
+    raw["questions"] = [
+        {
+            "question": "q?",
+            "answer": "a",
+            "distractors": ["x", "y", "z"],
+        }
+        for _ in range(5)
+    ]
+    with pytest.raises(ReadingValidationError):
+        validate_reading_payload(raw)
+
+
+def test_validate_rejects_why_over_25_words() -> None:
+    raw = _valid_llm_payload()
+    raw["questions"][0]["why"] = " ".join(f"w{i}" for i in range(26))
+    with pytest.raises(ReadingValidationError):
+        validate_reading_payload(raw)
+
+
 # --- Delivery paths -----------------------------------------------------------
 
 
@@ -450,7 +485,7 @@ def test_sending_increments_bot_message_counts(cleanup_user: int) -> None:
     _seed_interests(tid, [("campaigns", "work"), ("travel", "life")])
     day = local_today("Europe/Vilnius", _MONDAY_EVENING_UTC)
     assert bot_initiated_count(tid, day) == 0
-    app = _mock_app()
+    app = _mock_app(telegram_id=tid)
     action = asyncio.run(
         deliver_evening(
             app,
@@ -582,7 +617,7 @@ def test_successful_run_writes_exact_rows(cleanup_user: int) -> None:
     tid = cleanup_user
     _onboard(tid)
     _seed_interests(tid, [("campaigns", "work"), ("travel", "life")])
-    app = _mock_app()
+    app = _mock_app(telegram_id=tid, message_id=4242)
     action = asyncio.run(
         deliver_evening(
             app,
@@ -605,6 +640,8 @@ def test_successful_run_writes_exact_rows(cleanup_user: int) -> None:
         assert reading["completed"] is False
         assert reading["title"] == "A week in marketing"
         assert len(reading["questions"]) == 5
+        assert reading["questions"][0]["q"]
+        assert reading["questions"][0]["answer_index"] == 0
 
         chunk_rows = conn.execute(
             "SELECT source, track, exported_to_anki FROM chunks WHERE user_id = %s",
@@ -621,7 +658,9 @@ def test_successful_run_writes_exact_rows(cleanup_user: int) -> None:
             (tid,),
         ).fetchone()
         assert session["completed"] is False
-        assert "reading_id" in session["payload"]
+        assert session["payload"]["reading_id"]
+        assert session["payload"]["chat_id"] == tid
+        assert session["payload"]["message_id"] == 4242
 
 
 def test_evening_job_offset_mid_interval() -> None:

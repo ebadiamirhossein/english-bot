@@ -2,12 +2,20 @@ You are writing a short daily English quiz for a {cefr_level} learner.
 Their first language is {native_language}. Their work domain is {work_domain}.
 Their practice track weights are: {track_weights_json}.
 
-You receive due error rows from their journal. Produce exactly one question per
-row, in the same order. Never invent an error_id. Never drop a row.
+You receive two lists:
+1. due_errors — journal rows. Produce exactly one question per row, in the same
+   order. Never invent an error_id. Never drop a row. Each question for a due
+   error MUST include that row's error_id.
+2. book_items — grammar/vocab points from the learner's studied book units.
+   Produce exactly one question per item, in the same order, AFTER the due-error
+   questions. Never drop an item. Each book question MUST set "source": "book"
+   and MUST NOT include error_id. Choose error_type ONLY from this list (never
+   invent a code):
+{error_type_list}
 
 Each due error includes a "track" (work, life, or curiosity). Honour the track
-mix, but put ALL questions inside ONE everyday situation (see below). Topic ideas
-when choosing the situation:
+mix, but put ALL questions (errors and book items) inside ONE everyday situation
+(see below). Topic ideas when choosing the situation:
 - work: campaigns, client email, negotiation, standups, interviews, pricing
 - life: apartments, doctors, arguments, cooking, travel, humour, small talk
 - curiosity: space, psychology, history, mysteries, technology, sport, nature
@@ -19,7 +27,7 @@ notice the questions belong together.
 Pick ONE everyday situation that fits the track mix — e.g. a weekend trip, a
 flatmate argument, a busy Monday, dinner with friends, a work chat about a
 deadline. Every question shares the same people, places and thread. Each
-question still tests its own error_id.
+question still tests its own error_id or book target_item.
 
 Return a top-level "scenario" string naming the situation in a few words (for
 the system's memory only — never shown to the learner).
@@ -43,12 +51,14 @@ handful of people.
       "answer": "isn't"
     }},
     {{
-      "error_id": 15,
+      "source": "book",
       "format": "choice",
       "prompt": "Which one sounds right?",
-      "options": ["I agree with Marta", "I am agree with Marta",
-                  "I am agreeing with Marta", "I agreed with Marta"],
-      "answer": "I agree with Marta"
+      "options": ["I'm meeting Tomas at 6", "I meet Tomas at 6",
+                  "I am meet Tomas at 6", "I meeting Tomas at 6"],
+      "answer": "I'm meeting Tomas at 6",
+      "error_type": "subject_verb_agreement",
+      "explanation": "Use am/is/are + -ing for a plan already arranged."
     }},
     {{
       "error_id": 21,
@@ -99,8 +109,8 @@ Exactly 2 questions must be "gap" (typed). Exactly 3 must be tapped
 With fewer than 5 questions: keep roughly 40% typed, rounding down, minimum 1
 typed. Never more than two of the same format in a row.
 
-Each due error includes a required "format" field — use EXACTLY that format
-for that question. Do not swap formats.
+Each due error and each book item includes a required "format" field — use
+EXACTLY that format for that question. Do not swap formats.
 
 - gap: one missing word or short phrase, typed. Use ___ for the blank.
   "accept" lists every reasonable spelling and contraction, lowercase.
@@ -115,6 +125,10 @@ for that question. Do not swap formats.
   "answer" equals the correct option. Still include "accept" with lowercase
   variants of the correct sentence.
 
+For book questions also include:
+- "error_type": one code from the list above
+- "explanation": max 25 words, in English, naming the grammar point briefly
+
 ## Freshness
 
 The same error will be quizzed again at 3, 7, 21 and 60 days. Generate a
@@ -128,3 +142,6 @@ what grading matches.
 
 Due errors (JSON):
 {due_errors_json}
+
+Book items (JSON) — after the due errors, in this order:
+{book_items_json}

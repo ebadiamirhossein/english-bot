@@ -11,13 +11,20 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from app import texts
 from app.config import ConfigError, load_settings
 from app.handlers.access import build_access_handler
+from app.handlers.book import build_book_handler, init_book_prompt
+from app.handlers.book_test import (
+    build_book_test_handlers,
+    init_book_test_prompt,
+)
 from app.handlers.correction import build_correction_handler, init_correction_prompt
 from app.handlers.interests import build_interests_handler
+from app.handlers.nudge import build_nudge_handler
 from app.handlers.onboarding import build_onboarding_handler
 from app.handlers.quiz import build_quiz_handlers, init_quiz_prompt
-from app.handlers.reading import init_reading_prompt
+from app.handlers.reading import build_reading_handler, init_reading_prompt
 from app.handlers.voice import build_voice_handler, init_voice_prompt
 from app.scheduler import start_scheduler, stop_scheduler
+from app.services.anki import handle_anki_command
 
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -53,6 +60,8 @@ def main() -> int:
     init_quiz_prompt()
     init_voice_prompt()
     init_reading_prompt()
+    init_book_prompt()
+    init_book_test_prompt()
 
     app = (
         ApplicationBuilder()
@@ -63,11 +72,18 @@ def main() -> int:
     )
     app.add_handler(build_onboarding_handler())
     app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(CommandHandler("anki", handle_anki_command))
     quiz_text, quiz_choice = build_quiz_handlers()
     app.add_handler(quiz_choice)
     app.add_handler(quiz_text)  # before correction — open-quiz filter
+    app.add_handler(build_reading_handler())  # callbacks only; no text filter
+    app.add_handler(build_nudge_handler())  # nudge: taps only; no text filter
+    test_cmd, test_cb = build_book_test_handlers()
+    app.add_handler(test_cb)  # btest: callbacks; no text filter
+    app.add_handler(test_cmd)
     app.add_handler(build_voice_handler())
     app.add_handler(build_interests_handler())
+    app.add_handler(build_book_handler())
     app.add_handler(build_correction_handler())
     app.add_handler(build_access_handler(), group=1)
 

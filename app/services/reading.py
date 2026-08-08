@@ -1,4 +1,4 @@
-"""Reading generation validation and atomic persist (S9a).
+"""Reading generation validation and atomic persist (S9a); MCQ parse (S9c).
 
 Persist holds an open transaction until the Telegram send succeeds; on send
 failure the transaction rolls back so no poisoned chunks reach Anki.
@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 _MIN_WORDS = 250
 _MAX_WORDS = 450
 _EXPECTED_CHUNKS = 5
+_EXPECTED_QUESTIONS = 5
+_EXPECTED_OPTIONS = 4
+_MAX_WHY_WORDS = 25
 
 _APOSTROPHES = (
     "\u0027",  # '
@@ -38,6 +41,14 @@ _QUOTES = (
     "\u00ab",  # «
     "\u00bb",  # »
 )
+
+
+@dataclass(frozen=True)
+class ReadingMcq:
+    q: str
+    options: list[str]
+    answer_index: int
+    why: str
 
 
 @dataclass(frozen=True)
@@ -67,6 +78,86 @@ def word_count(body: str) -> int:
     return len(body.split())
 
 
+def _validate_one_mcq(item: Any, index: int) -> dict[str, Any]:
+    """Validate one MCQ for generation; raises ReadingValidationError."""
+    if not isinstance(item, dict):
+        raise ReadingValidationError(f"question {index} is not an object")
+    q = str(item.get("q") or "").strip()
+    if not q:
+        raise ReadingValidationError(f"question {index} missing q")
+    options_raw = item.get("options")
+    if not isinstance(options_raw, list) or len(options_raw) != _EXPECTED_OPTIONS:
+        raise ReadingValidationError(
+            f"question {index} expected {_EXPECTED_OPTIONS} options"
+        )
+    options = [str(o).strip() for o in options_raw]
+    if any(not o for o in options):
+        raise ReadingValidationError(f"question {index} has empty option")
+    try:
+        answer_index = int(item.get("answer_index"))
+    except (TypeError, ValueError) as exc:
+        raise ReadingValidationError(
+            f"question {index} answer_index invalid"
+        ) from exc
+    if answer_index < 0 or answer_index >= _EXPECTED_OPTIONS:
+        raise ReadingValidationError(
+            f"question {index} answer_index out of range"
+        )
+    why = str(item.get("why") or "").strip()
+    if not why:
+        raise ReadingValidationError(f"question {index} missing why")
+    if word_count(why) > _MAX_WHY_WORDS:
+        raise ReadingValidationError(
+            f"question {index} why exceeds {_MAX_WHY_WORDS} words"
+        )
+    return {
+        "q": q,
+        "options": options,
+        "answer_index": answer_index,
+        "why": why,
+    }
+
+
+def parse_stored_questions(raw: Any) -> list[ReadingMcq] | None:
+    """Parse stored readings.questions as MCQ. Returns None if legacy/malformed.
+
+    Soft for the user — never raises. Used only at Q&A delivery (S9c).
+    """
+    if not isinstance(raw, list) or len(raw) != _EXPECTED_QUESTIONS:
+        return None
+    out: list[ReadingMcq] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            return None
+        q = str(item.get("q") or "").strip()
+        options_raw = item.get("options")
+        if not q or not isinstance(options_raw, list):
+            return None
+        if len(options_raw) != _EXPECTED_OPTIONS:
+            return None
+        options = [str(o).strip() for o in options_raw]
+        if any(not o for o in options):
+            return None
+        try:
+            answer_index = int(item.get("answer_index"))
+        except (TypeError, ValueError):
+            return None
+        if answer_index < 0 or answer_index >= _EXPECTED_OPTIONS:
+            return None
+        why = str(item.get("why") or "").strip()
+        if not why or word_count(why) > _MAX_WHY_WORDS:
+            return None
+        out.append(
+            ReadingMcq(
+                q=q,
+                options=options,
+                answer_index=answer_index,
+                why=why,
+            )
+        )
+    return out
+
+
 def validate_reading_payload(raw: dict[str, Any]) -> ReadingPayload:
     """Validate LLM JSON. Raises ReadingValidationError on failure."""
     title = str(raw.get("title") or "").strip()
@@ -82,11 +173,12 @@ def validate_reading_payload(raw: dict[str, Any]) -> ReadingPayload:
             f"body word count {words} outside {_MIN_WORDS}-{_MAX_WORDS}"
         )
 
-    questions = list(raw.get("questions") or [])
-    if len(questions) != 5:
+    questions_raw = list(raw.get("questions") or [])
+    if len(questions_raw) != _EXPECTED_QUESTIONS:
         raise ReadingValidationError(
-            f"expected 5 questions, got {len(questions)}"
+            f"expected {_EXPECTED_QUESTIONS} questions, got {len(questions_raw)}"
         )
+    questions = [_validate_one_mcq(item, i) for i, item in enumerate(questions_raw)]
 
     raw_chunks = list(raw.get("chunks") or [])
     if len(raw_chunks) != _EXPECTED_CHUNKS:
@@ -131,13 +223,14 @@ async def persist_and_send(
     track: str,
     cefr_level: str,
     payload: ReadingPayload,
-    send: Callable[[], Awaitable[None]],
+    send: Callable[[], Awaitable[tuple[int, int]]],
 ) -> int:
     """Insert readings/chunks/session, send, then commit.
 
-    ``send`` is awaited inside the open transaction. If it raises, the
-    transaction rolls back and zero rows remain. Returns the readings id.
-    Also sets interests.last_used inside the same transaction.
+    ``send`` must return ``(chat_id, message_id)`` and is awaited inside the
+    open transaction. If it raises, the transaction rolls back and zero rows
+    remain. Returns the readings id. Also sets interests.last_used and stores
+    chat_id/message_id on the session payload for S9c callback resolve.
     """
     with connection() as conn:
         with conn.transaction():
@@ -171,19 +264,93 @@ async def persist_and_send(
                 chunks=payload.chunks,
             )
 
-            conn.execute(
+            session_row = conn.execute(
                 """
                 INSERT INTO sessions (
                     user_id, date, task_type, delivered_at, completed, payload
                 ) VALUES (
                     %s, %s, 'reading', NOW(), FALSE, %s
                 )
+                RETURNING id
                 """,
                 (user_id, local_date, Jsonb({"reading_id": reading_id})),
-            )
+            ).fetchone()
+            assert session_row is not None
+            session_id = int(session_row["id"])
 
             mark_last_used(user_id, topic, track, local_date, conn=conn)
 
-            await send()
+            chat_id, message_id = await send()
+
+            conn.execute(
+                """
+                UPDATE sessions
+                   SET payload = %s
+                 WHERE id = %s AND user_id = %s
+                """,
+                (
+                    Jsonb(
+                        {
+                            "reading_id": reading_id,
+                            "chat_id": chat_id,
+                            "message_id": message_id,
+                        }
+                    ),
+                    session_id,
+                    user_id,
+                ),
+            )
 
     return reading_id
+
+
+def get_reading_for_user(user_id: int, reading_id: int) -> dict[str, Any] | None:
+    """Return reading row scoped by user_id, or None."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, title, body, topic, cefr_level, questions,
+                   completed, score, rating
+              FROM readings
+             WHERE id = %s AND user_id = %s
+            """,
+            (reading_id, user_id),
+        ).fetchone()
+    if row is None:
+        return None
+    questions = row["questions"]
+    if questions is not None and not isinstance(questions, list):
+        questions = list(questions)
+    return {
+        "id": int(row["id"]),
+        "user_id": int(row["user_id"]),
+        "title": row["title"],
+        "body": row["body"],
+        "topic": str(row["topic"] or ""),
+        "cefr_level": row["cefr_level"],
+        "questions": questions,
+        "completed": bool(row["completed"]),
+        "score": float(row["score"]) if row["score"] is not None else None,
+        "rating": int(row["rating"]) if row["rating"] is not None else None,
+    }
+
+
+def complete_reading(
+    user_id: int,
+    reading_id: int,
+    *,
+    rating: int,
+    score: float | None,
+) -> None:
+    """Mark reading completed with rating; score NULL when not assessed."""
+    with connection() as conn:
+        conn.execute(
+            """
+            UPDATE readings
+               SET completed = TRUE,
+                   rating = %s,
+                   score = %s
+             WHERE id = %s AND user_id = %s
+            """,
+            (rating, score, reading_id, user_id),
+        )

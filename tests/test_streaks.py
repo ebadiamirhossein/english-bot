@@ -506,6 +506,73 @@ def test_incomplete_quiz_plus_completed_voice_is_active(cleanup_user: int) -> No
     assert streak.total_active_days == 6
 
 
+def test_incomplete_reading_only_is_neutral(cleanup_user: int) -> None:
+    """S9c pin: incomplete reading (never tapped Questions) is Neutral, not Missed."""
+    tid = cleanup_user
+    _onboard(tid)
+    day = date(2026, 7, 10)
+    _set_streak(
+        tid,
+        current=4,
+        longest=4,
+        tokens=2,
+        total_active=4,
+        last_eval=date(2026, 7, 9),
+    )
+    insert_session(
+        tid,
+        "reading",
+        day,
+        payload={"reading_id": 1, "chat_id": tid, "message_id": 1},
+        completed=False,
+    )
+
+    result = roll_over_day(tid, day)
+    streak = get_streak(tid)
+
+    assert result.outcome == "neutral"
+    assert result.freeze_consumed is False
+    assert streak.freeze_tokens == 2
+    assert streak.pending_freeze_notice is False
+    assert streak.current_streak == 4
+    assert streak.total_active_days == 4
+
+
+def test_completed_reading_plus_incomplete_quiz_is_active(cleanup_user: int) -> None:
+    """S9c pin: completed reading makes the day Active even with incomplete quiz."""
+    tid = cleanup_user
+    _onboard(tid)
+    day = date(2026, 7, 10)
+    _set_streak(
+        tid,
+        current=5,
+        longest=5,
+        tokens=2,
+        total_active=5,
+        last_active=date(2026, 7, 9),
+        last_eval=date(2026, 7, 9),
+    )
+    insert_session(
+        tid,
+        "reading",
+        day,
+        payload={"reading_id": 1, "chat_id": tid, "message_id": 1},
+        completed=True,
+    )
+    _quiz(tid, day, completed=False)
+
+    result = roll_over_day(tid, day)
+    streak = get_streak(tid)
+
+    assert result.outcome == "active"
+    assert result.freeze_consumed is False
+    assert streak.freeze_tokens == 2
+    assert streak.pending_freeze_notice is False
+    assert streak.last_active_date == day
+    assert streak.current_streak == 6
+    assert streak.total_active_days == 6
+
+
 def test_completing_quiz_does_not_change_last_evaluated(cleanup_user: int) -> None:
     tid = cleanup_user
     _onboard(tid)

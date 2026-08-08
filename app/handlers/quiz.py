@@ -24,9 +24,11 @@ from telegram.ext import (
 
 from app import texts
 from app.db import connection
+from app.handlers.correction import error_type_list_text
 from app.handlers.onboarding import layout_buttons
 from app.llm import LLMError, chat
-from app.services.errors import Error, due_errors, mark_result
+from app.services.books import select_topup_items
+from app.services.errors import Error, due_errors, mark_result, record_errors
 from app.services.sessions import (
     complete_session,
     get_open_quiz_session,
@@ -235,15 +237,38 @@ def user_has_open_quiz(
     return get_open_quiz_session(user_id) is not None
 
 
+def open_quiz_awaits_gap_answer(user_id: int) -> bool:
+    """True when the open quiz's *current* question expects a typed gap answer.
+
+    Non-gap formats (choice / order / spot) must not consume private text —
+    that update belongs to free correction (M2).
+    """
+    session = get_open_quiz_session(user_id)
+    if session is None or not session.payload:
+        return False
+    payload = session.payload
+    questions = payload.get("questions") or []
+    try:
+        index = int(payload.get("index", 0))
+    except (TypeError, ValueError):
+        return False
+    if index < 0 or index >= len(questions):
+        return False
+    question = questions[index]
+    if not isinstance(question, dict):
+        return False
+    return question.get("format") == "gap"
+
+
 class OpenQuizFilter(filters.MessageFilter):
-    """Match private text only when the sender has an open quiz."""
+    """Match private text only when the open quiz awaits a typed gap answer."""
 
     def filter(self, message: Message) -> bool:
         user = message.from_user
         if user is None:
             return False
         try:
-            return user_has_open_quiz(user.id)
+            return open_quiz_awaits_gap_answer(user.id)
         except Exception:
             logger.exception(
                 "OpenQuizFilter failed user_id=%s",
@@ -489,12 +514,24 @@ def _numbered_options_block(options: list[str]) -> str:
     return "\n".join(lines)
 
 
+def quiz_effective_total(payload: dict[str, Any]) -> int:
+    """Question count the user must finish (honours S10 early_limit)."""
+    questions = payload.get("questions") or []
+    early = payload.get("early_limit")
+    if early is not None:
+        return min(int(early), len(questions)) if questions else int(early)
+    return len(questions)
+
+
 def _question_text(payload: dict[str, Any]) -> str:
     """Message body for READING. Hint → sentence → dots last."""
     questions = payload["questions"]
     index = int(payload["index"])
     q = questions[index]
-    dots = _progress_dots(index, len(questions))
+    total = quiz_effective_total(payload)
+    # Clamp display index if early_limit shortened the set.
+    display_index = min(index, max(total - 1, 0))
+    dots = _progress_dots(display_index, total)
     fmt = q.get("format") or "gap"
     hint = _format_hint(fmt)
 
@@ -530,13 +567,25 @@ def compose_body(*, feedback: str | None, question_body: str) -> str:
 def _keyboard_for_question(
     q: dict[str, Any],
     payload: dict[str, Any],
+    *,
+    callback_prefix: str | None = None,
 ) -> InlineKeyboardMarkup | None:
-    del payload  # reserved for formats that keep mid-question state
+    prefix = callback_prefix or str(payload.get("callback_prefix") or "quiz")
     fmt = q.get("format")
     if fmt in ("choice", "order"):
         options = list(q.get("options") or [])
         # Numbers only — full sentences live in the message body.
-        items = [(str(i + 1), f"quiz:opt:{i}") for i in range(len(options))]
+        items = [
+            (str(i + 1), f"{prefix}:opt:{i}")
+            for i in range(len(options))
+        ]
+        for label, _cb in items:
+            if len(label) > _MAX_BUTTON_LABEL_CHARS:
+                logger.warning(
+                    "quiz button label too long (%s chars): %r",
+                    len(label),
+                    label,
+                )
         rows = layout_buttons(items, max_per_row=4)
         return InlineKeyboardMarkup(
             [
@@ -546,7 +595,17 @@ def _keyboard_for_question(
         )
     if fmt == "spot":
         tiles = list(q.get("tiles") or [])
-        items = [(t, f"quiz:stile:{i}") for i, t in enumerate(tiles)]
+        items = [
+            (str(t)[:_MAX_BUTTON_LABEL_CHARS], f"{prefix}:stile:{i}")
+            for i, t in enumerate(tiles)
+        ]
+        for label, _cb in items:
+            if len(label) > _MAX_BUTTON_LABEL_CHARS:
+                logger.warning(
+                    "quiz button label too long (%s chars): %r",
+                    len(label),
+                    label,
+                )
         rows = layout_buttons(items, max_per_row=3)
         return InlineKeyboardMarkup(
             [
@@ -579,15 +638,44 @@ async def _safe_edit(
         raise
 
 
+def _clean_question_fields(
+    q: dict[str, Any],
+    *,
+    fmt: str,
+    fallback_answer: str,
+    fallback_correction: str,
+) -> dict[str, Any]:
+    accept = [str(a).lower() for a in (q.get("accept") or [])]
+    answer = str(q.get("answer") or fallback_answer)
+    if not accept and fmt in ("gap", "choice", "order"):
+        accept = [normalize_answer(answer)]
+    item: dict[str, Any] = {
+        "format": fmt,
+        "prompt": str(q.get("prompt") or "")[:140],
+        "accept": accept,
+        "answer": answer,
+    }
+    if fmt in ("choice", "order"):
+        item["options"] = [str(o) for o in (q.get("options") or [])]
+        if not item["options"] and answer:
+            item["options"] = [answer]
+    if fmt == "spot":
+        item["tiles"] = [str(t) for t in (q.get("tiles") or [])]
+        item["correction"] = str(q.get("correction") or fallback_correction)
+    return item
+
+
 def _build_quiz_questions(
     user_id: int,
     errors: list[Error],
     *,
+    book_items: list[dict[str, Any]] | None = None,
     chat_fn: Any = None,
 ) -> tuple[list[dict], str]:
     """Generate quiz questions. Returns (questions, scenario).
 
-    ``chat_fn`` is injectable for tests.
+    ``chat_fn`` is injectable for tests. ``book_items`` top up when fewer
+    errors are due than the quiz size (S6a).
     """
     user = get_user(user_id)
     if user is None:
@@ -596,8 +684,13 @@ def _build_quiz_questions(
         init_quiz_prompt()
     assert _prompt_template is not None
 
+    books = list(book_items or [])
+    total = len(errors) + len(books)
+    if total == 0:
+        return [], ""
+
     tracks = distribute_tracks(len(errors), user.track_weights)
-    formats = plan_formats(len(errors))
+    formats = plan_formats(total)
     recent = recent_prompts_for_errors(user_id, [e.id for e in errors])
     avoid_sc = recent_scenarios(user_id)
     due_payload = []
@@ -616,6 +709,20 @@ def _build_quiz_questions(
             item["avoid_prompts"] = avoid
         due_payload.append(item)
 
+    book_payload = []
+    for j, b in enumerate(books):
+        idx = len(errors) + j
+        book_payload.append(
+            {
+                "source": "book",
+                "book": b.get("book"),
+                "unit_number": b.get("unit_number"),
+                "unit_title": b.get("unit_title"),
+                "target_item": b.get("item"),
+                "format": formats[idx] if idx < len(formats) else "choice",
+            }
+        )
+
     avoid_scenarios_text = (
         json.dumps(avoid_sc, ensure_ascii=False) if avoid_sc else "(none yet)"
     )
@@ -626,6 +733,8 @@ def _build_quiz_questions(
         track_weights_json=json.dumps(user.track_weights, ensure_ascii=False),
         avoid_scenarios=avoid_scenarios_text,
         due_errors_json=json.dumps(due_payload, ensure_ascii=False),
+        book_items_json=json.dumps(book_payload, ensure_ascii=False),
+        error_type_list=error_type_list_text(),
     )
     call = chat_fn or chat
     result = call(
@@ -640,42 +749,67 @@ def _build_quiz_questions(
     questions = list(result.get("questions") or [])
     by_id = {e.id: e for e in errors}
     cleaned: list[dict] = []
-    for i, (q, err) in enumerate(zip(questions, errors, strict=False)):
+
+    # Error-sourced questions first (same order as due_errors).
+    for i, err in enumerate(errors):
+        q = questions[i] if i < len(questions) else {}
+        if not isinstance(q, dict):
+            q = {}
         eid = int(q.get("error_id", err.id))
         if eid not in by_id:
             eid = err.id
         planned = formats[i] if i < len(formats) else "gap"
-        fmt = q.get("format") or planned
-        if fmt not in _VALID_FORMATS:
-            fmt = planned
-        # Hard mix: trust the plan, not the model.
-        fmt = planned
-        accept = [str(a).lower() for a in (q.get("accept") or [])]
-        answer = str(q.get("answer") or err.correct_form)
-        if not accept and fmt in ("gap", "choice", "order"):
-            accept = [normalize_answer(answer)]
+        fmt = planned  # Hard mix: trust the plan, not the model.
+        item = _clean_question_fields(
+            q,
+            fmt=fmt,
+            fallback_answer=err.correct_form,
+            fallback_correction=err.correct_form,
+        )
         code = by_id[eid].error_type
-        item = {
-            "error_id": eid,
-            "format": fmt,
-            "prompt": str(q.get("prompt") or "")[:140],
-            "accept": accept,
-            "answer": answer,
-            "error_type": code,
-            "error_type_label": error_type_label(code),
-            "explanation": by_id[eid].explanation,
-        }
-        if fmt in ("choice", "order"):
-            item["options"] = [str(o) for o in (q.get("options") or [])]
-            if not item["options"] and answer:
-                # Minimal fallback so a button still exists if the model skipped options.
-                item["options"] = [answer]
-        if fmt == "spot":
-            item["tiles"] = [str(t) for t in (q.get("tiles") or [])]
-            item["correction"] = str(
-                q.get("correction") or by_id[eid].correct_form
-            )
+        item.update(
+            {
+                "error_id": eid,
+                "error_type": code,
+                "error_type_label": error_type_label(code),
+                "explanation": by_id[eid].explanation,
+            }
+        )
         cleaned.append(item)
+
+    # Book-sourced questions after errors.
+    for j, b in enumerate(books):
+        idx = len(errors) + j
+        q = questions[idx] if idx < len(questions) else {}
+        if not isinstance(q, dict):
+            q = {}
+        planned = formats[idx] if idx < len(formats) else "choice"
+        fmt = planned
+        item = _clean_question_fields(
+            q,
+            fmt=fmt,
+            fallback_answer=str(b.get("item") or ""),
+            fallback_correction=str(b.get("item") or ""),
+        )
+        code = str(q.get("error_type") or "").strip()
+        expl = str(q.get("explanation") or "").strip()
+        unit_title = str(b.get("unit_title") or "")
+        item.update(
+            {
+                "source": "book",
+                "book": b.get("book"),
+                "unit_number": b.get("unit_number"),
+                "unit_title": unit_title,
+                "target_item": b.get("item"),
+                "error_type": code,
+                "error_type_label": (
+                    error_type_label(code) if code else unit_title
+                ),
+                "explanation": expl,
+            }
+        )
+        cleaned.append(item)
+
     return cleaned, scenario
 
 
@@ -699,7 +833,9 @@ async def deliver_morning(
     preface = _quiz_preface(user_id, rescue=rescue)
 
     errors = due_errors(user_id, limit=quiz_limit)
-    if not errors:
+    need = quiz_limit - len(errors)
+    book_items = select_topup_items(user_id, need) if need else []
+    if not errors and not book_items:
         insert_session(user_id, "free_practice", day, completed=False)
         body = texts.QUIZ_FREE_PRACTICE
         if preface:
@@ -712,7 +848,10 @@ async def deliver_morning(
         # Off the event loop — a blocking LLM call would make APScheduler
         # skip the evening poll (misfire grace) for that tick.
         questions, scenario = await asyncio.to_thread(
-            _build_quiz_questions, user_id, errors
+            _build_quiz_questions,
+            user_id,
+            errors,
+            book_items=book_items,
         )
     except (LLMError, Exception):
         logger.exception(
@@ -806,6 +945,27 @@ def _label_for_question(question: dict[str, Any]) -> str:
     )
 
 
+def _journal_book_miss(
+    user_id: int,
+    question: dict[str, Any],
+    *,
+    user_answer: str,
+) -> None:
+    """Write an errors row for a wrong book-sourced answer; never invent types."""
+    record_errors(
+        user_id,
+        "quiz",
+        [
+            {
+                "you_said": user_answer,
+                "correct_form": str(question.get("answer") or ""),
+                "error_type": question.get("error_type"),
+                "explanation": question.get("explanation"),
+            }
+        ],
+    )
+
+
 async def _advance_after_answer(
     context: ContextTypes.DEFAULT_TYPE,
     user_id: int,
@@ -816,7 +976,13 @@ async def _advance_after_answer(
     question: dict[str, Any],
     user_answer: str,
 ) -> None:
-    mark_result(int(question["error_id"]), correct)
+    # Book-sourced questions have no errors row — never mark_result.
+    # Typed (gap) and tapped paths both funnel here.
+    if question.get("source") == "book":
+        if not correct:
+            _journal_book_miss(user_id, question, user_answer=user_answer)
+    else:
+        mark_result(int(question["error_id"]), correct)
     payload["answered"] = int(payload.get("answered", 0)) + 1
     label = _label_for_question(question)
     if correct:
@@ -833,13 +999,24 @@ async def _advance_after_answer(
 
     chat_id = int(payload["chat_id"])
     message_id = int(payload["message_id"])
-    total = len(payload["questions"])
+    full_total = len(payload["questions"])
+    total = quiz_effective_total(payload)
     index = int(payload["index"])
+    answered = int(payload.get("answered", 0))
     feedback = format_feedback(
         question, correct=correct, user_answer=user_answer
     )
 
-    if index + 1 >= total:
+    # S10 early_limit: complete when answered hits the shortened target.
+    # Full quizzes still complete when the last question is answered.
+    early = payload.get("early_limit")
+    done = (
+        answered >= total
+        if early is not None
+        else index + 1 >= full_total
+    )
+
+    if done:
         score = (
             float(payload["correct_count"]) / float(total) if total else 0.0
         )
