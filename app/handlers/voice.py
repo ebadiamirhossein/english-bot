@@ -1,12 +1,12 @@
-"""Voice partner (M3 / S5) + diary voice router (M9 / S13).
+"""Voice partner (M3 / S5) + diary/shadow voice router (M9 / S13 / S16).
 
 Voice in → Whisper → conversational reply as voice + correction as text.
 Conversation state lives in sessions.payload. Never bot_data.
 
 S5a: repeating chat action + in-place status message through three stages.
 
-S13 routing (ordered): live M3 conversation wins; else open diary for local
-today claims the voice; else M3 as today.
+S16 routing (ordered): claimable open shadow (30-min clip window) wins; else
+live M3; else open diary for local today; else M3.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from app.handlers.correction import (
 from app.llm import LLMError, chat
 from app.services.errors import record_errors
 from app.services.sessions import (
+    get_claimable_shadow_session,
     get_continuable_voice_session,
     get_open_diary_session,
     local_today,
@@ -123,18 +124,24 @@ async def handle_voice(
     tz = _user_timezone(user_id)
     day = local_today(tz, now)
 
-    # Ordered route: live M3 wins over open diary (S13).
-    live_m3 = get_continuable_voice_session(
-        user_id,
-        now=now,
-        context_minutes=settings.voice_context_minutes,
-        max_turns=settings.voice_max_turns,
+    # Ordered: claimable shadow → live M3 → open diary → M3 (S16/S13).
+    claimable_shadow = get_claimable_shadow_session(user_id, day, now=now)
+    live_m3 = (
+        None
+        if claimable_shadow is not None
+        else get_continuable_voice_session(
+            user_id,
+            now=now,
+            context_minutes=settings.voice_context_minutes,
+            max_turns=settings.voice_max_turns,
+        )
     )
     open_diary = (
         None
-        if live_m3 is not None
+        if claimable_shadow is not None or live_m3 is not None
         else get_open_diary_session(user_id, day)
     )
+    route_shadow = claimable_shadow is not None
     route_diary = open_diary is not None
 
     # Over-length decline happens before status or chat action exist.
@@ -150,7 +157,11 @@ async def handle_voice(
         return
 
     async with _lock_for(user_id):
-        if route_diary:
+        if route_shadow:
+            from app.handlers.shadow import handle_shadow_voice
+
+            await handle_shadow_voice(update, context, settings)
+        elif route_diary:
             from app.handlers.diary import handle_diary_voice
 
             await handle_diary_voice(update, context, settings)

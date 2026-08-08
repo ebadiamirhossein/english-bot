@@ -188,6 +188,85 @@ def get_open_diary_session(
     )
 
 
+# S16: shadow claims voice only within this window after clip_sent_at.
+SHADOW_VOICE_CLAIM_MINUTES = 30
+
+
+def get_open_shadow_session(
+    user_id: int, local_date: date
+) -> SessionRow | None:
+    """Incomplete shadow session for this user on local_date, if any."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, completed, score, payload
+              FROM sessions
+             WHERE user_id = %s
+               AND date = %s
+               AND task_type = 'shadow'
+               AND completed = FALSE
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (user_id, local_date),
+        ).fetchone()
+    if row is None:
+        return None
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    return SessionRow(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        date=row["date"],
+        task_type=str(row["task_type"]),
+        completed=bool(row["completed"]),
+        score=float(row["score"]) if row["score"] is not None else None,
+        payload=payload,
+    )
+
+
+def _parse_clip_sent_at(payload: dict[str, Any] | None) -> datetime | None:
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("clip_sent_at")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def get_claimable_shadow_session(
+    user_id: int,
+    local_date: date,
+    *,
+    now: datetime,
+    claim_minutes: int = SHADOW_VOICE_CLAIM_MINUTES,
+) -> SessionRow | None:
+    """Open shadow that still owns the microphone (clip sent recently).
+
+    Session may stay open until 03:00 (rule 2); only the voice *claim*
+    is time-bounded so an abandoned /shadow does not strand M3.
+    """
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    session = get_open_shadow_session(user_id, local_date)
+    if session is None:
+        return None
+    sent = _parse_clip_sent_at(session.payload)
+    if sent is None:
+        return None
+    age = now - sent
+    if age.total_seconds() > claim_minutes * 60:
+        return None
+    return session
+
+
 def daily_nudges_sent(user_id: int, local_date: date) -> int:
     """Sum of nudges_sent across all sessions for this user on local_date."""
     with connection() as conn:

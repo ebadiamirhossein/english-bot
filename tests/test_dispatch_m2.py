@@ -945,20 +945,33 @@ def test_dispatch_open_reading_mid_qa_reaches_correction(cleanup_user: int) -> N
     asyncio.run(_run())
 
 
-# --- Voice / diary routing (S13) ---------------------------------------------
+# --- Voice / diary / shadow routing (S13 / S16) --------------------------------
 
 
-def test_dispatch_open_diary_reaches_diary_not_m3(cleanup_user: int) -> None:
+def test_dispatch_claimable_shadow_reaches_shadow_not_diary_or_m3(
+    cleanup_user: int,
+) -> None:
     tid = cleanup_user
     _onboard(tid)
-    day = local_today("Europe/Vilnius", datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
+    day = local_today("Europe/Vilnius", now)
     insert_session(
-        tid, "diary", day, payload={"source": "poll"}, completed=False
+        tid,
+        "shadow",
+        day,
+        payload={
+            "chunk_id": 1,
+            "target_sentence": "Hello there",
+            "clip_sent_at": now.isoformat(),
+            "attempts": 0,
+        },
+        completed=False,
     )
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
+        shadow_spy = AsyncMock()
         diary_spy = AsyncMock()
         m3_spy = AsyncMock()
         app, _book = await _build_app(
@@ -973,11 +986,53 @@ def test_dispatch_open_diary_reaches_diary_not_m3(cleanup_user: int) -> None:
                     "app.handlers.voice.load_settings",
                     return_value=_voice_settings(),
                 ),
+                patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
+                patch("app.handlers.diary.handle_diary_voice", diary_spy),
+                patch("app.handlers.voice._handle_voice_locked", m3_spy),
+            ):
+                await app.process_update(update)
+            shadow_spy.assert_awaited_once()
+            diary_spy.assert_not_awaited()
+            m3_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_open_diary_reaches_diary_not_m3(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    day = local_today("Europe/Vilnius", datetime.now(timezone.utc))
+    insert_session(
+        tid, "diary", day, payload={"source": "poll"}, completed=False
+    )
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        shadow_spy = AsyncMock()
+        diary_spy = AsyncMock()
+        m3_spy = AsyncMock()
+        app, _book = await _build_app(
+            quiz_spy=quiz_spy, correction_spy=correction_spy
+        )
+        try:
+            update = _voice_update(tid)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            with (
+                patch(
+                    "app.handlers.voice.load_settings",
+                    return_value=_voice_settings(),
+                ),
+                patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
                 patch("app.handlers.diary.handle_diary_voice", diary_spy),
                 patch("app.handlers.voice._handle_voice_locked", m3_spy),
             ):
                 await app.process_update(update)
             diary_spy.assert_awaited_once()
+            shadow_spy.assert_not_awaited()
             m3_spy.assert_not_awaited()
         finally:
             app._initialized = False
@@ -992,6 +1047,7 @@ def test_dispatch_no_diary_reaches_m3_not_diary(cleanup_user: int) -> None:
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
+        shadow_spy = AsyncMock()
         diary_spy = AsyncMock()
         m3_spy = AsyncMock()
         app, _book = await _build_app(
@@ -1006,11 +1062,13 @@ def test_dispatch_no_diary_reaches_m3_not_diary(cleanup_user: int) -> None:
                     "app.handlers.voice.load_settings",
                     return_value=_voice_settings(),
                 ),
+                patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
                 patch("app.handlers.diary.handle_diary_voice", diary_spy),
                 patch("app.handlers.voice._handle_voice_locked", m3_spy),
             ):
                 await app.process_update(update)
             m3_spy.assert_awaited_once()
+            shadow_spy.assert_not_awaited()
             diary_spy.assert_not_awaited()
         finally:
             app._initialized = False
@@ -1041,6 +1099,7 @@ def test_dispatch_live_m3_beats_open_diary(cleanup_user: int) -> None:
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
+        shadow_spy = AsyncMock()
         diary_spy = AsyncMock()
         m3_spy = AsyncMock()
         app, _book = await _build_app(
@@ -1055,11 +1114,13 @@ def test_dispatch_live_m3_beats_open_diary(cleanup_user: int) -> None:
                     "app.handlers.voice.load_settings",
                     return_value=_voice_settings(),
                 ),
+                patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
                 patch("app.handlers.diary.handle_diary_voice", diary_spy),
                 patch("app.handlers.voice._handle_voice_locked", m3_spy),
             ):
                 await app.process_update(update)
             m3_spy.assert_awaited_once()
+            shadow_spy.assert_not_awaited()
             diary_spy.assert_not_awaited()
         finally:
             app._initialized = False

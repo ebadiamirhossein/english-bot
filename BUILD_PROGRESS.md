@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-09
-**Current slice:** S14
-**Status:** S14 prep code-complete — verify in Telegram; unrun checks remain on S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Current slice:** S16
+**Status:** S16 shadowing code-complete — verify in Telegram; unrun checks remain on S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -54,7 +54,8 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
 | S13 | Voice diary (M9) | 🟡 code-complete | 2026-08-09 | Tue/Thu prompts + `/diary`; live M3 wins voice routing; max 2 corrections; no TTS; full transcript discarded. |
 | S14 | Load-up mode (M10) | 🟡 code-complete | 2026-08-09 | `/prep <topic>` → 10 chunks + 3 frames; persist `prep_<slug>` to Anki pool; no sessions/errors; commit-after-send. |
-| S16–S17, S19 | Phase 4 depth | ⬜ not started | | |
+| S16 | Shadowing (M12) | 🟡 code-complete | 2026-08-09 | `/shadow` TTS from chunks; 30-min voice claim; word diff (ASR intelligibility); retry once; no errors/nudge/calibration. |
+| S17, S19 | Phase 4 depth | ⬜ not started | | |
 | S20–S23 | Phase 5 commercial | ⬜ not started | | |
 
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
@@ -76,8 +77,9 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 | YouTube Data API key (S9b) | ⬜ | — |
 | systemd unit | ⬜ | — |
 | Weekly pg_dump to independent storage | 🟡 | Daily local dump ✅ (`~/english-bot-backups`); weekly off-site copy still a stub (known issue #6) |
-| User A onboarded | ⬜ | EF SET: — |
+| User A onboarded | ✅ | `7222549221` — streaks, sessions, book units, calibration history |
 | User B onboarded | ⬜ | EF SET: — |
+| OPERATOR_TELEGRAM_ID | 🟡 | Tracked in `.env` / config (`Settings.operator_telegram_id`); set for S18 alerts |
 
 ---
 
@@ -87,6 +89,15 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-09 | S16 audio source = `speech.synthesize` over `chunks.full_sentence` (not mined scene clips) | No mining pipeline / scene audio exists. Pedagogical loop unchanged. **Cost:** TTS is cleaner/slower than real dialogue — trains rhythm and word stress, not casual reductions ("gonna", elisions). Mined sitcom clips remain the better source (known issue follow-up). |
+| 2026-08-09 | S16 voice routing: claimable shadow → live M3 → open diary → M3 | `/shadow` is the most recent explicit "repeat this" instruction. Lookups disjoint by `task_type` + completion; only one branch runs. When shadow is not claimable, S13 preserved (live M3 beats diary). |
+| 2026-08-09 | S16 shadow voice **claim window = 30 min** after `payload.clip_sent_at` (Try again re-arms) | Open-until-03:00 claim would strand M3 after an abandoned `/shadow`. Session stays open (rule 2); only the microphone claim is time-bounded. |
+| 2026-08-09 | S16 sentence select: exclude last **K=10** shadowed `chunk_id`s from payloads, then `created_at DESC` | Skip-previous-only alternates two newest forever. K-exclusion is deterministic, uses existing payload data, no migration; weighted-random would flake tests. |
+| 2026-08-09 | S16 deterministic `SequenceMatcher` word diff; no LLM | Free, reproducible; Whisper is ASR not a pronunciation scorer — feedback measures intelligibility to ASR; copy says "didn't come through clearly" / "try this part again", never "pronunciation was wrong". |
+| 2026-08-09 | S16 never writes `errors` | Transcription mismatch ≠ grammar error; would poison spacing / weekly test / calibration / Sunday report. |
+| 2026-08-09 | S16 retry once then complete regardless of score; not nudgeable; no schedule; no `bot_message_counts` | Two attempts enough; evenings fully allocated; user-initiated like `book_test`. |
+| 2026-08-09 | S16 attempt transcript not persisted (score only on `sessions.score`) | PRD §10 — transcript is the user's voice in text form. |
+| 2026-08-09 | S16 `sessions.score` deliberately outside calibration (`CALIBRATION_TASK_TYPES` stays quiz/reading + comment + test) | Shadow score is ASR intelligibility, not comprehension accuracy; conflating would move CEFR from how well Whisper heard them. |
 | 2026-08-09 | S14 prep chunks **persist** to `chunks` (Anki pool) | Highest-intent vocabulary in the product — user asked for them for a real situation with real stakes; S7 TSV is the retention path. |
 | 2026-08-09 | S14 `chunks.source = prep_<slug>` (slug = lowercase topic, non-alnum → `_`, max 48) | Distinguishable in TSV from `capture`, `reading_17`, `book_unit_12`. Topic may name a client — logged never; source column is user-facing Anki metadata. |
 | 2026-08-09 | S14 **no `sessions` row** | `/prep` is a lookup, not a task: must not claim quiz/reading slots, affect streaks, or make the day Active. “Any completed session = Active” makes inventing a session type the wrong easy choice. |
@@ -298,10 +309,11 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 6 | S4b off-site weekly copy is a stub (`offsite_copy_stub` in `scripts/backup.sh`). Local 14-day dumps exist; independent storage (rsync / rclone / manual) is not automated yet. Wire before relying on the Hetzner box alone. | high | S4b | ⬜ open |
 | 7 | Morning quiz LLM blocked the event loop (~17s); APScheduler skipped that tick's evening reading poll (jobs first=10/15). | high | S9a | ✅ closed — 2026-08-06 (`asyncio.to_thread` + mid-interval evening offset) |
 | 8 | S6 per-batch vision cost unmeasured — record observed cost from the first real 10–20 page run | medium | S6 | ⬜ open |
-| 9 | S6 OCR accuracy on real Murphy pages unverified until a clean single-page batch succeeds (first live run failed on JSON shape before accuracy could be judged) | medium | S6 | ⬜ open |
+| 9 | S6 OCR accuracy on real Murphy pages unverified until a clean single-page batch succeeds (first live run failed on JSON shape before accuracy could be judged) | medium | S6 | ✅ closed — 2026-08-09 (clean 10-page OCR batch with valid `target_items`) |
 | 10 | 2026-08-07 `{` assistant prefill broke all live `json_mode` callers (`claude-sonnet-5` 400). Morning quiz `action=skipped_llm`. | critical | S6 | ✅ closed — 2026-08-08 (prefill removed; tolerant parse; live json_mode + vision + quiz builder OK) |
-| 11 | Original S6 prose-instead-of-JSON (~96 tok ×2) still undiagnosed — next live `/book` must read WARNING `raw=` for refusal vs legibility before further prompt tuning | medium | S6 | ⬜ open |
-| 12 | S3 silent-consume: `OpenQuizFilter` + non-gap `on_quiz_text` return blocked M2 whenever an open quiz sat on choice/order/spot. **Journal gaps** on those days — do not read low error volume as “wrote well.” Fixed by gap-only filter (2026-08-08); Telegram verify pending. | high | S3 | 🟡 code-fixed — verify live |
+| 11 | Original S6 prose-instead-of-JSON (~96 tok ×2) still undiagnosed — next live `/book` must read WARNING `raw=` for refusal vs legibility before further prompt tuning | medium | S6 | ✅ closed — 2026-08-09 (prose failure was the rotated two-page spread; clean batches return JSON) |
+| 12 | S3 silent-consume: `OpenQuizFilter` + non-gap `on_quiz_text` return blocked M2 whenever an open quiz sat on choice/order/spot. **Journal gaps** on those days — do not read low error volume as “wrote well.” Fixed by gap-only filter (2026-08-08); Telegram verify pending. | high | S3 | ✅ closed — 2026-08-09 (dispatch fix verified live at 17:59 — free text after open non-gap quiz reached correction) |
+| 24 | S16 uses TTS over chunk sentences, not mined sitcom clips — trains rhythm/stress but not casual reductions; restore mined-clip source when a mining pipeline exists | medium | S16 → later | ⬜ open — deliberate deviation |
 | 13 | Quiz callback: stale session / format mismatch after `query.answer()` can leave the button inert (no edit). Note only — does not block correction. | low | S3 | ⬜ open — note only |
 | 14 | S6 `target_items`: near-duplicates survive two-page union (`"Present continuous"` vs `"present continuous (I am doing)"`) because only exact string matches are dropped. | medium | S6 | ⬜ open — later pass |
 | 15 | S6 `target_items`: exercise word banks captured as items (e.g. `"verbs: cross, hide, scratch, take, tie, wave"`). | medium | S6 | ⬜ open — later pass |
@@ -354,8 +366,11 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/streak/freeze + M13 + heartbeat | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18 + S15 capture + S13 diary + S14 prep copy | ✅ |
-| `app/main.py` | Entrypoint; flock; rotating log; error handler; `/prep`; `/diary`; capture; `/pause` `/stats`; scheduler | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18 + S15 capture + S13 diary + S14 prep + S16 shadow copy | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; `/prep`; `/diary`; `/shadow`; capture; `/pause` `/stats`; scheduler | ✅ |
+| `app/handlers/shadow.py` | `/shadow` + retry callback + voice processing (S16); never errors; transcript discarded | ✅ |
+| `app/services/shadow.py` | Chunk select (K=10), word diff, feedback format; abandon open shadow (S16) | ✅ |
+| `tests/test_shadow.py` | Diff, select variety, claim window, retry, streaks, calibration exclusion, privacy, labels (S16) | ✅ |
 | `app/handlers/prep.py` | `/prep <topic>` load-up mode (S14); CommandHandler only; never errors/sessions | ✅ |
 | `app/services/prep.py` | Prep validate + persist-after-send; source=`prep_<slug>`; track NULL default (S14) | ✅ |
 | `app/prompts/prep.txt` | Prep JSON prompt — 10 chunks + 3 frames; pitch cefr + work_domain (S14) | ✅ |
@@ -367,7 +382,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/handlers/settings.py` | `/pause` + `/stats` + `pause:` callbacks (S18) | ✅ |
 | `scripts/heartbeat.py` | CLI stale check for future external cron (S18) | ✅ |
 | `tests/test_hardening.py` | Alerts/throttle/heartbeat/lock/log privacy/pause/stats/Missed pin (S18) | ✅ |
-| `app/services/calibration.py` | M14 rolling accuracy (excludes book_test + weekly_test), daily calibration_log upsert, raise/lower, raise notice | ✅ |
+| `app/services/calibration.py` | M14 rolling accuracy (excludes book_test + weekly_test + shadow), daily calibration_log upsert, raise/lower, raise notice | ✅ |
 | `app/handlers/nudge.py` | Tap-only `nudge:short:` early-limit callbacks; Murphy append on weekly early-complete (S10/S11) | ✅ |
 | `app/services/motivation.py` | Nudge ladder (incl. diary text-only) + Sunday report assembly (no LLM) (S10/S13) | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
@@ -379,7 +394,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/prompts/capture.txt` | Capture JSON prompt — adaptive chunks, generic carriers (S15) | ✅ |
 | `tests/test_capture.py` | Capture validation, persist/rollback, PII fixture, handler, anki source, labels (S15) | ✅ |
 | `app/handlers/quiz.py` | Daily/weekly quiz + top-up; evenly spaced `plan_formats`; book grading fork; `early_limit`; Murphy append on weekly complete; M13/M14; `OpenQuizFilter` gap-only | ✅ |
-| `app/handlers/voice.py` | Voice partner (S5) + S13 router (live M3 → diary → M3); S5a status helpers | ✅ |
+| `app/handlers/voice.py` | Voice partner (S5) + S16/S13 router (claimable shadow → live M3 → diary → M3); S5a status helpers | ✅ |
 | `app/handlers/diary.py` | Voice diary deliver + `/diary` + voice processing (S13); no TTS; cap 2 | ✅ |
 | `app/prompts/diary.txt` | Diary JSON prompt — max 2 errors + specific did_well (S13) | ✅ |
 | `tests/test_diary.py` | Schedule, ceiling, pause, `/diary`, routing, cap 2, privacy, streaks, labels (S13) | ✅ |
@@ -391,7 +406,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/services/__init__.py` | Services package | ✅ |
 | `app/services/users.py` | get/save user, EF SET → CEFR, `update_cefr_level`, `get/set_paused_until` (S12/S18) | ✅ |
 | `app/services/errors.py` | record_errors + due_errors + weekly select + Murphy expand/lookup + mark_result + resolved_types + M13 (S3/S10/S11/S12) | ✅ |
-| `app/services/sessions.py` | sessions + ceiling + diary helpers + nudgeable quiz/reading/diary + fossil_sweep + sunday_report (S3–S13) | ✅ |
+| `app/services/sessions.py` | sessions + ceiling + diary/shadow claim helpers + nudgeable quiz/reading/diary + fossil_sweep + sunday_report (S3–S16) | ✅ |
 | `app/services/anki.py` | Chunk→TSV gap/escape/export; weekly deliver + `/anki`; mark-after-send (S7) | ✅ |
 | `app/services/streaks.py` | Streak rollover, freeze, rescue; Active>Missed precedence (S4/S5) | ✅ |
 | `app/services/interests.py` | list/replace/select_topic/mark_last_used + adjust_weight_for_rating (S9/S9a/S9c) | ✅ |
@@ -426,7 +441,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_reading.py` | S9a eligibility, ceiling, topic pick, MCQ validate, rollback, persist + message_id | ✅ |
 | `tests/test_reading_s9c.py` | S9c grading, resume, message_id resolve, rating clamps, legacy NULL score, edit resend, labels | ✅ |
 | `tests/test_book.py` | S6 debounce, merge, upsert, failures, Page/Pages / All-N collapse, CTA agreement, prose soft-skip, over-cap, labels, SDK/disk greps | ✅ |
-| `tests/test_dispatch_m2.py` | Application dispatch + capture + voice/diary routing spies (S3+S6+S6a+S9c+S10+S13+S15+S18) | ✅ |
+| `tests/test_dispatch_m2.py` | Application dispatch + capture + voice/diary/shadow routing spies (S3+S6+S6a+S9c+S10+S13+S15+S16+S18) | ✅ |
 | `tests/test_s6a.py` | Top-up counts, word-bank/dedup fixtures, journal fork (typed+tap), streak Missed vs Neutral, `/test` parse/disambiguate/abandon, labels (S6a) | ✅ |
 | `tests/test_anki.py` | S7 gap/escape/order/mark-after-send/ceiling/idempotency/empty `/anki` | ✅ |
 | `tests/test_motivation.py` | S10 nudge ladder, ceiling, dual-TZ, resolved_types all-clear, active-days bands, Sunday report, Just do 2 score, no-guilt/labels | ✅ |
@@ -455,6 +470,12 @@ Do not start S8 / S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S16** — with chunks present, `/shadow` → intro + voice clip; reply with voice → feedback (🎯/🎤/💡); Try again once → second attempt completes
+- [ ] **S16** — empty chunk pool → warm explanation (readings / capture / prep); no audio
+- [ ] **S16** — `/shadow` then immediate voice while an M3 window might exist → shadow feedback, not partner reply
+- [ ] **S16** — abandon after clip (no reply) then later voice → M3/diary as usual; Try again re-sends clip and re-arms claim
+- [ ] **S16** — complete shadow → day can count Active; next morning quiz still delivers
+- [ ] **S16** — logs show `user_id`/handler only (no attempt transcript)
 - [ ] **S14** — `/prep marketing budget meeting` → Phrases (numbered) + Reply frames (`▸`); scannable; may exceed 400 chars
 - [ ] **S14** — bare `/prep` → usage hint with example; no LLM
 - [ ] **S14** — over-long topic (~200+) → warm refusal; no LLM

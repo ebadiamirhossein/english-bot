@@ -31,6 +31,8 @@ RAISE_WINDOW_DAYS = 14
 RAISE_MIN_LOG_DAYS = 8  # ~5/7 over a fortnight (exact pace ≈10)
 COOLDOWN_DAYS = 14
 CEFR_LADDER = ("A2", "B1", "B2", "C1")
+# Comprehension accuracy only. Shadow (S16) stores ASR-intelligibility on
+# sessions.score — never add 'shadow' (or other pronunciation proxies) here.
 CALIBRATION_TASK_TYPES = ("quiz", "reading")
 
 

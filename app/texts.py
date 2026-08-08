@@ -867,3 +867,48 @@ PREP_SECTION_CHUNKS = "Phrases"
 PREP_SECTION_FRAMES = "Reply frames"
 
 
+# --- Shadowing (S16 / M12) ----------------------------------------------------
+
+SHADOW_EMPTY_POOL = (
+    "I don't have a sentence for you yet. Send me a reading evening, "
+    "forward some English with /capture, or try /prep for a real meeting — "
+    "then come back to /shadow."
+)
+
+SHADOW_INTRO = (
+    "Listen, then send a voice note repeating it. "
+    "I'll show which words came through clearly."
+)
+
+SHADOW_FAILED_TTS = (
+    "I couldn't play that clip just now — try /shadow again in a moment."
+)
+
+SHADOW_FAILED_STT = (
+    "I couldn't catch that recording — try the voice note once more?"
+)
+
+SHADOW_TIP_CLEAR = "That came through clearly."
+
+SHADOW_TIP_AGAIN = "Try this part again — a few words didn't come through clearly."
+
+SHADOW_TIP_PART = "Try this part again: {detail}"
+
+SHADOW_DONE = "Nice — that's enough for this one."
+
+BTN_SHADOW_AGAIN = "Try again"
+
+
+def format_shadow_feedback(
+    target: str, attempt: str, tip: str
+) -> str:
+    """Fixed scannable shape for shadow compare (ASR intelligibility)."""
+    return "\n".join(
+        [
+            f"🎯 {target}",
+            f"🎤 {attempt}",
+            f"💡 {tip}",
+        ]
+    )
+
+

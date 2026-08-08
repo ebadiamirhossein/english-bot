@@ -22,6 +22,7 @@ from app.handlers.capture import build_capture_handlers, init_capture_prompt
 from app.handlers.prep import build_prep_handler, init_prep_prompt
 from app.handlers.correction import build_correction_handler, init_correction_prompt
 from app.handlers.diary import build_diary_handlers, init_diary_prompt
+from app.handlers.shadow import build_shadow_handlers
 from app.handlers.interests import build_interests_handler
 from app.handlers.nudge import build_nudge_handler
 from app.handlers.onboarding import build_onboarding_handler
@@ -124,6 +125,9 @@ def main() -> int:
     app.add_handler(CommandHandler("anki", handle_anki_command))
     app.add_handler(build_prep_handler())
     app.add_handler(build_diary_handlers())
+    shadow_cmd, shadow_cb = build_shadow_handlers()
+    app.add_handler(shadow_cmd)
+    app.add_handler(shadow_cb)  # shadow:again taps; no text filter
     pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
     app.add_handler(pause_cmd)
     app.add_handler(stats_cmd)
