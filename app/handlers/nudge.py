@@ -81,6 +81,10 @@ async def _apply_quiz_short(
             improved_labels=list(payload.get("improved_labels") or []),
             struggled_labels=list(payload.get("struggled_labels") or []),
         )
+        if payload.get("weekly_test"):
+            murphy = quiz_handler.format_murphy_recommendation(user_id)
+            if murphy:
+                summary = f"{summary}\n\n{murphy}"
         if message_id is not None:
             await quiz_handler._safe_edit(
                 context,

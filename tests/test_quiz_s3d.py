@@ -47,6 +47,14 @@ def test_wrong_gap_feedback_contains_said_and_correct() -> None:
     assert "so much" in fb
 
 
+def test_rescue_and_daily_formats_pinned() -> None:
+    """n=3 and n=5 are live-verified lengths — must stay byte-identical."""
+    assert typed_gap_count(3) == 1
+    assert plan_formats(3) == ["gap", "choice", "spot"]
+    assert typed_gap_count(5) == 2
+    assert plan_formats(5) == ["choice", "gap", "spot", "gap", "order"]
+
+
 def test_five_question_mix_exactly_two_gap() -> None:
     assert typed_gap_count(5) == 2
     formats = plan_formats(5)
@@ -56,6 +64,25 @@ def test_five_question_mix_exactly_two_gap() -> None:
     assert len(tapped) == 3
     assert all(f in ("choice", "spot", "order") for f in tapped)
     # Never three of the same
+    for i in range(len(formats) - 2):
+        assert not (formats[i] == formats[i + 1] == formats[i + 2])
+
+
+def test_fifteen_question_mix_interleaved_gaps() -> None:
+    assert typed_gap_count(15) == 6
+    formats = plan_formats(15)
+    assert len(formats) == 15
+    assert formats.count("gap") == 6
+    # No front-loaded run of gaps (old generic branch put six in a row).
+    max_gap_run = 0
+    run = 0
+    for f in formats:
+        if f == "gap":
+            run += 1
+            max_gap_run = max(max_gap_run, run)
+        else:
+            run = 0
+    assert max_gap_run <= 1
     for i in range(len(formats) - 2):
         assert not (formats[i] == formats[i + 1] == formats[i + 2])
 

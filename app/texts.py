@@ -387,6 +387,18 @@ QUIZ_CAME_BACK = "📌 {label} came back — I'll ask again tomorrow."
 
 QUIZ_RESCUE = "Shorter one today — three questions."
 
+QUIZ_WEEKLY = "Sunday check-in — fifteen questions across your journal."
+
+# Murphy routing (S11) — appended to weekly-test completion (reply, not a
+# new bot-initiated message). Labels only; under 400 chars; no guilt.
+MURPHY_REC_STUDIED = (
+    "Worth revisiting: Murphy {units} ({label}) — you already have some "
+    "of those stored."
+)
+MURPHY_REC_NEW = (
+    "New from your patterns: Murphy {units} ({label})."
+)
+
 # Freeze notice (S5 choice b): keep remaining count when tokens remain;
 # omit the inventory clause when zero — "None left" is guilt (PRD §7 rule 4).
 QUIZ_FREEZE_USED = (

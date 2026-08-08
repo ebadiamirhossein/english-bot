@@ -139,11 +139,12 @@ All registered in `scheduler.py`, all timezone-aware per user.
 
 | Job | Schedule | Action |
 |---|---|---|
-| `send_daily_quiz` | user's `morning_time` | M1 |
+| `send_daily_quiz` | user's `morning_time` | M1 (Sun: 15Q weekly test; else 5Q / rescue 3Q) |
 | `send_evening_task` | user's `evening_time` | M3 / M4 / M9, rotating |
 | `nudge_check` | every 30 min | nudge ladder, respects the 3-message ceiling |
 | `couple_challenge` | 18:00 | M8 |
-| `weekly_report` | Sun 19:00 | M7 report + M6 Anki export + leaderboard |
+| `anki_export` | Sat evening (`evening_time`) | M6 Anki TSV |
+| `sunday_report` | Sun evening (`evening_time`) | M7 progress report |
 | `monthly_reset` | 1st, 00:05 | freeze tokens → 2; M13 sweep |
 | `heartbeat` | hourly | alert operator if no job fired in 26h |
 | `backup` | daily 04:00 | `pg_dump` to local + off-server copy, keep 14 days |

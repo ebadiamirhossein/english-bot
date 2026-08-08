@@ -447,6 +447,20 @@ def list_units_for_user(user_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def studied_murphy_unit_numbers(user_id: int) -> set[str]:
+    """TEXT unit_number values the user has stored for book slug ``murphy``."""
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT unit_number
+              FROM book_units
+             WHERE user_id = %s AND book = %s
+            """,
+            (user_id, "murphy"),
+        ).fetchall()
+    return {str(r["unit_number"]) for r in rows}
+
+
 def find_units_by_number(
     user_id: int, unit_number: str
 ) -> list[dict[str, Any]]:

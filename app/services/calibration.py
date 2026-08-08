@@ -1,7 +1,9 @@
 """Difficulty auto-calibration (M14 / S12).
 
 Rolling accuracy is approximated from completed quiz + reading session
-aggregates (not a true per-question event stream). book_test is excluded.
+aggregates (not a true per-question event stream). ``book_test`` and
+Sunday weekly tests (``payload.weekly_test``) are excluded — coverage /
+self-selected material must not vote on level.
 """
 
 from __future__ import annotations
@@ -115,6 +117,9 @@ def compute_accuracy_window(user_id: int) -> AccuracyWindow:
         payload = row["payload"]
         if payload is not None and not isinstance(payload, dict):
             payload = dict(payload)
+        # S11: weekly test is coverage, not difficulty fit — skip entirely.
+        if isinstance(payload, dict) and payload.get("weekly_test"):
+            continue
         c, n = _session_counts(payload, row["score"])
         if n <= 0:
             continue

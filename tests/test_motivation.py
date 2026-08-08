@@ -41,6 +41,7 @@ from app.services.sessions import (
     complete_session,
     daily_nudges_sent,
     get_session_by_id,
+    has_anki_session_on,
     has_sunday_report_session_on,
     increment_bot_messages,
     insert_session,
@@ -490,20 +491,10 @@ def test_sunday_report_idempotent(cleanup_user: int) -> None:
     assert app.bot.send_message.await_count == 1
 
 
-def test_sunday_report_beats_anki_on_last_slot(cleanup_user: int) -> None:
-    """With count already 2, report sends; Anki eligibility fails ceiling."""
+def test_anki_not_due_on_sunday_evening(cleanup_user: int) -> None:
+    """S11: Anki moved to Saturday — Sunday evening must not write anki_export."""
     tid = cleanup_user
     _onboard(tid)
-    user = _mot_user(tid)
-    day = local_today("Europe/Vilnius", _SUNDAY_EVENING)
-    increment_bot_messages(tid, day)
-    increment_bot_messages(tid, day)
-    assert bot_initiated_count(tid, day) == 2
-    app = _mock_app()
-    assert is_user_due_for_sunday_report(user, _SUNDAY_EVENING)
-    action = asyncio.run(deliver_sunday_report(app, user, now=_SUNDAY_EVENING))
-    assert action == "sent"
-    assert bot_initiated_count(tid, day) == 3
     from app.scheduler import EligibleUser, is_user_due_for_anki
 
     anki_user = EligibleUser(
@@ -514,6 +505,8 @@ def test_sunday_report_beats_anki_on_last_slot(cleanup_user: int) -> None:
         evening_time=time(21, 0),
     )
     assert is_user_due_for_anki(anki_user, _SUNDAY_EVENING) is False
+    day = local_today("Europe/Vilnius", _SUNDAY_EVENING)
+    assert not has_anki_session_on(tid, day)
 
 
 def test_scheduler_report_before_anki_offsets() -> None:

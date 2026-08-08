@@ -11,6 +11,7 @@ import string
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.constants import ParseMode
@@ -27,14 +28,18 @@ from app.db import connection
 from app.handlers.correction import error_type_list_text
 from app.handlers.onboarding import layout_buttons
 from app.llm import LLMError, chat
-from app.services.books import select_topup_items
+from app.services.books import select_topup_items, studied_murphy_unit_numbers
 from app.services.calibration import deliver_raise_notice, maybe_calibrate
 from app.services.errors import (
     Error,
     due_errors,
+    expand_murphy_units,
     get_error_for_user,
     mark_result,
+    murphy_units_for_labels,
     record_errors,
+    select_weekly_test_errors,
+    top_error_types,
 )
 from app.services.sessions import (
     complete_session,
@@ -288,16 +293,52 @@ class OpenQuizFilter(filters.MessageFilter):
 
 
 def typed_gap_count(n: int) -> int:
-    """How many gap (typed) questions for a quiz of size n."""
+    """How many gap (typed) questions for a quiz of size n.
+
+    n=5 is the S3d hard mix (2 typed). Other sizes scale ~40%.
+    n=3 (rescue) stays 1 — pinned by tests.
+    """
     if n <= 0:
         return 0
-    if n >= 5:
+    if n == 5:
         return 2
-    return max(1, (n * 2) // 5)  # ~40% rounded down, min 1
+    return max(1, (n * 2) // 5)
+
+
+def _gap_slot_indices(n: int, n_gap: int) -> set[int]:
+    """Evenly spaced gap positions. Single gap at 0 preserves rescue layout."""
+    if n_gap <= 0 or n <= 0:
+        return set()
+    if n_gap >= n:
+        return set(range(n))
+    if n_gap == 1:
+        return {0}
+    raw = [round(i * (n - 1) / (n_gap - 1)) for i in range(n_gap)]
+    slots: set[int] = set()
+    for s in raw:
+        s = max(0, min(n - 1, int(s)))
+        if s not in slots:
+            slots.add(s)
+            continue
+        for d in range(1, n):
+            placed = False
+            for cand in (s - d, s + d):
+                if 0 <= cand < n and cand not in slots:
+                    slots.add(cand)
+                    placed = True
+                    break
+            if placed:
+                break
+    return slots
 
 
 def plan_formats(n: int) -> list[str]:
-    """Hard mix: 2 gap + 3 tapped for n=5; never three of the same in a row."""
+    """Hard mix: 2 gap + 3 tapped for n=5; never three of the same in a row.
+
+    Generic path places gaps at evenly spaced indices — the old
+    ``gaps_left >= slots_left - taps_left`` rule front-loaded all gaps
+    (six in a row for a 15-question weekly test).
+    """
     if n <= 0:
         return []
     if n == 5:
@@ -305,27 +346,24 @@ def plan_formats(n: int) -> list[str]:
     n_gap = typed_gap_count(n)
     n_tap = n - n_gap
     taps = [["choice", "spot", "order"][i % 3] for i in range(n_tap)]
+    gap_slots = _gap_slot_indices(n, n_gap)
     out: list[str] = []
-    gi = ti = 0
+    ti = 0
     for slot in range(n):
-        slots_left = n - slot
-        gaps_left = n_gap - gi
-        taps_left = n_tap - ti
-        if gaps_left > 0 and gaps_left >= slots_left - taps_left:
+        if slot in gap_slots:
             out.append("gap")
-            gi += 1
-        elif taps_left > 0:
-            cand = taps[ti]
-            if len(out) >= 2 and out[-1] == cand and out[-2] == cand:
-                for alt in ("choice", "spot", "order"):
-                    if alt != cand:
-                        cand = alt
-                        break
-            out.append(cand)
-            ti += 1
-        else:
+            continue
+        if ti >= len(taps):
             out.append("gap")
-            gi += 1
+            continue
+        cand = taps[ti]
+        if len(out) >= 2 and out[-1] == cand and out[-2] == cand:
+            for alt in ("choice", "spot", "order"):
+                if alt != cand:
+                    cand = alt
+                    break
+        out.append(cand)
+        ti += 1
     return out
 
 
@@ -499,15 +537,48 @@ def _spot_sentence(q: dict[str, Any]) -> str:
     return " ".join(str(t) for t in (q.get("tiles") or []))
 
 
-def _quiz_preface(user_id: int, *, rescue: bool) -> str:
-    """Freeze notice and/or rescue line for the opening quiz message."""
+def _quiz_preface(
+    user_id: int, *, rescue: bool, weekly_test: bool = False
+) -> str:
+    """Freeze notice and/or rescue / weekly line for the opening quiz message."""
     parts: list[str] = []
     if consume_freeze_notice(user_id):
         remaining = get_streak(user_id).freeze_tokens
         parts.append(texts.format_freeze_notice(remaining))
     if rescue:
         parts.append(texts.QUIZ_RESCUE)
+    elif weekly_test:
+        parts.append(texts.QUIZ_WEEKLY)
     return "\n\n".join(parts)
+
+
+def format_murphy_recommendation(user_id: int, *, max_recs: int = 2) -> str | None:
+    """Build Murphy unit lines from top error types; None if nothing to say."""
+    labels = top_error_types(user_id, n=8)
+    mapped = murphy_units_for_labels(labels)
+    if not mapped:
+        return None
+    studied = studied_murphy_unit_numbers(user_id)
+    lines: list[str] = []
+    for label, spec in mapped:
+        units = expand_murphy_units(spec)
+        if not units:
+            continue
+        template = (
+            texts.MURPHY_REC_STUDIED
+            if units & studied
+            else texts.MURPHY_REC_NEW
+        )
+        line = template.format(units=spec, label=label)
+        lines.append(line)
+        if len(lines) >= max_recs:
+            break
+    if not lines:
+        return None
+    block = "\n".join(lines)
+    if len(block) > 400:
+        block = block[:397].rstrip() + "…"
+    return block
 
 
 # Telegram truncates inline button labels to button width. Never put readable
@@ -747,11 +818,13 @@ def _build_quiz_questions(
         error_type_list=error_type_list_text(),
     )
     call = chat_fn or chat
+    # 15Q weekly test is ~3× the 5Q payload; 2500 truncates.
+    token_budget = 7500 if total >= 10 else 2500
     result = call(
         [{"role": "user", "content": "Generate today's quiz questions."}],
         system=system,
         json_mode=True,
-        max_tokens=2500,
+        max_tokens=token_budget,
     )
     if not isinstance(result, dict):
         raise LLMError("quiz response was not a JSON object")
@@ -839,8 +912,19 @@ async def deliver_morning(
         return "skipped_ceiling"
 
     rescue = is_in_rescue(user_id, day)
-    quiz_limit = 3 if rescue else 5
-    preface = _quiz_preface(user_id, rescue=rescue)
+    is_sunday = now.astimezone(ZoneInfo(tz)).weekday() == 6
+    # S11: weekly test replaces Sunday morning quiz (same task_type).
+    # Rescue keeps the 3Q re-engagement day — never a 15Q backlog.
+    weekly_test = is_sunday and not rescue
+    if rescue:
+        quiz_limit = 3
+    elif weekly_test:
+        quiz_limit = 15
+    else:
+        quiz_limit = 5
+    preface = _quiz_preface(
+        user_id, rescue=rescue, weekly_test=weekly_test
+    )
 
     retest_error: Error | None = None
     fossil_session_id: int | None = None
@@ -856,9 +940,14 @@ async def deliver_morning(
                     fossil_session_id = fossil.id
 
     due_limit = quiz_limit - (1 if retest_error is not None else 0)
-    errors = due_errors(user_id, limit=max(0, due_limit))
+    if weekly_test:
+        errors = select_weekly_test_errors(user_id, limit=max(0, due_limit))
+    else:
+        errors = due_errors(user_id, limit=max(0, due_limit))
     if retest_error is not None:
         errors = [retest_error] + [e for e in errors if e.id != retest_error.id]
+        # Cap after fossil inject so weekly/rescue sizes stay exact.
+        errors = errors[:quiz_limit]
     need = quiz_limit - len(errors)
     book_items = select_topup_items(user_id, need) if need else []
     if not errors and not book_items:
@@ -922,6 +1011,8 @@ async def deliver_morning(
         "message_id": None,
         "preface": preface,
     }
+    if weekly_test:
+        payload["weekly_test"] = True
     if fossil_session_id is not None:
         payload["fossil_sweep_session_id"] = fossil_session_id
     session_id = insert_session(
@@ -1072,6 +1163,11 @@ async def _advance_after_answer(
             improved_labels=list(payload.get("improved_labels") or []),
             struggled_labels=list(payload.get("struggled_labels") or []),
         )
+        # S11: Murphy routing is a reply append — not a bot-initiated message.
+        if payload.get("weekly_test"):
+            murphy = format_murphy_recommendation(user_id)
+            if murphy:
+                summary = f"{summary}\n\n{murphy}"
         body = compose_body(feedback=feedback, question_body=summary)
         update_session_payload(session_id, payload)
         await _safe_edit(
@@ -1082,6 +1178,7 @@ async def _advance_after_answer(
             reply_markup=None,
         )
         # M14: book_test shares this path — calibrate quiz sessions only.
+        # Weekly tests are skipped inside the accuracy window (payload flag).
         session = get_session_by_id(user_id, session_id)
         if session is not None and session.task_type == "quiz":
             instant = datetime.now(timezone.utc)

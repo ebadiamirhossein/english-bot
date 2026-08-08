@@ -381,6 +381,36 @@ def test_book_test_excluded_from_window(cleanup_user: int) -> None:
     assert _logs(tid) == []
 
 
+def test_weekly_test_excluded_from_window(cleanup_user: int) -> None:
+    """S11: a perfect 15Q weekly alone must not raise or write calibration_log."""
+    tid = cleanup_user
+    _onboard(tid, level="B1")
+    payload = {
+        "correct_count": 15,
+        "answered": 15,
+        "weekly_test": True,
+        "questions": [{"format": "choice"} for _ in range(15)],
+    }
+    sid = insert_session(tid, "quiz", _TODAY, payload=payload, completed=False)
+    complete_session(sid, 1.0)
+    with connection() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+               SET completed_at = %s, date = %s
+             WHERE id = %s
+            """,
+            (_NOW, _TODAY, sid),
+        )
+    window = compute_accuracy_window(tid)
+    assert window.sample == 0
+    outcome = maybe_calibrate(tid, now=_NOW)
+    assert not outcome.changed
+    assert outcome.accuracy_30 is None or window.sample < 30
+    assert _logs(tid) == []
+    assert get_user(tid).cefr_level == "B1"  # type: ignore[union-attr]
+
+
 def test_same_day_upsert_refreshes_accuracy(cleanup_user: int) -> None:
     tid = cleanup_user
     _onboard(tid, level="B1")

@@ -2,12 +2,15 @@
 
 S2: record_errors. S3: due_errors / mark_result / spacing.
 S10: resolved_types / top_error_types (type-level aggregation).
+S11: weekly-test selection + Murphy unit lookup.
 S12: M13 fossil-sweep candidate selection (monthly retest queue).
 """
 
 from __future__ import annotations
 
 import logging
+import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -129,6 +132,98 @@ def due_errors(user_id: int, limit: int = 5) -> list[Error]:
             (user_id, limit),
         ).fetchall()
     return [_row_to_error(row) for row in rows]
+
+
+def select_weekly_test_errors(user_id: int, limit: int = 15) -> list[Error]:
+    """Spread unresolved errors across distinct types for the Sunday test.
+
+    Not limited to the due queue — coverage is the point. Within each type,
+    due items come first, then oldest ``next_review``. Round-robin across
+    types before repeating one.
+    """
+    if limit < 1:
+        return []
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, user_id, you_said, correct_form, error_type, explanation,
+                   streak_right, times_right, times_wrong, next_review,
+                   resolved, resolved_at, unresolved_count, created_at
+              FROM errors
+             WHERE user_id = %s
+               AND resolved = FALSE
+             ORDER BY (next_review <= CURRENT_DATE) DESC,
+                      next_review ASC,
+                      id ASC
+            """,
+            (user_id,),
+        ).fetchall()
+    groups: OrderedDict[str, list[Error]] = OrderedDict()
+    for row in rows:
+        err = _row_to_error(row)
+        groups.setdefault(err.error_type, []).append(err)
+    selected: list[Error] = []
+    round_idx = 0
+    while len(selected) < limit:
+        added = False
+        for items in groups.values():
+            if round_idx < len(items):
+                selected.append(items[round_idx])
+                added = True
+                if len(selected) >= limit:
+                    break
+        if not added:
+            break
+        round_idx += 1
+    return selected
+
+
+_MURPHY_RANGE_RE = re.compile(
+    r"^\s*(\d+)\s*(?:-\s*(\d+))?\s*$"
+)
+
+
+def expand_murphy_units(spec: str | None) -> set[str]:
+    """Expand ``'69-81'`` / ``'5-6,11-14'`` into unit-number strings."""
+    if not spec or not str(spec).strip():
+        return set()
+    out: set[str] = set()
+    for part in str(spec).split(","):
+        m = _MURPHY_RANGE_RE.match(part)
+        if m is None:
+            token = part.strip()
+            if token:
+                out.add(token)
+            continue
+        start = int(m.group(1))
+        end = int(m.group(2)) if m.group(2) is not None else start
+        if end < start:
+            start, end = end, start
+        for n in range(start, end + 1):
+            out.add(str(n))
+    return out
+
+
+def murphy_units_for_labels(labels: list[str]) -> list[tuple[str, str]]:
+    """Map labels → non-NULL murphy_units specs, preserving label order."""
+    if not labels:
+        return []
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT label, murphy_units
+              FROM error_types
+             WHERE label = ANY(%s)
+               AND murphy_units IS NOT NULL
+            """,
+            (list(labels),),
+        ).fetchall()
+    by_label = {
+        str(r["label"]): str(r["murphy_units"])
+        for r in rows
+        if r["murphy_units"]
+    }
+    return [(lab, by_label[lab]) for lab in labels if lab in by_label]
 
 
 def get_error_for_user(user_id: int, error_id: int) -> Error | None:

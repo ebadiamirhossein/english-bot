@@ -35,9 +35,10 @@ from app.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_470_000_000
 
-# Sunday 2026-08-09 21:05 Vilnius (UTC+3 in August)
+# Saturday 2026-08-08 21:05 Vilnius (UTC+3 in August) — S11 moved Anki off Sunday
+_SATURDAY_EVENING_UTC = datetime(2026, 8, 8, 18, 5, tzinfo=timezone.utc)
+_SATURDAY_BEFORE_UTC = datetime(2026, 8, 8, 17, 59, tzinfo=timezone.utc)
 _SUNDAY_EVENING_UTC = datetime(2026, 8, 9, 18, 5, tzinfo=timezone.utc)
-_SUNDAY_BEFORE_UTC = datetime(2026, 8, 9, 17, 59, tzinfo=timezone.utc)
 _MONDAY_EVENING_UTC = datetime(2026, 8, 10, 18, 5, tzinfo=timezone.utc)
 
 
@@ -380,7 +381,7 @@ def test_mark_only_after_successful_send(cleanup_user: int) -> None:
         chunk="export me",
         full_sentence="Please export me now.",
     )
-    day = local_today("Europe/Vilnius", _SUNDAY_EVENING_UTC)
+    day = local_today("Europe/Vilnius", _SATURDAY_EVENING_UTC)
     sent: list[tuple[bytes, str, str]] = []
 
     async def ok_send(data: bytes, filename: str, caption: str) -> None:
@@ -410,7 +411,7 @@ def test_failed_send_leaves_unexported_and_no_session(cleanup_user: int) -> None
         chunk="keep me",
         full_sentence="Please keep me unexported.",
     )
-    day = local_today("Europe/Vilnius", _SUNDAY_EVENING_UTC)
+    day = local_today("Europe/Vilnius", _SATURDAY_EVENING_UTC)
 
     async def boom(_data: bytes, _filename: str, _caption: str) -> None:
         raise RuntimeError("telegram down")
@@ -437,9 +438,9 @@ def test_second_export_only_new_chunks(cleanup_user: int) -> None:
         chunk="old",
         full_sentence="The old card.",
     )
-    day = local_today("Europe/Vilnius", _SUNDAY_EVENING_UTC)
+    day = local_today("Europe/Vilnius", _SATURDAY_EVENING_UTC)
     app = _mock_app()
-    action = asyncio.run(deliver_weekly(app, tid, now=_SUNDAY_EVENING_UTC))
+    action = asyncio.run(deliver_weekly(app, tid, now=_SATURDAY_EVENING_UTC))
     assert action == "anki_export"
     assert app.bot.send_document.await_count == 1
 
@@ -479,7 +480,7 @@ def test_weekly_empty_sends_nothing(
     _onboard(tid)
     app = _mock_app()
     with caplog.at_level(logging.INFO):
-        action = asyncio.run(deliver_weekly(app, tid, now=_SUNDAY_EVENING_UTC))
+        action = asyncio.run(deliver_weekly(app, tid, now=_SATURDAY_EVENING_UTC))
     assert action == "skipped_empty"
     assert app.bot.send_document.await_count == 0
     assert _session_count(tid) == 0
@@ -514,12 +515,12 @@ def test_ceiling_skips_weekly(
         chunk="blocked",
         full_sentence="This blocked card stays.",
     )
-    day = local_today("Europe/Vilnius", _SUNDAY_EVENING_UTC)
+    day = local_today("Europe/Vilnius", _SATURDAY_EVENING_UTC)
     for _ in range(3):
         increment_bot_messages(tid, day)
     app = _mock_app()
     with caplog.at_level(logging.WARNING):
-        action = asyncio.run(deliver_weekly(app, tid, now=_SUNDAY_EVENING_UTC))
+        action = asyncio.run(deliver_weekly(app, tid, now=_SATURDAY_EVENING_UTC))
     assert action == "skipped_ceiling"
     assert app.bot.send_document.await_count == 0
     assert _exported_flags(tid)[cid] is False
@@ -535,10 +536,10 @@ def test_weekly_increments_ceiling_command_does_not(cleanup_user: int) -> None:
         chunk="one",
         full_sentence="The one card.",
     )
-    day = local_today("Europe/Vilnius", _SUNDAY_EVENING_UTC)
+    day = local_today("Europe/Vilnius", _SATURDAY_EVENING_UTC)
     assert bot_initiated_count(tid, day) == 0
     app = _mock_app()
-    assert asyncio.run(deliver_weekly(app, tid, now=_SUNDAY_EVENING_UTC)) == "anki_export"
+    assert asyncio.run(deliver_weekly(app, tid, now=_SATURDAY_EVENING_UTC)) == "anki_export"
     assert bot_initiated_count(tid, day) == 1
 
     _insert_chunk(
@@ -569,25 +570,26 @@ def test_weekly_poll_twice_one_document(cleanup_user: int) -> None:
     )
     app = _mock_app()
     user = _eligible(tid)
-    assert is_user_due_for_anki(user, _SUNDAY_EVENING_UTC) is True
+    assert is_user_due_for_anki(user, _SATURDAY_EVENING_UTC) is True
 
-    action1 = asyncio.run(deliver_weekly(app, tid, now=_SUNDAY_EVENING_UTC))
+    action1 = asyncio.run(deliver_weekly(app, tid, now=_SATURDAY_EVENING_UTC))
     assert action1 == "anki_export"
-    assert is_user_due_for_anki(user, _SUNDAY_EVENING_UTC) is False
+    assert is_user_due_for_anki(user, _SATURDAY_EVENING_UTC) is False
 
-    action2 = asyncio.run(deliver_weekly(app, tid, now=_SUNDAY_EVENING_UTC))
+    action2 = asyncio.run(deliver_weekly(app, tid, now=_SATURDAY_EVENING_UTC))
     assert action2 == "skipped_existing"
     assert app.bot.send_document.await_count == 1
     assert _session_count(tid) == 1
     assert has_anki_session_on(
-        tid, local_today("Europe/Vilnius", _SUNDAY_EVENING_UTC)
+        tid, local_today("Europe/Vilnius", _SATURDAY_EVENING_UTC)
     )
 
 
-def test_eligibility_sunday_evening_only(cleanup_user: int) -> None:
+def test_eligibility_saturday_evening_only(cleanup_user: int) -> None:
     tid = cleanup_user
     _onboard(tid)
     user = _eligible(tid)
-    assert is_user_due_for_anki(user, _SUNDAY_EVENING_UTC) is True
-    assert is_user_due_for_anki(user, _SUNDAY_BEFORE_UTC) is False
+    assert is_user_due_for_anki(user, _SATURDAY_EVENING_UTC) is True
+    assert is_user_due_for_anki(user, _SATURDAY_BEFORE_UTC) is False
+    assert is_user_due_for_anki(user, _SUNDAY_EVENING_UTC) is False
     assert is_user_due_for_anki(user, _MONDAY_EVENING_UTC) is False

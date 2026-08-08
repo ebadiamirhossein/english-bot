@@ -46,14 +46,14 @@ STREAK_POLL_SECONDS = 15 * 60
 # Offset evening from morning within the same interval so a slow morning
 # LLM cannot land in APScheduler's misfire window for the evening tick.
 EVENING_FIRST_SECONDS = POLL_SECONDS // 2
-# Sunday report before Anki so report wins the last ceiling slot (S10).
+# Sunday report offset; Anki is Saturday (S11) so they no longer compete.
 SUNDAY_REPORT_FIRST_SECONDS = EVENING_FIRST_SECONDS + 15
 ANKI_FIRST_SECONDS = EVENING_FIRST_SECONDS + 30
 NUDGE_FIRST_SECONDS = EVENING_FIRST_SECONDS + 45
 # Monday=0, Wednesday=2, Friday=4 in the user's local timezone.
 READING_WEEKDAYS = frozenset({0, 2, 4})
-# Sunday=6
-ANKI_WEEKDAY = 6
+# Saturday=5 — moved off Sunday so weekly test + report fit under the ceiling (S11).
+ANKI_WEEKDAY = 5
 _MORNING_JOB = "morning_poll"
 _EVENING_JOB = "evening_poll"
 _SUNDAY_REPORT_JOB = "sunday_report_poll"
@@ -137,7 +137,7 @@ def is_user_due_for_evening(user: EligibleUser, now: datetime) -> bool:
 
 
 def is_user_due_for_anki(user: EligibleUser, now: datetime) -> bool:
-    """Whether this user should receive a Sunday Anki export at ``now``."""
+    """Whether this user should receive a Saturday Anki export at ``now``."""
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     day = local_today(user.timezone, now)

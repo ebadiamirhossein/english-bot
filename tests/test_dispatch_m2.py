@@ -291,6 +291,57 @@ def test_dispatch_gap_quiz_grades_not_correction(cleanup_user: int) -> None:
     asyncio.run(_run())
 
 
+def test_dispatch_open_weekly_test_midset_reaches_correction(
+    cleanup_user: int,
+) -> None:
+    """Open 15Q weekly test on a non-gap question must not swallow free text."""
+    tid = cleanup_user
+    _onboard(tid)
+    questions = []
+    for i in range(15):
+        fmt = "choice" if i == 3 else "gap"
+        questions.append(
+            {
+                "error_id": i + 1,
+                "format": fmt,
+                "prompt": "Pick one" if fmt == "choice" else "I ___ yesterday",
+                "accept": ["went"],
+                "options": ["a", "b", "c", "d"],
+                "answer": "a",
+            }
+        )
+    payload = {
+        "index": 3,  # mid-set on choice
+        "chat_id": tid,
+        "message_id": 1,
+        "answered": 3,
+        "correct_count": 2,
+        "weekly_test": True,
+        "questions": questions,
+    }
+    insert_session(
+        tid, "quiz", date(2026, 8, 9), payload=payload, completed=False
+    )
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        app, _book = await _build_app(
+            quiz_spy=quiz_spy, correction_spy=correction_spy
+        )
+        try:
+            update = _text_update(tid, SAMPLE_TEXT)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            quiz_spy.assert_not_awaited()
+            correction_spy.assert_awaited_once()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
 def test_dispatch_nudged_open_quiz_reaches_correction(cleanup_user: int) -> None:
     """Outstanding nudge (nudges_sent > 0) must not steal free text from M2."""
     tid = cleanup_user
