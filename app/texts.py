@@ -9,6 +9,7 @@ PONG = "pong"
 # --- S18b: Telegram command menu descriptions (outcome-first, lowercase start) ---
 CMD_DESC_START = "set up or change your profile"
 CMD_DESC_HELP = "see what i can do"
+CMD_DESC_GUIDE = "how to save phrases and use anki"
 CMD_DESC_STATS = "see your progress snapshot"
 CMD_DESC_DIARY = "record a spoken diary entry"
 CMD_DESC_SHADOW = "practise a phrase out loud"
@@ -24,6 +25,7 @@ CMD_DESC_PAUSE = "hold scheduled messages for a while"
 
 # --- S18b: /help (user-initiated; grouped by intent) ---
 HELP_HEADER = "Here's what I can do."
+HELP_LINE_GUIDE = "/guide — how phrases, exports, and Anki fit together"
 
 HELP_SECTION_EVERY_DAY = "Every day"
 HELP_LINE_STATS = "/stats — your progress snapshot"
@@ -59,6 +61,139 @@ HELP_SECTION_SETTINGS = "Settings"
 HELP_LINE_SETTINGS = "/settings — mix, times, explanations"
 HELP_LINE_INTERESTS = "/interests — reading topics"
 HELP_LINE_PAUSE = "/pause — hold scheduled messages"
+
+# --- S18c: /guide (tapped-only how-to; phone copy of GUIDE-saving-phrases) ---
+GUIDE_TITLE = "How to use this bot"
+GUIDE_INTRO = "Pick a topic. Everything stays in this message."
+GUIDE_DONE = "Guide closed. Open it anytime with /guide."
+GUIDE_CANCELLED = "Guide closed."
+GUIDE_STALE = "That guide panel went stale — send /guide again."
+
+BTN_GUIDE_HOW = "How it works"
+BTN_GUIDE_SAVE = "Saving phrases"
+BTN_GUIDE_TRANCY = "Trancy export"
+BTN_GUIDE_LR = "Reactor export"
+BTN_GUIDE_ANKI_FIRST = "Anki setup"
+BTN_GUIDE_ANKI_WEEK = "Anki weekly"
+BTN_GUIDE_ANKI_PHONE = "Anki on phone"
+BTN_GUIDE_DONE = "Done"
+
+GUIDE_SECTION_HOW = (
+    "How this works\n\n"
+    "Each morning you get a short quiz on the mistakes you've made and the "
+    "phrases you've saved. In the evening there may be a reading or another "
+    "small task. Everything else — voice, books, saving phrases — is on demand "
+    "when you want it.\n\n"
+    "Mistakes are the point. When you type English, I correct it and bring "
+    "those patterns back until they stick. Phrases you save from shows come "
+    "back in the morning quiz over the next weeks."
+)
+
+GUIDE_SECTION_SAVE = (
+    "Saving phrases\n\n"
+    "Three ways — pick what fits:\n\n"
+    "1. Send /capture then paste the sentence, e.g.\n"
+    "   /capture Could you circle back on this by Friday?\n"
+    "2. Forward any English message straight to me — no command needed.\n"
+    "3. Send a CSV when you've saved a lot while watching "
+    "(see Trancy / Language Reactor).\n\n"
+    "For a handful of phrases per episode, /capture or forward is fastest. "
+    "For a whole session, export a CSV and send the file."
+)
+
+GUIDE_SECTION_TRANCY = (
+    "Exporting from Trancy (Disney+, YouTube)\n\n"
+    "1. Click the Trancy icon in your browser\n"
+    "2. Open your saved words / vocabulary list\n"
+    "3. Find Export and choose CSV\n"
+    "4. The file goes to your Downloads folder\n\n"
+    "Then send it here:\n"
+    "1. Open this chat\n"
+    "2. Tap the paperclip\n"
+    "3. Choose File\n"
+    "4. Pick the CSV from Downloads\n"
+    "5. Send\n\n"
+    "I'll tell you how many phrases I added."
+)
+
+GUIDE_SECTION_LR = (
+    "Exporting from Language Reactor (Netflix, YouTube)\n\n"
+    "1. Go to languagereactor.com\n"
+    "2. Open Saved Items\n"
+    "3. Click Export (top right)\n"
+    "4. Choose CSV\n"
+    "5. The file goes to your Downloads folder\n\n"
+    "If you see \"only new items since last export\", leave it on — "
+    "it makes the file smaller. I skip anything I already have anyway.\n\n"
+    "Then send it here:\n"
+    "1. Open this chat\n"
+    "2. Tap the paperclip\n"
+    "3. Choose File\n"
+    "4. Pick the CSV from Downloads\n"
+    "5. Send"
+)
+
+# Exact Anki back template — shown inside <pre> after HTML-escaping.
+GUIDE_ANKI_BACK_TEMPLATE = (
+    "{{Sentence}}\n"
+    "\n"
+    "<hr id=answer>\n"
+    "\n"
+    "<b>{{Answer}}</b>\n"
+    "\n"
+    '<div style="font-size:16px; color:#888;">{{Meaning}}</div>\n'
+    '<div style="font-size:14px; color:#aaa;">{{Source}}</div>'
+)
+
+GUIDE_SECTION_ANKI_FIRST = (
+    "Anki — first-time setup (about 5 minutes, on a computer)\n\n"
+    "Anki is optional. I already review your phrases here — about two a day "
+    "in the morning quiz. Anki is for going faster, or reviewing outside Telegram.\n\n"
+    "1. Install Anki from apps.ankiweb.net\n"
+    "2. Make a free account at ankiweb.net — this syncs cards to your phone\n"
+    "3. In Anki: Tools → Manage Note Types → Add → Add: Basic → OK\n"
+    "4. Name it English Bot\n"
+    "5. Select it → Fields\n"
+    "6. Rename Front to Sentence, rename Back to Answer\n"
+    "7. Click Add → Meaning. Click Add → Source\n"
+    "8. Save\n\n"
+    "Optional but worth it — show the meaning on the answer side:\n"
+    "1. Select English Bot → Cards\n"
+    "2. Click Back Template\n"
+    "3. Replace everything with the block below\n"
+    "4. Save\n\n"
+    "{template}"
+)
+
+GUIDE_SECTION_ANKI_WEEK = (
+    "Anki — every week (about 1 minute)\n\n"
+    "I send a .tsv file every Saturday evening. You can also ask anytime "
+    "with /anki.\n\n"
+    "1. Tap the file in Telegram to download it\n"
+    "2. In Anki: File → Import\n"
+    "3. Pick the file\n"
+    "4. Set Note Type to English Bot\n"
+    "5. Check the field mapping:\n"
+    "   1 → Sentence\n"
+    "   2 → Answer\n"
+    "   3 → Meaning\n"
+    "   4 → Source\n"
+    "6. Click Import\n"
+    "7. Click Sync so it reaches your phone\n\n"
+    "Steps 4 and 5 only need checking the first time — Anki remembers.\n\n"
+    "If fields land wrong, check Note Type is English Bot, not Basic. "
+    "Basic only has two fields, so Meaning and Source end up as tags."
+)
+
+GUIDE_SECTION_ANKI_PHONE = (
+    "Anki on your phone\n\n"
+    "Use AnkiDroid (Android, free) or AnkiMobile (iPhone, paid).\n\n"
+    "1. Install the app\n"
+    "2. Log in with the same AnkiWeb account you made on the computer\n"
+    "3. Sync\n\n"
+    "Import the .tsv on a computer, then review on your phone. "
+    "The cards appear after Sync."
+)
 
 # --- Onboarding (S1b/S1c + S1d personality) --------------------------------
 
@@ -109,7 +244,7 @@ ONBOARD_CONFIRM_INTRO = "Right — here's the plan."
 
 ONBOARD_SAVED = (
     "You're set, {name}. First task lands tomorrow at {morning_time}.\n"
-    "Tap /help anytime for the full map."
+    "Tap /help for commands, /guide for how things fit together."
 )
 
 ONBOARD_SAVED_EFSET_NUDGE = (
@@ -117,7 +252,7 @@ ONBOARD_SAVED_EFSET_NUDGE = (
     "First task lands tomorrow at {morning_time}.\n\n"
     "When you have 50 minutes, take the free EF SET — I'll tune everything to your "
     "real level. Just send me the score.\n\n"
-    "Tap /help anytime for the full map."
+    "Tap /help for commands, /guide for how things fit together."
 )
 
 ONBOARD_CANCELLED = "Okay — nothing saved. Say /start whenever you're ready."

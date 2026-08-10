@@ -25,6 +25,7 @@ from app.handlers.couple import build_couple_handlers, init_couple_prompt
 from app.handlers.diary import build_diary_handlers, init_diary_prompt
 from app.handlers.shadow import build_shadow_handlers
 from app.handlers.help import build_help_handler
+from app.handlers.guide import build_guide_handler, build_guide_orphan_handler
 from app.handlers.interests import build_interests_handler
 from app.handlers.nudge import build_nudge_handler
 from app.handlers.onboarding import build_onboarding_handler
@@ -60,6 +61,8 @@ def register_handlers(app: Application) -> None:
     app.add_error_handler(on_error)
     app.add_handler(build_onboarding_handler())
     app.add_handler(build_help_handler())
+    app.add_handler(build_guide_handler())  # tapped-only; no text filter
+    app.add_handler(build_guide_orphan_handler())  # stale guide: after restart
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("anki", handle_anki_command))
     app.add_handler(CommandHandler("import", handle_import_command))

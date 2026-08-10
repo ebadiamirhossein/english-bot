@@ -21,6 +21,7 @@ def format_help_message(*, include_import: bool | None = None) -> str:
 
     sections: list[str] = [
         texts.HELP_HEADER,
+        texts.HELP_LINE_GUIDE,
         "",
         texts.HELP_SECTION_EVERY_DAY,
         texts.HELP_LINE_STATS,
@@ -77,6 +78,7 @@ def s18b_user_facing_strings() -> list[str]:
     return [
         texts.CMD_DESC_START,
         texts.CMD_DESC_HELP,
+        texts.CMD_DESC_GUIDE,
         texts.CMD_DESC_STATS,
         texts.CMD_DESC_DIARY,
         texts.CMD_DESC_SHADOW,
@@ -90,6 +92,7 @@ def s18b_user_facing_strings() -> list[str]:
         texts.CMD_DESC_INTERESTS,
         texts.CMD_DESC_PAUSE,
         texts.HELP_HEADER,
+        texts.HELP_LINE_GUIDE,
         texts.HELP_SECTION_EVERY_DAY,
         texts.HELP_LINE_STATS,
         texts.HELP_LINE_QUIZ_ARRIVES,

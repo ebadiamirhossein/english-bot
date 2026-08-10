@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 _MENU_CORE: tuple[tuple[str, str], ...] = (
     ("start", texts.CMD_DESC_START),
     ("help", texts.CMD_DESC_HELP),
+    ("guide", texts.CMD_DESC_GUIDE),
     ("stats", texts.CMD_DESC_STATS),
     ("diary", texts.CMD_DESC_DIARY),
     ("shadow", texts.CMD_DESC_SHADOW),

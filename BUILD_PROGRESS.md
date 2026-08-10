@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-10
-**Current slice:** S15b
-**Status:** S15b CSV-via-Telegram code-complete — needs a real CSV send in Telegram; S8 couple needs second user + shared group; S15a real CSV (#27) and S4c cron/`.env` (#6) still open; unrun checks remain on S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Current slice:** S18c
+**Status:** S18c `/guide` code-complete — needs phone read-through of every section; S15b needs a real CSV send; S8 couple needs second user + shared group; S15a real CSV (#27) and S4c cron/`.env` (#6) still open; unrun checks remain on S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -55,6 +55,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S18 | Hardening | 🟡 code-complete | 2026-08-08 | Global error handler + file-backed throttle; heartbeat (touch on success); rotating log; flock single-instance; `/pause` + `/stats`. |
 | S18a | `/settings` editor | 🟡 code-complete | 2026-08-10 | Tapped-only editor for weights/times/fallback; no MessageHandler; route-outs to `/interests` + `/pause`; cefr read-only. |
 | S18b | `/help` + command menu | 🟡 code-complete | 2026-08-10 | `setMyCommands` in post_init; grouped `/help`; `/ping` off menu; `/import` conditional on `WATCH_DIR`; onboarding save points at `/help` (still 2 messages). |
+| S18c | `/guide` how-to | 🟡 code-complete | 2026-08-10 | Tapped-only topic wizard from GUIDE-saving-phrases; Anki template + field map exact; `/help` + onboarding point at `/guide`; prose command-drift test. |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
 | S15a | Watched-folder bridge | 🟡 code-complete | 2026-08-10 | `WATCH_DIR` CSV import (Trancy/LR) + Anki outbox; mtime≥2min; collision-safe moves; due_chunks `id DESC` tie-break; `/import` + settings paths. |
 | S15b | CSV via Telegram document | 🟡 code-complete | 2026-08-10 | Private-chat `.csv` → shared S15a pipeline in memory; tool from headers; non-CSV warm line; 5 MiB cap; `/help` upload line; independent of `WATCH_DIR`. |
@@ -96,6 +97,11 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-10 | S18c: tapped-only `/guide` — **no MessageHandler**, nested `per_message=True` under `per_message=False` parent (same as S18a) | Free-text ConversationHandler states twice consumed text ahead of correction and silently killed M2. Guide is read-only navigation; taps cannot steal dispatch. Do not silence the mixed-handler warning. |
+| 2026-08-10 | S18c: guide copy lives in `texts.py`, not read from `docs/GUIDE-saving-phrases.md` at request time | Runtime must not depend on a docs path on the host; every user-facing string belongs in `texts.py` (constitution). Markdown stays the human-facing source for editing. |
+| 2026-08-10 | S18c: onboarding save confirmation gains `/guide` beside `/help` (still 2 bot messages) | Fits inside the existing confirmation lines without a third reply; second user needs the how-to pointer at the moment they finish setup. |
+| 2026-08-10 | S18c: command-drift test extended to **prose** — every `/command` named in guide strings must have a registered handler | Guide names more commands in running text than `/help` lists; nobody re-reads a guide, so a stale `/capture` or `/anki` mention would go unnoticed. |
+| 2026-08-10 | S18c: callback prefix `guide:` (distinct from `set:`/`pause:`/`wiz:`/`int:`/`btest:`/`read:`/`nudge:`/`shadow:`) | Orphan stale handler and no collision with other tap surfaces. |
 | 2026-08-10 | S15b: Telegram document is the **general** CSV entrance; `WATCH_DIR` folder remains a **single-user convenience** | Folder only works for whoever syncs Drive to the bot host; after Hetzner neither user's laptop Drive is visible. Telegram works from any device/account. Entrances are independent — unset `WATCH_DIR` must not disable uploads. |
 | 2026-08-10 | S15b: tool detection from header shape (Trancy: Word+Translation; LR: Phrase+(Definition\|Context\|Video)); else `subtitle_csv_*` | No folder hint on Telegram. Guessing wrong tags Anki/review metadata permanently; `csv` fallback is safer than a confident wrong tool. |
 | 2026-08-10 | S15b: non-CSV → one warm line (no LLM); refuse >**5 MiB** before download; IMAGE excluded from non-CSV filter | Silent ignore looks like a broken bot. Phrase exports are small; multi-year cumulatives fit under 5 MiB; larger is almost certainly a wrong file. |
@@ -393,6 +399,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 27 | S15a column mapping is inferred (whole-word substring tokens), not verified against a real Trancy export and a real Language Reactor export. Import one of each before trusting production. **S15b adds a Telegram entrance that reuses the same mapper — it does not resolve this.** | medium | S15a | ⬜ open — until human imports one of each |
 | 28 | S8 couple challenge produces **no learning signal**: question is generated from a specific error journal row, but a correct group answer does not call `mark_result` (no `source_error_id` column; no migration). Same answer in the morning quiz would advance the spacing ladder. Only product surface where getting something right teaches the system nothing. Fix path: migration adding `source_error_id` → winner’s claim calls `mark_result(..., True)`. | medium | S8 → later | ⬜ open — deliberate omission |
 | 29 | S8 cannot be verified live until a second user is onboarded and a shared Telegram group exists (`COUPLE_CHAT_ID` via `/here`). Ships more unverified surface than most slices. | high | S8 | ⬜ open — blocked on second user + group |
+| 30 | S18c: `docs/GUIDE-saving-phrases.md` and the in-bot `/guide` strings in `texts.py` are two copies of the same content and can diverge. Markdown is the human-facing source for editing; `texts.py` is what ships to Telegram. | low | S18c | ⬜ open — dual copy by design |
 
 ---
 
@@ -409,7 +416,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
 | `docs/ARCHITECTURE.md` | Stack, structure, interfaces; §5 jobs split Anki Sat / Sunday report (S11) + `watch_poll` (S15a) | ✅ |
-| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a + S18b) | ✅ |
+| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a + S18b + S18c) | ✅ |
 | `specs/S0-repo-skeleton.md` | S0 spec | ✅ |
 | `specs/S1-onboarding.md` | S1 spec | ✅ |
 | `specs/S1a-onboarding-ux.md` | S1a onboarding UX polish spec | ✅ |
@@ -438,11 +445,13 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/couple/streak/freeze + M13 + heartbeat + backup_freshness + watch_poll | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18b + S15/S13/S14/S16 + S7a + S15a/S15b + S8 COUPLE_* | ✅ |
-| `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers` (CSV docs + couple before correction); `setMyCommands`; prompts; scheduler | ✅ |
-| `app/services/commands.py` | BotCommand list + `register_bot_commands` (S18b); `/ping` hidden; `/import` conditional | ✅ |
-| `app/handlers/help.py` | `/help` grouped intent map (S18b); CSV upload line (S15b); no ceiling bump | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18c + S15/S13/S14/S16 + S7a + S15a/S15b + S8 COUPLE_* | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers` (guide + CSV docs + couple before correction); `setMyCommands`; prompts; scheduler | ✅ |
+| `app/services/commands.py` | BotCommand list + `register_bot_commands` (S18b/S18c); `/guide` after `/help`; `/ping` hidden; `/import` conditional | ✅ |
+| `app/handlers/help.py` | `/help` grouped intent map (S18b); `/guide` pointer (S18c); CSV upload line (S15b); no ceiling bump | ✅ |
+| `app/handlers/guide.py` | `/guide` tapped-only topic wizard (S18c); orphan `guide:` stale degrade; no MessageHandler | ✅ |
 | `tests/test_help.py` | setMyCommands / failure WARNING / help content / import gate / CSV upload line / unregistered / handler drift / no-guilt (S18b/S15b) | ✅ |
+| `tests/test_guide.py` | S18c menu/sections/back/4096/stale/double-tap/unregistered/menu+prose drift/labels/no-guilt | ✅ |
 | `app/handlers/shadow.py` | `/shadow` + retry callback + voice processing (S16); never errors; transcript discarded | ✅ |
 | `app/services/shadow.py` | Chunk select (K=10), word diff, feedback format; abandon open shadow (S16) | ✅ |
 | `tests/test_shadow.py` | Diff, select variety, claim window, retry, streaks, calibration exclusion, privacy, labels (S16) | ✅ |
@@ -603,6 +612,9 @@ Do not start S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S18c** — open `/guide`; read every section on a phone; confirm Anki setup + weekly field mapping are followable without help
+- [ ] **S18c** — Back from every section returns to the menu; Done closes; restart bot and tap an old section → warm stale line
+- [ ] **S18c** — `/` menu lists `/guide`; `/help` points at it; after Save on `/start`, confirmation mentions `/guide`
 - [ ] **S18b** — restart bot → Telegram `/` menu shows public commands (no `/ping`); descriptions read as outcomes
 - [ ] **S18b** — `/help` is scannable on a phone; groups match intent; names type-English and forward-English with no command
 - [ ] **S18b** — with `WATCH_DIR` unset, `/help` and the `/` menu omit `/import`; with it set, both include it
@@ -726,4 +738,4 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-Human: verify S15b at the desk — send a real Trancy or Language Reactor CSV to the bot and confirm counts. Also still open: S15a real CSV mapping (#27); S8 second user + group; S18b menu/`/help`; S4c cron/`.env` off-site (#6). Do not start the next slice until S15b is marked ✅ by the human.
+Human: verify S18c at the desk — open `/guide`, read every section on a phone, confirm Anki steps are followable. Also still open: S15b real CSV send; S15a real CSV mapping (#27); S8 second user + group; S18b menu/`/help`; S4c cron/`.env` off-site (#6). Do not start the next slice until the human marks the current desk checks.

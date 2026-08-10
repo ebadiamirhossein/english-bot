@@ -171,6 +171,10 @@ Tapped-only editor for weights / times / explanation fallback; route-outs to `/i
 **Build:** `setMyCommands` once in `post_init` (network failure → WARNING, boot continues). `/help` grouped by intent; omit `/import` when `WATCH_DIR` unset; `/ping` stays working but off the public menu. Point onboarding save confirmation at `/help` without adding a third bot message. No migration, no LLM, no `bot_message_counts`, no dispatch changes.
 **Accept:** Telegram `/` menu lists the public commands; `/help` is scannable on a phone and names the two no-command behaviours (type English → journal; forward English → explain+mine); unregistered `/help` is ignored.
 
+### S18c · `/guide` — how to use the bot, in the bot
+**Build:** Tapped-only single-message wizard (`edit_message_text`, S1b/`/settings` pattern) with topic buttons derived from `docs/GUIDE-saving-phrases.md`. Sections: how this works, saving phrases, Trancy export, Language Reactor export, Anki first-time, Anki weekly, Anki on phone. Nested callback ConversationHandler `per_message=True` under `per_message=False` parent; no `MessageHandler`; stale-callback guard; strings in `texts.py` (not reading the markdown at runtime). `/help` points at `/guide`; register in `setMyCommands`. No migration, no LLM, no `bot_message_counts`.
+**Accept:** `/guide` opens a menu; every section + Back works; every section under 4096 chars; Anki field mapping and back template are exact; unregistered ignored; command names in guide prose have handlers; button labels ≤20; no guilt.
+
 ### S19 · Notion dashboard
 Weekly read-only sync: level, streak, chunks, resolved types, EF SET history.
 
