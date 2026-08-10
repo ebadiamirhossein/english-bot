@@ -64,6 +64,8 @@ class Settings:
     # S4c — empty means freshness check is a silent no-op.
     backup_offsite_dir: str = ""
     backup_offsite_max_age_hours: float = 48.0
+    # S15a — empty means watch poll / /import / Anki outbox are silent no-ops.
+    watch_dir: str = ""
 
     def database_url_for_logs(self) -> str:
         """Return DATABASE_URL with the password stripped for safe logging."""
@@ -186,6 +188,7 @@ def load_settings() -> Settings:
         os.environ.get("BACKUP_OFFSITE_MAX_AGE_HOURS", "48"),
         errors,
     )
+    watch_dir = os.environ.get("WATCH_DIR", "").strip()
 
     if db_pool_min is not None and db_pool_min < 1:
         errors.append(f"DB_POOL_MIN must be >= 1 (got {db_pool_min})")
@@ -253,6 +256,7 @@ def load_settings() -> Settings:
         alert_throttle_file=alert_throttle_file,
         backup_offsite_dir=backup_offsite_dir,
         backup_offsite_max_age_hours=backup_offsite_max_age_hours,
+        watch_dir=watch_dir,
     )
 
     _warn_if_transaction_pooler(settings.database_url)

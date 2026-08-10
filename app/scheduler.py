@@ -7,6 +7,7 @@ S7: Sunday Anki export poll (at evening_time or later).
 S10: nudge ladder + Sunday report (report before Anki for ceiling priority).
 S12: M13 fossil sweep on the monthly freeze poll (per-user local 1st).
 S18: heartbeat. S4c: off-site backup freshness.
+S15a: watched-folder CSV import.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from app import texts
 from app.config import load_settings
 from app.db import connection
 from app.handlers import diary as diary_handler
@@ -34,6 +36,7 @@ from app.services.sessions import (
     has_diary_session_on,
     has_reading_session_on,
     has_session_on,
+    increment_bot_messages,
     local_time_hhmm,
     local_today,
     under_message_ceiling,
@@ -43,6 +46,16 @@ from app.services.streaks import (
     evaluate_pending,
     list_onboarded_streak_users,
     reset_monthly_freezes,
+)
+from app.services.watch_import import (
+    WatchConfigError,
+    collect_root_orphans,
+    ensure_all_user_layouts,
+    list_registered_user_ids,
+    resolve_watch_root,
+    scan_user_inbox,
+    warn_root_orphans,
+    watch_dir_configured,
 )
 
 if TYPE_CHECKING:
@@ -55,6 +68,7 @@ STREAK_POLL_SECONDS = 15 * 60
 HEARTBEAT_POLL_SECONDS = 60 * 60
 HEARTBEAT_FIRST_SECONDS = 60
 BACKUP_FRESHNESS_FIRST_SECONDS = 90
+WATCH_FIRST_SECONDS = 120
 # Offset evening from morning within the same interval so a slow morning
 # LLM cannot land in APScheduler's misfire window for the evening tick.
 EVENING_FIRST_SECONDS = POLL_SECONDS // 2
@@ -80,6 +94,7 @@ _STREAK_JOB = "streak_rollover"
 _FREEZE_JOB = "monthly_freeze_reset"
 _HEARTBEAT_JOB = "heartbeat"
 _BACKUP_FRESHNESS_JOB = "backup_freshness"
+_WATCH_JOB = "watch_poll"
 
 
 def _touch_job_fire_success() -> None:
@@ -543,8 +558,101 @@ async def _backup_freshness_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_backup_freshness_check(context.application)
 
 
+async def run_watch_poll(
+    application: Application,
+    *,
+    now: datetime | None = None,
+) -> str:
+    """Scan WATCH_DIR inboxes for all registered users. Silent if unset."""
+    if not watch_dir_configured():
+        return "skipped_unset"
+    instant = now or datetime.now(timezone.utc)
+    try:
+        root = resolve_watch_root()
+    except WatchConfigError as exc:
+        logger.error("WATCH_DIR unusable: %s", exc)
+        await notify_operator(
+            application,
+            key="watch_dir",
+            text=f"WATCH_DIR unusable: {exc}",
+            now=instant,
+        )
+        return "error_config"
+
+    ensure_all_user_layouts(root)
+    orphans = collect_root_orphans(root)
+    newly = warn_root_orphans(orphans)
+    if newly:
+        await notify_operator(
+            application,
+            key="watch_orphan",
+            text=(
+                "Subtitle CSV in inbox/ root (not attributed). "
+                f"Move into inbox/<telegram_user_id>/: {', '.join(newly)}"
+            ),
+            now=instant,
+        )
+
+    bot = application.bot
+    for user_id in list_registered_user_ids():
+        result = scan_user_inbox(root, user_id, now=instant)
+        for f in result.files:
+            if f.status == "failed_headers":
+                await notify_operator(
+                    application,
+                    key=f"watch_headers:{user_id}:{f.filename}",
+                    text=(
+                        f"watch import failed_headers user_id={user_id} "
+                        f"file={f.filename} headers={list(f.headers_seen)}"
+                    ),
+                    now=instant,
+                )
+        imported_files = [f for f in result.files if f.status == "imported"]
+        if not imported_files:
+            continue
+        with connection() as conn:
+            row = conn.execute(
+                "SELECT timezone FROM users WHERE telegram_user_id = %s",
+                (user_id,),
+            ).fetchone()
+        tz = (
+            str(row["timezone"])
+            if row is not None and row["timezone"]
+            else "Europe/Vilnius"
+        )
+        day = local_today(tz, instant)
+        if not under_message_ceiling(user_id, day):
+            logger.info(
+                "watch import notify skipped user_id=%s reason=ceiling",
+                user_id,
+            )
+            continue
+        due = imported_files[-1].due_after if imported_files else 0
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=texts.IMPORT_POLL_RESULT.format(
+                    imported=result.total_imported,
+                    duplicates=result.total_duplicates,
+                    invalid=result.total_invalid,
+                    due=due if due is not None else 0,
+                ),
+            )
+            increment_bot_messages(user_id, day)
+        except Exception:
+            logger.exception(
+                "watch import notify failed user_id=%s", user_id
+            )
+    return "ok"
+
+
+async def _watch_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await run_watch_poll(context.application)
+    _touch_job_fire_success()
+
+
 def start_scheduler(application: Application) -> None:
-    """Register morning, evening, sunday report, anki, nudge, streak, freeze, heartbeat, backup_freshness."""
+    """Register morning, evening, sunday report, anki, nudge, streak, freeze, heartbeat, backup_freshness, watch."""
     jq = application.job_queue
     if jq is None:
         raise RuntimeError(
@@ -562,6 +670,7 @@ def start_scheduler(application: Application) -> None:
         _FREEZE_JOB,
         _HEARTBEAT_JOB,
         _BACKUP_FRESHNESS_JOB,
+        _WATCH_JOB,
     }
     for job in jq.jobs():
         if job.name in known:
@@ -629,12 +738,18 @@ def start_scheduler(application: Application) -> None:
         first=BACKUP_FRESHNESS_FIRST_SECONDS,
         name=_BACKUP_FRESHNESS_JOB,
     )
+    jq.run_repeating(
+        _watch_job,
+        interval=POLL_SECONDS,
+        first=WATCH_FIRST_SECONDS,
+        name=_WATCH_JOB,
+    )
     logger.info(
-        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s,%s,%s "
+        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s "
         "(poll every %ss; evening first=%ss; diary first=%ss; "
         "sunday_report first=%ss; anki first=%ss; nudge first=%ss; "
         "streak/freeze every %ss; heartbeat every %ss; "
-        "backup_freshness first=%ss)",
+        "backup_freshness first=%ss; watch first=%ss)",
         _MORNING_JOB,
         _EVENING_JOB,
         _DIARY_JOB,
@@ -645,6 +760,7 @@ def start_scheduler(application: Application) -> None:
         _FREEZE_JOB,
         _HEARTBEAT_JOB,
         _BACKUP_FRESHNESS_JOB,
+        _WATCH_JOB,
         POLL_SECONDS,
         EVENING_FIRST_SECONDS,
         DIARY_FIRST_SECONDS,
@@ -654,6 +770,7 @@ def start_scheduler(application: Application) -> None:
         STREAK_POLL_SECONDS,
         HEARTBEAT_POLL_SECONDS,
         BACKUP_FRESHNESS_FIRST_SECONDS,
+        WATCH_FIRST_SECONDS,
     )
 
 
@@ -672,6 +789,7 @@ def stop_scheduler(application: Application | None = None) -> None:
         _FREEZE_JOB,
         _HEARTBEAT_JOB,
         _BACKUP_FRESHNESS_JOB,
+        _WATCH_JOB,
     }
     for job in application.job_queue.jobs():
         if job.name in known:

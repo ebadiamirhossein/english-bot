@@ -67,7 +67,9 @@ english-bot/
 │   │   ├── motivation.py     # nudge ladder, Sunday report
 │   │   ├── interests.py      # profile, weights
 │   │   ├── calibration.py    # M14
-│   │   └── anki.py           # M6 export
+│   │   ├── anki.py           # M6 export
+│   │   ├── watch_import.py   # S15a CSV import + Anki outbox
+│   │   └── paths.py          # path-outside-repo (PRD §10)
 │   └── prompts/
 │       ├── correction.txt
 │       ├── quiz.txt
@@ -148,6 +150,7 @@ All registered in `scheduler.py`, all timezone-aware per user.
 | `monthly_reset` | 1st, 00:05 | freeze tokens → 2; M13 sweep |
 | `heartbeat` | hourly | alert operator if no job fired in 26h |
 | `backup_freshness` | hourly | alert operator if newest off-site dump older than 48h (or missing); no-op if `BACKUP_OFFSITE_DIR` unset |
+| `watch_poll` | every 5 min | S15a CSV import from `WATCH_DIR` inboxes; no-op if unset |
 | `backup` | daily 04:00 (cron) | `pg_dump` to local + off-site copy, keep 14 days each |
 
 ## 6. Error handling

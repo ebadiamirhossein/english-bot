@@ -100,6 +100,10 @@ def due_chunks(
 ) -> list[Chunk]:
     """Due chunks for quiz review, oldest next_review first (NULL first).
 
+    Within the same ``next_review``, prefer newer chunks (``id DESC``) so a
+    bulk subtitle import cannot starve later captures. Errors keep oldest-first
+    (``due_errors``) — different data, different rule (S15a).
+
     Skips rows whose ``full_sentence`` cannot host a gap; pulls replacements
     until ``limit`` is filled or the pool is exhausted. Does not filter on
     ``exported_to_anki``.
@@ -121,7 +125,7 @@ def due_chunks(
               FROM chunks
              WHERE user_id = %s
                AND (next_review IS NULL OR next_review <= %s)
-             ORDER BY next_review ASC NULLS FIRST, id ASC
+             ORDER BY next_review ASC NULLS FIRST, id DESC
              LIMIT %s
             """,
             (user_id, now, fetch),

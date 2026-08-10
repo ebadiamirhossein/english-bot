@@ -202,6 +202,23 @@ async def export_and_send(
             filename = filename_for(local_date)
             ids = [r.id for r in rows]
 
+            # S15a: folder write is additive and failure-tolerant — never
+            # blocks Telegram delivery or exported_to_anki marks.
+            try:
+                from app.services.watch_import import write_anki_outbox
+
+                write_anki_outbox(
+                    user_id,
+                    tsv.encode("utf-8"),
+                    filename,
+                )
+            except Exception:
+                logger.warning(
+                    "anki outbox unexpected failure user_id=%s — continuing",
+                    user_id,
+                    exc_info=True,
+                )
+
             if claim_session:
                 conn.execute(
                     """

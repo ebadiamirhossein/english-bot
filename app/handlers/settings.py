@@ -250,9 +250,26 @@ def _menu_body(user: User, *, notice: str | None = None) -> str:
         _esc(texts.SETTINGS_TOPICS_LINE),
         _esc(texts.SETTINGS_PAUSE_LINE),
     ]
+    watch_line = _watch_settings_line(user.telegram_user_id)
+    if watch_line:
+        lines.append(_esc(watch_line))
     if notice:
         lines.extend(["", _esc(notice)])
     return "\n".join(lines)
+
+
+def _watch_settings_line(user_id: int) -> str | None:
+    """Read-only watch paths when WATCH_DIR is configured; else omit."""
+    from app.services.watch_import import paths_for_user_display
+
+    paths = paths_for_user_display(user_id)
+    if paths is None:
+        return None
+    return texts.SETTINGS_WATCH_LINE.format(
+        inbox=paths["inbox"],
+        trancy=paths["trancy"],
+        language_reactor=paths["language_reactor"],
+    )
 
 
 def _menu_keyboard() -> InlineKeyboardMarkup:

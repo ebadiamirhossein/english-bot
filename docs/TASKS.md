@@ -147,6 +147,10 @@ After every slice, Cursor must update `BUILD_PROGRESS.md`.
 ### S15 · Real-life capture (M11)
 Forward any English → explanation + chunks mined, `source='capture'`.
 
+### S15a · Watched-folder bridge (subtitle import + Anki drop)
+**Build:** `WATCH_DIR` bidirectional folder — CSV imports from Trancy / Language Reactor into `chunks` (tolerant whole-word header map; row-level dedupe; mtime ≥ 2 min stability; collision-safe `processed/` / `failed/`); weekly Anki TSV also written to per-user `outbox/` (additive, failure-tolerant). Per-user `inbox/<telegram_user_id>/{trancy,language_reactor}/`; never attribute root-level files. `watch_poll` (5 min) + `/import`. Due-chunk tie-break `id DESC` within same `next_review` (errors stay oldest-first). No migration, no new dependency.
+**Accept:** real Trancy + Language Reactor CSV import once each; `/import` shows paths; Anki TSV lands in outbox; bulk import does not starve later captures in the quiz.
+
 ### S16 · Shadowing (M12)
 Bot sends a 10–15s clip → user repeats → Whisper compares word-for-word → scored feedback on rhythm and stress.
 

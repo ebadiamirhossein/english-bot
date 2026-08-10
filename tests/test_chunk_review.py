@@ -262,6 +262,45 @@ def test_due_chunks_order_nulls_first(cleanup_user: int) -> None:
     assert ids.index(older) < ids.index(newer)
 
 
+def test_due_chunks_same_date_prefers_newer_id(cleanup_user: int) -> None:
+    """S15a: within the same next_review, id DESC (newer first)."""
+    tid = cleanup_user
+    _onboard(tid)
+    older = _insert_chunk(
+        tid, chunk="by Friday", next_review=FIXED_TODAY
+    )
+    newer = _insert_chunk(
+        tid, chunk="run the numbers", next_review=FIXED_TODAY
+    )
+    selected = due_chunks(tid, 10, now=FIXED_TODAY)
+    ids = [c.id for c in selected]
+    assert ids.index(newer) < ids.index(older)
+
+
+def test_bulk_import_does_not_starve_later_capture(cleanup_user: int) -> None:
+    """300 imported due tomorrow + one later capture → capture selected first."""
+    tid = cleanup_user
+    _onboard(tid)
+    tomorrow = FIXED_TODAY + timedelta(days=1)
+    for i in range(300):
+        _insert_chunk(
+            tid,
+            chunk=f"phrase number {i}",
+            full_sentence=f"They said phrase number {i} clearly.",
+            next_review=tomorrow,
+        )
+    capture = _insert_chunk(
+        tid,
+        chunk="circle back",
+        full_sentence="Let's circle back on that.",
+        next_review=tomorrow,
+        source="capture",
+    )
+    selected = due_chunks(tid, 2, now=tomorrow)
+    assert selected[0].id == capture
+    assert selected[0].chunk == "circle back"
+
+
 def test_skip_ungapable_pulls_replacement(cleanup_user: int) -> None:
     tid = cleanup_user
     _onboard(tid)

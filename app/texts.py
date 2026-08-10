@@ -584,6 +584,44 @@ ANKI_SEND_FAILED = (
     "Something broke on my side sending the file — try /anki again in a moment."
 )
 
+# --- Watched-folder import (S15a) ---------------------------------------------
+
+IMPORT_PATHS = (
+    "Drop CSV exports here:\n"
+    "{inbox}\n"
+    "Trancy → {trancy}\n"
+    "Language Reactor → {language_reactor}"
+)
+
+IMPORT_RESULT = (
+    "Import done.\n"
+    "Imported: {imported} · already had: {duplicates} · skipped: {invalid}\n"
+    "Due for review now: {due}\n\n"
+    "{paths}"
+)
+
+IMPORT_EMPTY = (
+    "No new CSV files ready yet.\n\n"
+    "{paths}"
+)
+
+IMPORT_SETTLING = (
+    "Found {n} file(s) still settling (Drive may still be writing) — "
+    "try /import again in a couple of minutes.\n\n"
+    "{paths}"
+)
+
+IMPORT_FAILED_HEADERS = (
+    "Couldn't map columns in {filename} — moved to failed. "
+    "Headers seen: {headers}"
+)
+
+IMPORT_POLL_RESULT = (
+    "Imported {imported} phrase(s) from your subtitle export "
+    "({duplicates} already had · {invalid} skipped). "
+    "Due for review now: {due}."
+)
+
 INTERESTS_TRACK_LABELS: dict[str, str] = {
     "work": "Work",
     "life": "Life & Social",
@@ -828,6 +866,11 @@ SETTINGS_FALLBACK_LINE = "Native-language explanations: {state}"
 SETTINGS_LEVEL_LINE = "Level: {level} — see /stats"
 SETTINGS_TOPICS_LINE = "Topics: /interests"
 SETTINGS_PAUSE_LINE = "Pause: /pause"
+SETTINGS_WATCH_LINE = (
+    "Import folder:\n{inbox}\n"
+    "Trancy: {trancy}\n"
+    "Language Reactor: {language_reactor}"
+)
 SETTINGS_APPLIES_NEXT = "Applies from the next quiz or reading."
 
 SETTINGS_ASK_WEIGHTS = "Content mix — now {mix}. Pick a new mix:"
