@@ -160,6 +160,13 @@ Both mine the same episode; bot cross-quizzes each on the other's chunks.
 ### S18 · Hardening
 `scripts/heartbeat.py` alerting if no job fired in 26h. Global exception handler messaging the operator. `/pause` and `/stats` commands. (Backups live in S4b/S4c.)
 
+### S18a · `/settings` editor
+Tapped-only editor for weights / times / explanation fallback; route-outs to `/interests` and `/pause`; `cefr_level` read-only.
+
+### S18b · `/help` + Telegram command menu
+**Build:** `setMyCommands` once in `post_init` (network failure → WARNING, boot continues). `/help` grouped by intent; omit `/import` when `WATCH_DIR` unset; `/ping` stays working but off the public menu. Point onboarding save confirmation at `/help` without adding a third bot message. No migration, no LLM, no `bot_message_counts`, no dispatch changes.
+**Accept:** Telegram `/` menu lists the public commands; `/help` is scannable on a phone and names the two no-command behaviours (type English → journal; forward English → explain+mine); unregistered `/help` is ignored.
+
 ### S19 · Notion dashboard
 Weekly read-only sync: level, streak, chunks, resolved types, EF SET history.
 

@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-10
-**Current slice:** S15a
-**Status:** S15a watched-folder bridge code-complete — confirm real Trancy + Language Reactor CSV once each (known issue #27); unrun checks remain on S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3; S4c cron/`.env` copy still open (#6)
+**Current slice:** S18b
+**Status:** S18b `/help` + Telegram command menu code-complete — verify `/` menu and `/help` on a phone; S15a real CSV confirm (#27) and S4c cron/`.env` (#6) still open; unrun checks remain on S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -54,6 +54,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S12 | Calibration + anti-fossilization | 🟡 code-complete | 2026-08-08 | M14 windowed raise/silent drop + M13 monthly fossil_sweep inject; human Telegram verify pending. |
 | S18 | Hardening | 🟡 code-complete | 2026-08-08 | Global error handler + file-backed throttle; heartbeat (touch on success); rotating log; flock single-instance; `/pause` + `/stats`. |
 | S18a | `/settings` editor | 🟡 code-complete | 2026-08-10 | Tapped-only editor for weights/times/fallback; no MessageHandler; route-outs to `/interests` + `/pause`; cefr read-only. |
+| S18b | `/help` + command menu | 🟡 code-complete | 2026-08-10 | `setMyCommands` in post_init; grouped `/help`; `/ping` off menu; `/import` conditional on `WATCH_DIR`; onboarding save points at `/help` (still 2 messages). |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
 | S15a | Watched-folder bridge | 🟡 code-complete | 2026-08-10 | `WATCH_DIR` CSV import (Trancy/LR) + Anki outbox; mtime≥2min; collision-safe moves; due_chunks `id DESC` tie-break; `/import` + settings paths. |
 | S13 | Voice diary (M9) | 🟡 code-complete | 2026-08-09 | Tue/Thu prompts + `/diary`; live M3 wins voice routing; max 2 corrections; no TTS; full transcript discarded. |
@@ -94,6 +95,13 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-10 | S18b: `/help` grouped by intent (Every day / Speaking / Real English / Books / Vocabulary / Settings), not alphabetically | Fourteen flat lines are unscannable on a phone; intent groups match how someone looks something up. |
+| 2026-08-10 | S18b: `/ping` stays registered, omitted from `setMyCommands` and `/help` | Developer liveness check — pollutes the learner menu. |
+| 2026-08-10 | S18b: `/import` omitted from menu + `/help` when `WATCH_DIR` unset (same one condition, both surfaces) | Command no-ops without the folder; listing it only confuses. No general capability registry. |
+| 2026-08-10 | S18b: onboarding save adds one `/help` line inside the existing confirmation (still 2 bot messages) | S1d fixed the count at 2; appending to `ONBOARD_SAVED` / `ONBOARD_SAVED_EFSET_NUDGE` does not add a third reply. |
+| 2026-08-10 | S18b: handler-drift test — every `setMyCommands` name must appear in `register_handlers` (walks ConversationHandler entry points); `/ping` asserted present in handlers and absent from menu | A help/menu entry with no handler (or a live command missing from the menu) is worse than no menu. |
+| 2026-08-10 | S18b: `/start` and `/help` on the Telegram menu but not repeated as lines inside `/help` body | Menu needs them for discovery; the body is by intent after onboarding, and `/help` is the message itself. |
+| 2026-08-10 | S18b: `setMyCommands` failure → WARNING + continue boot | A Telegram blip must not prevent the bot from starting. |
 | 2026-08-10 | S15a: tolerant whole-word header map (not hardcoded Trancy/LR columns); fail loud to `failed/` + operator if required fields missing | Both tools change headers between versions; a silent mangled import poisons the review queue looking legitimate. Whole-word so `title` does not match inside `subtitle`. |
 | 2026-08-10 | S15a: row-level dedupe via `normalize_for_match(chunk)`, not file-name tracking | Cumulative exports reappear under new filenames; file tracking alone would re-import everything. |
 | 2026-08-10 | S15a: stability = mtime ≥ **2 minutes** (single-pass); not two-observation size map | Two-observation with a slow poll lands every automatic import a day late; mtime needs no cross-tick state and gives Drive time to finish writing. |
@@ -384,7 +392,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
 | `docs/ARCHITECTURE.md` | Stack, structure, interfaces; §5 jobs split Anki Sat / Sunday report (S11) + `watch_poll` (S15a) | ✅ |
-| `docs/TASKS.md` | Vertical slice list (+ S15a) | ✅ |
+| `docs/TASKS.md` | Vertical slice list (+ S15a + S18a + S18b) | ✅ |
 | `specs/S0-repo-skeleton.md` | S0 spec | ✅ |
 | `specs/S1-onboarding.md` | S1 spec | ✅ |
 | `specs/S1a-onboarding-ux.md` | S1a onboarding UX polish spec | ✅ |
@@ -410,8 +418,11 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/streak/freeze + M13 + heartbeat + backup_freshness + watch_poll | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18a + S15/S13/S14/S16 + S7a QUIZ_CHUNK_LABEL / STATS due + S15a IMPORT_* / SETTINGS_WATCH_LINE | ✅ |
-| `app/main.py` | Entrypoint; flock; rotating log; error handler; `/prep`; `/diary`; `/shadow`; `/import`; capture; `/settings` `/pause` `/stats`; scheduler | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18b + S15/S13/S14/S16 + S7a QUIZ_CHUNK_LABEL / STATS due + S15a IMPORT_* / SETTINGS_WATCH_LINE | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers`; `setMyCommands` in post_init; `/help`; `/prep`; `/diary`; `/shadow`; `/import`; capture; `/settings` `/pause` `/stats`; scheduler | ✅ |
+| `app/services/commands.py` | BotCommand list + `register_bot_commands` (S18b); `/ping` hidden; `/import` conditional | ✅ |
+| `app/handlers/help.py` | `/help` grouped intent map (S18b); no ceiling bump | ✅ |
+| `tests/test_help.py` | setMyCommands / failure WARNING / help content / import gate / unregistered / handler drift / no-guilt (S18b) | ✅ |
 | `app/handlers/shadow.py` | `/shadow` + retry callback + voice processing (S16); never errors; transcript discarded | ✅ |
 | `app/services/shadow.py` | Chunk select (K=10), word diff, feedback format; abandon open shadow (S16) | ✅ |
 | `tests/test_shadow.py` | Diff, select variety, claim window, retry, streaks, calibration exclusion, privacy, labels (S16) | ✅ |
@@ -558,6 +569,10 @@ Do not start S8 / S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S18b** — restart bot → Telegram `/` menu shows public commands (no `/ping`); descriptions read as outcomes
+- [ ] **S18b** — `/help` is scannable on a phone; groups match intent; names type-English and forward-English with no command
+- [ ] **S18b** — with `WATCH_DIR` unset, `/help` and the `/` menu omit `/import`; with it set, both include it
+- [ ] **S18b** — after Save on `/start`, confirmation mentions `/help` (still one confirmation message, not a third bubble)
 - [ ] **S4c** — set `BACKUP_OFFSITE_DIR` in `.env` (quoted path with spaces ok) to an existing writable folder outside the repo and outside `BACKUP_DIR`; run `bash scripts/backup.sh` **without** exporting the var; confirm a matching-size `english_bot_*.dump` lands in the off-site dir
 - [ ] **S4c** — with the bot running and `BACKUP_OFFSITE_DIR` set to a deliberately empty or aged directory → one operator alert; repeat within 15 min → throttled (no flood)
 - [ ] **S4c** — unset / empty `BACKUP_OFFSITE_DIR` → backup still succeeds locally; log shows `off-site copy skipped (BACKUP_OFFSITE_DIR not set)`; no freshness alert
@@ -674,4 +689,4 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-Human: verify S15a at the desk (checklist items above) — especially one real Trancy CSV and one Language Reactor CSV (closes known issue #27). Confirm S4c cron/`.env` off-site copy (#6). Do not start the next slice until S15a is marked ✅ by the human.
+Human: verify S18b at the desk — Telegram `/` menu populated, `/help` readable on a phone (incl. WATCH_DIR on/off for `/import`). Also still open: S15a real Trancy + Language Reactor CSV (#27); S4c cron/`.env` off-site copy (#6). Do not start the next slice until S18b is marked ✅ by the human.

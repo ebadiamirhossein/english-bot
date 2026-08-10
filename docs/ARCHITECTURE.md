@@ -51,6 +51,7 @@ english-bot/
 │   ├── texts.py              # every user-facing string, one place
 │   ├── handlers/
 │   │   ├── onboarding.py     # /start conversation
+│   │   ├── help.py           # /help (S18b)
 │   │   ├── quiz.py           # M1
 │   │   ├── correction.py     # M2, M11
 │   │   ├── voice.py          # M3, M9, M12
@@ -68,6 +69,7 @@ english-bot/
 │   │   ├── interests.py      # profile, weights
 │   │   ├── calibration.py    # M14
 │   │   ├── anki.py           # M6 export
+│   │   ├── commands.py       # setMyCommands list (S18b)
 │   │   ├── watch_import.py   # S15a CSV import + Anki outbox
 │   │   └── paths.py          # path-outside-repo (PRD §10)
 │   └── prompts/

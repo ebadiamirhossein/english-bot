@@ -6,6 +6,56 @@ user-visible message inline in a handler or service.
 
 PONG = "pong"
 
+# --- S18b: Telegram command menu descriptions (outcome-first, lowercase start) ---
+CMD_DESC_START = "set up or change your profile"
+CMD_DESC_HELP = "see what i can do"
+CMD_DESC_STATS = "see your progress snapshot"
+CMD_DESC_DIARY = "record a spoken diary entry"
+CMD_DESC_SHADOW = "practise a phrase out loud"
+CMD_DESC_CAPTURE = "explain english you paste"
+CMD_DESC_PREP = "get phrases for a real situation"
+CMD_DESC_BOOK = "add pages from your books"
+CMD_DESC_TEST = "practise a stored book unit"
+CMD_DESC_ANKI = "export new chunks to anki"
+CMD_DESC_IMPORT = "scan your subtitle drop folder"
+CMD_DESC_SETTINGS = "change mix, times, and pauses"
+CMD_DESC_INTERESTS = "pick topics for readings"
+CMD_DESC_PAUSE = "hold scheduled messages for a while"
+
+# --- S18b: /help (user-initiated; grouped by intent) ---
+HELP_HEADER = "Here's what I can do."
+
+HELP_SECTION_EVERY_DAY = "Every day"
+HELP_LINE_STATS = "/stats — your progress snapshot"
+HELP_LINE_QUIZ_ARRIVES = "The daily quiz arrives on its own."
+
+HELP_SECTION_SPEAKING = "Speaking"
+HELP_LINE_DIARY = "/diary — spoken diary"
+HELP_LINE_SHADOW = "/shadow — practise a phrase out loud"
+
+HELP_SECTION_REAL_ENGLISH = "Real English you meet"
+HELP_LINE_FORWARD = (
+    "Forward any English message — I'll explain it and mine chunks."
+)
+HELP_LINE_CAPTURE = "/capture — paste English for the same"
+HELP_LINE_PREP = "/prep — phrases for an upcoming situation"
+HELP_LINE_TYPE = (
+    "Type any English and I'll correct it into your journal."
+)
+
+HELP_SECTION_BOOKS = "Your books"
+HELP_LINE_BOOK = "/book — add book pages"
+HELP_LINE_TEST = "/test — practise a stored unit"
+
+HELP_SECTION_VOCAB = "Vocabulary"
+HELP_LINE_ANKI = "/anki — export new chunks"
+HELP_LINE_IMPORT = "/import — scan your subtitle folder"
+
+HELP_SECTION_SETTINGS = "Settings"
+HELP_LINE_SETTINGS = "/settings — mix, times, explanations"
+HELP_LINE_INTERESTS = "/interests — reading topics"
+HELP_LINE_PAUSE = "/pause — hold scheduled messages"
+
 # --- Onboarding (S1b/S1c + S1d personality) --------------------------------
 
 ONBOARD_GREETING = (
@@ -53,13 +103,17 @@ ONBOARD_ASK_EVENING_OTHER = "What time? Use 24-hour HH:MM, like 20:30."
 
 ONBOARD_CONFIRM_INTRO = "Right — here's the plan."
 
-ONBOARD_SAVED = "You're set, {name}. First task lands tomorrow at {morning_time}."
+ONBOARD_SAVED = (
+    "You're set, {name}. First task lands tomorrow at {morning_time}.\n"
+    "Tap /help anytime for the full map."
+)
 
 ONBOARD_SAVED_EFSET_NUDGE = (
     "You're set, {name}.\n"
     "First task lands tomorrow at {morning_time}.\n\n"
     "When you have 50 minutes, take the free EF SET — I'll tune everything to your "
-    "real level. Just send me the score."
+    "real level. Just send me the score.\n\n"
+    "Tap /help anytime for the full map."
 )
 
 ONBOARD_CANCELLED = "Okay — nothing saved. Say /start whenever you're ready."

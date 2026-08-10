@@ -8,7 +8,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 
 from app import texts
 from app.config import ConfigError, load_settings
@@ -23,6 +23,7 @@ from app.handlers.prep import build_prep_handler, init_prep_prompt
 from app.handlers.correction import build_correction_handler, init_correction_prompt
 from app.handlers.diary import build_diary_handlers, init_diary_prompt
 from app.handlers.shadow import build_shadow_handlers
+from app.handlers.help import build_help_handler
 from app.handlers.interests import build_interests_handler
 from app.handlers.nudge import build_nudge_handler
 from app.handlers.onboarding import build_onboarding_handler
@@ -39,6 +40,7 @@ from app.scheduler import start_scheduler, stop_scheduler
 from app.services.alerts import on_error
 from app.services.anki import handle_anki_command
 from app.handlers.import_cmd import handle_import_command
+from app.services.commands import register_bot_commands
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +53,47 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(texts.PONG)
 
 
+def register_handlers(app: Application) -> None:
+    """Wire every handler. Extracted so tests can assert menu ↔ handlers."""
+    app.add_error_handler(on_error)
+    app.add_handler(build_onboarding_handler())
+    app.add_handler(build_help_handler())
+    app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(CommandHandler("anki", handle_anki_command))
+    app.add_handler(CommandHandler("import", handle_import_command))
+    app.add_handler(build_prep_handler())
+    app.add_handler(build_diary_handlers())
+    shadow_cmd, shadow_cb = build_shadow_handlers()
+    app.add_handler(shadow_cmd)
+    app.add_handler(shadow_cb)  # shadow:again taps; no text filter
+    pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
+    app.add_handler(pause_cmd)
+    app.add_handler(stats_cmd)
+    app.add_handler(pause_cb)
+    app.add_handler(build_settings_editor_handler())  # tapped-only; no text filter
+    app.add_handler(build_settings_orphan_handler())  # stale set: after restart
+    quiz_text, quiz_choice = build_quiz_handlers()
+    app.add_handler(quiz_choice)
+    # S15: FORWARDED before gap quiz so a forward is never graded as an answer.
+    # Narrow filter — ordinary typed CH answers (book Other, interests) cannot match.
+    capture_fwd, capture_cmd = build_capture_handlers()
+    app.add_handler(capture_fwd)
+    app.add_handler(capture_cmd)
+    app.add_handler(quiz_text)  # before correction — open-quiz filter
+    app.add_handler(build_reading_handler())  # callbacks only; no text filter
+    app.add_handler(build_nudge_handler())  # nudge: taps only; no text filter
+    test_cmd, test_cb = build_book_test_handlers()
+    app.add_handler(test_cb)  # btest: callbacks; no text filter
+    app.add_handler(test_cmd)
+    app.add_handler(build_voice_handler())
+    app.add_handler(build_interests_handler())
+    app.add_handler(build_book_handler())
+    app.add_handler(build_correction_handler())
+    app.add_handler(build_access_handler(), group=1)
+
+
 async def _post_init(application) -> None:
+    await register_bot_commands(application.bot)
     start_scheduler(application)
 
 
@@ -124,40 +166,7 @@ def main() -> int:
         .post_shutdown(_post_shutdown)
         .build()
     )
-    app.add_error_handler(on_error)
-    app.add_handler(build_onboarding_handler())
-    app.add_handler(CommandHandler("ping", ping))
-    app.add_handler(CommandHandler("anki", handle_anki_command))
-    app.add_handler(CommandHandler("import", handle_import_command))
-    app.add_handler(build_prep_handler())
-    app.add_handler(build_diary_handlers())
-    shadow_cmd, shadow_cb = build_shadow_handlers()
-    app.add_handler(shadow_cmd)
-    app.add_handler(shadow_cb)  # shadow:again taps; no text filter
-    pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
-    app.add_handler(pause_cmd)
-    app.add_handler(stats_cmd)
-    app.add_handler(pause_cb)
-    app.add_handler(build_settings_editor_handler())  # tapped-only; no text filter
-    app.add_handler(build_settings_orphan_handler())  # stale set: after restart
-    quiz_text, quiz_choice = build_quiz_handlers()
-    app.add_handler(quiz_choice)
-    # S15: FORWARDED before gap quiz so a forward is never graded as an answer.
-    # Narrow filter — ordinary typed CH answers (book Other, interests) cannot match.
-    capture_fwd, capture_cmd = build_capture_handlers()
-    app.add_handler(capture_fwd)
-    app.add_handler(capture_cmd)
-    app.add_handler(quiz_text)  # before correction — open-quiz filter
-    app.add_handler(build_reading_handler())  # callbacks only; no text filter
-    app.add_handler(build_nudge_handler())  # nudge: taps only; no text filter
-    test_cmd, test_cb = build_book_test_handlers()
-    app.add_handler(test_cb)  # btest: callbacks; no text filter
-    app.add_handler(test_cmd)
-    app.add_handler(build_voice_handler())
-    app.add_handler(build_interests_handler())
-    app.add_handler(build_book_handler())
-    app.add_handler(build_correction_handler())
-    app.add_handler(build_access_handler(), group=1)
+    register_handlers(app)
 
     logger.info("Starting bot (polling)")
     app.run_polling(drop_pending_updates=True)
