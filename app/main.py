@@ -28,7 +28,11 @@ from app.handlers.nudge import build_nudge_handler
 from app.handlers.onboarding import build_onboarding_handler
 from app.handlers.quiz import build_quiz_handlers, init_quiz_prompt
 from app.handlers.reading import build_reading_handler, init_reading_prompt
-from app.handlers.settings import build_settings_handlers
+from app.handlers.settings import (
+    build_settings_editor_handler,
+    build_settings_handlers,
+    build_settings_orphan_handler,
+)
 from app.handlers.voice import build_voice_handler, init_voice_prompt
 from app.instance_lock import InstanceLock, InstanceLockError
 from app.scheduler import start_scheduler, stop_scheduler
@@ -132,6 +136,8 @@ def main() -> int:
     app.add_handler(pause_cmd)
     app.add_handler(stats_cmd)
     app.add_handler(pause_cb)
+    app.add_handler(build_settings_editor_handler())  # tapped-only; no text filter
+    app.add_handler(build_settings_orphan_handler())  # stale set: after restart
     quiz_text, quiz_choice = build_quiz_handlers()
     app.add_handler(quiz_choice)
     # S15: FORWARDED before gap quiz so a forward is never graded as an answer.

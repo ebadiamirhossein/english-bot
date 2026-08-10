@@ -226,6 +226,7 @@ WEIGHT_SUMMARY_LABELS = {
     "balanced": "Balanced",
     "work": "More work",
     "life": "More everyday",
+    "mostly": "Mostly everyday",
 }
 
 # --- Reactions (one line, <60 chars, every option keyed) -------------------
@@ -814,6 +815,54 @@ STATS_BOOKS = "Book units stored: {n}"
 STATS_CALIBRATION = "Calibration: {accuracy} · last change: {change}"
 STATS_CALIBRATION_NONE = "Calibration: not enough recent evidence yet"
 STATS_OPERATOR_SWEEP = "Sweep (ops): pending {pending} · done {done}"
+
+
+# --- Settings editor (S18a) ---------------------------------------------------
+
+SETTINGS_TITLE = "Your settings"
+
+SETTINGS_MIX_LINE = "Content mix: {mix}"
+SETTINGS_MORNING_LINE = "Morning: {time}"
+SETTINGS_EVENING_LINE = "Evening: {time}"
+SETTINGS_FALLBACK_LINE = "Native-language explanations: {state}"
+SETTINGS_LEVEL_LINE = "Level: {level} — see /stats"
+SETTINGS_TOPICS_LINE = "Topics: /interests"
+SETTINGS_PAUSE_LINE = "Pause: /pause"
+SETTINGS_APPLIES_NEXT = "Applies from the next quiz or reading."
+
+SETTINGS_ASK_WEIGHTS = "Content mix — now {mix}. Pick a new mix:"
+SETTINGS_ASK_MORNING = "Morning delivery — now {time}. Pick a time:"
+SETTINGS_ASK_EVENING = "Evening delivery — now {time}. Pick a time:"
+SETTINGS_ASK_FALLBACK = (
+    "Native-language explanations — now {state}. Tap to change:"
+)
+
+SETTINGS_SAVED = "Saved. {detail}\n\n{applies}"
+SETTINGS_SAVED_MIX = "Mix set to {mix}."
+SETTINGS_SAVED_MORNING = "Morning set to {time}."
+SETTINGS_SAVED_EVENING = "Evening set to {time}."
+SETTINGS_SAVED_FALLBACK = "Native-language explanations: {state}."
+
+SETTINGS_DONE = "Settings closed. Change anything anytime with /settings."
+SETTINGS_CANCELLED = "Settings closed."
+SETTINGS_STALE = "That settings panel went stale — send /settings again."
+
+SETTINGS_FALLBACK_ON = "On"
+SETTINGS_FALLBACK_OFF = "Off"
+
+BTN_SETTINGS_MIX = "Mix"
+BTN_SETTINGS_MORNING = "Morning"
+BTN_SETTINGS_EVENING = "Evening"
+BTN_SETTINGS_FALLBACK = "Explanations"
+BTN_SETTINGS_DONE = "Done"
+
+BTN_SETTINGS_WEIGHTS_BALANCED = "Balanced"
+BTN_SETTINGS_WEIGHTS_WORK = "More work"
+BTN_SETTINGS_WEIGHTS_LIFE = "More everyday"
+BTN_SETTINGS_WEIGHTS_MOSTLY = "Mostly everyday"
+
+BTN_SETTINGS_FALLBACK_ON = "Turn on"
+BTN_SETTINGS_FALLBACK_OFF = "Turn off"
 
 
 # --- Real-life capture (S15 / M11) --------------------------------------------

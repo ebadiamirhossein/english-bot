@@ -48,7 +48,12 @@ from app.handlers.quiz import (
     open_quiz_awaits_gap_answer,
 )
 from app.handlers.reading import build_reading_handler
-from app.handlers.settings import build_settings_handlers
+from app.handlers.settings import (
+    MENU,
+    build_settings_editor_handler,
+    build_settings_handlers,
+    build_settings_orphan_handler,
+)
 from app.handlers.voice import build_voice_handler
 from app.services.alerts import on_error
 from app.services.sessions import insert_session, local_today, save_voice_exchange
@@ -161,11 +166,15 @@ async def _build_app(
         correction = build_correction_handler()
 
     pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
+    settings_editor = build_settings_editor_handler()
+    settings_orphan = build_settings_orphan_handler()
     app = ApplicationBuilder().token("1:FAKE-DISPATCH-TEST").build()
     app.add_error_handler(on_error)
     app.add_handler(pause_cmd)
     app.add_handler(stats_cmd)
     app.add_handler(pause_cb)
+    app.add_handler(settings_editor)  # tapped-only; no text filter
+    app.add_handler(settings_orphan)
     app.add_handler(quiz_choice)
     app.add_handler(capture_fwd)
     app.add_handler(capture_cmd)
@@ -182,7 +191,7 @@ async def _build_app(
     me = User(id=1, first_name="Bot", is_bot=True, username="testbot")
     object.__setattr__(app.bot, "_bot_user", me)
     app._initialized = True
-    return app, book
+    return app, book, settings_editor
 
 
 def _text_update(
@@ -387,7 +396,7 @@ def test_dispatch_gap_quiz_grades_not_correction(cleanup_user: int) -> None:
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -438,7 +447,7 @@ def test_dispatch_open_weekly_test_midset_reaches_correction(
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -474,7 +483,7 @@ def test_dispatch_nudged_open_quiz_reaches_correction(cleanup_user: int) -> None
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -503,7 +512,7 @@ def test_dispatch_nongap_quiz_reaches_correction(
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -527,7 +536,7 @@ def test_dispatch_idle_reaches_correction(cleanup_user: int) -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
         capture_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy,
             correction_spy=correction_spy,
             capture_spy=capture_spy,
@@ -556,7 +565,7 @@ def test_dispatch_forwarded_reaches_capture_not_correction(
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
         capture_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy,
             correction_spy=correction_spy,
             capture_spy=capture_spy,
@@ -585,7 +594,7 @@ def test_dispatch_capture_command_reaches_capture_not_correction(
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
         capture_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy,
             correction_spy=correction_spy,
             capture_spy=capture_spy,
@@ -618,7 +627,7 @@ def test_dispatch_forwarded_during_gap_quiz_reaches_capture(
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
         capture_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy,
             correction_spy=correction_spy,
             capture_spy=capture_spy,
@@ -667,7 +676,7 @@ def test_dispatch_open_book_test_reaches_correction(cleanup_user: int) -> None:
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -690,7 +699,7 @@ def test_dispatch_book_other_owns_text(cleanup_user: int) -> None:
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
-        app, book = await _build_app(
+        app, book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -728,7 +737,7 @@ def test_dispatch_after_summary_reaches_correction_without_done(
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
-        app, book = await _build_app(
+        app, book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -759,7 +768,7 @@ def test_dispatch_after_done_reaches_correction(cleanup_user: int) -> None:
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
-        app, book = await _build_app(
+        app, book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -804,7 +813,7 @@ def test_dispatch_add_more_collects_photo(cleanup_user: int) -> None:
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
-        app, book = await _build_app(
+        app, book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -929,7 +938,7 @@ def test_dispatch_open_reading_mid_qa_reaches_correction(cleanup_user: int) -> N
     async def _run() -> None:
         quiz_spy = AsyncMock()
         correction_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -974,7 +983,7 @@ def test_dispatch_claimable_shadow_reaches_shadow_not_diary_or_m3(
         shadow_spy = AsyncMock()
         diary_spy = AsyncMock()
         m3_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -1014,7 +1023,7 @@ def test_dispatch_open_diary_reaches_diary_not_m3(cleanup_user: int) -> None:
         shadow_spy = AsyncMock()
         diary_spy = AsyncMock()
         m3_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -1050,7 +1059,7 @@ def test_dispatch_no_diary_reaches_m3_not_diary(cleanup_user: int) -> None:
         shadow_spy = AsyncMock()
         diary_spy = AsyncMock()
         m3_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -1102,7 +1111,7 @@ def test_dispatch_live_m3_beats_open_diary(cleanup_user: int) -> None:
         shadow_spy = AsyncMock()
         diary_spy = AsyncMock()
         m3_spy = AsyncMock()
-        app, _book = await _build_app(
+        app, _book, _settings = await _build_app(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
@@ -1122,6 +1131,39 @@ def test_dispatch_live_m3_beats_open_diary(cleanup_user: int) -> None:
             m3_spy.assert_awaited_once()
             shadow_spy.assert_not_awaited()
             diary_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_settings_mid_flow_plain_text_reaches_correction(
+    cleanup_user: int,
+) -> None:
+    """Open /settings mid-flow must not swallow plain text (no MessageHandler)."""
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        app, _book, settings = await _build_app(
+            quiz_spy=quiz_spy, correction_spy=correction_spy
+        )
+        try:
+            key = (tid, tid)
+            settings._conversations[key] = MENU
+            app.user_data[tid]["settings"] = {
+                "wizard_chat_id": tid,
+                "wizard_message_id": 99,
+                "wizard_state": MENU,
+            }
+            update = _text_update(tid, SAMPLE_TEXT)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            correction_spy.assert_awaited_once()
+            quiz_spy.assert_not_awaited()
         finally:
             app._initialized = False
 

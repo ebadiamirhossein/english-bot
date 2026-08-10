@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-10
-**Current slice:** S7a
-**Status:** S7a chunk spaced review code-complete — verify in Telegram; unrun checks remain on S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Current slice:** S18a
+**Status:** S18a `/settings` editor code-complete — verify in Telegram; unrun checks remain on S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -52,6 +52,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S11 | Weekly test + Murphy routing | 🟡 code-complete | 2026-08-08 | Sun 15Q weekly test (replaces morning quiz); Anki→Sat; Murphy rec on complete; weekly excluded from M14 window. | |
 | S12 | Calibration + anti-fossilization | 🟡 code-complete | 2026-08-08 | M14 windowed raise/silent drop + M13 monthly fossil_sweep inject; human Telegram verify pending. |
 | S18 | Hardening | 🟡 code-complete | 2026-08-08 | Global error handler + file-backed throttle; heartbeat (touch on success); rotating log; flock single-instance; `/pause` + `/stats`. |
+| S18a | `/settings` editor | 🟡 code-complete | 2026-08-10 | Tapped-only editor for weights/times/fallback; no MessageHandler; route-outs to `/interests` + `/pause`; cefr read-only. |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
 | S13 | Voice diary (M9) | 🟡 code-complete | 2026-08-09 | Tue/Thu prompts + `/diary`; live M3 wins voice routing; max 2 corrections; no TTS; full transcript discarded. |
 | S14 | Load-up mode (M10) | 🟡 code-complete | 2026-08-09 | `/prep <topic>` → 10 chunks + 3 frames; persist `prep_<slug>` to Anki pool; no sessions/errors; commit-after-send. |
@@ -90,6 +91,13 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-10 | S18a: tapped-only `/settings` — **no MessageHandler**, no free-text states | A ConversationHandler with free-text state is the shape that twice consumed text ahead of correction and silently killed M2 (S3 OpenQuizFilter / book CH history). Tapped-only cannot do that; Agent-mode safe. Later free-text fields (`why_statement`, `work_domain`) take on that dispatch risk deliberately. |
+| 2026-08-10 | S18a: no `conversation_timeout` on the settings CH | Known issue #18 — timeout is a no-op under nested conversations (PTB warning on S6 book). Abandoned `/settings` is harmless: no text filter, `set:` cannot collide with `pause:`/`wiz:`/`int:`. Leaving it out is intentional, not an oversight. |
+| 2026-08-10 | S18a: fourth weight preset **Mostly everyday** 15/70/15 | S1's three presets (40/40/20, 60/25/15, 25/60/15) did not cover a real ask to lean hard into everyday life — user had to edit production SQL. |
+| 2026-08-10 | S18a: `cefr_level` read-only; pointer to `/stats` | S12 calibrates from rolling accuracy. A manual override would fight the calibrator silently (set B2 → pulled to B1 in a fortnight with no explanation). |
+| 2026-08-10 | S18a: route-outs to `/interests` and `/pause` (one line each) | Do not reimplement topic or pause UIs inside settings. |
+| 2026-08-10 | S18a: morning/evening buttons = S1b presets (07/08/09, 19/20/21); no Other | Sets match onboarding's button list. Times chosen via onboarding "Other" free text are unreachable here — accepted cost of tapped-only, not an oversight. `split(":", 2)` keeps `07:00` intact. |
+| 2026-08-10 | S18a: stale `set:` after restart → warm "send /settings again" (orphan handler + in-handler flight check) | `user_data` is in-memory; post-restart taps on an old panel would otherwise KeyError or silently no-op. Same class as S9c stale callbacks. |
 | 2026-08-10 | S7a: first migration since 003 (`004_chunk_review.sql`) — additive review columns on `chunks` only | Chunks had no review fields; spaced quiz review cannot work without them. Nullable/`DEFAULT` so existing rows and queries stay valid; standing no-migration rule lifted for this slice only. |
 | 2026-08-10 | S7a selection: due errors → due chunks (cap `typed_gap_count`) → book top-up | Errors remain the core asset; chunks are user-collected vocabulary; books are generic filler. Cap at 2 typed/day (S3d) so multi-word chunk gaps do not become the routine mix — excess wait (nothing expires). ~14 slots/week vs ~15 reading chunks/week → backlog grows; Anki stays the volume valve. |
 | 2026-08-10 | S7a: article-tolerant `grade_chunk_answer` (drop a/an/the); no length ceiling | Live n=27: median 4 words, zero single-word; exact match would punish phone typing and stall the ladder. Content-word misses still fail. Ceiling at ≤3 would exclude ~⅔ and gut the feature. |
@@ -334,6 +342,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 21 | S18 in-process heartbeat cannot detect total process death — only silent job drops / hung jobs while the process lives. External cron on Hetzner can run `scripts/heartbeat.py` later. | high | S18 | ⬜ open — by design on laptop |
 | 22 | S15 text-only: forwarded photos / captions (PRD “a sign”) out of scope — needs a vision path; candidate follow-up. | medium | S15 | ⬜ open — deliberate exclusion |
 | 23 | S15 self-forward → capture, not M2. `forward_origin` cannot reliably detect self (`MessageOriginHiddenUser`). Workaround: paste own English as plain text (reply hint). Guessing wrong would journal someone else’s sentences. | medium | S15 | ⬜ open — by design |
+| 25 | S18a: `why_statement` and `work_domain` remain uneditable from Telegram. Deliberate omission — free-text ConversationHandler states are the dispatch shape that killed M2; tapped-only editor excludes them until a later slice accepts that risk. | low | S18a | ⬜ open — deliberate omission |
 
 ---
 
@@ -376,8 +385,8 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/streak/freeze + M13 + heartbeat | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18 + S15/S13/S14/S16 + S7a QUIZ_CHUNK_LABEL / STATS due | ✅ |
-| `app/main.py` | Entrypoint; flock; rotating log; error handler; `/prep`; `/diary`; `/shadow`; capture; `/pause` `/stats`; scheduler | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18a + S15/S13/S14/S16 + S7a QUIZ_CHUNK_LABEL / STATS due | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; `/prep`; `/diary`; `/shadow`; capture; `/settings` `/pause` `/stats`; scheduler | ✅ |
 | `app/handlers/shadow.py` | `/shadow` + retry callback + voice processing (S16); never errors; transcript discarded | ✅ |
 | `app/services/shadow.py` | Chunk select (K=10), word diff, feedback format; abandon open shadow (S16) | ✅ |
 | `tests/test_shadow.py` | Diff, select variety, claim window, retry, streaks, calibration exclusion, privacy, labels (S16) | ✅ |
@@ -389,9 +398,10 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/services/alerts.py` | File-backed throttle + `notify_operator` + `on_error` (S18) | ✅ |
 | `app/services/heartbeat.py` | last_job_fire touch/check helpers (S18) | ✅ |
 | `app/services/stats.py` | Read-only `/stats` assembly; due-chunk count (S18/S7a); learner omits sweep | ✅ |
-| `app/handlers/settings.py` | `/pause` + `/stats` + `pause:` callbacks (S18) | ✅ |
+| `app/handlers/settings.py` | `/settings` tapped-only editor (S18a) + `/pause` + `/stats` (S18); orphan `set:` stale degrade | ✅ |
 | `scripts/heartbeat.py` | CLI stale check for future external cron (S18) | ✅ |
 | `tests/test_hardening.py` | Alerts/throttle/heartbeat/lock/log privacy/pause/stats/Missed pin (S18) | ✅ |
+| `tests/test_settings_editor.py` | S18a weight/time/fallback writes, stale degrade, labels, no MessageHandler, scoped writes | ✅ |
 | `app/services/calibration.py` | M14 window; prefers payload calib_* (excludes chunk answers); excludes book_test + weekly_test + shadow | ✅ |
 | `app/handlers/nudge.py` | Tap-only `nudge:short:` early-limit callbacks; Murphy append on weekly early-complete (S10/S11) | ✅ |
 | `app/services/motivation.py` | Nudge ladder (incl. diary text-only) + Sunday report assembly (no LLM) (S10/S13) | ✅ |
@@ -414,7 +424,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/handlers/book_test.py` | `/test unit N`; tap-only `btest:` callbacks; abandon prior open book_test (S6a) | ✅ |
 | `app/prompts/book_quiz.txt` | Unit practice JSON — choice/order/spot only; taxonomy-bound error_type (S6a) | ✅ |
 | `app/services/__init__.py` | Services package | ✅ |
-| `app/services/users.py` | get/save user, EF SET → CEFR, `update_cefr_level`, `get/set_paused_until` (S12/S18) | ✅ |
+| `app/services/users.py` | get/save user, EF SET → CEFR, `update_cefr_level`, `get/set_paused_until`, S18a field updates (weights/times/fallback) | ✅ |
 | `app/services/errors.py` | record_errors + due_errors + weekly + Murphy + spacing_step + mark_result + resolved_types + M13 (S3/S10/S11/S12/S7a) | ✅ |
 | `app/services/sessions.py` | sessions + ceiling + diary/shadow claim helpers + nudgeable quiz/reading/diary + fossil_sweep + sunday_report (S3–S16) | ✅ |
 | `app/services/anki.py` | Chunk→TSV gap/escape/export; weekly deliver + `/anki`; mark-after-send (S7) | ✅ |
@@ -452,7 +462,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_reading.py` | S9a eligibility, ceiling, topic pick, MCQ validate, rollback, persist + message_id | ✅ |
 | `tests/test_reading_s9c.py` | S9c grading, resume, message_id resolve, rating clamps, legacy NULL score, edit resend, labels | ✅ |
 | `tests/test_book.py` | S6 debounce, merge, upsert, failures, Page/Pages / All-N collapse, CTA agreement, prose soft-skip, over-cap, labels, SDK/disk greps | ✅ |
-| `tests/test_dispatch_m2.py` | Application dispatch + capture + voice/diary/shadow routing spies (S3+S6+S6a+S9c+S10+S13+S15+S16+S18) | ✅ |
+| `tests/test_dispatch_m2.py` | Application dispatch + capture + voice/diary/shadow + settings mid-flow spies (S3+S6+S6a+S9c+S10+S13+S15+S16+S18+S18a) | ✅ |
 | `tests/test_s6a.py` | Top-up counts, word-bank/dedup fixtures, journal fork (typed+tap), streak Missed vs Neutral, `/test` parse/disambiguate/abandon, labels (S6a) | ✅ |
 | `tests/test_anki.py` | S7 gap/escape/order/mark-after-send/ceiling/idempotency/empty `/anki` | ✅ |
 | `tests/test_motivation.py` | S10 nudge ladder, ceiling, dual-TZ, resolved_types all-clear, active-days bands, Sunday report, Just do 2 score, no-guilt/labels | ✅ |
@@ -481,6 +491,10 @@ Do not start S8 / S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S18a** — `/settings` shows current mix, times, fallback, read-only level + `/stats`, and `/interests` + `/pause` lines
+- [ ] **S18a** — Mix → Mostly everyday → confirmation says applies from next quiz/reading; next quiz track mix leans life
+- [ ] **S18a** — Morning → 07:00 and Evening → 19:00 round-trip; restart bot and tap Mix on old panel → warm stale line, no crash
+- [ ] **S18a** — Explanations toggle flips; plain text while `/settings` is open still gets a correction (M2)
 - [ ] **S7a** — migrate to 004; morning quiz with >2 due chunks → at most 2 chunk gaps; mix still 2 typed / 3 tapped on a 5Q day
 - [ ] **S7a** — type a chunk with extra/missing `the` → marked correct; ladder advances (`next_review` moves)
 - [ ] **S7a** — wrong chunk answer → no new `errors` row; chunk `times_wrong` increments

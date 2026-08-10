@@ -116,6 +116,94 @@ def update_cefr_level(telegram_user_id: int, new_level: str) -> None:
     )
 
 
+def update_track_weights(
+    telegram_user_id: int, weights: dict[str, int]
+) -> None:
+    """Set users.track_weights for this telegram id only."""
+    with connection() as conn:
+        conn.execute(
+            """
+            UPDATE users
+               SET track_weights = %s
+             WHERE telegram_user_id = %s
+            """,
+            (Jsonb(weights), telegram_user_id),
+        )
+    logger.info(
+        "Updated track_weights user_id=%s weights=%s",
+        telegram_user_id,
+        weights,
+    )
+
+
+def update_morning_time(telegram_user_id: int, morning: time | str) -> None:
+    """Set users.morning_time for this telegram id only."""
+    value = _as_time(morning)
+    with connection() as conn:
+        conn.execute(
+            """
+            UPDATE users
+               SET morning_time = %s
+             WHERE telegram_user_id = %s
+            """,
+            (value, telegram_user_id),
+        )
+    logger.info(
+        "Updated morning_time user_id=%s time=%s",
+        telegram_user_id,
+        value.strftime("%H:%M"),
+    )
+
+
+def update_evening_time(telegram_user_id: int, evening: time | str) -> None:
+    """Set users.evening_time for this telegram id only."""
+    value = _as_time(evening)
+    with connection() as conn:
+        conn.execute(
+            """
+            UPDATE users
+               SET evening_time = %s
+             WHERE telegram_user_id = %s
+            """,
+            (value, telegram_user_id),
+        )
+    logger.info(
+        "Updated evening_time user_id=%s time=%s",
+        telegram_user_id,
+        value.strftime("%H:%M"),
+    )
+
+
+def update_explanation_language_fallback(
+    telegram_user_id: int, enabled: bool
+) -> None:
+    """Set users.explanation_language_fallback for this telegram id only."""
+    with connection() as conn:
+        conn.execute(
+            """
+            UPDATE users
+               SET explanation_language_fallback = %s
+             WHERE telegram_user_id = %s
+            """,
+            (enabled, telegram_user_id),
+        )
+    logger.info(
+        "Updated explanation_language_fallback user_id=%s enabled=%s",
+        telegram_user_id,
+        enabled,
+    )
+
+
+def _as_time(value: time | str) -> time:
+    if isinstance(value, time):
+        return value
+    parts = value.strip().split(":", 1)
+    if len(parts) != 2:
+        raise ValueError(f"invalid time: {value!r}")
+    hour, minute = int(parts[0]), int(parts[1])
+    return time(hour, minute)
+
+
 def get_paused_until(telegram_user_id: int) -> date | None:
     """Return users.paused_until for this telegram id, or None."""
     with connection() as conn:
