@@ -61,6 +61,9 @@ class Settings:
     instance_lock_file: str = ""
     heartbeat_file: str = ""
     alert_throttle_file: str = ""
+    # S4c — empty means freshness check is a silent no-op.
+    backup_offsite_dir: str = ""
+    backup_offsite_max_age_hours: float = 48.0
 
     def database_url_for_logs(self) -> str:
         """Return DATABASE_URL with the password stripped for safe logging."""
@@ -177,6 +180,12 @@ def load_settings() -> Settings:
         os.environ.get("ALERT_THROTTLE_FILE", "").strip()
         or str(Path(runtime_dir) / "alert_throttle.json")
     )
+    backup_offsite_dir = os.environ.get("BACKUP_OFFSITE_DIR", "").strip()
+    backup_offsite_max_age_hours = _parse_float(
+        "BACKUP_OFFSITE_MAX_AGE_HOURS",
+        os.environ.get("BACKUP_OFFSITE_MAX_AGE_HOURS", "48"),
+        errors,
+    )
 
     if db_pool_min is not None and db_pool_min < 1:
         errors.append(f"DB_POOL_MIN must be >= 1 (got {db_pool_min})")
@@ -194,6 +203,14 @@ def load_settings() -> Settings:
         errors.append(
             f"LOG_BACKUP_COUNT must be >= 0 (got {log_backup_count})"
         )
+    if (
+        backup_offsite_max_age_hours is not None
+        and backup_offsite_max_age_hours <= 0
+    ):
+        errors.append(
+            "BACKUP_OFFSITE_MAX_AGE_HOURS must be > 0 "
+            f"(got {backup_offsite_max_age_hours})"
+        )
 
     if errors:
         raise ConfigError("; ".join(errors))
@@ -205,6 +222,7 @@ def load_settings() -> Settings:
     assert diary_max_seconds is not None
     assert log_max_bytes is not None
     assert log_backup_count is not None
+    assert backup_offsite_max_age_hours is not None
     settings = Settings(
         database_url=database_url,
         telegram_bot_token=telegram_bot_token,
@@ -233,6 +251,8 @@ def load_settings() -> Settings:
         instance_lock_file=instance_lock_file,
         heartbeat_file=heartbeat_file,
         alert_throttle_file=alert_throttle_file,
+        backup_offsite_dir=backup_offsite_dir,
+        backup_offsite_max_age_hours=backup_offsite_max_age_hours,
     )
 
     _warn_if_transaction_pooler(settings.database_url)
@@ -244,6 +264,14 @@ def _parse_int(name: str, raw: str, errors: list[str]) -> int | None:
         return int(raw.strip())
     except ValueError:
         errors.append(f"{name} must be an integer (got {raw!r})")
+        return None
+
+
+def _parse_float(name: str, raw: str, errors: list[str]) -> float | None:
+    try:
+        return float(raw.strip())
+    except ValueError:
+        errors.append(f"{name} must be a number (got {raw!r})")
         return None
 
 

@@ -6,6 +6,7 @@ S13: evening diary poll (Tue/Thu).
 S7: Sunday Anki export poll (at evening_time or later).
 S10: nudge ladder + Sunday report (report before Anki for ceiling priority).
 S12: M13 fossil sweep on the monthly freeze poll (per-user local 1st).
+S18: heartbeat. S4c: off-site backup freshness.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -24,6 +26,7 @@ from app.handlers import reading as reading_handler
 from app.services import anki as anki_service
 from app.services import motivation as motivation_service
 from app.services.alerts import notify_operator
+from app.services import backup_freshness as backup_freshness_service
 from app.services.errors import run_monthly_fossil_sweep
 from app.services import heartbeat as heartbeat_service
 from app.services.sessions import (
@@ -51,6 +54,7 @@ POLL_SECONDS = 5 * 60
 STREAK_POLL_SECONDS = 15 * 60
 HEARTBEAT_POLL_SECONDS = 60 * 60
 HEARTBEAT_FIRST_SECONDS = 60
+BACKUP_FRESHNESS_FIRST_SECONDS = 90
 # Offset evening from morning within the same interval so a slow morning
 # LLM cannot land in APScheduler's misfire window for the evening tick.
 EVENING_FIRST_SECONDS = POLL_SECONDS // 2
@@ -75,6 +79,7 @@ _NUDGE_JOB = "nudge_poll"
 _STREAK_JOB = "streak_rollover"
 _FREEZE_JOB = "monthly_freeze_reset"
 _HEARTBEAT_JOB = "heartbeat"
+_BACKUP_FRESHNESS_JOB = "backup_freshness"
 
 
 def _touch_job_fire_success() -> None:
@@ -487,8 +492,59 @@ async def _heartbeat_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_heartbeat_check(context.application)
 
 
+async def run_backup_freshness_check(
+    application: Application,
+    *,
+    now: datetime | None = None,
+) -> str:
+    """Check newest off-site dump age; alert if stale. Does not touch heartbeat."""
+    instant = now or datetime.now(timezone.utc)
+    settings = load_settings()
+    directory = settings.backup_offsite_dir
+    status = backup_freshness_service.check_offsite_freshness(
+        directory,
+        now=instant,
+        max_age_hours=settings.backup_offsite_max_age_hours,
+    )
+    if status == "skipped":
+        return status
+    if status == "stale":
+        newest = None
+        if directory:
+            newest = backup_freshness_service.newest_offsite(
+                Path(directory)
+            )
+        if newest is None:
+            detail = "missing_or_empty"
+        else:
+            age_h = (instant - newest.mtime).total_seconds() / 3600.0
+            size_s = (
+                f" size={newest.size}" if newest.size is not None else ""
+            )
+            detail = (
+                f"newest={newest.name} mtime={newest.mtime.isoformat()}"
+                f"{size_s} age_h={age_h:.1f}"
+            )
+        await notify_operator(
+            application,
+            key="backup_offsite",
+            text=(
+                f"Off-site backup STALE: dir={directory} "
+                f"threshold_h={settings.backup_offsite_max_age_hours} "
+                f"({detail})"
+            ),
+            now=instant,
+        )
+        logger.error("Off-site backup stale dir=%s %s", directory, detail)
+    return status
+
+
+async def _backup_freshness_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await run_backup_freshness_check(context.application)
+
+
 def start_scheduler(application: Application) -> None:
-    """Register morning, evening, sunday report, anki, nudge, streak, freeze, heartbeat."""
+    """Register morning, evening, sunday report, anki, nudge, streak, freeze, heartbeat, backup_freshness."""
     jq = application.job_queue
     if jq is None:
         raise RuntimeError(
@@ -505,6 +561,7 @@ def start_scheduler(application: Application) -> None:
         _STREAK_JOB,
         _FREEZE_JOB,
         _HEARTBEAT_JOB,
+        _BACKUP_FRESHNESS_JOB,
     }
     for job in jq.jobs():
         if job.name in known:
@@ -566,11 +623,18 @@ def start_scheduler(application: Application) -> None:
         first=HEARTBEAT_FIRST_SECONDS,
         name=_HEARTBEAT_JOB,
     )
+    jq.run_repeating(
+        _backup_freshness_job,
+        interval=HEARTBEAT_POLL_SECONDS,
+        first=BACKUP_FRESHNESS_FIRST_SECONDS,
+        name=_BACKUP_FRESHNESS_JOB,
+    )
     logger.info(
-        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s,%s "
+        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s,%s,%s "
         "(poll every %ss; evening first=%ss; diary first=%ss; "
         "sunday_report first=%ss; anki first=%ss; nudge first=%ss; "
-        "streak/freeze every %ss; heartbeat every %ss)",
+        "streak/freeze every %ss; heartbeat every %ss; "
+        "backup_freshness first=%ss)",
         _MORNING_JOB,
         _EVENING_JOB,
         _DIARY_JOB,
@@ -580,6 +644,7 @@ def start_scheduler(application: Application) -> None:
         _STREAK_JOB,
         _FREEZE_JOB,
         _HEARTBEAT_JOB,
+        _BACKUP_FRESHNESS_JOB,
         POLL_SECONDS,
         EVENING_FIRST_SECONDS,
         DIARY_FIRST_SECONDS,
@@ -588,6 +653,7 @@ def start_scheduler(application: Application) -> None:
         NUDGE_FIRST_SECONDS,
         STREAK_POLL_SECONDS,
         HEARTBEAT_POLL_SECONDS,
+        BACKUP_FRESHNESS_FIRST_SECONDS,
     )
 
 
@@ -605,6 +671,7 @@ def stop_scheduler(application: Application | None = None) -> None:
         _STREAK_JOB,
         _FREEZE_JOB,
         _HEARTBEAT_JOB,
+        _BACKUP_FRESHNESS_JOB,
     }
     for job in application.job_queue.jobs():
         if job.name in known:

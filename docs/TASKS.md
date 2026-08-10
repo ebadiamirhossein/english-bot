@@ -65,9 +65,14 @@ After every slice, Cursor must update `BUILD_PROGRESS.md`.
 **→ Ship Phase 1. Use it for 14 days. Do not start Phase 2 unless it was used on at least 8 of those days.**
 
 ### S4b · Database backups
-**Build:** `scripts/backup.sh` — daily `pg_dump`, keep 14 local days, plus a weekly copy to independent off-server storage. The database is self-hosted on the Hetzner box with **no managed safety net**; this slice is the only protection for the error journal.
-**Accept:** a scheduled dump restores cleanly into an empty Postgres 16 database; the weekly off-server copy is present and non-empty.
+**Build:** `scripts/backup.sh` — daily `pg_dump`, keep 14 local days. Off-site copy to independent storage is S4c (daily after each successful dump). The database is self-hosted on the Hetzner box with **no managed safety net**; this slice is the only protection for the error journal.
+**Accept:** a scheduled dump restores cleanly into an empty Postgres 16 database.
 **When:** immediately after Phase 1 ships — before Phase 2.
+
+### S4c · Off-site backup + freshness alerting
+**Build:** After each successful local dump, copy to `BACKUP_OFFSITE_DIR` (verified size + checksum; keep 14; refuse repo / inside `BACKUP_DIR`; never mkdir the destination). iCloud eviction placeholders (`.english_bot_*.dump.icloud`) count as present for retention and freshness. In-process daily/hourly freshness check: newest off-site dump older than 48h (or missing/empty) → throttled operator alert via `notify_operator`. Unset `BACKUP_OFFSITE_DIR` → silent no-op.
+**Accept:** configured off-site path receives a verified copy after a successful dump; a deliberately stale/empty directory produces one throttled operator alert; unset path never alerts.
+**When:** immediately after S4b — before relying on a single machine.
 
 ---
 
@@ -149,7 +154,7 @@ Bot sends a 10–15s clip → user repeats → Whisper compares word-for-word �
 Both mine the same episode; bot cross-quizzes each on the other's chunks.
 
 ### S18 · Hardening
-`scripts/heartbeat.py` alerting if no job fired in 26h. Global exception handler messaging the operator. `/pause` and `/stats` commands. (Backups live in S4b.)
+`scripts/heartbeat.py` alerting if no job fired in 26h. Global exception handler messaging the operator. `/pause` and `/stats` commands. (Backups live in S4b/S4c.)
 
 ### S19 · Notion dashboard
 Weekly read-only sync: level, streak, chunks, resolved types, EF SET history.

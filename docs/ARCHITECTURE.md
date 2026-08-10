@@ -147,7 +147,8 @@ All registered in `scheduler.py`, all timezone-aware per user.
 | `sunday_report` | Sun evening (`evening_time`) | M7 progress report |
 | `monthly_reset` | 1st, 00:05 | freeze tokens → 2; M13 sweep |
 | `heartbeat` | hourly | alert operator if no job fired in 26h |
-| `backup` | daily 04:00 | `pg_dump` to local + off-server copy, keep 14 days |
+| `backup_freshness` | hourly | alert operator if newest off-site dump older than 48h (or missing); no-op if `BACKUP_OFFSITE_DIR` unset |
+| `backup` | daily 04:00 (cron) | `pg_dump` to local + off-site copy, keep 14 days each |
 
 ## 6. Error handling
 

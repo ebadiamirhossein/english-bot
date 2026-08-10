@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-10
-**Current slice:** S18a
-**Status:** S18a `/settings` editor code-complete — verify in Telegram; unrun checks remain on S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Current slice:** S4c
+**Status:** S4c off-site backup + freshness alerting code-complete — configure `BACKUP_OFFSITE_DIR` and verify a copy lands; unrun checks remain on S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -35,7 +35,8 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S3c | Quiz formats + register | ✅ done & verified | 2026-08-03 | Reorder→order; spoken register; one scenario. Verified live. |
 | S3d | Quiz feedback + format mix | ✅ done & verified | 2026-08-03 | Full-sentence feedback; 2 typed/3 tapped. Verified live. |
 | S4 | Streaks, freeze, rescue | ✅ done & verified | 2026-08-03 | 03:00 local rollover; freeze; rescue 3Q. Verified live. |
-| S4b | Database backups | ✅ done & verified | 2026-08-04 | pg_dump/restore scripts; restore verified; off-site stub. Verified live. |
+| S4b | Database backups | ✅ done & verified | 2026-08-04 | pg_dump/restore scripts; restore verified; off-site deferred to S4c. Verified live. |
+| S4c | Off-site backup + freshness | 🟡 code-complete | 2026-08-10 | Verified daily copy to `BACKUP_OFFSITE_DIR` (keep 14, iCloud placeholders); in-process 48h freshness alert. |
 | — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | Phase 1 slices verified; 14-day use gate still open |
 | S5 | Voice partner | 🟡 code-complete | 2026-08-04 | Whisper+TTS; voice sessions; Active>Missed. Unrun: mid-conversation restart. |
 | S5a | Voice processing status | 🟡 code-complete | 2026-08-04 | Repeating chat action + 3-stage status message. Unrun: never tested in Telegram. |
@@ -78,7 +79,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 | Whisper/TTS key | 🟡 | `OPENAI_API_KEY` + STT/TTS model env in config; optional at boot, required before first voice message |
 | YouTube Data API key (S9b) | ⬜ | — |
 | systemd unit | ⬜ | — |
-| Weekly pg_dump to independent storage | 🟡 | Daily local dump ✅ (`~/english-bot-backups`); weekly off-site copy still a stub (known issue #6) |
+| Weekly pg_dump to independent storage | 🟡 | Daily local dump ✅; S4c off-site mechanism ✅ — set `BACKUP_OFFSITE_DIR` and confirm a copy lands (known issue #6) |
 | User A onboarded | ✅ | `7222549221` — streaks, sessions, book units, calibration history |
 | User B onboarded | ⬜ | EF SET: — |
 | OPERATOR_TELEGRAM_ID | 🟡 | Tracked in `.env` / config (`Settings.operator_telegram_id`); set for S18 alerts |
@@ -91,6 +92,12 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-10 | S4c: **daily** off-site copy after each successful local dump (deviation from TASKS S4b "weekly") | More restore points; no separate weekly schedule to go wrong. TASKS S4b/S4c wording updated to match. |
+| 2026-08-10 | S4c: `BACKUP_OFFSITE_KEEP=14` (match local) | Off-site is the set that survives machine death; shorter than local would invert the disaster model and lose slow-corruption headroom. Storage is not the constraint. |
+| 2026-08-10 | S4c: iCloud `.english_bot_*.dump.icloud` placeholders count as **present** in freshness + retention | Optimise Mac Storage evicts cold dumps; ignoring placeholders cries wolf (alerts muted) and disables pruning. A placeholder means the file is safely in iCloud. |
+| 2026-08-10 | S4c: refuse `BACKUP_OFFSITE_DIR` inside / equal to `BACKUP_DIR` | Same-disk folder tree is not off-site — configuring that way is false confidence. |
+| 2026-08-10 | S4c: loud fail if off-site dir missing/unwritable — never `mkdir` | An unmounted drive or unsynced cloud folder must not silently write into a stub nobody mounted. |
+| 2026-08-10 | S4c: freshness threshold **48h**; in-process hourly check via `notify_operator` | One missed daily run still ok; two missed → alert. Same honesty as S18 heartbeat: detects stopped backup while the bot is alive; cannot detect anything if the bot is also down. Unset dir → silent no-op. |
 | 2026-08-10 | S18a: tapped-only `/settings` — **no MessageHandler**, no free-text states | A ConversationHandler with free-text state is the shape that twice consumed text ahead of correction and silently killed M2 (S3 OpenQuizFilter / book CH history). Tapped-only cannot do that; Agent-mode safe. Later free-text fields (`why_statement`, `work_domain`) take on that dispatch risk deliberately. |
 | 2026-08-10 | S18a: no `conversation_timeout` on the settings CH | Known issue #18 — timeout is a no-op under nested conversations (PTB warning on S6 book). Abandoned `/settings` is harmless: no text filter, `set:` cannot collide with `pause:`/`wiz:`/`int:`. Leaving it out is intentional, not an oversight. |
 | 2026-08-10 | S18a: fourth weight preset **Mostly everyday** 15/70/15 | S1's three presets (40/40/20, 60/25/15, 25/60/15) did not cover a real ask to lean hard into everyday life — user had to edit production SQL. |
@@ -323,7 +330,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 3 | Timezone not collected in S1; all users get schema default `Europe/Vilnius`. S20 (Generalize) must add timezone selection when location assumptions are removed. | medium | S1 → S20 | ⬜ open — assumption recorded |
 | 4 | System prompt was under Anthropic Sonnet cache minimum (~1024). Fixed by adding two worked examples; live verify: call2 `cache_read=1641`. | low | S2 | ✅ closed — 2026-08-03 |
 | 5 | Chat-message UI has reached its design ceiling; a Telegram Mini App is the real answer for quiz UX — revisit after the 14-day usage gate, sharing design work with S23. | medium | S3d → post-gate / S23 | ⬜ open |
-| 6 | S4b off-site weekly copy is a stub (`offsite_copy_stub` in `scripts/backup.sh`). Local 14-day dumps exist; independent storage (rsync / rclone / manual) is not automated yet. Wire before relying on the Hetzner box alone. | high | S4b | ⬜ open |
+| 6 | S4c off-site mechanism exists (verified copy + 48h freshness alert) but stays open until a human sets `BACKUP_OFFSITE_DIR` and confirms a file lands. Freshness is in-process only (bot down → no alert). iCloud Optimise Mac Storage may replace dumps with `.….icloud` placeholders — counted as present; prefer turning Optimise off for that folder, or expect placeholders. | high | S4c | ⬜ open — mechanism ready; configure dest |
 | 7 | Morning quiz LLM blocked the event loop (~17s); APScheduler skipped that tick's evening reading poll (jobs first=10/15). | high | S9a | ✅ closed — 2026-08-06 (`asyncio.to_thread` + mid-interval evening offset) |
 | 8 | S6 per-batch vision cost unmeasured — record observed cost from the first real 10–20 page run | medium | S6 | ⬜ open |
 | 9 | S6 OCR accuracy on real Murphy pages unverified until a clean single-page batch succeeds (first live run failed on JSON shape before accuracy could be judged) | medium | S6 | ✅ closed — 2026-08-09 (clean 10-page OCR batch with valid `target_items`) |
@@ -353,7 +360,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | Path | Purpose | Status |
 |---|---|---|
 | `.cursorrules` | Project constitution for every slice | ✅ |
-| `.env.example` | Dummy env keys + session-pooler + LLM + Whisper/TTS + S18 operator/runtime keys | ✅ |
+| `.env.example` | Dummy env keys + session-pooler + LLM + Whisper/TTS + S18 operator/runtime + S4c `BACKUP_OFFSITE_DIR` | ✅ |
 | `.gitignore` | Ignores `.env`, venv, pycache, pytest | ✅ |
 | `requirements.txt` | ptb[job-queue], psycopg, dotenv, pytest, anthropic, openai | ✅ |
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
@@ -380,11 +387,11 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `migrations/003_streaks.sql` | last_evaluated_date, freeze_reset_on, pending_freeze_notice | ✅ |
 | `migrations/004_chunk_review.sql` | chunks next_review / times_right / times_wrong / streak_right + due index (S7a) | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
-| `app/config.py` | Env → frozen `Settings` (+ LLM/STT/TTS + `DIARY_MAX_SECONDS` + S18 runtime) | ✅ |
+| `app/config.py` | Env → frozen `Settings` (+ LLM/STT/TTS + `DIARY_MAX_SECONDS` + S18 runtime + S4c `BACKUP_OFFSITE_DIR`) | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
-| `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/streak/freeze + M13 + heartbeat | ✅ |
+| `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/streak/freeze + M13 + heartbeat + backup_freshness | ✅ |
 | `app/texts.py` | User-facing strings + S1d–S18a + S15/S13/S14/S16 + S7a QUIZ_CHUNK_LABEL / STATS due | ✅ |
 | `app/main.py` | Entrypoint; flock; rotating log; error handler; `/prep`; `/diary`; `/shadow`; capture; `/settings` `/pause` `/stats`; scheduler | ✅ |
 | `app/handlers/shadow.py` | `/shadow` + retry callback + voice processing (S16); never errors; transcript discarded | ✅ |
@@ -397,10 +404,12 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/instance_lock.py` | `fcntl.flock` single-instance guard (S18) | ✅ |
 | `app/services/alerts.py` | File-backed throttle + `notify_operator` + `on_error` (S18) | ✅ |
 | `app/services/heartbeat.py` | last_job_fire touch/check helpers (S18) | ✅ |
+| `app/services/backup_freshness.py` | Off-site newest dump / iCloud placeholder freshness (S4c) | ✅ |
 | `app/services/stats.py` | Read-only `/stats` assembly; due-chunk count (S18/S7a); learner omits sweep | ✅ |
 | `app/handlers/settings.py` | `/settings` tapped-only editor (S18a) + `/pause` + `/stats` (S18); orphan `set:` stale degrade | ✅ |
 | `scripts/heartbeat.py` | CLI stale check for future external cron (S18) | ✅ |
 | `tests/test_hardening.py` | Alerts/throttle/heartbeat/lock/log privacy/pause/stats/Missed pin (S18) | ✅ |
+| `tests/test_backup_offsite.py` | Off-site copy verify/refuse/retention/placeholders + freshness throttle (S4c) | ✅ |
 | `tests/test_settings_editor.py` | S18a weight/time/fallback writes, stale degrade, labels, no MessageHandler, scoped writes | ✅ |
 | `app/services/calibration.py` | M14 window; prefers payload calib_* (excludes chunk answers); excludes book_test + weekly_test + shadow | ✅ |
 | `app/handlers/nudge.py` | Tap-only `nudge:short:` early-limit callbacks; Murphy append on weekly early-complete (S10/S11) | ✅ |
@@ -470,8 +479,23 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_fossilization.py` | S12 M13 sweep queue, un-resolve, resolved_at untouched, rescue skip, no marker leak, resolved_types | ✅ |
 | `tests/test_weekly.py` | S11 Sun 15 / Mon 5 / rescue 3; spread select; top-up; free_practice; mark_result; early_limit; Anki Sat; ceiling 2; Murphy; labels | ✅ |
 | `specs/S5a-voice-status.md` | S5a voice processing status | ✅ |
-| `scripts/backup.sh` | Daily pg_dump (−Fc), 14-day retain, off-site stub | ✅ |
+| `scripts/backup.sh` | Daily pg_dump (−Fc), 14-day local retain, verified off-site copy (S4c) | ✅ |
 | `scripts/restore.sh` | Restore into scratch DB; `--force` for live | ✅ |
+
+### S4c off-site destination options
+
+Set in `.env` (directory must already exist and be writable — the script never creates it):
+
+```
+BACKUP_OFFSITE_DIR=/absolute/path/to/existing/folder
+```
+
+1. **Cloud-synced folder** (zero-credential on this Mac) — iCloud Drive / Dropbox / Google Drive desktop. Script writes a file; the sync client moves it off-machine.
+   - **iCloud:** turn off "Optimise Mac Storage" for that folder/machine, or expect `.english_bot_*.dump.icloud` placeholders. Freshness and retention treat placeholders as present (healthy). Dropbox / Google Drive have equivalent selective-sync / online-only behaviour.
+2. **`rsync`** to a second host (Hetzner-era): e.g. `rsync -av ~/english-bot-backups/ user@offsite:/path/`.
+3. **`rclone`** to object storage (Hetzner-era): e.g. `rclone copy ~/english-bot-backups remote:bucket/`.
+
+No cloud SDK or credentials live in this repo.
 
 **Operator log tail (S18):** `tail -f ~/english-bot-runtime/bot.log`
 
@@ -491,6 +515,9 @@ Do not start S8 / S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S4c** — set `BACKUP_OFFSITE_DIR` to an existing writable folder outside the repo and outside `BACKUP_DIR`; run `scripts/backup.sh`; confirm a matching-size `english_bot_*.dump` lands in the off-site dir
+- [ ] **S4c** — with the bot running and `BACKUP_OFFSITE_DIR` set to a deliberately empty or aged directory → one operator alert; repeat within 15 min → throttled (no flood)
+- [ ] **S4c** — unset `BACKUP_OFFSITE_DIR` → backup still succeeds locally; no freshness alert
 - [ ] **S18a** — `/settings` shows current mix, times, fallback, read-only level + `/stats`, and `/interests` + `/pause` lines
 - [ ] **S18a** — Mix → Mostly everyday → confirmation says applies from next quiz/reading; next quiz track mix leans life
 - [ ] **S18a** — Morning → 07:00 and Evening → 19:00 round-trip; restart bot and tap Mix on old panel → warm stale line, no crash
