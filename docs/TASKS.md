@@ -70,7 +70,7 @@ After every slice, Cursor must update `BUILD_PROGRESS.md`.
 **When:** immediately after Phase 1 ships — before Phase 2.
 
 ### S4c · Off-site backup + freshness alerting
-**Build:** After each successful local dump, copy to `BACKUP_OFFSITE_DIR` (verified size + checksum; keep 14; refuse repo / inside `BACKUP_DIR`; never mkdir the destination). iCloud eviction placeholders (`.english_bot_*.dump.icloud`) count as present for retention and freshness. In-process daily/hourly freshness check: newest off-site dump older than 48h (or missing/empty) → throttled operator alert via `notify_operator`. Unset `BACKUP_OFFSITE_DIR` → silent no-op.
+**Build:** After each successful local dump, copy to `BACKUP_OFFSITE_DIR` (verified size + checksum; keep 14; refuse repo / inside `BACKUP_DIR`; never mkdir the destination). iCloud eviction placeholders (`.english_bot_*.dump.icloud`) count as present for retention and freshness. In-process daily/hourly freshness check: newest off-site dump older than 48h (or missing/empty) → throttled operator alert via `notify_operator`. Unset `BACKUP_OFFSITE_DIR` → INFO skip in `backup.sh` (`off-site copy skipped …`); no freshness alert.
 **Accept:** configured off-site path receives a verified copy after a successful dump; a deliberately stale/empty directory produces one throttled operator alert; unset path never alerts.
 **When:** immediately after S4b — before relying on a single machine.
 

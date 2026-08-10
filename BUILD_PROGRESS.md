@@ -7,7 +7,7 @@
 **Repo:** `english-bot`
 **Last updated:** 2026-08-10
 **Current slice:** S4c
-**Status:** S4c off-site backup + freshness alerting code-complete — configure `BACKUP_OFFSITE_DIR` and verify a copy lands; unrun checks remain on S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Status:** S4c off-site backup + freshness alerting code-complete — `.env` load for `BACKUP_OFFSITE_DIR` fixed; confirm cron/`.env` copy lands (known issue #6); unrun checks remain on S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -36,7 +36,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S3d | Quiz feedback + format mix | ✅ done & verified | 2026-08-03 | Full-sentence feedback; 2 typed/3 tapped. Verified live. |
 | S4 | Streaks, freeze, rescue | ✅ done & verified | 2026-08-03 | 03:00 local rollover; freeze; rescue 3Q. Verified live. |
 | S4b | Database backups | ✅ done & verified | 2026-08-04 | pg_dump/restore scripts; restore verified; off-site deferred to S4c. Verified live. |
-| S4c | Off-site backup + freshness | 🟡 code-complete | 2026-08-10 | Verified daily copy to `BACKUP_OFFSITE_DIR` (keep 14, iCloud placeholders); in-process 48h freshness alert. |
+| S4c | Off-site backup + freshness | 🟡 code-complete | 2026-08-10 | Verified daily copy to `BACKUP_OFFSITE_DIR` (keep 14, iCloud placeholders); in-process 48h freshness alert. **2026-08-10 fix:** `backup.sh` now reads `BACKUP_DIR` / `BACKUP_OFFSITE_*` from `.env` (was env-only; silent skip when set only in `.env`). |
 | — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | Phase 1 slices verified; 14-day use gate still open |
 | S5 | Voice partner | 🟡 code-complete | 2026-08-04 | Whisper+TTS; voice sessions; Active>Missed. Unrun: mid-conversation restart. |
 | S5a | Voice processing status | 🟡 code-complete | 2026-08-04 | Repeating chat action + 3-stage status message. Unrun: never tested in Telegram. |
@@ -79,7 +79,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 | Whisper/TTS key | 🟡 | `OPENAI_API_KEY` + STT/TTS model env in config; optional at boot, required before first voice message |
 | YouTube Data API key (S9b) | ⬜ | — |
 | systemd unit | ⬜ | — |
-| Weekly pg_dump to independent storage | 🟡 | Daily local dump ✅; S4c off-site mechanism ✅ — set `BACKUP_OFFSITE_DIR` and confirm a copy lands (known issue #6) |
+| Weekly pg_dump to independent storage | 🟡 | Daily local dump ✅; S4c off-site mechanism ✅; `.env` load fixed — confirm copy via `.env`/cron (known issue #6) |
 | User A onboarded | ✅ | `7222549221` — streaks, sessions, book units, calibration history |
 | User B onboarded | ⬜ | EF SET: — |
 | OPERATOR_TELEGRAM_ID | 🟡 | Tracked in `.env` / config (`Settings.operator_telegram_id`); set for S18 alerts |
@@ -92,6 +92,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-10 | S4c: INFO log when off-site skipped because `BACKUP_OFFSITE_DIR` unset (`off-site copy skipped …`) | Silent skip hid a misconfiguration (`.env` unread) for three runs; one INFO line distinguishes "not configured" from "configured but broken". Still no nag for operators who have not opted in. |
 | 2026-08-10 | S4c: **daily** off-site copy after each successful local dump (deviation from TASKS S4b "weekly") | More restore points; no separate weekly schedule to go wrong. TASKS S4b/S4c wording updated to match. |
 | 2026-08-10 | S4c: `BACKUP_OFFSITE_KEEP=14` (match local) | Off-site is the set that survives machine death; shorter than local would invert the disaster model and lose slow-corruption headroom. Storage is not the constraint. |
 | 2026-08-10 | S4c: iCloud `.english_bot_*.dump.icloud` placeholders count as **present** in freshness + retention | Optimise Mac Storage evicts cold dumps; ignoring placeholders cries wolf (alerts muted) and disables pruning. A placeholder means the file is safely in iCloud. |
@@ -330,7 +331,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 3 | Timezone not collected in S1; all users get schema default `Europe/Vilnius`. S20 (Generalize) must add timezone selection when location assumptions are removed. | medium | S1 → S20 | ⬜ open — assumption recorded |
 | 4 | System prompt was under Anthropic Sonnet cache minimum (~1024). Fixed by adding two worked examples; live verify: call2 `cache_read=1641`. | low | S2 | ✅ closed — 2026-08-03 |
 | 5 | Chat-message UI has reached its design ceiling; a Telegram Mini App is the real answer for quiz UX — revisit after the 14-day usage gate, sharing design work with S23. | medium | S3d → post-gate / S23 | ⬜ open |
-| 6 | S4c off-site mechanism exists (verified copy + 48h freshness alert) but stays open until a human sets `BACKUP_OFFSITE_DIR` and confirms a file lands. Freshness is in-process only (bot down → no alert). iCloud Optimise Mac Storage may replace dumps with `.….icloud` placeholders — counted as present; prefer turning Optimise off for that folder, or expect placeholders. | high | S4c | ⬜ open — mechanism ready; configure dest |
+| 6 | S4c off-site mechanism exists (verified copy + 48h freshness alert). Human configured `BACKUP_OFFSITE_DIR` to a Google Drive path; verified copy landed off-machine (`size=38564`, sha256 confirmed) via **environment-variable workaround** while `.env` was unread. `.env` load fixed 2026-08-10 — closes once the same works from `.env` and the daily cron run produces a copy without manual intervention. Freshness is in-process only (bot down → no alert). iCloud Optimise Mac Storage may replace dumps with `.….icloud` placeholders — counted as present; prefer turning Optimise off for that folder, or expect placeholders. | high | S4c | ⬜ open — `.env` fix landed; confirm cron/`.env` path |
 | 7 | Morning quiz LLM blocked the event loop (~17s); APScheduler skipped that tick's evening reading poll (jobs first=10/15). | high | S9a | ✅ closed — 2026-08-06 (`asyncio.to_thread` + mid-interval evening offset) |
 | 8 | S6 per-batch vision cost unmeasured — record observed cost from the first real 10–20 page run | medium | S6 | ⬜ open |
 | 9 | S6 OCR accuracy on real Murphy pages unverified until a clean single-page batch succeeds (first live run failed on JSON shape before accuracy could be judged) | medium | S6 | ✅ closed — 2026-08-09 (clean 10-page OCR batch with valid `target_items`) |
@@ -350,6 +351,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 22 | S15 text-only: forwarded photos / captions (PRD “a sign”) out of scope — needs a vision path; candidate follow-up. | medium | S15 | ⬜ open — deliberate exclusion |
 | 23 | S15 self-forward → capture, not M2. `forward_origin` cannot reliably detect self (`MessageOriginHiddenUser`). Workaround: paste own English as plain text (reply hint). Guessing wrong would journal someone else’s sentences. | medium | S15 | ⬜ open — by design |
 | 25 | S18a: `why_statement` and `work_domain` remain uneditable from Telegram. Deliberate omission — free-text ConversationHandler states are the dispatch shape that killed M2; tapped-only editor excludes them until a later slice accepts that risk. | low | S18a | ⬜ open — deliberate omission |
+| 26 | S4c: `backup.sh` never read `BACKUP_OFFSITE_DIR` / `BACKUP_DIR` from `.env` — only `DATABASE_URL` was grepped; backup keys came solely from the process environment. Configured-in-`.env` → silent skip (looked unset). Tests missed it: all 18 passed `BACKUP_OFFSITE_DIR` as a real env var to the subprocess, never exercising the `.env` path (same shape as the prefill regression). Fixed 2026-08-10: `env_file_get` + `apply_dotenv_backup_vars` (real env wins; quoted/unquoted; spaces); INFO when skip; regression tests write a temp `.env` with a space in the path. **Standing lesson: shell configuration must be tested through `.env`, not only through environment variables passed by the test harness.** | high | S4c | ✅ closed — 2026-08-10 |
 
 ---
 
@@ -409,7 +411,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/handlers/settings.py` | `/settings` tapped-only editor (S18a) + `/pause` + `/stats` (S18); orphan `set:` stale degrade | ✅ |
 | `scripts/heartbeat.py` | CLI stale check for future external cron (S18) | ✅ |
 | `tests/test_hardening.py` | Alerts/throttle/heartbeat/lock/log privacy/pause/stats/Missed pin (S18) | ✅ |
-| `tests/test_backup_offsite.py` | Off-site copy verify/refuse/retention/placeholders + freshness throttle (S4c) | ✅ |
+| `tests/test_backup_offsite.py` | Off-site copy verify/refuse/retention/placeholders + freshness throttle + `.env` load (S4c) | ✅ |
 | `tests/test_settings_editor.py` | S18a weight/time/fallback writes, stale degrade, labels, no MessageHandler, scoped writes | ✅ |
 | `app/services/calibration.py` | M14 window; prefers payload calib_* (excludes chunk answers); excludes book_test + weekly_test + shadow | ✅ |
 | `app/handlers/nudge.py` | Tap-only `nudge:short:` early-limit callbacks; Murphy append on weekly early-complete (S10/S11) | ✅ |
@@ -479,7 +481,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_fossilization.py` | S12 M13 sweep queue, un-resolve, resolved_at untouched, rescue skip, no marker leak, resolved_types | ✅ |
 | `tests/test_weekly.py` | S11 Sun 15 / Mon 5 / rescue 3; spread select; top-up; free_practice; mark_result; early_limit; Anki Sat; ceiling 2; Murphy; labels | ✅ |
 | `specs/S5a-voice-status.md` | S5a voice processing status | ✅ |
-| `scripts/backup.sh` | Daily pg_dump (−Fc), 14-day local retain, verified off-site copy (S4c) | ✅ |
+| `scripts/backup.sh` | Daily pg_dump (−Fc), 14-day local retain, verified off-site copy (S4c); loads `BACKUP_*` from `.env` | ✅ |
 | `scripts/restore.sh` | Restore into scratch DB; `--force` for live | ✅ |
 
 ### S4c off-site destination options
@@ -515,9 +517,9 @@ Do not start S8 / S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
-- [ ] **S4c** — set `BACKUP_OFFSITE_DIR` to an existing writable folder outside the repo and outside `BACKUP_DIR`; run `scripts/backup.sh`; confirm a matching-size `english_bot_*.dump` lands in the off-site dir
+- [ ] **S4c** — set `BACKUP_OFFSITE_DIR` in `.env` (quoted path with spaces ok) to an existing writable folder outside the repo and outside `BACKUP_DIR`; run `bash scripts/backup.sh` **without** exporting the var; confirm a matching-size `english_bot_*.dump` lands in the off-site dir
 - [ ] **S4c** — with the bot running and `BACKUP_OFFSITE_DIR` set to a deliberately empty or aged directory → one operator alert; repeat within 15 min → throttled (no flood)
-- [ ] **S4c** — unset `BACKUP_OFFSITE_DIR` → backup still succeeds locally; no freshness alert
+- [ ] **S4c** — unset / empty `BACKUP_OFFSITE_DIR` → backup still succeeds locally; log shows `off-site copy skipped (BACKUP_OFFSITE_DIR not set)`; no freshness alert
 - [ ] **S18a** — `/settings` shows current mix, times, fallback, read-only level + `/stats`, and `/interests` + `/pause` lines
 - [ ] **S18a** — Mix → Mostly everyday → confirmation says applies from next quiz/reading; next quiz track mix leans life
 - [ ] **S18a** — Morning → 07:00 and Evening → 19:00 round-trip; restart bot and tap Mix on old panel → warm stale line, no crash

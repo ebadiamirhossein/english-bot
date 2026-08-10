@@ -264,7 +264,7 @@ def test_stale_partial_cleaned_at_start(tmp_path: Path) -> None:
     assert (offsite / dump.name).is_file()
 
 
-def test_unset_offsite_is_silent_skip(tmp_path: Path) -> None:
+def test_unset_offsite_skips_with_info(tmp_path: Path) -> None:
     local = tmp_path / "local"
     local.mkdir()
     dump = _write_fake_dump(local / "english_bot_2026-08-10_0400.dump")
@@ -274,7 +274,174 @@ def test_unset_offsite_is_silent_skip(tmp_path: Path) -> None:
     }
     result = _source_call(f'offsite_copy "{dump}"', env=env)
     assert result.returncode == 0, result.stderr
-    assert "OFFSITE" not in result.stderr
+    assert "off-site copy skipped (BACKUP_OFFSITE_DIR not set)" in result.stderr
+    assert "OFFSITE SUCCESS" not in result.stderr
+
+
+def _fake_pg_dump_bin(bin_dir: Path) -> Path:
+    """Write a pg_dump stub that emits a dump above the size floor."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    fake_pg = bin_dir / "pg_dump"
+    fake_pg.write_text(
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            outfile=""
+            while [[ $# -gt 0 ]]; do
+              if [[ "$1" == "-f" ]]; then
+                outfile="$2"
+                shift 2
+                continue
+              fi
+              shift
+            done
+            python3 -c "import pathlib; pathlib.Path('$outfile').write_bytes(b'x' * {MIN_BYTES + 64})"
+            """
+        ),
+        encoding="utf-8",
+    )
+    fake_pg.chmod(fake_pg.stat().st_mode | stat.S_IXUSR)
+    return fake_pg
+
+
+def _env_without_backup_keys(base: dict[str, str]) -> dict[str, str]:
+    """Build a subprocess env where BACKUP_* come only from ENV_FILE, not the harness."""
+    full = os.environ.copy()
+    for key in (
+        "BACKUP_DIR",
+        "BACKUP_OFFSITE_DIR",
+        "BACKUP_OFFSITE_KEEP",
+        "DATABASE_URL",
+    ):
+        full.pop(key, None)
+    full.update(base)
+    return full
+
+
+def test_backup_vars_loaded_from_env_file_quoted_with_spaces(
+    tmp_path: Path,
+) -> None:
+    """Regression: production configures via .env; env-only tests missed that path."""
+    local = tmp_path / "local backups"
+    offsite = tmp_path / "My Drive" / "english-bot-backups"
+    local.mkdir()
+    offsite.mkdir(parents=True)
+    env_file = tmp_path / ".env"
+    # Quoted path with a space — matches Google Drive "My Drive".
+    env_file.write_text(
+        textwrap.dedent(
+            f"""\
+            # comment should be ignored
+            DATABASE_URL=postgresql://u:p@127.0.0.1:5433/english_bot
+
+            BACKUP_DIR="{local}"
+            BACKUP_OFFSITE_DIR="{offsite}"
+            BACKUP_OFFSITE_KEEP=14
+            """
+        ),
+        encoding="utf-8",
+    )
+    bin_dir = tmp_path / "bin"
+    _fake_pg_dump_bin(bin_dir)
+    env = _env_without_backup_keys(
+        {
+            "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
+            "ENV_FILE": str(env_file),
+        }
+    )
+    result = subprocess.run(
+        ["bash", str(BACKUP_SH)],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(REPO_ROOT),
+    )
+    assert result.returncode == 0, result.stderr
+    dumps = list(offsite.glob("english_bot_*.dump"))
+    assert len(dumps) == 1
+    assert dumps[0].stat().st_size >= MIN_BYTES
+    assert "OFFSITE SUCCESS" in result.stderr
+    local_dumps = list(local.glob("english_bot_*.dump"))
+    assert len(local_dumps) == 1
+
+
+def test_backup_vars_loaded_from_env_file_unquoted_with_spaces(
+    tmp_path: Path,
+) -> None:
+    """Unquoted path with a space must work (not silent-skip)."""
+    local = tmp_path / "local"
+    offsite = tmp_path / "My Drive" / "english-bot-backups"
+    local.mkdir()
+    offsite.mkdir(parents=True)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        textwrap.dedent(
+            f"""\
+            DATABASE_URL=postgresql://u:p@127.0.0.1:5433/english_bot
+            BACKUP_DIR={local}
+            BACKUP_OFFSITE_DIR={offsite}
+            """
+        ),
+        encoding="utf-8",
+    )
+    bin_dir = tmp_path / "bin"
+    _fake_pg_dump_bin(bin_dir)
+    env = _env_without_backup_keys(
+        {
+            "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
+            "ENV_FILE": str(env_file),
+        }
+    )
+    result = subprocess.run(
+        ["bash", str(BACKUP_SH)],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(REPO_ROOT),
+    )
+    assert result.returncode == 0, result.stderr
+    assert list(offsite.glob("english_bot_*.dump")), result.stderr
+    assert "OFFSITE SUCCESS" in result.stderr
+
+
+def test_real_env_wins_over_env_file(tmp_path: Path) -> None:
+    local = tmp_path / "local"
+    offsite_env = tmp_path / "offsite-from-env"
+    offsite_file = tmp_path / "offsite-from-file"
+    local.mkdir()
+    offsite_env.mkdir()
+    offsite_file.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        textwrap.dedent(
+            f"""\
+            DATABASE_URL=postgresql://u:p@127.0.0.1:5433/english_bot
+            BACKUP_DIR={local}
+            BACKUP_OFFSITE_DIR={offsite_file}
+            """
+        ),
+        encoding="utf-8",
+    )
+    bin_dir = tmp_path / "bin"
+    _fake_pg_dump_bin(bin_dir)
+    env = _env_without_backup_keys(
+        {
+            "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
+            "ENV_FILE": str(env_file),
+            "BACKUP_DIR": str(local),
+            "BACKUP_OFFSITE_DIR": str(offsite_env),
+        }
+    )
+    result = subprocess.run(
+        ["bash", str(BACKUP_SH)],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(REPO_ROOT),
+    )
+    assert result.returncode == 0, result.stderr
+    assert list(offsite_env.glob("english_bot_*.dump"))
+    assert list(offsite_file.glob("english_bot_*.dump")) == []
 
 
 # --- Python freshness ---------------------------------------------------------

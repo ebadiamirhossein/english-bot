@@ -5,15 +5,22 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ENV_FILE="${REPO_ROOT}/.env"
+# Override for tests; production uses repo-root .env.
+ENV_FILE="${ENV_FILE:-${REPO_ROOT}/.env}"
 
-BACKUP_DIR="${BACKUP_DIR:-${HOME}/english-bot-backups}"
 KEEP_DAYS="${KEEP_DAYS:-14}"
 MIN_BYTES="${MIN_BYTES:-10240}"  # 10 KB sanity floor
 LIVE_DB_NAME="english_bot"
-# S4c — empty means skip off-site entirely (silent).
+
+# Track which backup keys the real environment already provided (even if empty).
+# Real env wins over .env; unset → fall through to .env → defaults.
+_ENV_HAS_BACKUP_DIR="${BACKUP_DIR+y}"
+_ENV_HAS_BACKUP_OFFSITE_DIR="${BACKUP_OFFSITE_DIR+y}"
+_ENV_HAS_BACKUP_OFFSITE_KEEP="${BACKUP_OFFSITE_KEEP+y}"
+BACKUP_DIR="${BACKUP_DIR:-}"
+# S4c — empty means skip off-site (INFO line, not silent).
 BACKUP_OFFSITE_DIR="${BACKUP_OFFSITE_DIR:-}"
-BACKUP_OFFSITE_KEEP="${BACKUP_OFFSITE_KEEP:-14}"
+BACKUP_OFFSITE_KEEP="${BACKUP_OFFSITE_KEEP:-}"
 
 log() {
   local msg="$*"
@@ -128,20 +135,68 @@ offsite_stamp_key() {
   echo "${base}"
 }
 
+# Read KEY from ENV_FILE. Last matching assignment wins. Handles quoted and
+# unquoted values (unquoted may contain spaces — full rest of line after =).
+# Ignores blank lines and full-line comments. Returns 1 if key absent/empty file.
+env_file_get() {
+  local key="$1"
+  local line raw
+  [[ -f "${ENV_FILE}" ]] || return 1
+  line="$(grep -E "^[[:space:]]*${key}=" "${ENV_FILE}" | tail -n1 || true)"
+  [[ -n "${line}" ]] || return 1
+  raw="${line#*=}"
+  # Trim leading whitespace.
+  raw="${raw#"${raw%%[![:space:]]*}"}"
+  if [[ "${raw}" == \"*\" ]]; then
+    raw="${raw#\"}"
+    raw="${raw%\"}"
+  elif [[ "${raw}" == \'*\' ]]; then
+    raw="${raw#\'}"
+    raw="${raw%\'}"
+  else
+    # Unquoted: strip trailing inline comment (" # …") and trailing whitespace.
+    if [[ "${raw}" == *" #"* ]]; then
+      raw="${raw%% #*}"
+    fi
+    raw="${raw%"${raw##*[![:space:]]}"}"
+  fi
+  printf '%s' "${raw}"
+  return 0
+}
+
+# Fill BACKUP_DIR / BACKUP_OFFSITE_* from .env when not set in the real environment.
+# Precedence: real env → .env → defaults. Call before any use of BACKUP_DIR.
+apply_dotenv_backup_vars() {
+  local v
+  if [[ -z "${_ENV_HAS_BACKUP_DIR}" ]]; then
+    if v="$(env_file_get BACKUP_DIR)" && [[ -n "${v}" ]]; then
+      BACKUP_DIR="${v}"
+    fi
+  fi
+  if [[ -z "${_ENV_HAS_BACKUP_OFFSITE_DIR}" ]]; then
+    if v="$(env_file_get BACKUP_OFFSITE_DIR)"; then
+      BACKUP_OFFSITE_DIR="${v}"
+    fi
+  fi
+  if [[ -z "${_ENV_HAS_BACKUP_OFFSITE_KEEP}" ]]; then
+    if v="$(env_file_get BACKUP_OFFSITE_KEEP)" && [[ -n "${v}" ]]; then
+      BACKUP_OFFSITE_KEEP="${v}"
+    fi
+  fi
+  BACKUP_DIR="${BACKUP_DIR:-${HOME}/english-bot-backups}"
+  BACKUP_OFFSITE_DIR="${BACKUP_OFFSITE_DIR:-}"
+  BACKUP_OFFSITE_KEEP="${BACKUP_OFFSITE_KEEP:-14}"
+}
+
 load_database_url() {
   if [[ -n "${DATABASE_URL:-}" ]]; then
     log "Using DATABASE_URL from environment"
     return
   fi
   [[ -f "${ENV_FILE}" ]] || die ".env not found at ${ENV_FILE}"
-  local line
-  line="$(grep -E '^[[:space:]]*DATABASE_URL=' "${ENV_FILE}" | tail -n1 || true)"
-  [[ -n "${line}" ]] || die "DATABASE_URL not set in ${ENV_FILE}"
-  DATABASE_URL="${line#*=}"
-  DATABASE_URL="${DATABASE_URL%\"}"
-  DATABASE_URL="${DATABASE_URL#\"}"
-  DATABASE_URL="${DATABASE_URL%\'}"
-  DATABASE_URL="${DATABASE_URL#\'}"
+  local value
+  value="$(env_file_get DATABASE_URL)" || die "DATABASE_URL not set in ${ENV_FILE}"
+  DATABASE_URL="${value}"
   [[ -n "${DATABASE_URL}" ]] || die "DATABASE_URL is empty"
 }
 
@@ -256,6 +311,7 @@ offsite_copy() {
   local dump_base dest partial size src_hash dest_hash
 
   if [[ -z "${BACKUP_OFFSITE_DIR}" ]]; then
+    log "off-site copy skipped (BACKUP_OFFSITE_DIR not set)"
     return 0
   fi
 
@@ -319,6 +375,7 @@ prune_old_dumps() {
 main() {
   require_cmd pg_dump
   require_cmd tee
+  apply_dotenv_backup_vars
   assert_backup_dir_outside_repo
   load_database_url
   parse_database_url
@@ -351,6 +408,10 @@ main() {
   offsite_copy "${outfile}"
   echo "${outfile}"
 }
+
+# Fill .env + defaults for sourced unit tests that skip main().
+# main() also calls this (idempotent given _ENV_HAS_* capture at load).
+apply_dotenv_backup_vars
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   main "$@"
