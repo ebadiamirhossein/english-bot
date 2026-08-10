@@ -8,7 +8,7 @@ import json
 import logging
 import re
 import string
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -28,8 +28,10 @@ from app.db import connection
 from app.handlers.correction import error_type_list_text
 from app.handlers.onboarding import layout_buttons
 from app.llm import LLMError, chat
+from app.services.anki import make_sentence_with_gap
 from app.services.books import select_topup_items, studied_murphy_unit_numbers
 from app.services.calibration import deliver_raise_notice, maybe_calibrate
+from app.services.chunks import Chunk, due_chunks, mark_chunk_result
 from app.services.errors import (
     Error,
     due_errors,
@@ -69,6 +71,7 @@ _prompt_template: str | None = None
 _error_labels: dict[str, str] = {}
 
 _APOSTROPHES = ("'", "\u2019", "\u2018", "`", "´")
+_ARTICLES = frozenset({"a", "an", "the"})
 _VALID_FORMATS = frozenset({"gap", "choice", "spot", "order"})
 _TRACKS = ("work", "life", "curiosity")
 
@@ -147,6 +150,29 @@ def grade_answer(raw: str, accept: list[str]) -> bool:
     normalised = normalize_answer(raw)
     accepted = {normalize_answer(a) for a in accept}
     return normalised in accepted
+
+
+def _tokens_without_articles(text: str) -> list[str]:
+    """Normalise, then drop a/an/the — used only for chunk phrase grading."""
+    return [
+        tok
+        for tok in normalize_answer(text).split()
+        if tok and tok not in _ARTICLES
+    ]
+
+
+def grade_chunk_answer(raw: str, accept: list[str]) -> bool:
+    """Article-tolerant phrase match for chunk gaps (S7a).
+
+    Exact content-word sequence after dropping articles. No fuzzy overlap.
+    """
+    raw_toks = _tokens_without_articles(raw)
+    if not raw_toks:
+        return False
+    for candidate in accept:
+        if raw_toks == _tokens_without_articles(str(candidate)):
+            return True
+    return False
 
 
 def grade_spot(tapped: str, answer: str) -> bool:
@@ -365,6 +391,91 @@ def plan_formats(n: int) -> list[str]:
         out.append(cand)
         ti += 1
     return out
+
+
+def _plan_formats_with_gap_count(n: int, n_gap: int) -> list[str]:
+    """Assign formats for ``n`` slots with exactly ``n_gap`` typed gaps."""
+    if n <= 0:
+        return []
+    n_gap = max(0, min(n, n_gap))
+    if n_gap == 0:
+        taps = [["choice", "spot", "order"][i % 3] for i in range(n)]
+        out: list[str] = []
+        for cand in taps:
+            if len(out) >= 2 and out[-1] == cand and out[-2] == cand:
+                for alt in ("choice", "spot", "order"):
+                    if alt != cand:
+                        cand = alt
+                        break
+            out.append(cand)
+        return out
+    if n_gap >= n:
+        return ["gap"] * n
+    n_tap = n - n_gap
+    taps = [["choice", "spot", "order"][i % 3] for i in range(n_tap)]
+    gap_slots = _gap_slot_indices(n, n_gap)
+    out = []
+    ti = 0
+    for slot in range(n):
+        if slot in gap_slots:
+            out.append("gap")
+            continue
+        cand = taps[ti] if ti < len(taps) else "choice"
+        ti += 1
+        if len(out) >= 2 and out[-1] == cand and out[-2] == cand:
+            for alt in ("choice", "spot", "order"):
+                if alt != cand:
+                    cand = alt
+                    break
+        out.append(cand)
+    return out
+
+
+def assign_formats(
+    n_errors: int,
+    n_chunks: int,
+    n_books: int,
+) -> list[str]:
+    """Formats for errors → chunks → books. Chunks always gap; mix capped.
+
+    When there are no chunks, delegates to ``plan_formats`` so S3d/S11 layouts
+    stay byte-identical. With chunks, typed budget for LLM items is
+    ``typed_gap_count(n) - n_chunks`` (chunk selection is already capped).
+    """
+    n = n_errors + n_chunks + n_books
+    if n <= 0:
+        return []
+    if n_chunks == 0:
+        return plan_formats(n)
+    formats = ["choice"] * n
+    chunk_start = n_errors
+    chunk_end = n_errors + n_chunks
+    for i in range(chunk_start, chunk_end):
+        formats[i] = "gap"
+    other_idx = [i for i in range(n) if not (chunk_start <= i < chunk_end)]
+    n_gap_other = max(0, typed_gap_count(n) - n_chunks)
+    other_formats = _plan_formats_with_gap_count(len(other_idx), n_gap_other)
+    for i, fmt in zip(other_idx, other_formats, strict=True):
+        formats[i] = fmt
+    return formats
+
+
+def build_chunk_question(chunk: Chunk) -> dict[str, Any]:
+    """Deterministic gap question from a due chunk. No LLM."""
+    assert chunk.full_sentence is not None
+    gapped = make_sentence_with_gap(str(chunk.full_sentence), chunk.chunk)
+    if gapped is None:
+        raise ValueError(f"chunk {chunk.id} cannot form a gap")
+    return {
+        "source": "chunk",
+        "chunk_id": chunk.id,
+        "format": "gap",
+        "prompt": gapped,
+        "answer": chunk.chunk,
+        "accept": [chunk.chunk],
+        "explanation": (chunk.meaning or "").strip(),
+        "error_type_label": texts.QUIZ_CHUNK_LABEL,
+    }
 
 
 def fill_gap_html(prompt: str, answer: str) -> str:
@@ -750,28 +861,38 @@ def _build_quiz_questions(
     user_id: int,
     errors: list[Error],
     *,
+    chunks: list[Chunk] | None = None,
     book_items: list[dict[str, Any]] | None = None,
     chat_fn: Any = None,
 ) -> tuple[list[dict], str]:
     """Generate quiz questions. Returns (questions, scenario).
 
-    ``chat_fn`` is injectable for tests. ``book_items`` top up when fewer
-    errors are due than the quiz size (S6a).
+    ``chat_fn`` is injectable for tests. Order: errors → chunks → books.
+    Chunks are deterministic gaps (no LLM). ``book_items`` top up when
+    fewer errors/chunks than the quiz size (S6a / S7a).
     """
     user = get_user(user_id)
     if user is None:
         raise RuntimeError(f"quiz: missing user {user_id}")
+
+    chunk_list = list(chunks or [])
+    books = list(book_items or [])
+    total = len(errors) + len(chunk_list) + len(books)
+    if total == 0:
+        return [], ""
+
+    formats = assign_formats(len(errors), len(chunk_list), len(books))
+    chunk_questions = [build_chunk_question(c) for c in chunk_list]
+
+    # Chunks alone — no LLM.
+    if not errors and not books:
+        return chunk_questions, ""
+
     if _prompt_template is None:
         init_quiz_prompt()
     assert _prompt_template is not None
 
-    books = list(book_items or [])
-    total = len(errors) + len(books)
-    if total == 0:
-        return [], ""
-
     tracks = distribute_tracks(len(errors), user.track_weights)
-    formats = plan_formats(total)
     recent = recent_prompts_for_errors(user_id, [e.id for e in errors])
     avoid_sc = recent_scenarios(user_id)
     due_payload = []
@@ -791,8 +912,9 @@ def _build_quiz_questions(
         due_payload.append(item)
 
     book_payload = []
+    book_fmt_base = len(errors) + len(chunk_list)
     for j, b in enumerate(books):
-        idx = len(errors) + j
+        idx = book_fmt_base + j
         book_payload.append(
             {
                 "source": "book",
@@ -819,7 +941,8 @@ def _build_quiz_questions(
     )
     call = chat_fn or chat
     # 15Q weekly test is ~3× the 5Q payload; 2500 truncates.
-    token_budget = 7500 if total >= 10 else 2500
+    llm_total = len(errors) + len(books)
+    token_budget = 7500 if llm_total >= 10 else 2500
     result = call(
         [{"role": "user", "content": "Generate today's quiz questions."}],
         system=system,
@@ -860,10 +983,15 @@ def _build_quiz_questions(
         )
         cleaned.append(item)
 
-    # Book-sourced questions after errors.
+    # Chunk-sourced gaps in the middle (S7a).
+    cleaned.extend(chunk_questions)
+
+    # Book-sourced questions after chunks.
+    # LLM returns errors then books (no chunk slots) — index into that list.
     for j, b in enumerate(books):
-        idx = len(errors) + j
-        q = questions[idx] if idx < len(questions) else {}
+        idx = len(errors) + len(chunk_list) + j
+        llm_idx = len(errors) + j
+        q = questions[llm_idx] if llm_idx < len(questions) else {}
         if not isinstance(q, dict):
             q = {}
         planned = formats[idx] if idx < len(formats) else "choice"
@@ -949,8 +1077,18 @@ async def deliver_morning(
         # Cap after fossil inject so weekly/rescue sizes stay exact.
         errors = errors[:quiz_limit]
     need = quiz_limit - len(errors)
-    book_items = select_topup_items(user_id, need) if need else []
-    if not errors and not book_items:
+    # S7a: chunks fill remaining slots, capped at typed_gap_count so the
+    # S3d 2 typed / 3 tapped mix holds. Weekly test excludes chunks.
+    chunk_rows: list[Chunk] = []
+    if need and not weekly_test:
+        chunk_cap = min(need, typed_gap_count(quiz_limit))
+        if chunk_cap > 0:
+            chunk_rows = due_chunks(user_id, chunk_cap, now=day)
+    need_books = need - len(chunk_rows)
+    book_items = (
+        select_topup_items(user_id, need_books) if need_books else []
+    )
+    if not errors and not chunk_rows and not book_items:
         insert_session(user_id, "free_practice", day, completed=False)
         body = texts.QUIZ_FREE_PRACTICE
         if preface:
@@ -966,6 +1104,7 @@ async def deliver_morning(
             _build_quiz_questions,
             user_id,
             errors,
+            chunks=chunk_rows,
             book_items=book_items,
         )
     except (LLMError, Exception):
@@ -1005,6 +1144,9 @@ async def deliver_morning(
         "index": 0,
         "correct_count": 0,
         "answered": 0,
+        # S7a: calibration ignores chunk answers; score stays full-quiz honest.
+        "calib_correct": 0,
+        "calib_answered": 0,
         "questions": questions,
         "scenario": scenario,
         "chat_id": user_id,
@@ -1100,14 +1242,27 @@ async def _advance_after_answer(
     correct: bool,
     question: dict[str, Any],
     user_answer: str,
+    now: date | None = None,
 ) -> None:
     # Book-sourced questions have no errors row — never mark_result.
+    # Chunk-sourced: shared ladder on chunks only — never mark_result / errors.
     # Typed (gap) and tapped paths both funnel here.
     # M13 retest: wrong → mark_result (un-resolves); correct → leave the row
     # alone so resolved_at is not refreshed (S10 newly-quiet lead).
-    if question.get("source") == "book":
+    source = question.get("source")
+    if source == "book":
         if not correct:
             _journal_book_miss(user_id, question, user_answer=user_answer)
+    elif source == "chunk":
+        review_day = now
+        if review_day is None:
+            tz = _user_timezone(user_id)
+            review_day = local_today(tz, datetime.now(timezone.utc))
+        mark_chunk_result(
+            int(question["chunk_id"]),
+            correct,
+            now=review_day,
+        )
     elif question.get("retest"):
         if not correct:
             mark_result(int(question["error_id"]), False)
@@ -1117,6 +1272,11 @@ async def _advance_after_answer(
     else:
         mark_result(int(question["error_id"]), correct)
     payload["answered"] = int(payload.get("answered", 0)) + 1
+    # Calibration window excludes chunk phrase-recall (S7a).
+    if source != "chunk":
+        payload["calib_answered"] = int(payload.get("calib_answered", 0)) + 1
+        if correct:
+            payload["calib_correct"] = int(payload.get("calib_correct", 0)) + 1
     label = _label_for_question(question)
     if correct:
         payload["correct_count"] = int(payload.get("correct_count", 0)) + 1
@@ -1225,7 +1385,12 @@ async def on_quiz_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if q.get("format") != "gap":
         return
     raw = update.message.text or ""
-    correct = grade_answer(raw, list(q.get("accept") or []))
+    if q.get("source") == "chunk":
+        correct = grade_chunk_answer(
+            raw, list(q.get("accept") or [q.get("answer", "")])
+        )
+    else:
+        correct = grade_answer(raw, list(q.get("accept") or []))
     try:
         await update.message.delete()
     except BadRequest:

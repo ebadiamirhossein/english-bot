@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from app import texts
 from app.db import connection
@@ -33,6 +33,7 @@ class UserStats:
     resolved_labels: list[str]
     chunk_total: int
     chunk_unexported: int
+    chunk_due: int
     book_units: int
     accuracy_30: float | None
     last_level_change: str | None
@@ -69,20 +70,23 @@ def _due_count(user_id: int) -> int:
     return int(row["n"])
 
 
-def _chunk_counts(user_id: int) -> tuple[int, int]:
+def _chunk_counts(user_id: int, *, now: date) -> tuple[int, int, int]:
     with connection() as conn:
         row = conn.execute(
             """
             SELECT COUNT(*)::int AS total,
                    COUNT(*) FILTER (WHERE exported_to_anki = FALSE)::int
-                     AS unexported
+                     AS unexported,
+                   COUNT(*) FILTER (
+                     WHERE next_review IS NULL OR next_review <= %s
+                   )::int AS due
               FROM chunks
              WHERE user_id = %s
             """,
-            (user_id,),
+            (now, user_id),
         ).fetchone()
     assert row is not None
-    return int(row["total"]), int(row["unexported"])
+    return int(row["total"]), int(row["unexported"]), int(row["due"])
 
 
 def _book_unit_count(user_id: int) -> int:
@@ -165,7 +169,7 @@ def collect_stats(
     streak = get_streak(user_id)
     due = _due_count(user_id)
     resolved = resolved_types(user_id)
-    chunk_total, chunk_unexported = _chunk_counts(user_id)
+    chunk_total, chunk_unexported, chunk_due = _chunk_counts(user_id, now=day)
     books = _book_unit_count(user_id)
     accuracy, last_change = _calibration_snapshot(user_id)
     sweep_pending: int | None = None
@@ -184,6 +188,7 @@ def collect_stats(
         resolved_labels=resolved,
         chunk_total=chunk_total,
         chunk_unexported=chunk_unexported,
+        chunk_due=chunk_due,
         book_units=books,
         accuracy_30=accuracy,
         last_level_change=last_change,
@@ -210,7 +215,9 @@ def format_stats_message(stats: UserStats, *, include_sweep: bool) -> str:
         lines.append(texts.STATS_RESOLVED_NONE)
     lines.append(
         texts.STATS_CHUNKS.format(
-            total=stats.chunk_total, unexported=stats.chunk_unexported
+            total=stats.chunk_total,
+            due=stats.chunk_due,
+            unexported=stats.chunk_unexported,
         )
     )
     lines.append(texts.STATS_BOOKS.format(n=stats.book_units))

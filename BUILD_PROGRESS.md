@@ -5,9 +5,9 @@
 
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
-**Last updated:** 2026-08-09
-**Current slice:** S16
-**Status:** S16 shadowing code-complete — verify in Telegram; unrun checks remain on S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Last updated:** 2026-08-10
+**Current slice:** S7a
+**Status:** S7a chunk spaced review code-complete — verify in Telegram; unrun checks remain on S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -42,6 +42,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S6 | Book ingestion | 🟡 code-complete | 2026-08-08 | `/book` → album debounce → vision OCR → `book_units` upsert; Done/Add more ends CH. Live: 10 pages → 5 units. **2026-08-09:** OCR, two-page merge, album debounce, re-ingest dedup, and text-after-Done reaching correction verified live. Suspected “correction collision” was S3 OpenQuizFilter, not the book CH. Light hardening: `collecting` gates late photos; 1h `conversation_timeout` clears abandoned `user_data["book"]`. Remaining human checks in Verification checklist. |
 | S6a | `/test` + quiz top-up | 🟡 code-complete | 2026-08-08 | `book_test` session; tap-only `/test unit N`; morning top-up from `book_units` when due < size; selection-time dedup/word-bank; journal on book miss with taxonomy guard. |
 | S7 | Anki export | ✅ done & verified | 2026-08-08 | TSV from `chunks` only; poll + `/anki`; mark-after-send. Human imported TSV into Anki; second `/anki` reported nothing new. **2026-08-09:** full Anki path verified live. S11 moved weekly poll to Saturday. |
+| S7a | Chunk spaced review in daily quiz | 🟡 code-complete | 2026-08-10 | Migration 004; due chunks between errors and books (capped at typed_gap_count); article-tolerant grading; shared spacing_step; calib_* excludes chunks; Anki independent. |
 | S8 | Couple challenge | ⬜ not started | | |
 | S9 | Interests profile | 🟡 code-complete | 2026-08-04 | `/interests` wizard seeds `interests`. Unrun: custom-topic weight/last_used across Change→Done. |
 | S9a | Reading delivery + chunks | 🟡 code-complete | 2026-08-06 | Mon/Wed/Fri evening poll; readings+chunks+session; ceiling; LLM off event loop. Unrun: same-day second poll / ceiling / morning quiz unblock. |
@@ -89,6 +90,14 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-10 | S7a: first migration since 003 (`004_chunk_review.sql`) — additive review columns on `chunks` only | Chunks had no review fields; spaced quiz review cannot work without them. Nullable/`DEFAULT` so existing rows and queries stay valid; standing no-migration rule lifted for this slice only. |
+| 2026-08-10 | S7a selection: due errors → due chunks (cap `typed_gap_count`) → book top-up | Errors remain the core asset; chunks are user-collected vocabulary; books are generic filler. Cap at 2 typed/day (S3d) so multi-word chunk gaps do not become the routine mix — excess wait (nothing expires). ~14 slots/week vs ~15 reading chunks/week → backlog grows; Anki stays the volume valve. |
+| 2026-08-10 | S7a: article-tolerant `grade_chunk_answer` (drop a/an/the); no length ceiling | Live n=27: median 4 words, zero single-word; exact match would punish phone typing and stall the ladder. Content-word misses still fail. Ceiling at ≤3 would exclude ~⅔ and gut the feature. |
+| 2026-08-10 | S7a: extract `spacing_step` in `errors.py`; chunks call it via `mark_chunk_result` | ARCHITECTURE §8 — one ladder implementation. Chunk failures never write `errors` (vocab ≠ grammar). |
+| 2026-08-10 | S7a: Anki `exported_to_anki` independent of review state | Export and in-bot review are parallel retention paths; exported chunks still due when `next_review` says so. |
+| 2026-08-10 | S7a: `sessions.score` full-quiz honest; calibration uses `calib_correct`/`calib_answered` (non-chunk) | Phrase recall ≠ difficulty fit (same spirit as excluding `/test` and weekly). Silent M14 drops must not be driven by multi-word typed misses. |
+| 2026-08-10 | S7a: chunks excluded from weekly test; no M13 interaction | Weekly measures error-type coverage; M13 sweeps resolved error types only. |
+| 2026-08-10 | S7a: NULL `next_review` = never reviewed = due; new inserts get tomorrow | Picks up existing chunks without a backfill; matches S2 new-error contract. |
 | 2026-08-09 | S16 audio source = `speech.synthesize` over `chunks.full_sentence` (not mined scene clips) | No mining pipeline / scene audio exists. Pedagogical loop unchanged. **Cost:** TTS is cleaner/slower than real dialogue — trains rhythm and word stress, not casual reductions ("gonna", elisions). Mined sitcom clips remain the better source (known issue follow-up). |
 | 2026-08-09 | S16 voice routing: claimable shadow → live M3 → open diary → M3 | `/shadow` is the most recent explicit "repeat this" instruction. Lookups disjoint by `task_type` + completion; only one branch runs. When shadow is not claimable, S13 preserved (live M3 beats diary). |
 | 2026-08-09 | S16 shadow voice **claim window = 30 min** after `payload.clip_sent_at` (Try again re-arms) | Open-until-03:00 claim would strand M3 after an abandoned `/shadow`. Session stays open (rule 2); only the microphone claim is time-bounded. |
@@ -360,13 +369,14 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `migrations/001_init_postgres.sql` | Initial schema + 19 error_types | ✅ |
 | `migrations/002_quiz_scheduler.sql` | sessions.payload + bot_message_counts | ✅ |
 | `migrations/003_streaks.sql` | last_evaluated_date, freeze_reset_on, pending_freeze_notice | ✅ |
+| `migrations/004_chunk_review.sql` | chunks next_review / times_right / times_wrong / streak_right + due index (S7a) | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
 | `app/config.py` | Env → frozen `Settings` (+ LLM/STT/TTS + `DIARY_MAX_SECONDS` + S18 runtime) | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/streak/freeze + M13 + heartbeat | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18 + S15 capture + S13 diary + S14 prep + S16 shadow copy | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18 + S15/S13/S14/S16 + S7a QUIZ_CHUNK_LABEL / STATS due | ✅ |
 | `app/main.py` | Entrypoint; flock; rotating log; error handler; `/prep`; `/diary`; `/shadow`; capture; `/pause` `/stats`; scheduler | ✅ |
 | `app/handlers/shadow.py` | `/shadow` + retry callback + voice processing (S16); never errors; transcript discarded | ✅ |
 | `app/services/shadow.py` | Chunk select (K=10), word diff, feedback format; abandon open shadow (S16) | ✅ |
@@ -378,11 +388,11 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/instance_lock.py` | `fcntl.flock` single-instance guard (S18) | ✅ |
 | `app/services/alerts.py` | File-backed throttle + `notify_operator` + `on_error` (S18) | ✅ |
 | `app/services/heartbeat.py` | last_job_fire touch/check helpers (S18) | ✅ |
-| `app/services/stats.py` | Read-only `/stats` assembly; learner omits sweep (S18) | ✅ |
+| `app/services/stats.py` | Read-only `/stats` assembly; due-chunk count (S18/S7a); learner omits sweep | ✅ |
 | `app/handlers/settings.py` | `/pause` + `/stats` + `pause:` callbacks (S18) | ✅ |
 | `scripts/heartbeat.py` | CLI stale check for future external cron (S18) | ✅ |
 | `tests/test_hardening.py` | Alerts/throttle/heartbeat/lock/log privacy/pause/stats/Missed pin (S18) | ✅ |
-| `app/services/calibration.py` | M14 rolling accuracy (excludes book_test + weekly_test + shadow), daily calibration_log upsert, raise/lower, raise notice | ✅ |
+| `app/services/calibration.py` | M14 window; prefers payload calib_* (excludes chunk answers); excludes book_test + weekly_test + shadow | ✅ |
 | `app/handlers/nudge.py` | Tap-only `nudge:short:` early-limit callbacks; Murphy append on weekly early-complete (S10/S11) | ✅ |
 | `app/services/motivation.py` | Nudge ladder (incl. diary text-only) + Sunday report assembly (no LLM) (S10/S13) | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
@@ -393,7 +403,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/services/capture.py` | Capture validate + persist-after-send; source=`capture`; track NULL default (S15) | ✅ |
 | `app/prompts/capture.txt` | Capture JSON prompt — adaptive chunks, generic carriers (S15) | ✅ |
 | `tests/test_capture.py` | Capture validation, persist/rollback, PII fixture, handler, anki source, labels (S15) | ✅ |
-| `app/handlers/quiz.py` | Daily/weekly quiz + top-up; evenly spaced `plan_formats`; book grading fork; `early_limit`; Murphy append on weekly complete; M13/M14; `OpenQuizFilter` gap-only | ✅ |
+| `app/handlers/quiz.py` | Daily/weekly quiz + chunk middle source + article-tolerant grade; calib_* counters; book fork; OpenQuizFilter gap-only | ✅ |
 | `app/handlers/voice.py` | Voice partner (S5) + S16/S13 router (claimable shadow → live M3 → diary → M3); S5a status helpers | ✅ |
 | `app/handlers/diary.py` | Voice diary deliver + `/diary` + voice processing (S13); no TTS; cap 2 | ✅ |
 | `app/prompts/diary.txt` | Diary JSON prompt — max 2 errors + specific did_well (S13) | ✅ |
@@ -405,12 +415,13 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/prompts/book_quiz.txt` | Unit practice JSON — choice/order/spot only; taxonomy-bound error_type (S6a) | ✅ |
 | `app/services/__init__.py` | Services package | ✅ |
 | `app/services/users.py` | get/save user, EF SET → CEFR, `update_cefr_level`, `get/set_paused_until` (S12/S18) | ✅ |
-| `app/services/errors.py` | record_errors + due_errors + weekly select + Murphy expand/lookup + mark_result + resolved_types + M13 (S3/S10/S11/S12) | ✅ |
+| `app/services/errors.py` | record_errors + due_errors + weekly + Murphy + spacing_step + mark_result + resolved_types + M13 (S3/S10/S11/S12/S7a) | ✅ |
 | `app/services/sessions.py` | sessions + ceiling + diary/shadow claim helpers + nudgeable quiz/reading/diary + fossil_sweep + sunday_report (S3–S16) | ✅ |
 | `app/services/anki.py` | Chunk→TSV gap/escape/export; weekly deliver + `/anki`; mark-after-send (S7) | ✅ |
 | `app/services/streaks.py` | Streak rollover, freeze, rescue; Active>Missed precedence (S4/S5) | ✅ |
 | `app/services/interests.py` | list/replace/select_topic/mark_last_used + adjust_weight_for_rating (S9/S9a/S9c) | ✅ |
-| `app/services/chunks.py` | Chunk inserts for reading (S9a) + capture + prep; `track` nullable (S15/S14) | ✅ |
+| `app/services/chunks.py` | Chunk inserts (next_review=tomorrow) + due_chunks / mark_chunk_result / count_due (S9a/S15/S14/S7a) | ✅ |
+| `tests/test_chunk_review.py` | S7a selection cap, ladder, grading, calib exclusion, migration, stats, Anki independence | ✅ |
 | `app/services/reading.py` | MCQ validate + parse_stored_questions + persist_and_send + complete_reading (S9a/S9c) | ✅ |
 | `app/services/books.py` | OCR parse/merge, upsert, summary; list/find/top-up + word-bank/dedup; studied Murphy units (S6/S6a/S11) | ✅ |
 | `app/prompts/correction.txt` | Correction system prompt template | ✅ |
@@ -470,6 +481,12 @@ Do not start S8 / S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S7a** — migrate to 004; morning quiz with >2 due chunks → at most 2 chunk gaps; mix still 2 typed / 3 tapped on a 5Q day
+- [ ] **S7a** — type a chunk with extra/missing `the` → marked correct; ladder advances (`next_review` moves)
+- [ ] **S7a** — wrong chunk answer → no new `errors` row; chunk `times_wrong` increments
+- [ ] **S7a** — exported chunk (`exported_to_anki=TRUE`) still appears when due
+- [ ] **S7a** — `/stats` shows due-chunk count alongside total / unexported
+- [ ] **S7a** — `/anki` still exports and marks independently of review state
 - [ ] **S16** — with chunks present, `/shadow` → intro + voice clip; reply with voice → feedback (🎯/🎤/💡); Try again once → second attempt completes
 - [ ] **S16** — empty chunk pool → warm explanation (readings / capture / prep); no audio
 - [ ] **S16** — `/shadow` then immediate voice while an M3 window might exist → shadow feedback, not partner reply
@@ -498,7 +515,7 @@ Commands and taps needing only a running bot.
 - [ ] **S18** — repeat/restart mid-outage → file throttle holds; suppressed count, not a flood
 - [ ] **S18** — second `python -m app.main` refuses with lock message; after killing the first, start succeeds
 - [ ] **S18** — `/pause` → pick duration → scheduled sends skip; `/pause` again → resume only; after resume, delivery returns
-- [ ] **S18** — `/stats` as learner returns level, streak, active days "of 5", due errors, resolved labels, chunk counts, book units; calibration visible; no guilt; no fossil-sweep fields
+- [ ] **S18** — `/stats` as learner returns level, streak, active days "of 5", due errors, resolved labels, chunk totals + due, book units; calibration visible; no guilt; no fossil-sweep fields
 - [ ] **S18** — `~/english-bot-runtime/bot.log` shows traffic without message bodies
 - [ ] **S6a** — with Murphy units 1–5 stored, `/test` shows unit buttons; `/test unit 3` opens a tap-only set that finishes cleanly; morning quiz remains eligible that day (or still delivers next morning)
 - [ ] **S6a** — `/test unit 99` shows a warm list of real units; same unit number in two books → which-book buttons
@@ -548,6 +565,8 @@ Commands and taps needing only a running bot.
 
 ### 5. DB-seeded or hard to trigger deliberately
 
+- [ ] **S7a** — 2 due errors + 3 due chunks + book items → quiz has 2 errors, 2 chunks, 1 book; third chunk still due next day
+- [ ] **S7a** — 0 due errors + 0 due chunks + books → unchanged S6a book top-up
 - [ ] **S11** — Mon–Sat morning quiz is still 5Q (rescue → 3Q)
 - [ ] **S11** — Saturday evening → Anki document when unexported chunks exist
 - [ ] **S6a** — light journal day (<5 due) → morning quiz length 5 with book-flavored items; wrong book item → `errors` row with valid type

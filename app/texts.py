@@ -367,6 +367,7 @@ QUIZ_FREE_PRACTICE = (
 )
 
 QUIZ_HINT_GAP = "⌨️ Type the missing word"
+QUIZ_CHUNK_LABEL = "Phrase"
 QUIZ_HINT_CHOICE = "👆 Tap the one that sounds right"
 QUIZ_HINT_ORDER = "👆 Tap the one that sounds right"
 QUIZ_HINT_SPOT = "👆 Tap the word that's wrong"
@@ -808,7 +809,7 @@ STATS_ACTIVE = "{active_line}"
 STATS_DUE = "Due errors: {n}"
 STATS_RESOLVED = "Quiet types: {labels}"
 STATS_RESOLVED_NONE = "Quiet types: none yet"
-STATS_CHUNKS = "Chunks: {total} · unexported: {unexported}"
+STATS_CHUNKS = "Chunks: {total} · due: {due} · unexported: {unexported}"
 STATS_BOOKS = "Book units stored: {n}"
 STATS_CALIBRATION = "Calibration: {accuracy} · last change: {change}"
 STATS_CALIBRATION_NONE = "Calibration: not enough recent evidence yet"

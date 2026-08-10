@@ -89,6 +89,10 @@ After every slice, Cursor must update `BUILD_PROGRESS.md`.
 **Build:** `services/anki.py` → weekly TSV of unexported chunks, posted as a Telegram document, marks rows exported.
 **Accept:** file imports cleanly into Anki with fields in the right order.
 
+### S7a · Chunk spaced review in the daily quiz
+**Build:** Migration `004` adds review columns on `chunks` (`next_review` nullable = due, `times_right`/`times_wrong`/`streak_right`). Daily quiz selects due errors → due chunks (capped at `typed_gap_count`) → book top-up. Chunk questions are deterministic gaps via S7 `make_sentence_with_gap`; article-tolerant grading; shared `spacing_step` with errors (no duplicate ladder). Wrong chunk answers never write `errors`. `sessions.score` includes chunks; calibration uses `calib_*` (non-chunk only). Anki export unchanged and independent of review state. `/stats` shows due-chunk count.
+**Accept:** 2 due errors + 3 due chunks → 2 errors + 2 chunks + 1 book; NULL `next_review` selected as due; correct advances ladder / wrong resets to 1 day; article slip still grades correct; all-chunk-wrong quiz does not drop the calibration window; exported chunk still comes up for review; `/stats` shows due count.
+
 ### S8 · Couple challenge (M8)
 **Build:** group-chat handler. Daily question at 18:00, first correct answer scores. `couple_scores` per week. Sunday leaderboard message.
 **Accept:** both answer in the group; first correct gets the point; leaderboard is right on Sunday.

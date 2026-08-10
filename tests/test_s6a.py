@@ -248,7 +248,7 @@ def test_topup_fills_remainder(cleanup_user: int) -> None:
 
     captured: dict[str, Any] = {}
 
-    def fake_build(user_id, errors, *, book_items=None, chat_fn=None):
+    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
         captured["errors"] = errors
         captured["book_items"] = list(book_items or [])
         n = len(errors) + len(book_items or [])
@@ -295,7 +295,7 @@ def test_topup_zero_due_five_book(cleanup_user: int) -> None:
             studied_at=date(2026, 8, 1) + timedelta(days=i),
         )
 
-    def fake_build(user_id, errors, *, book_items=None, chat_fn=None):
+    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
         assert errors == []
         assert len(book_items or []) == 5
         return (
@@ -341,7 +341,7 @@ def test_topup_five_due_no_book(cleanup_user: int) -> None:
         items=["teachable"],
     )
 
-    def fake_build(user_id, errors, *, book_items=None, chat_fn=None):
+    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
         assert len(errors) == 5
         assert book_items == []
         return (
@@ -393,7 +393,7 @@ def test_topup_rescue_one_due_two_book(cleanup_user: int) -> None:
 
     captured: dict[str, Any] = {}
 
-    def fake_build(user_id, errors, *, book_items=None, chat_fn=None):
+    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
         captured["n_err"] = len(errors)
         captured["n_book"] = len(book_items or [])
         n = len(errors) + len(book_items or [])
@@ -603,7 +603,7 @@ def test_zero_due_with_books_ignored_is_missed(cleanup_user: int) -> None:
             (day - timedelta(days=1), day - timedelta(days=1), tid),
         )
 
-    def fake_build(user_id, errors, *, book_items=None, chat_fn=None):
+    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
         return (
             [
                 {

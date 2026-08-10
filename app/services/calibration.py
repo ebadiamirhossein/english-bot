@@ -3,7 +3,9 @@
 Rolling accuracy is approximated from completed quiz + reading session
 aggregates (not a true per-question event stream). ``book_test`` and
 Sunday weekly tests (``payload.weekly_test``) are excluded — coverage /
-self-selected material must not vote on level.
+self-selected material must not vote on level. Chunk gap answers are
+excluded via ``payload.calib_*`` counters (S7a) — phrase recall is not
+difficulty fit.
 """
 
 from __future__ import annotations
@@ -63,8 +65,26 @@ class CalibrationOutcome:
 
 
 def _session_counts(payload: dict[str, Any] | None, score: float | None) -> tuple[int, int]:
-    """Return (correct, answered) for one completed session."""
+    """Return (correct, answered) for one completed session.
+
+    Prefer ``calib_correct`` / ``calib_answered`` when present (S7a — chunk
+    phrase-recall excluded from difficulty calibration). Legacy sessions
+    without those keys fall back to ``correct_count`` / ``answered`` / score.
+    """
     data = payload if isinstance(payload, dict) else {}
+    if "calib_answered" in data:
+        try:
+            n = max(0, int(data.get("calib_answered") or 0))
+        except (TypeError, ValueError):
+            n = 0
+        if n <= 0:
+            return 0, 0
+        try:
+            c = max(0, int(data.get("calib_correct") or 0))
+        except (TypeError, ValueError):
+            c = 0
+        return min(c, n), n
+
     answered = data.get("answered")
     if answered is None:
         early = data.get("early_limit")

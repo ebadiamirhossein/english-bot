@@ -37,6 +37,40 @@ SPACING_DAYS: dict[int, int] = {
 
 
 @dataclass(frozen=True)
+class SpacingStep:
+    """Pure ladder outcome — shared by errors and chunks (S7a)."""
+
+    streak_right: int
+    next_review: date
+    times_right_delta: int
+    times_wrong_delta: int
+
+
+def spacing_step(
+    *,
+    correct: bool,
+    streak_right: int,
+    today: date,
+) -> SpacingStep:
+    """Advance or reset the 1→3→7→21→60 ladder. No resolve logic."""
+    if correct:
+        new_streak = int(streak_right) + 1
+        interval = SPACING_DAYS[min(new_streak, 4)]
+        return SpacingStep(
+            streak_right=new_streak,
+            next_review=today + timedelta(days=interval),
+            times_right_delta=1,
+            times_wrong_delta=0,
+        )
+    return SpacingStep(
+        streak_right=0,
+        next_review=today + timedelta(days=1),
+        times_right_delta=0,
+        times_wrong_delta=1,
+    )
+
+
+@dataclass(frozen=True)
 class Error:
     id: int
     user_id: int
@@ -354,8 +388,14 @@ def mark_result(error_id: int, correct: bool) -> None:
                 logger.warning("mark_result: unknown error_id=%s", error_id)
                 return
 
+            today = conn.execute("SELECT CURRENT_DATE AS d").fetchone()["d"]
+            step = spacing_step(
+                correct=correct,
+                streak_right=int(row["streak_right"]),
+                today=today,
+            )
+
             if correct:
-                new_streak = int(row["streak_right"]) + 1
                 age_days = conn.execute(
                     """
                     SELECT (CURRENT_DATE - created_at::date) AS age
@@ -364,7 +404,7 @@ def mark_result(error_id: int, correct: bool) -> None:
                     """,
                     (error_id,),
                 ).fetchone()["age"]
-                if new_streak >= 5 and int(age_days) >= 21:
+                if step.streak_right >= 5 and int(age_days) >= 21:
                     conn.execute(
                         """
                         UPDATE errors
@@ -374,45 +414,44 @@ def mark_result(error_id: int, correct: bool) -> None:
                                resolved_at = CURRENT_DATE
                          WHERE id = %s
                         """,
-                        (new_streak, error_id),
+                        (step.streak_right, error_id),
                     )
                 else:
-                    interval = SPACING_DAYS[min(new_streak, 4)]
                     conn.execute(
                         """
                         UPDATE errors
                            SET streak_right = %s,
                                times_right = times_right + 1,
-                               next_review = CURRENT_DATE + %s::integer
+                               next_review = %s
                          WHERE id = %s
                         """,
-                        (new_streak, interval, error_id),
+                        (step.streak_right, step.next_review, error_id),
                     )
             else:
                 if row["resolved"]:
                     conn.execute(
                         """
                         UPDATE errors
-                           SET streak_right = 0,
+                           SET streak_right = %s,
                                times_wrong = times_wrong + 1,
-                               next_review = CURRENT_DATE + 1,
+                               next_review = %s,
                                resolved = FALSE,
                                resolved_at = NULL,
                                unresolved_count = unresolved_count + 1
                          WHERE id = %s
                         """,
-                        (error_id,),
+                        (step.streak_right, step.next_review, error_id),
                     )
                 else:
                     conn.execute(
                         """
                         UPDATE errors
-                           SET streak_right = 0,
+                           SET streak_right = %s,
                                times_wrong = times_wrong + 1,
-                               next_review = CURRENT_DATE + 1
+                               next_review = %s
                          WHERE id = %s
                         """,
-                        (error_id,),
+                        (step.streak_right, step.next_review, error_id),
                     )
 
 
