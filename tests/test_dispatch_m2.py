@@ -16,6 +16,7 @@ import pytest
 from telegram import (
     CallbackQuery,
     Chat,
+    Document,
     Message,
     MessageEntity,
     MessageOriginUser,
@@ -43,6 +44,7 @@ from app.handlers.book_test import build_book_test_handlers
 from app.handlers.capture import build_capture_handlers
 from app.handlers.correction import build_correction_handler
 from app.handlers.couple import build_couple_handlers
+from app.handlers.csv_import import build_csv_import_handlers
 from app.handlers.nudge import build_nudge_handler
 from app.handlers.quiz import (
     build_quiz_handlers,
@@ -150,18 +152,26 @@ async def _build_app(
     correction_spy: AsyncMock,
     capture_spy: AsyncMock | None = None,
     couple_spy: AsyncMock | None = None,
+    csv_spy: AsyncMock | None = None,
+    non_csv_spy: AsyncMock | None = None,
 ):
     """Application mirroring main.py: capture → quiz text → voice → couple → correction."""
     if capture_spy is None:
         capture_spy = AsyncMock()
     if couple_spy is None:
         couple_spy = AsyncMock()
+    if csv_spy is None:
+        csv_spy = AsyncMock()
+    if non_csv_spy is None:
+        non_csv_spy = AsyncMock()
     with (
         patch("app.handlers.quiz.on_quiz_text", quiz_spy),
         patch("app.handlers.correction.correct_text", correction_spy),
         patch("app.handlers.capture.on_forwarded_capture", capture_spy),
         patch("app.handlers.capture.on_capture_command", capture_spy),
         patch("app.handlers.couple.on_couple_answer", couple_spy),
+        patch("app.handlers.csv_import.on_csv_document", csv_spy),
+        patch("app.handlers.csv_import.on_non_csv_document", non_csv_spy),
     ):
         quiz_text, quiz_choice = build_quiz_handlers()
         capture_fwd, capture_cmd = build_capture_handlers()
@@ -172,6 +182,7 @@ async def _build_app(
         book = build_book_handler()
         couple_here, couple_answers = build_couple_handlers()
         correction = build_correction_handler()
+        csv_doc, non_csv_doc = build_csv_import_handlers()
 
     pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
     settings_editor = build_settings_editor_handler()
@@ -183,6 +194,8 @@ async def _build_app(
     app.add_handler(pause_cb)
     app.add_handler(settings_editor)  # tapped-only; no text filter
     app.add_handler(settings_orphan)
+    app.add_handler(csv_doc)
+    app.add_handler(non_csv_doc)
     app.add_handler(quiz_choice)
     app.add_handler(capture_fwd)
     app.add_handler(capture_cmd)
@@ -374,6 +387,34 @@ def _photo_update(
         chat=chat,
         from_user=user,
         photo=(photo,),
+    )
+    return Update(update_id=update_id, message=msg)
+
+
+def _document_update(
+    user_id: int,
+    *,
+    file_name: str,
+    mime_type: str = "text/csv",
+    update_id: int = 40,
+    message_id: int = 80,
+    file_id: str = "doc-1",
+) -> Update:
+    user = User(id=user_id, first_name="A", is_bot=False)
+    chat = Chat(id=user_id, type="private")
+    doc = Document(
+        file_id=file_id,
+        file_unique_id=f"u-{file_id}",
+        file_name=file_name,
+        mime_type=mime_type,
+        file_size=100,
+    )
+    msg = Message(
+        message_id=message_id,
+        date=datetime.now(timezone.utc),
+        chat=chat,
+        from_user=user,
+        document=doc,
     )
     return Update(update_id=update_id, message=msg)
 
@@ -1170,6 +1211,123 @@ def test_dispatch_live_m3_beats_open_diary(cleanup_user: int) -> None:
             m3_spy.assert_awaited_once()
             shadow_spy.assert_not_awaited()
             diary_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+# --- S15b CSV document vs /book collision ------------------------------------
+
+
+def test_dispatch_csv_during_book_reaches_csv_not_book(
+    cleanup_user: int,
+) -> None:
+    """Open /book COLLECT_PAGES only matches IMAGE — CSV must not be swallowed."""
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        csv_spy = AsyncMock()
+        app, book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            csv_spy=csv_spy,
+        )
+        try:
+            key = (tid, tid)
+            book._conversations[key] = COLLECT_PAGES
+            app.user_data[tid]["book"] = {
+                "book": "murphy",
+                "collecting": True,
+                "processing": False,
+                "pages": [],
+                "over_cap": False,
+            }
+            update = _document_update(tid, file_name="export.csv")
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            csv_spy.assert_awaited_once()
+            assert book._conversations.get(key) == COLLECT_PAGES
+            assert app.user_data[tid]["book"]["pages"] == []
+            correction_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_image_document_during_book_reaches_book(
+    cleanup_user: int,
+) -> None:
+    """Image documents mid-/book must still hit collect_page, not non-CSV reply."""
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        csv_spy = AsyncMock()
+        non_csv_spy = AsyncMock()
+        app, book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            csv_spy=csv_spy,
+            non_csv_spy=non_csv_spy,
+        )
+        try:
+            key = (tid, tid)
+            book._conversations[key] = COLLECT_PAGES
+            app.user_data[tid]["book"] = {
+                "book": "murphy",
+                "collecting": True,
+                "processing": False,
+                "pages": [],
+                "over_cap": False,
+            }
+            update = _document_update(
+                tid,
+                file_name="page.jpg",
+                mime_type="image/jpeg",
+                file_id="img-doc-1",
+            )
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            assert len(app.user_data[tid]["book"]["pages"]) == 1
+            csv_spy.assert_not_awaited()
+            non_csv_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_plain_text_still_reaches_correction_with_csv_handlers(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        csv_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            csv_spy=csv_spy,
+        )
+        try:
+            update = _text_update(tid, SAMPLE_TEXT)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            correction_spy.assert_awaited_once()
+            csv_spy.assert_not_awaited()
         finally:
             app._initialized = False
 

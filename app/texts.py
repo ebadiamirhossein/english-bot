@@ -50,6 +50,10 @@ HELP_LINE_TEST = "/test — practise a stored unit"
 HELP_SECTION_VOCAB = "Vocabulary"
 HELP_LINE_ANKI = "/anki — export new chunks"
 HELP_LINE_IMPORT = "/import — scan your subtitle folder"
+HELP_LINE_CSV_UPLOAD = (
+    "Send a CSV export from Trancy or Language Reactor — "
+    "I'll import the phrases."
+)
 
 HELP_SECTION_SETTINGS = "Settings"
 HELP_LINE_SETTINGS = "/settings — mix, times, explanations"
@@ -674,6 +678,34 @@ IMPORT_POLL_RESULT = (
     "Imported {imported} phrase(s) from your subtitle export "
     "({duplicates} already had · {invalid} skipped). "
     "Due for review now: {due}."
+)
+
+# --- Telegram CSV document (S15b) ---------------------------------------------
+
+IMPORT_DOC_RESULT = (
+    "Import done.\n"
+    "Imported: {imported} · already had: {duplicates} · skipped: {invalid}\n"
+    "Due for review now: {due}"
+)
+
+IMPORT_DOC_FAILED_HEADERS = (
+    "Couldn't map the columns in {filename}. "
+    "Forward that file to the person who runs the bot and they'll take a look."
+)
+
+IMPORT_DOC_NOT_CSV = (
+    "I only read CSV exports from Trancy or Language Reactor — "
+    "send one of those."
+)
+
+IMPORT_DOC_TOO_LARGE = (
+    "That file is larger than I can import. "
+    "A phrase export is usually much smaller — try exporting again."
+)
+
+IMPORT_DOC_READ_FAILED = (
+    "I couldn't read that file. "
+    "Try sending the CSV again, or forward it to the person who runs the bot."
 )
 
 INTERESTS_TRACK_LABELS: dict[str, str] = {

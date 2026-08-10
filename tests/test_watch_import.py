@@ -133,6 +133,22 @@ def test_source_marker() -> None:
     assert source_marker("csv", "") == "subtitle_csv_untitled"
 
 
+def test_detect_tool_from_headers() -> None:
+    from app.services.watch_import import detect_tool_from_headers
+
+    assert (
+        detect_tool_from_headers(["Word", "Sentence", "Translation", "Title"])
+        == "trancy"
+    )
+    assert (
+        detect_tool_from_headers(
+            ["Phrase", "Context / Subtitle", "Definition", "Video title"]
+        )
+        == "language_reactor"
+    )
+    assert detect_tool_from_headers(["Phrase", "Sentence", "Meaning"]) == "csv"
+
+
 def test_assert_path_outside_repo_refuses_inside() -> None:
     inside = repo_root() / "should-not-use-as-watch"
     with pytest.raises(PathSafetyError):

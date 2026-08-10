@@ -202,6 +202,8 @@ def test_help_mentions_no_command_behaviours() -> None:
     assert "forward any english" in lower
     assert "journal" in lower or "correct" in lower
     assert "chunk" in lower or "explain" in lower
+    assert "csv" in lower
+    assert "trancy" in lower or "language reactor" in lower
 
 
 def test_help_ignores_unregistered(fake_telegram_id: int) -> None:

@@ -42,6 +42,7 @@ def format_help_message(*, include_import: bool | None = None) -> str:
         "",
         texts.HELP_SECTION_VOCAB,
         texts.HELP_LINE_ANKI,
+        texts.HELP_LINE_CSV_UPLOAD,
     ]
     if include_import:
         sections.append(texts.HELP_LINE_IMPORT)
@@ -105,6 +106,7 @@ def s18b_user_facing_strings() -> list[str]:
         texts.HELP_LINE_TEST,
         texts.HELP_SECTION_VOCAB,
         texts.HELP_LINE_ANKI,
+        texts.HELP_LINE_CSV_UPLOAD,
         texts.HELP_LINE_IMPORT,
         texts.HELP_SECTION_SETTINGS,
         texts.HELP_LINE_SETTINGS,

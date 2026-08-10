@@ -40,6 +40,7 @@ from app.instance_lock import InstanceLock, InstanceLockError
 from app.scheduler import start_scheduler, stop_scheduler
 from app.services.alerts import on_error
 from app.services.anki import handle_anki_command
+from app.handlers.csv_import import build_csv_import_handlers
 from app.handlers.import_cmd import handle_import_command
 from app.services.commands import register_bot_commands
 
@@ -62,6 +63,10 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("anki", handle_anki_command))
     app.add_handler(CommandHandler("import", handle_import_command))
+    # S15b: private CSV documents; IMAGE excluded from non-CSV so /book keeps pages.
+    csv_doc, non_csv_doc = build_csv_import_handlers()
+    app.add_handler(csv_doc)
+    app.add_handler(non_csv_doc)
     app.add_handler(build_prep_handler())
     app.add_handler(build_diary_handlers())
     shadow_cmd, shadow_cb = build_shadow_handlers()

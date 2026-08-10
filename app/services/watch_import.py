@@ -1,13 +1,14 @@
-"""Watched-folder CSV import from subtitle tools (S15a).
+"""Subtitle CSV import (S15a folder + S15b Telegram document).
 
 Trancy / Language Reactor exports → ``chunks`` (S7a review + Anki pool).
 No provider SDKs. Stdlib ``csv`` only. Logs filenames and counts, never row
-content (PRD §10).
+content (PRD §10). Both entrances share ``import_csv_rows`` / ``map_headers``.
 """
 
 from __future__ import annotations
 
 import csv
+import io
 import logging
 import re
 from dataclasses import dataclass, field
@@ -29,6 +30,10 @@ from app.services.reading import normalize_for_match
 logger = logging.getLogger(__name__)
 
 IMPORT_STABLE_AFTER = timedelta(minutes=2)
+# Phrase exports are small; multi-year cumulatives fit under 5 MiB. Larger is
+# almost certainly a wrong file (video, spreadsheet dump) — refuse before
+# download so we never hold it in memory.
+CSV_IMPORT_MAX_BYTES = 5 * 1024 * 1024
 TOOL_FOLDERS = ("trancy", "language_reactor")
 _TOOL_ALIASES = {
     "trancy": "trancy",
@@ -158,6 +163,30 @@ def tool_from_parent(parent_name: str) -> str:
     return _TOOL_ALIASES.get(parent_name.casefold().strip(), "csv")
 
 
+def detect_tool_from_headers(headers: Sequence[str]) -> str:
+    """Infer Trancy vs Language Reactor from header shape.
+
+    Without a folder hint (Telegram path), only return a tool name when the
+    signals are distinctive. Ambiguous shapes fall back to ``csv`` rather than
+    guessing wrong.
+    """
+    has_word = _first_matching(headers, ("word",)) is not None
+    has_phrase = _first_matching(headers, ("phrase",)) is not None
+    has_translation = _first_matching(headers, ("translation",)) is not None
+    has_definition = _first_matching(headers, ("definition",)) is not None
+    has_context = _first_matching(headers, ("context", "subtitle")) is not None
+    has_video = _first_matching(headers, ("video",)) is not None
+
+    trancy_confident = has_word and has_translation and not has_phrase
+    lr_confident = has_phrase and (has_definition or has_context or has_video)
+
+    if trancy_confident and not lr_confident:
+        return "trancy"
+    if lr_confident and not trancy_confident:
+        return "language_reactor"
+    return "csv"
+
+
 def source_marker(tool: str, material: str) -> str:
     return f"subtitle_{tool}_{slugify_material(material)}"
 
@@ -274,39 +303,50 @@ def _existing_chunk_norms(user_id: int) -> set[str]:
     return {normalize_for_match(str(r["chunk"])) for r in rows if r["chunk"]}
 
 
-def _read_csv_rows(path: Path) -> tuple[list[str], list[dict[str, str | None]]]:
-    with path.open("r", encoding="utf-8-sig", newline="") as fh:
-        reader = csv.DictReader(fh)
-        if reader.fieldnames is None:
-            return [], []
-        headers = [h for h in reader.fieldnames if h is not None]
-        rows = list(reader)
+def parse_csv_text(
+    text: str,
+) -> tuple[list[str], list[dict[str, str | None]]]:
+    """Parse CSV text into headers + row dicts. Shared by folder and Telegram."""
+    reader = csv.DictReader(io.StringIO(text, newline=""))
+    if reader.fieldnames is None:
+        return [], []
+    headers = [h for h in reader.fieldnames if h is not None]
+    rows = list(reader)
     return headers, rows
 
 
-def process_csv_file(
-    path: Path,
+def parse_csv_bytes(
+    data: bytes,
+) -> tuple[list[str], list[dict[str, str | None]]]:
+    """Decode UTF-8 (with BOM) and parse. Raises UnicodeDecodeError."""
+    return parse_csv_text(data.decode("utf-8-sig"))
+
+
+def _read_csv_rows(path: Path) -> tuple[list[str], list[dict[str, str | None]]]:
+    with path.open("r", encoding="utf-8-sig", newline="") as fh:
+        return parse_csv_text(fh.read())
+
+
+def import_csv_rows(
+    headers: Sequence[str],
+    rows: Sequence[dict[str, str | None]],
     *,
     user_id: int,
     tool: str,
-    root: Path,
+    filename: str,
     now: datetime,
 ) -> FileImportResult:
-    """Import one stable CSV. Caller must have checked ``is_stable``."""
-    filename = path.name
-    headers, rows = _read_csv_rows(path)
+    """Map, validate, dedupe, and insert. No filesystem side effects.
+
+    Used by both the watched-folder path and Telegram document upload.
+    """
     mapping = map_headers(headers)
     if mapping is None:
-        dest = move_collision_safe(
-            path, failed_path(root, user_id), now=now
-        )
         logger.warning(
-            "watch import failed_headers user_id=%s file=%s headers=%s "
-            "moved_to=%s",
+            "watch import failed_headers user_id=%s file=%s headers=%s",
             user_id,
             filename,
             list(headers),
-            dest.name,
         )
         return FileImportResult(
             filename=filename,
@@ -366,7 +406,6 @@ def process_csv_file(
                         chunks=items,
                     )
 
-    move_collision_safe(path, processed_path(root, user_id), now=now)
     due_day = instant_date(now)
     due = count_due_chunks(user_id, now=due_day)
     first_source = next(iter(batches), source_marker(tool, "untitled"))
@@ -391,6 +430,62 @@ def process_csv_file(
         source_tool=tool,
         headers_seen=tuple(headers),
     )
+
+
+def import_csv_bytes(
+    data: bytes,
+    *,
+    user_id: int,
+    filename: str,
+    now: datetime,
+    tool: str | None = None,
+) -> FileImportResult:
+    """Import CSV bytes in memory (Telegram path). Never writes the upload."""
+    headers, rows = parse_csv_bytes(data)
+    resolved = tool if tool is not None else detect_tool_from_headers(headers)
+    return import_csv_rows(
+        headers,
+        rows,
+        user_id=user_id,
+        tool=resolved,
+        filename=filename,
+        now=now,
+    )
+
+
+def process_csv_file(
+    path: Path,
+    *,
+    user_id: int,
+    tool: str,
+    root: Path,
+    now: datetime,
+) -> FileImportResult:
+    """Import one stable CSV from disk. Caller must have checked ``is_stable``."""
+    filename = path.name
+    headers, rows = _read_csv_rows(path)
+    result = import_csv_rows(
+        headers,
+        rows,
+        user_id=user_id,
+        tool=tool,
+        filename=filename,
+        now=now,
+    )
+    if result.status == "failed_headers":
+        dest = move_collision_safe(
+            path, failed_path(root, user_id), now=now
+        )
+        logger.warning(
+            "watch import failed_headers moved user_id=%s file=%s moved_to=%s",
+            user_id,
+            filename,
+            dest.name,
+        )
+        return result
+
+    move_collision_safe(path, processed_path(root, user_id), now=now)
+    return result
 
 
 def _iter_user_csv_files(inbox: Path) -> list[tuple[Path, str]]:

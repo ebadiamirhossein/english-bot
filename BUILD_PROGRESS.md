@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-10
-**Current slice:** S8
-**Status:** S8 couple challenge code-complete — needs second user + shared group to verify live; S15a real CSV (#27) and S4c cron/`.env` (#6) still open; unrun checks remain on S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Current slice:** S15b
+**Status:** S15b CSV-via-Telegram code-complete — needs a real CSV send in Telegram; S8 couple needs second user + shared group; S15a real CSV (#27) and S4c cron/`.env` (#6) still open; unrun checks remain on S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -57,6 +57,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S18b | `/help` + command menu | 🟡 code-complete | 2026-08-10 | `setMyCommands` in post_init; grouped `/help`; `/ping` off menu; `/import` conditional on `WATCH_DIR`; onboarding save points at `/help` (still 2 messages). |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
 | S15a | Watched-folder bridge | 🟡 code-complete | 2026-08-10 | `WATCH_DIR` CSV import (Trancy/LR) + Anki outbox; mtime≥2min; collision-safe moves; due_chunks `id DESC` tie-break; `/import` + settings paths. |
+| S15b | CSV via Telegram document | 🟡 code-complete | 2026-08-10 | Private-chat `.csv` → shared S15a pipeline in memory; tool from headers; non-CSV warm line; 5 MiB cap; `/help` upload line; independent of `WATCH_DIR`. |
 | S13 | Voice diary (M9) | 🟡 code-complete | 2026-08-09 | Tue/Thu prompts + `/diary`; live M3 wins voice routing; max 2 corrections; no TTS; full transcript discarded. |
 | S14 | Load-up mode (M10) | 🟡 code-complete | 2026-08-09 | `/prep <topic>` → 10 chunks + 3 frames; persist `prep_<slug>` to Anki pool; no sessions/errors; commit-after-send. |
 | S16 | Shadowing (M12) | 🟡 code-complete | 2026-08-09 | `/shadow` TTS from chunks; 30-min voice claim; word diff (ASR intelligibility); retry once; no errors/nudge/calibration. |
@@ -95,6 +96,11 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-10 | S15b: Telegram document is the **general** CSV entrance; `WATCH_DIR` folder remains a **single-user convenience** | Folder only works for whoever syncs Drive to the bot host; after Hetzner neither user's laptop Drive is visible. Telegram works from any device/account. Entrances are independent — unset `WATCH_DIR` must not disable uploads. |
+| 2026-08-10 | S15b: tool detection from header shape (Trancy: Word+Translation; LR: Phrase+(Definition\|Context\|Video)); else `subtitle_csv_*` | No folder hint on Telegram. Guessing wrong tags Anki/review metadata permanently; `csv` fallback is safer than a confident wrong tool. |
+| 2026-08-10 | S15b: non-CSV → one warm line (no LLM); refuse >**5 MiB** before download; IMAGE excluded from non-CSV filter | Silent ignore looks like a broken bot. Phrase exports are small; multi-year cumulatives fit under 5 MiB; larger is almost certainly a wrong file. |
+| 2026-08-10 | S15b `/book` collision: book `COLLECT_PAGES` is `PHOTO \| Document.IMAGE` only — CSV never matches; non-CSV filter is `Document.ALL & ~IMAGE & ~csv` | Confirmed: mid-book CSV reaches import; mid-book image document still reaches book; plain text still reaches correction. No OpenQuizFilter widen. |
+| 2026-08-10 | S15b: one shared `import_csv_rows` / `map_headers` for folder + Telegram (not two mappers) | Mapping is the least certain part of S15a (#27); duplicated logic would drift. Folder path adds move-to `processed/`/`failed/` only. |
 | 2026-08-10 | S8: `correction.py` already had `ChatType.PRIVATE` — **not modified** | Verified before assuming; group text never reached M2. Adding couple filter is additive only. |
 | 2026-08-10 | S8: `OpenCoupleChallengeFilter` checks `is_registered` inside the filter | Handler never runs for strangers; “ignored entirely” asserts spy not called. |
 | 2026-08-10 | S8: questions from error journal (alternate by `date.toordinal() % 2`, stubborn = highest `times_wrong`); partner fallback; both empty → skip | Product point is *their* mistakes. **Fairness:** half the week each is tested on the partner’s gaps, so the non-author is likelier to win that day — balanced over a week, not a bug. |
@@ -384,7 +390,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 23 | S15 self-forward → capture, not M2. `forward_origin` cannot reliably detect self (`MessageOriginHiddenUser`). Workaround: paste own English as plain text (reply hint). Guessing wrong would journal someone else’s sentences. | medium | S15 | ⬜ open — by design |
 | 25 | S18a: `why_statement` and `work_domain` remain uneditable from Telegram. Deliberate omission — free-text ConversationHandler states are the dispatch shape that killed M2; tapped-only editor excludes them until a later slice accepts that risk. | low | S18a | ⬜ open — deliberate omission |
 | 26 | S4c: `backup.sh` never read `BACKUP_OFFSITE_DIR` / `BACKUP_DIR` from `.env` — only `DATABASE_URL` was grepped; backup keys came solely from the process environment. Configured-in-`.env` → silent skip (looked unset). Tests missed it: all 18 passed `BACKUP_OFFSITE_DIR` as a real env var to the subprocess, never exercising the `.env` path (same shape as the prefill regression). Fixed 2026-08-10: `env_file_get` + `apply_dotenv_backup_vars` (real env wins; quoted/unquoted; spaces); INFO when skip; regression tests write a temp `.env` with a space in the path. **Standing lesson: shell configuration must be tested through `.env`, not only through environment variables passed by the test harness.** | high | S4c | ✅ closed — 2026-08-10 |
-| 27 | S15a column mapping is inferred (whole-word substring tokens), not verified against a real Trancy export and a real Language Reactor export. Import one of each before trusting production. | medium | S15a | ⬜ open — until human imports one of each |
+| 27 | S15a column mapping is inferred (whole-word substring tokens), not verified against a real Trancy export and a real Language Reactor export. Import one of each before trusting production. **S15b adds a Telegram entrance that reuses the same mapper — it does not resolve this.** | medium | S15a | ⬜ open — until human imports one of each |
 | 28 | S8 couple challenge produces **no learning signal**: question is generated from a specific error journal row, but a correct group answer does not call `mark_result` (no `source_error_id` column; no migration). Same answer in the morning quiz would advance the spacing ladder. Only product surface where getting something right teaches the system nothing. Fix path: migration adding `source_error_id` → winner’s claim calls `mark_result(..., True)`. | medium | S8 → later | ⬜ open — deliberate omission |
 | 29 | S8 cannot be verified live until a second user is onboarded and a shared Telegram group exists (`COUPLE_CHAT_ID` via `/here`). Ships more unverified surface than most slices. | high | S8 | ⬜ open — blocked on second user + group |
 
@@ -403,7 +409,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
 | `docs/ARCHITECTURE.md` | Stack, structure, interfaces; §5 jobs split Anki Sat / Sunday report (S11) + `watch_poll` (S15a) | ✅ |
-| `docs/TASKS.md` | Vertical slice list (+ S15a + S18a + S18b) | ✅ |
+| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a + S18b) | ✅ |
 | `specs/S0-repo-skeleton.md` | S0 spec | ✅ |
 | `specs/S1-onboarding.md` | S1 spec | ✅ |
 | `specs/S1a-onboarding-ux.md` | S1a onboarding UX polish spec | ✅ |
@@ -432,11 +438,11 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/couple/streak/freeze + M13 + heartbeat + backup_freshness + watch_poll | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18b + S15/S13/S14/S16 + S7a + S15a + S8 COUPLE_* | ✅ |
-| `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers` (incl. couple before correction); `setMyCommands`; prompts; scheduler | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18b + S15/S13/S14/S16 + S7a + S15a/S15b + S8 COUPLE_* | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers` (CSV docs + couple before correction); `setMyCommands`; prompts; scheduler | ✅ |
 | `app/services/commands.py` | BotCommand list + `register_bot_commands` (S18b); `/ping` hidden; `/import` conditional | ✅ |
-| `app/handlers/help.py` | `/help` grouped intent map (S18b); no ceiling bump | ✅ |
-| `tests/test_help.py` | setMyCommands / failure WARNING / help content / import gate / unregistered / handler drift / no-guilt (S18b) | ✅ |
+| `app/handlers/help.py` | `/help` grouped intent map (S18b); CSV upload line (S15b); no ceiling bump | ✅ |
+| `tests/test_help.py` | setMyCommands / failure WARNING / help content / import gate / CSV upload line / unregistered / handler drift / no-guilt (S18b/S15b) | ✅ |
 | `app/handlers/shadow.py` | `/shadow` + retry callback + voice processing (S16); never errors; transcript discarded | ✅ |
 | `app/services/shadow.py` | Chunk select (K=10), word diff, feedback format; abandon open shadow (S16) | ✅ |
 | `tests/test_shadow.py` | Diff, select variety, claim window, retry, streaks, calibration exclusion, privacy, labels (S16) | ✅ |
@@ -451,6 +457,8 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/services/stats.py` | Read-only `/stats` assembly; due-chunk count (S18/S7a); learner omits sweep | ✅ |
 | `app/handlers/settings.py` | `/settings` tapped-only editor (S18a) + `/pause` + `/stats` (S18); orphan `set:` stale degrade; S15a watch path line | ✅ |
 | `app/handlers/import_cmd.py` | `/import` — scan caller inbox (S15a); no ceiling bump | ✅ |
+| `app/handlers/csv_import.py` | Private-chat CSV document import (S15b); non-CSV warm line; no disk write | ✅ |
+| `tests/test_csv_import.py` | S15b bytes import, attribution, headers alert, non-CSV, size, unregistered, cross-entrance dedupe, privacy, shared mapper | ✅ |
 | `scripts/heartbeat.py` | CLI stale check for future external cron (S18) | ✅ |
 | `tests/test_hardening.py` | Alerts/throttle/heartbeat/lock/log privacy/pause/stats/Missed pin (S18) | ✅ |
 | `tests/test_backup_offsite.py` | Off-site copy verify/refuse/retention/placeholders + freshness throttle + `.env` load (S4c) | ✅ |
@@ -481,13 +489,13 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/services/errors.py` | record_errors + due_errors + weekly + Murphy + spacing_step + mark_result + resolved_types + M13 (S3/S10/S11/S12/S7a) | ✅ |
 | `app/services/sessions.py` | sessions + ceiling + diary/shadow claim helpers + nudgeable quiz/reading/diary + fossil_sweep + sunday_report (S3–S16) | ✅ |
 | `app/services/anki.py` | Chunk→TSV gap/escape/export; weekly deliver + `/anki`; mark-after-send (S7); S15a outbox write (failure-tolerant) | ✅ |
-| `app/services/watch_import.py` | S15a CSV header map, mtime gate, dedupe, insert, orphan WARN, Anki outbox helper | ✅ |
+| `app/services/watch_import.py` | Shared CSV map/dedupe/insert (S15a folder + S15b Telegram bytes); mtime gate; orphan WARN; Anki outbox | ✅ |
 | `app/services/paths.py` | `assert_path_outside_repo` + collision-safe move (PRD §10) | ✅ |
 | `app/services/streaks.py` | Streak rollover, freeze, rescue; Active>Missed precedence (S4/S5) | ✅ |
 | `app/services/interests.py` | list/replace/select_topic/mark_last_used + adjust_weight_for_rating (S9/S9a/S9c) | ✅ |
 | `app/services/chunks.py` | Chunk inserts (next_review=tomorrow) + due_chunks / mark_chunk_result / count_due (S9a/S15/S14/S7a); due `id DESC` within date (S15a) | ✅ |
 | `tests/test_chunk_review.py` | S7a selection cap, ladder, grading, calib exclusion, migration, stats, Anki independence; S15a id DESC / bulk-starve | ✅ |
-| `tests/test_watch_import.py` | S15a headers, dedupe, mtime, collision, orphan, outbox, privacy logs, path refuse | ✅ |
+| `tests/test_watch_import.py` | S15a headers, dedupe, mtime, collision, orphan, outbox, privacy logs, path refuse; tool detect (S15b) | ✅ |
 | `app/services/reading.py` | MCQ validate + parse_stored_questions + persist_and_send + complete_reading (S9a/S9c) | ✅ |
 | `app/services/books.py` | OCR parse/merge, upsert, summary; list/find/top-up + word-bank/dedup; studied Murphy units (S6/S6a/S11) | ✅ |
 | `app/prompts/correction.txt` | Correction system prompt template | ✅ |
@@ -518,7 +526,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_reading.py` | S9a eligibility, ceiling, topic pick, MCQ validate, rollback, persist + message_id | ✅ |
 | `tests/test_reading_s9c.py` | S9c grading, resume, message_id resolve, rating clamps, legacy NULL score, edit resend, labels | ✅ |
 | `tests/test_book.py` | S6 debounce, merge, upsert, failures, Page/Pages / All-N collapse, CTA agreement, prose soft-skip, over-cap, labels, SDK/disk greps | ✅ |
-| `tests/test_dispatch_m2.py` | Application dispatch + capture + voice/diary/shadow + settings + S8 couple group spies | ✅ |
+| `tests/test_dispatch_m2.py` | Application dispatch + capture + voice/diary/shadow + settings + S8 couple + S15b CSV vs /book | ✅ |
 | `tests/test_couple.py` | S8 scoring, poll, marker inertness, no-guilt, dispatch-adjacent | ✅ |
 | `tests/test_s6a.py` | Top-up counts, word-bank/dedup fixtures, journal fork (typed+tap), streak Missed vs Neutral, `/test` parse/disambiguate/abandon, labels (S6a) | ✅ |
 | `tests/test_anki.py` | S7 gap/escape/order/mark-after-send/ceiling/idempotency/empty `/anki` | ✅ |
@@ -602,6 +610,9 @@ Commands and taps needing only a running bot.
 - [ ] **S4c** — set `BACKUP_OFFSITE_DIR` in `.env` (quoted path with spaces ok) to an existing writable folder outside the repo and outside `BACKUP_DIR`; run `bash scripts/backup.sh` **without** exporting the var; confirm a matching-size `english_bot_*.dump` lands in the off-site dir
 - [ ] **S4c** — with the bot running and `BACKUP_OFFSITE_DIR` set to a deliberately empty or aged directory → one operator alert; repeat within 15 min → throttled (no flood)
 - [ ] **S4c** — unset / empty `BACKUP_OFFSITE_DIR` → backup still succeeds locally; log shows `off-site copy skipped (BACKUP_OFFSITE_DIR not set)`; no freshness alert
+- [ ] **S15b** — send a Trancy or Language Reactor `.csv` to the bot in private chat → imported / already had / skipped + due count
+- [ ] **S15b** — send a non-CSV document (e.g. `.xlsx`) → warm “only CSV” line; no crash
+- [ ] **S15b** — `/help` Vocabulary section mentions sending a CSV export (even when `WATCH_DIR` unset)
 - [ ] **S15a** — set `WATCH_DIR` to an existing folder outside the repo; `/import` replies with inbox + `trancy/` + `language_reactor/` paths; `/settings` shows the same
 - [ ] **S15a** — drop a CSV into `inbox/<your_id>/trancy/` (or `language_reactor/`); wait ≥2 min or age the file; `/import` → imported counts + due count; file lands in `processed/`
 - [ ] **S15a** — re-drop the same cumulative export → imported 0, duplicates = prior count
@@ -715,4 +726,4 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-Human: verify S18b at the desk — Telegram `/` menu populated, `/help` readable on a phone (incl. WATCH_DIR on/off for `/import`). Also still open: S15a real Trancy + Language Reactor CSV (#27); S4c cron/`.env` off-site copy (#6). Do not start the next slice until S18b is marked ✅ by the human.
+Human: verify S15b at the desk — send a real Trancy or Language Reactor CSV to the bot and confirm counts. Also still open: S15a real CSV mapping (#27); S8 second user + group; S18b menu/`/help`; S4c cron/`.env` off-site (#6). Do not start the next slice until S15b is marked ✅ by the human.
