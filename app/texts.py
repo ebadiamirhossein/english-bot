@@ -1059,3 +1059,33 @@ def format_shadow_feedback(
     )
 
 
+# --- Couple challenge (S8 / M8) -----------------------------------------------
+
+COUPLE_QUESTION = "Tonight's challenge\n\n{question}"
+
+COUPLE_TRY_AGAIN = "Not quite — have another go."
+
+COUPLE_ALREADY_CLAIMED = "Already taken — nice try though."
+
+COUPLE_WIN = "Point to {name}!"
+
+COUPLE_HERE_SET = (
+    "This chat's id is {chat_id}.\n"
+    "Put COUPLE_CHAT_ID={chat_id} in .env and restart the bot."
+)
+
+COUPLE_HERE_ALREADY = "This chat is already the couple challenge home."
+
+COUPLE_HERE_PRIVATE = "Run /here in your shared group chat."
+
+COUPLE_LEADERBOARD_HEADER = "This week's challenge"
+
+COUPLE_LEADERBOARD_SCORE = "{name}: {points}"
+
+COUPLE_LEADERBOARD_AHEAD = "{name} is ahead this week."
+
+COUPLE_LEADERBOARD_TIE = "You're level — nice week."
+
+COUPLE_LEADERBOARD_STAKE = "Stake is whatever you two agreed."
+
+

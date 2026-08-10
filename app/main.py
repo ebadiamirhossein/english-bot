@@ -21,6 +21,7 @@ from app.handlers.book_test import (
 from app.handlers.capture import build_capture_handlers, init_capture_prompt
 from app.handlers.prep import build_prep_handler, init_prep_prompt
 from app.handlers.correction import build_correction_handler, init_correction_prompt
+from app.handlers.couple import build_couple_handlers, init_couple_prompt
 from app.handlers.diary import build_diary_handlers, init_diary_prompt
 from app.handlers.shadow import build_shadow_handlers
 from app.handlers.help import build_help_handler
@@ -88,6 +89,9 @@ def register_handlers(app: Application) -> None:
     app.add_handler(build_voice_handler())
     app.add_handler(build_interests_handler())
     app.add_handler(build_book_handler())
+    couple_here, couple_answers = build_couple_handlers()
+    app.add_handler(couple_here)
+    app.add_handler(couple_answers)  # group text; before correction
     app.add_handler(build_correction_handler())
     app.add_handler(build_access_handler(), group=1)
 
@@ -158,6 +162,7 @@ def main() -> int:
     init_book_test_prompt()
     init_capture_prompt()
     init_prep_prompt()
+    init_couple_prompt()
 
     app = (
         ApplicationBuilder()

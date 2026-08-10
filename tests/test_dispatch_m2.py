@@ -42,6 +42,7 @@ from app.handlers.book import (
 from app.handlers.book_test import build_book_test_handlers
 from app.handlers.capture import build_capture_handlers
 from app.handlers.correction import build_correction_handler
+from app.handlers.couple import build_couple_handlers
 from app.handlers.nudge import build_nudge_handler
 from app.handlers.quiz import (
     build_quiz_handlers,
@@ -58,10 +59,12 @@ from app.handlers.voice import build_voice_handler
 from app.services.alerts import on_error
 from app.services.sessions import insert_session, local_today, save_voice_exchange
 from app.services.users import save_onboarding
+from app.services.couple import insert_challenge_if_absent, couple_local_today
 
 FAKE_TELEGRAM_ID_BASE = 9_470_000_000
 SAMPLE_TEXT = "her english is not so much good"
 CAPTURE_SAMPLE = "Could you circle back on this by Friday please?"
+COUPLE_CHAT_ID = -100555666777
 
 
 @pytest.fixture
@@ -146,15 +149,19 @@ async def _build_app(
     quiz_spy: AsyncMock,
     correction_spy: AsyncMock,
     capture_spy: AsyncMock | None = None,
+    couple_spy: AsyncMock | None = None,
 ):
-    """Application mirroring main.py: capture → quiz text → voice → correction."""
+    """Application mirroring main.py: capture → quiz text → voice → couple → correction."""
     if capture_spy is None:
         capture_spy = AsyncMock()
+    if couple_spy is None:
+        couple_spy = AsyncMock()
     with (
         patch("app.handlers.quiz.on_quiz_text", quiz_spy),
         patch("app.handlers.correction.correct_text", correction_spy),
         patch("app.handlers.capture.on_forwarded_capture", capture_spy),
         patch("app.handlers.capture.on_capture_command", capture_spy),
+        patch("app.handlers.couple.on_couple_answer", couple_spy),
     ):
         quiz_text, quiz_choice = build_quiz_handlers()
         capture_fwd, capture_cmd = build_capture_handlers()
@@ -163,6 +170,7 @@ async def _build_app(
         test_cmd, test_cb = build_book_test_handlers()
         voice = build_voice_handler()
         book = build_book_handler()
+        couple_here, couple_answers = build_couple_handlers()
         correction = build_correction_handler()
 
     pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
@@ -185,6 +193,8 @@ async def _build_app(
     app.add_handler(test_cmd)
     app.add_handler(voice)
     app.add_handler(book)
+    app.add_handler(couple_here)
+    app.add_handler(couple_answers)
     app.add_handler(correction)
 
     # Avoid Telegram network: mark initialized without Bot.initialize/get_me.
@@ -211,6 +221,35 @@ def _text_update(
         text=text,
     )
     return Update(update_id=update_id, message=msg)
+
+
+def _group_text_update(
+    user_id: int,
+    text: str,
+    *,
+    chat_id: int = COUPLE_CHAT_ID,
+    update_id: int = 1,
+    message_id: int = 20,
+) -> Update:
+    user = User(id=user_id, first_name="A", is_bot=False)
+    chat = Chat(id=chat_id, type="supergroup", title="Couple")
+    msg = Message(
+        message_id=message_id,
+        date=datetime.now(timezone.utc),
+        chat=chat,
+        from_user=user,
+        text=text,
+    )
+    return Update(update_id=update_id, message=msg)
+
+
+def _couple_settings() -> Settings:
+    return Settings(
+        database_url="postgresql://x:y@localhost:5433/english_bot",
+        telegram_bot_token="token",
+        llm_api_key="test-key",
+        couple_chat_id=COUPLE_CHAT_ID,
+    )
 
 
 def _voice_update(
@@ -1166,5 +1205,168 @@ def test_dispatch_settings_mid_flow_plain_text_reaches_correction(
             quiz_spy.assert_not_awaited()
         finally:
             app._initialized = False
+
+    asyncio.run(_run())
+
+
+# --- Couple challenge dispatch (S8) -------------------------------------------
+
+
+def test_dispatch_private_text_still_reaches_correction_with_couple_registered(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        couple_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            couple_spy=couple_spy,
+        )
+        try:
+            update = _text_update(tid, SAMPLE_TEXT)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            correction_spy.assert_awaited_once()
+            couple_spy.assert_not_awaited()
+            quiz_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_group_open_challenge_reaches_couple(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    day = couple_local_today(datetime.now(timezone.utc))
+    with connection() as conn:
+        with conn.transaction():
+            conn.execute(
+                "DELETE FROM couple_challenges WHERE date = %s", (day,)
+            )
+    insert_challenge_if_absent(day, "Fill ___", "very")
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        couple_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            couple_spy=couple_spy,
+        )
+        try:
+            update = _group_text_update(tid, "very")
+            update._bot = app.bot
+            update.message._bot = app.bot
+            with patch(
+                "app.handlers.couple.load_settings",
+                return_value=_couple_settings(),
+            ):
+                await app.process_update(update)
+            couple_spy.assert_awaited_once()
+            correction_spy.assert_not_awaited()
+            quiz_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+            with connection() as conn:
+                with conn.transaction():
+                    conn.execute(
+                        "DELETE FROM couple_challenges WHERE date = %s",
+                        (day,),
+                    )
+
+    asyncio.run(_run())
+
+
+def test_dispatch_group_no_open_challenge_reaches_nothing(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    day = couple_local_today(datetime.now(timezone.utc))
+    with connection() as conn:
+        with conn.transaction():
+            conn.execute(
+                "DELETE FROM couple_challenges WHERE date = %s", (day,)
+            )
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        couple_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            couple_spy=couple_spy,
+        )
+        try:
+            update = _group_text_update(tid, SAMPLE_TEXT)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            with patch(
+                "app.handlers.couple.load_settings",
+                return_value=_couple_settings(),
+            ):
+                await app.process_update(update)
+            couple_spy.assert_not_awaited()
+            correction_spy.assert_not_awaited()
+            quiz_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_group_unregistered_reaches_nothing(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    stranger = tid + 777_777
+    day = couple_local_today(datetime.now(timezone.utc))
+    with connection() as conn:
+        with conn.transaction():
+            conn.execute(
+                "DELETE FROM couple_challenges WHERE date = %s", (day,)
+            )
+    insert_challenge_if_absent(day, "Fill ___", "very")
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        couple_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            couple_spy=couple_spy,
+        )
+        try:
+            update = _group_text_update(stranger, "very")
+            update._bot = app.bot
+            update.message._bot = app.bot
+            with patch(
+                "app.handlers.couple.load_settings",
+                return_value=_couple_settings(),
+            ):
+                await app.process_update(update)
+            couple_spy.assert_not_awaited()
+            correction_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+            with connection() as conn:
+                with conn.transaction():
+                    conn.execute(
+                        "DELETE FROM couple_challenges WHERE date = %s",
+                        (day,),
+                    )
 
     asyncio.run(_run())

@@ -8,6 +8,7 @@ S10: nudge ladder + Sunday report (report before Anki for ceiling priority).
 S12: M13 fossil sweep on the monthly freeze poll (per-user local 1st).
 S18: heartbeat. S4c: off-site backup freshness.
 S15a: watched-folder CSV import.
+S8: couple challenge poll (18:00 Vilnius; chat-level).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from zoneinfo import ZoneInfo
 from app import texts
 from app.config import load_settings
 from app.db import connection
+from app.handlers import couple as couple_handler
 from app.handlers import diary as diary_handler
 from app.handlers import quiz as quiz_handler
 from app.handlers import reading as reading_handler
@@ -78,6 +80,7 @@ DIARY_FIRST_SECONDS = EVENING_FIRST_SECONDS + 10
 SUNDAY_REPORT_FIRST_SECONDS = EVENING_FIRST_SECONDS + 15
 ANKI_FIRST_SECONDS = EVENING_FIRST_SECONDS + 30
 NUDGE_FIRST_SECONDS = EVENING_FIRST_SECONDS + 45
+COUPLE_FIRST_SECONDS = EVENING_FIRST_SECONDS + 55
 # Monday=0, Wednesday=2, Friday=4 in the user's local timezone.
 READING_WEEKDAYS = frozenset({0, 2, 4})
 # Tuesday=1, Thursday=3 — remaining evenings without reading/Anki/report (S13).
@@ -90,6 +93,7 @@ _DIARY_JOB = "diary_poll"
 _SUNDAY_REPORT_JOB = "sunday_report_poll"
 _ANKI_JOB = "anki_poll"
 _NUDGE_JOB = "nudge_poll"
+_COUPLE_JOB = "couple_poll"
 _STREAK_JOB = "streak_rollover"
 _FREEZE_JOB = "monthly_freeze_reset"
 _HEARTBEAT_JOB = "heartbeat"
@@ -392,6 +396,17 @@ async def run_nudge_poll(
     return results
 
 
+async def run_couple_poll(
+    application: Application,
+    now: datetime | None = None,
+) -> list[str]:
+    """Run one couple-challenge poll (chat-level). Returns action tags."""
+    instant = now or datetime.now(timezone.utc)
+    actions = await couple_handler.run_couple_poll(application, now=instant)
+    logger.info("Couple poll: actions=%s", actions)
+    return actions
+
+
 def run_streak_rollover(
     now: datetime | None = None,
     *,
@@ -463,6 +478,11 @@ async def _sunday_report_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def _nudge_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_nudge_poll(context.application)
+    _touch_job_fire_success()
+
+
+async def _couple_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await run_couple_poll(context.application)
     _touch_job_fire_success()
 
 
@@ -652,7 +672,7 @@ async def _watch_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def start_scheduler(application: Application) -> None:
-    """Register morning, evening, sunday report, anki, nudge, streak, freeze, heartbeat, backup_freshness, watch."""
+    """Register morning, evening, sunday report, anki, nudge, couple, streak, freeze, heartbeat, backup_freshness, watch."""
     jq = application.job_queue
     if jq is None:
         raise RuntimeError(
@@ -666,6 +686,7 @@ def start_scheduler(application: Application) -> None:
         _SUNDAY_REPORT_JOB,
         _ANKI_JOB,
         _NUDGE_JOB,
+        _COUPLE_JOB,
         _STREAK_JOB,
         _FREEZE_JOB,
         _HEARTBEAT_JOB,
@@ -715,6 +736,12 @@ def start_scheduler(application: Application) -> None:
         name=_NUDGE_JOB,
     )
     jq.run_repeating(
+        _couple_job,
+        interval=POLL_SECONDS,
+        first=COUPLE_FIRST_SECONDS,
+        name=_COUPLE_JOB,
+    )
+    jq.run_repeating(
         _streak_job,
         interval=STREAK_POLL_SECONDS,
         first=20,
@@ -745,10 +772,10 @@ def start_scheduler(application: Application) -> None:
         name=_WATCH_JOB,
     )
     logger.info(
-        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s "
+        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s "
         "(poll every %ss; evening first=%ss; diary first=%ss; "
         "sunday_report first=%ss; anki first=%ss; nudge first=%ss; "
-        "streak/freeze every %ss; heartbeat every %ss; "
+        "couple first=%ss; streak/freeze every %ss; heartbeat every %ss; "
         "backup_freshness first=%ss; watch first=%ss)",
         _MORNING_JOB,
         _EVENING_JOB,
@@ -756,6 +783,7 @@ def start_scheduler(application: Application) -> None:
         _SUNDAY_REPORT_JOB,
         _ANKI_JOB,
         _NUDGE_JOB,
+        _COUPLE_JOB,
         _STREAK_JOB,
         _FREEZE_JOB,
         _HEARTBEAT_JOB,
@@ -767,6 +795,7 @@ def start_scheduler(application: Application) -> None:
         SUNDAY_REPORT_FIRST_SECONDS,
         ANKI_FIRST_SECONDS,
         NUDGE_FIRST_SECONDS,
+        COUPLE_FIRST_SECONDS,
         STREAK_POLL_SECONDS,
         HEARTBEAT_POLL_SECONDS,
         BACKUP_FRESHNESS_FIRST_SECONDS,
@@ -785,6 +814,7 @@ def stop_scheduler(application: Application | None = None) -> None:
         _SUNDAY_REPORT_JOB,
         _ANKI_JOB,
         _NUDGE_JOB,
+        _COUPLE_JOB,
         _STREAK_JOB,
         _FREEZE_JOB,
         _HEARTBEAT_JOB,

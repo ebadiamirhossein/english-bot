@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-10
-**Current slice:** S18b
-**Status:** S18b `/help` + Telegram command menu code-complete — verify `/` menu and `/help` on a phone; S15a real CSV confirm (#27) and S4c cron/`.env` (#6) still open; unrun checks remain on S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Current slice:** S8
+**Status:** S8 couple challenge code-complete — needs second user + shared group to verify live; S15a real CSV (#27) and S4c cron/`.env` (#6) still open; unrun checks remain on S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -44,7 +44,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S6a | `/test` + quiz top-up | 🟡 code-complete | 2026-08-08 | `book_test` session; tap-only `/test unit N`; morning top-up from `book_units` when due < size; selection-time dedup/word-bank; journal on book miss with taxonomy guard. |
 | S7 | Anki export | ✅ done & verified | 2026-08-08 | TSV from `chunks` only; poll + `/anki`; mark-after-send. Human imported TSV into Anki; second `/anki` reported nothing new. **2026-08-09:** full Anki path verified live. S11 moved weekly poll to Saturday. |
 | S7a | Chunk spaced review in daily quiz | 🟡 code-complete | 2026-08-10 | Migration 004; due chunks between errors and books (capped at typed_gap_count); article-tolerant grading; shared spacing_step; calib_* excludes chunks; Anki independent. |
-| S8 | Couple challenge | ⬜ not started | | |
+| S8 | Couple challenge | 🟡 code-complete | 2026-08-10 | Group chat daily Q at 18:00 Vilnius from error journal; atomic first-correct → `couple_scores`; Sunday leaderboard; `COUPLE_CHAT_ID` + `/here`; correction already PRIVATE (unchanged). Live verify blocked until second user + group. |
 | S9 | Interests profile | 🟡 code-complete | 2026-08-04 | `/interests` wizard seeds `interests`. Unrun: custom-topic weight/last_used across Change→Done. |
 | S9a | Reading delivery + chunks | 🟡 code-complete | 2026-08-06 | Mon/Wed/Fri evening poll; readings+chunks+session; ceiling; LLM off event loop. Unrun: same-day second poll / ceiling / morning quiz unblock. |
 | S9b | Video engine (YouTube) | ⬜ not started | | |
@@ -95,6 +95,15 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-10 | S8: `correction.py` already had `ChatType.PRIVATE` — **not modified** | Verified before assuming; group text never reached M2. Adding couple filter is additive only. |
+| 2026-08-10 | S8: `OpenCoupleChallengeFilter` checks `is_registered` inside the filter | Handler never runs for strangers; “ignored entirely” asserts spy not called. |
+| 2026-08-10 | S8: questions from error journal (alternate by `date.toordinal() % 2`, stubborn = highest `times_wrong`); partner fallback; both empty → skip | Product point is *their* mistakes. **Fairness:** half the week each is tested on the partner’s gaps, so the non-author is likelier to win that day — balanced over a week, not a bug. |
+| 2026-08-10 | S8: no `mark_result` on challenge answers (no `source_error_id`; no migration) | Cannot map answer → error row. Known issue #28. |
+| 2026-08-10 | S8: group posts do **not** increment `bot_message_counts` | Rule 9 is per-user private delivery; group messages are not DMs and do not compete with quiz/reading/nudge. |
+| 2026-08-10 | S8: atomic first-correct via `UPDATE … WHERE winner_user_id IS NULL` | Read-then-write races would hand out two points. |
+| 2026-08-10 | S8: feature inert until `COUPLE_CHAT_ID` set **and** ≥2 registered users | No solo spam; no errors when unset; starts when second `/start` completes. |
+| 2026-08-10 | S8: `/here` in group echoes chat id for `.env` + restart (Settings stays env-only) | Friendlier than scraping getUpdates; no migration / no second config path. |
+| 2026-08-10 | S8: Sunday leaderboard marker = `sessions` `couple_leaderboard`, `completed=FALSE`, `date=` Sunday posted | Proven inert by tests (Neutral, morning still due, out of calibration, backfill Neutral). Never flip completed — Active = any completed of any type. |
 | 2026-08-10 | S18b: `/help` grouped by intent (Every day / Speaking / Real English / Books / Vocabulary / Settings), not alphabetically | Fourteen flat lines are unscannable on a phone; intent groups match how someone looks something up. |
 | 2026-08-10 | S18b: `/ping` stays registered, omitted from `setMyCommands` and `/help` | Developer liveness check — pollutes the learner menu. |
 | 2026-08-10 | S18b: `/import` omitted from menu + `/help` when `WATCH_DIR` unset (same one condition, both surfaces) | Command no-ops without the folder; listing it only confuses. No general capability registry. |
@@ -376,6 +385,8 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 25 | S18a: `why_statement` and `work_domain` remain uneditable from Telegram. Deliberate omission — free-text ConversationHandler states are the dispatch shape that killed M2; tapped-only editor excludes them until a later slice accepts that risk. | low | S18a | ⬜ open — deliberate omission |
 | 26 | S4c: `backup.sh` never read `BACKUP_OFFSITE_DIR` / `BACKUP_DIR` from `.env` — only `DATABASE_URL` was grepped; backup keys came solely from the process environment. Configured-in-`.env` → silent skip (looked unset). Tests missed it: all 18 passed `BACKUP_OFFSITE_DIR` as a real env var to the subprocess, never exercising the `.env` path (same shape as the prefill regression). Fixed 2026-08-10: `env_file_get` + `apply_dotenv_backup_vars` (real env wins; quoted/unquoted; spaces); INFO when skip; regression tests write a temp `.env` with a space in the path. **Standing lesson: shell configuration must be tested through `.env`, not only through environment variables passed by the test harness.** | high | S4c | ✅ closed — 2026-08-10 |
 | 27 | S15a column mapping is inferred (whole-word substring tokens), not verified against a real Trancy export and a real Language Reactor export. Import one of each before trusting production. | medium | S15a | ⬜ open — until human imports one of each |
+| 28 | S8 couple challenge produces **no learning signal**: question is generated from a specific error journal row, but a correct group answer does not call `mark_result` (no `source_error_id` column; no migration). Same answer in the morning quiz would advance the spacing ladder. Only product surface where getting something right teaches the system nothing. Fix path: migration adding `source_error_id` → winner’s claim calls `mark_result(..., True)`. | medium | S8 → later | ⬜ open — deliberate omission |
+| 29 | S8 cannot be verified live until a second user is onboarded and a shared Telegram group exists (`COUPLE_CHAT_ID` via `/here`). Ships more unverified surface than most slices. | high | S8 | ⬜ open — blocked on second user + group |
 
 ---
 
@@ -386,7 +397,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | Path | Purpose | Status |
 |---|---|---|
 | `.cursorrules` | Project constitution for every slice | ✅ |
-| `.env.example` | Dummy env keys + session-pooler + LLM + Whisper/TTS + S18 operator/runtime + S4c `BACKUP_OFFSITE_DIR` + S15a `WATCH_DIR` | ✅ |
+| `.env.example` | Dummy env keys + session-pooler + LLM + Whisper/TTS + S18 operator/runtime + S4c `BACKUP_OFFSITE_DIR` + S15a `WATCH_DIR` + S8 `COUPLE_CHAT_ID` | ✅ |
 | `.gitignore` | Ignores `.env`, venv, pycache, pytest | ✅ |
 | `requirements.txt` | ptb[job-queue], psycopg, dotenv, pytest, anthropic, openai | ✅ |
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
@@ -413,13 +424,16 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `migrations/003_streaks.sql` | last_evaluated_date, freeze_reset_on, pending_freeze_notice | ✅ |
 | `migrations/004_chunk_review.sql` | chunks next_review / times_right / times_wrong / streak_right + due index (S7a) | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
-| `app/config.py` | Env → frozen `Settings` (+ LLM/STT/TTS + `DIARY_MAX_SECONDS` + S18 runtime + S4c `BACKUP_OFFSITE_DIR` + S15a `WATCH_DIR`) | ✅ |
+| `app/config.py` | Env → frozen `Settings` (+ LLM/STT/TTS + `DIARY_MAX_SECONDS` + S18 runtime + S4c `BACKUP_OFFSITE_DIR` + S15a `WATCH_DIR` + S8 `COUPLE_CHAT_ID`) | ✅ |
+| `app/services/couple.py` | Couple challenge DB: pick error, insert, atomic claim, scores, Sunday marker | ✅ |
+| `app/handlers/couple.py` | `/here` + group answer filter/handler + 18:00 / Sunday delivery | ✅ |
+| `app/prompts/couple.txt` | Journal row → `{question, answer}` JSON | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
-| `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/streak/freeze + M13 + heartbeat + backup_freshness + watch_poll | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18b + S15/S13/S14/S16 + S7a QUIZ_CHUNK_LABEL / STATS due + S15a IMPORT_* / SETTINGS_WATCH_LINE | ✅ |
-| `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers`; `setMyCommands` in post_init; `/help`; `/prep`; `/diary`; `/shadow`; `/import`; capture; `/settings` `/pause` `/stats`; scheduler | ✅ |
+| `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/couple/streak/freeze + M13 + heartbeat + backup_freshness + watch_poll | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18b + S15/S13/S14/S16 + S7a + S15a + S8 COUPLE_* | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers` (incl. couple before correction); `setMyCommands`; prompts; scheduler | ✅ |
 | `app/services/commands.py` | BotCommand list + `register_bot_commands` (S18b); `/ping` hidden; `/import` conditional | ✅ |
 | `app/handlers/help.py` | `/help` grouped intent map (S18b); no ceiling bump | ✅ |
 | `tests/test_help.py` | setMyCommands / failure WARNING / help content / import gate / unregistered / handler drift / no-guilt (S18b) | ✅ |
@@ -504,7 +518,8 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_reading.py` | S9a eligibility, ceiling, topic pick, MCQ validate, rollback, persist + message_id | ✅ |
 | `tests/test_reading_s9c.py` | S9c grading, resume, message_id resolve, rating clamps, legacy NULL score, edit resend, labels | ✅ |
 | `tests/test_book.py` | S6 debounce, merge, upsert, failures, Page/Pages / All-N collapse, CTA agreement, prose soft-skip, over-cap, labels, SDK/disk greps | ✅ |
-| `tests/test_dispatch_m2.py` | Application dispatch + capture + voice/diary/shadow + settings mid-flow spies (S3+S6+S6a+S9c+S10+S13+S15+S16+S18+S18a) | ✅ |
+| `tests/test_dispatch_m2.py` | Application dispatch + capture + voice/diary/shadow + settings + S8 couple group spies | ✅ |
+| `tests/test_couple.py` | S8 scoring, poll, marker inertness, no-guilt, dispatch-adjacent | ✅ |
 | `tests/test_s6a.py` | Top-up counts, word-bank/dedup fixtures, journal fork (typed+tap), streak Missed vs Neutral, `/test` parse/disambiguate/abandon, labels (S6a) | ✅ |
 | `tests/test_anki.py` | S7 gap/escape/order/mark-after-send/ceiling/idempotency/empty `/anki` | ✅ |
 | `tests/test_motivation.py` | S10 nudge ladder, ceiling, dual-TZ, resolved_types all-clear, active-days bands, Sunday report, Just do 2 score, no-guilt/labels | ✅ |
@@ -557,13 +572,24 @@ On this Mac: point at a Google Drive–synced folder (no credentials). On Hetzne
 
 ## Verification checklist
 
-Do not start S8 / S9b until these are cleared or explicitly deferred.
+Do not start S9b until these are cleared or explicitly deferred.
 
 ### How to verify
 
 1. Start the bot: `.venv/bin/python -m app.main`
 2. Watch the terminal alongside Telegram.
 3. Tail the rotating log: `tail -f ~/english-bot-runtime/bot.log`
+
+### Needs the second user onboarded and a shared group (S8)
+
+- [ ] **S8** — create a shared group; add the bot; registered user runs `/here` → replies with chat id; set `COUPLE_CHAT_ID` in `.env` and restart
+- [ ] **S8** — with both users onboarded and journal errors present, after 18:00 Vilnius → one question in the group (under 400 chars)
+- [ ] **S8** — first correct answer gets the point + warm win line; wrong answer → warm try-again, challenge stays open
+- [ ] **S8** — second correct after a winner → “already claimed”, no second point
+- [ ] **S8** — unregistered group member’s text ignored (no reply)
+- [ ] **S8** — ordinary group chat with no open challenge → bot silent; private free text still reaches correction
+- [ ] **S8** — Sunday ≥18:00 → one leaderboard (both scores, ahead/tie, stake line); second poll tick same Sunday → nothing new
+- [ ] **S8** — with only one registered user or `COUPLE_CHAT_ID` unset → no group posts, no errors
 
 ### 1. Can run any time at the desk
 
