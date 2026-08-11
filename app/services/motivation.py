@@ -89,8 +89,7 @@ def list_motivation_users() -> list[MotivationUser]:
             """
             SELECT telegram_user_id, timezone, evening_time, paused_until,
                    why_statement
-              FROM users
-             WHERE onboarded = TRUE
+              FROM approved_onboarded_users
             """
         ).fetchall()
     return [

@@ -1256,3 +1256,81 @@ COUPLE_LEADERBOARD_TIE = "You're level — nice week."
 COUPLE_LEADERBOARD_STAKE = "Stake is whatever you two agreed."
 
 
+# --- Access approval + admin (S18d) -------------------------------------------
+
+ACCESS_PRIVATE_BOT = (
+    "This is a private learning bot — access is by invitation.\n"
+    "Tap below if you'd like to request access."
+)
+
+BTN_REQUEST_ACCESS = "Request access"
+
+ACCESS_REQUEST_SENT = (
+    "Thanks — I've passed your request on. I'll message you when there's news."
+)
+
+ACCESS_REQUEST_ALREADY = (
+    "Your request is already with me — hang tight, I'll get back to you."
+)
+
+ACCESS_REQUEST_CLOSED = (
+    "Access isn't open right now. Your request was saved; try again later."
+)
+
+ACCESS_REQUEST_CAPPED = (
+    "Your request was noted. I'll be in touch if that changes."
+)
+
+ACCESS_APPROVED = (
+    "You're in — send /start whenever you're ready to set up."
+)
+
+ACCESS_DECLINED = "Not this time — take care."
+
+ACCESS_OPERATOR_REQUEST = (
+    "Access request\n"
+    "id: {telegram_id}\n"
+    "username: {username}\n"
+    "name: {display_name}"
+)
+
+BTN_ACCESS_APPROVE = "Approve"
+BTN_ACCESS_DECLINE = "Decline"
+
+ACCESS_OPERATOR_APPROVED = "Approved {telegram_id}."
+ACCESS_OPERATOR_DECLINED = "Declined {telegram_id}."
+ACCESS_OPERATOR_DONE = "Already handled."
+
+ADMIN_TITLE = "Operator panel"
+ADMIN_PENDING_LINE = "Pending requests: {n}"
+ADMIN_PENDING_NONE = "No pending requests."
+ADMIN_USER_LINE = (
+    "{name} · {level} · streak {streak} · "
+    "active {active}/{week} · last {last} · {paused}"
+)
+ADMIN_PAUSED_YES = "paused"
+ADMIN_PAUSED_NO = "active"
+ADMIN_REVOKED_TAG = "revoked"
+ADMIN_LAST_NEVER = "never"
+ADMIN_EMPTY = "No onboarded users yet."
+ADMIN_STALE = "That panel went stale — send /admin again."
+ADMIN_DONE = "Admin closed."
+ADMIN_CANCELLED = "Admin closed."
+ADMIN_NOTHING = "Nothing to show."
+ADMIN_REVOKED = "Access revoked for {name}. History kept."
+ADMIN_REAPPROVED = "Access restored for {name}."
+ADMIN_PAUSED = "Paused {name} until {until}."
+ADMIN_RESUMED = "Resumed {name}."
+ADMIN_PENDING_ITEM = "{display} · id {telegram_id}"
+
+BTN_ADMIN_PENDING = "Pending"
+BTN_ADMIN_USERS = "Users"
+BTN_ADMIN_REFRESH = "Refresh"
+BTN_ADMIN_DONE = "Done"
+BTN_ADMIN_PAUSE = "Pause"
+BTN_ADMIN_RESUME = "Resume"
+BTN_ADMIN_REVOKE = "Revoke"
+BTN_ADMIN_REAPPROVE = "Re-approve"
+BTN_ADMIN_BACK = "← Back"
+
+

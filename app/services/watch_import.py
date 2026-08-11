@@ -272,8 +272,7 @@ def list_registered_user_ids() -> list[int]:
         rows = conn.execute(
             """
             SELECT telegram_user_id
-              FROM users
-             WHERE onboarded = TRUE
+              FROM approved_onboarded_users
              ORDER BY telegram_user_id
             """
         ).fetchall()

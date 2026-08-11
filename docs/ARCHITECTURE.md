@@ -165,7 +165,7 @@ All registered in `scheduler.py`, all timezone-aware per user.
 
 - SSH key auth only, password auth disabled, `ufw` allowing 22 only.
 - Secrets in `.env`, never committed. `.env.example` documents keys with dummy values.
-- Bot responds only to `telegram_user_id` values present in `users`, plus `/start`. Everything else is silently ignored — this is the whole access-control model for Phases 1–4.
+- Bot responds only to `telegram_user_id` values with `access_requests.status = 'approved'`, plus `/start`, `/ping`, and `access:` callbacks (request / approve / decline). Unapproved traffic is stopped by a group-`-1` gate (`ApplicationHandlerStop`). Delivery lists read the `approved_onboarded_users` view. This is access control for Phases 1–4; tenancy/`plan` remain Phase 5.
 - Database credentials in `.env` with mode `600`; no database files on the host.
 
 ## 8. Testing

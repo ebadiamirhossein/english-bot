@@ -87,11 +87,20 @@ def get_user(telegram_user_id: int) -> User | None:
 
 
 def is_registered(telegram_user_id: int) -> bool:
-    """True when a users row exists for this telegram id."""
+    """True when a users row exists and access is currently approved.
+
+    Revoked users keep their ``users`` row (and learning history) but are
+    treated as unregistered for every handler that calls this helper.
+    """
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT 1 FROM users WHERE telegram_user_id = %s
+            SELECT 1
+              FROM users u
+              INNER JOIN access_requests ar
+                      ON ar.telegram_user_id = u.telegram_user_id
+             WHERE u.telegram_user_id = %s
+               AND ar.status = 'approved'
             """,
             (telegram_user_id,),
         ).fetchone()
@@ -299,5 +308,16 @@ def save_onboarding(telegram_user_id: int, data: dict[str, Any]) -> None:
                 ON CONFLICT DO NOTHING
                 """,
                 (telegram_user_id,),
+            )
+            # Approved if missing; never un-revokes (ON CONFLICT DO NOTHING).
+            conn.execute(
+                """
+                INSERT INTO access_requests (
+                    telegram_user_id, display_name, status,
+                    requested_at, resolved_at
+                ) VALUES (%s, %s, 'approved', NOW(), NOW())
+                ON CONFLICT (telegram_user_id) DO NOTHING
+                """,
+                (telegram_user_id, data["name"]),
             )
     logger.info("Saved onboarding for user_id=%s", telegram_user_id)

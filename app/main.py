@@ -13,6 +13,8 @@ from telegram.ext import Application, ApplicationBuilder, CommandHandler, Contex
 from app import texts
 from app.config import ConfigError, load_settings
 from app.handlers.access import build_access_handler
+from app.handlers.access_request import build_access_request_handlers
+from app.handlers.admin import build_admin_handler, build_admin_orphan_handler
 from app.handlers.book import build_book_handler, init_book_prompt
 from app.handlers.book_test import (
     build_book_test_handlers,
@@ -59,6 +61,13 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 def register_handlers(app: Application) -> None:
     """Wire every handler. Extracted so tests can assert menu ↔ handlers."""
     app.add_error_handler(on_error)
+    # S18d: real pre-handler gate — unapproved traffic never reaches group 0.
+    app.add_handler(build_access_handler(), group=-1)
+    access_req, access_decide = build_access_request_handlers()
+    app.add_handler(access_req)
+    app.add_handler(access_decide)
+    app.add_handler(build_admin_handler())  # tapped-only; operator-only
+    app.add_handler(build_admin_orphan_handler())
     app.add_handler(build_onboarding_handler())
     app.add_handler(build_help_handler())
     app.add_handler(build_guide_handler())  # tapped-only; no text filter
@@ -101,7 +110,6 @@ def register_handlers(app: Application) -> None:
     app.add_handler(couple_here)
     app.add_handler(couple_answers)  # group text; before correction
     app.add_handler(build_correction_handler())
-    app.add_handler(build_access_handler(), group=1)
 
 
 async def _post_init(application) -> None:

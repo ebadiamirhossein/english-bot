@@ -5,9 +5,9 @@
 
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
-**Last updated:** 2026-08-10
-**Current slice:** S18c
-**Status:** S18c `/guide` code-complete — needs phone read-through of every section; S15b needs a real CSV send; S8 couple needs second user + shared group; S15a real CSV (#27) and S4c cron/`.env` (#6) still open; unrun checks remain on S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Last updated:** 2026-08-11
+**Current slice:** S18d
+**Status:** S18d access approval + `/admin` code-complete — needs second-account request flow + operator Approve/Decline live; S18c phone read-through still open; S15b needs a real CSV send; S8 couple needs second user + shared group; S15a real CSV (#27) and S4c cron/`.env` (#6) still open; unrun checks remain on S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -56,6 +56,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S18a | `/settings` editor | 🟡 code-complete | 2026-08-10 | Tapped-only editor for weights/times/fallback; no MessageHandler; route-outs to `/interests` + `/pause`; cefr read-only. |
 | S18b | `/help` + command menu | 🟡 code-complete | 2026-08-10 | `setMyCommands` in post_init; grouped `/help`; `/ping` off menu; `/import` conditional on `WATCH_DIR`; onboarding save points at `/help` (still 2 messages). |
 | S18c | `/guide` how-to | 🟡 code-complete | 2026-08-10 | Tapped-only topic wizard from GUIDE-saving-phrases; Anki template + field map exact; `/help` + onboarding point at `/guide`; prose command-drift test. |
+| S18d | Access approval + `/admin` | 🟡 code-complete | 2026-08-11 | Migration 005 `access_requests` + `approved_onboarded_users` view; gate at group=-1; operator `/admin` activity-never-content; revoke≠delete; decline cap=2. |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
 | S15a | Watched-folder bridge | 🟡 code-complete | 2026-08-10 | `WATCH_DIR` CSV import (Trancy/LR) + Anki outbox; mtime≥2min; collision-safe moves; due_chunks `id DESC` tie-break; `/import` + settings paths. |
 | S15b | CSV via Telegram document | 🟡 code-complete | 2026-08-10 | Private-chat `.csv` → shared S15a pipeline in memory; tool from headers; non-CSV warm line; 5 MiB cap; `/help` upload line; independent of `WATCH_DIR`. |
@@ -97,6 +98,18 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-11 | S18d: configured operator always passes the gate | Approve/Decline and `/admin` must work even if the operator id has no `access_requests` row yet (bootstrap). Strangers still blocked. |
+| 2026-08-11 | S18d: `access_requests` table (+ `decline_count`) — not `plan`/`tenant_id`/status-on-users | Pending cannot live on `users` (NOT NULL name/language; write-nothing-until-Save). `plan`/`tenant_id` are Phase 5 commercial vocabulary — reusing them muddies S21. |
+| 2026-08-11 | S18d: view `approved_onboarded_users` is the single delivery predicate; six call sites + drift test | Same lesson as S7a `spacing_step` — six hand-rolled JOINs drift; a missed site silently keeps delivering to a revoked user. |
+| 2026-08-11 | S18d: open `/start` was a live hole on a public server | ARCHITECTURE §7 allowed `/start` for anyone; full onboarding + LLM spend. Closed before Phase 5 tenancy. |
+| 2026-08-11 | S18d: revoke ≠ delete | Mis-tap must not destroy journal/chunks/sessions/streaks (ARCHITECTURE principle 3). Re-approve restores access with data intact. |
+| 2026-08-11 | S18d: `/admin` shows activity never content | Voice diary and error journal are personal (PRD §10). If the operator can read what someone wrote or said, willingness to put real life into the bot collapses. Future “peek at errors” must argue against this explicitly. |
+| 2026-08-11 | S18d: `OPERATOR_TELEGRAM_ID` unset → store pending, loud log, tell requester access closed | Silent drop hides misconfiguration; storing lets the operator catch up when configured. |
+| 2026-08-11 | S18d: central gate at group=-1 + `ApplicationHandlerStop`; drop `is_onboarding`/`bot_data` | Old group-1 TypeHandler only logged after handlers ran. Approval precedes wizard so mid-onboarding allowlist is redundant and fragile on restart. Gate is load-bearing — surface regression test mandatory. |
+| 2026-08-11 | S18d: decline cap = 2 operator DMs | Re-request after decline stays allowed (mistaken decline lockout is worse); uncapped cycles spam the operator from an unauthenticated stranger. |
+| 2026-08-11 | S18d: `on_error` soft-reply-to-strangers closed by the gate | Unapproved updates never reach group-0 handlers. Residual only if the gate itself throws (DB down) — fail-soft under outage, not an access hole. |
+| 2026-08-11 | S18d: `/admin` omitted from `setMyCommands`, `/help`, `/guide` | Advertising it teaches strangers the command exists; silent ignore for non-operators is the security UX. |
+| 2026-08-11 | S18d: leave `streaks.py` untouched | Rollover for a revoked user sends no Telegram message; constraint forbids editing that file. |
 | 2026-08-10 | S18c: tapped-only `/guide` — **no MessageHandler**, nested `per_message=True` under `per_message=False` parent (same as S18a) | Free-text ConversationHandler states twice consumed text ahead of correction and silently killed M2. Guide is read-only navigation; taps cannot steal dispatch. Do not silence the mixed-handler warning. |
 | 2026-08-10 | S18c: guide copy lives in `texts.py`, not read from `docs/GUIDE-saving-phrases.md` at request time | Runtime must not depend on a docs path on the host; every user-facing string belongs in `texts.py` (constitution). Markdown stays the human-facing source for editing. |
 | 2026-08-10 | S18c: onboarding save confirmation gains `/guide` beside `/help` (still 2 bot messages) | Fits inside the existing confirmation lines without a third reply; second user needs the how-to pointer at the moment they finish setup. |
@@ -415,8 +428,8 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `requirements.txt` | ptb[job-queue], psycopg, dotenv, pytest, anthropic, openai | ✅ |
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
-| `docs/ARCHITECTURE.md` | Stack, structure, interfaces; §5 jobs split Anki Sat / Sunday report (S11) + `watch_poll` (S15a) | ✅ |
-| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a + S18b + S18c) | ✅ |
+| `docs/ARCHITECTURE.md` | Stack, structure, interfaces; §5 jobs; §7 approved access + `/start`/`/ping`/`access:` (S18d) | ✅ |
+| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a + S18b + S18c + S18d) | ✅ |
 | `specs/S0-repo-skeleton.md` | S0 spec | ✅ |
 | `specs/S1-onboarding.md` | S1 spec | ✅ |
 | `specs/S1a-onboarding-ux.md` | S1a onboarding UX polish spec | ✅ |
@@ -436,6 +449,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `migrations/002_quiz_scheduler.sql` | sessions.payload + bot_message_counts | ✅ |
 | `migrations/003_streaks.sql` | last_evaluated_date, freeze_reset_on, pending_freeze_notice | ✅ |
 | `migrations/004_chunk_review.sql` | chunks next_review / times_right / times_wrong / streak_right + due index (S7a) | ✅ |
+| `migrations/005_access_requests.sql` | `access_requests` + `approved_onboarded_users` view; backfill existing users approved (S18d) | ✅ |
 | `app/__init__.py` | Package marker | ✅ |
 | `app/config.py` | Env → frozen `Settings` (+ LLM/STT/TTS + `DIARY_MAX_SECONDS` + S18 runtime + S4c `BACKUP_OFFSITE_DIR` + S15a `WATCH_DIR` + S8 `COUPLE_CHAT_ID`) | ✅ |
 | `app/services/couple.py` | Couple challenge DB: pick error, insert, atomic claim, scores, Sunday marker | ✅ |
@@ -445,10 +459,16 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/couple/streak/freeze + M13 + heartbeat + backup_freshness + watch_poll | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18c + S15/S13/S14/S16 + S7a + S15a/S15b + S8 COUPLE_* | ✅ |
-| `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers` (guide + CSV docs + couple before correction); `setMyCommands`; prompts; scheduler | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18d + S15/S13/S14/S16 + S7a + S15a/S15b + S8 COUPLE_* | ✅ |
+| `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers` (gate group=-1 + access/admin + guide + CSV + couple); `setMyCommands`; prompts; scheduler | ✅ |
 | `app/services/commands.py` | BotCommand list + `register_bot_commands` (S18b/S18c); `/guide` after `/help`; `/ping` hidden; `/import` conditional | ✅ |
 | `app/handlers/help.py` | `/help` grouped intent map (S18b); `/guide` pointer (S18c); CSV upload line (S15b); no ceiling bump | ✅ |
+| `app/handlers/access.py` | S18d pre-handler gate (group=-1, `ApplicationHandlerStop`); allow `/start` `/ping` `access:` | ✅ |
+| `app/handlers/access_request.py` | Request access + operator Approve/Decline callbacks (no MessageHandler) | ✅ |
+| `app/handlers/admin.py` | Operator-only tapped `/admin` panel; pause/resume/revoke; orphan `admin:` | ✅ |
+| `app/services/access_control.py` | approve/decline/revoke/request; `is_approved`; delivery lister drift registry | ✅ |
+| `app/services/admin_panel.py` | Activity-only admin list/format (never journal/chunk/diary text) | ✅ |
+| `tests/test_access_approval.py` | S18d approval/gate/delivery drift/admin content/surface regression | ✅ |
 | `app/handlers/guide.py` | `/guide` tapped-only topic wizard (S18c); orphan `guide:` stale degrade; no MessageHandler | ✅ |
 | `tests/test_help.py` | setMyCommands / failure WARNING / help content / import gate / CSV upload line / unregistered / handler drift / no-guilt (S18b/S15b) | ✅ |
 | `tests/test_guide.py` | S18c menu/sections/back/4096/stale/double-tap/unregistered/menu+prose drift/labels/no-guilt | ✅ |
@@ -476,8 +496,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/handlers/nudge.py` | Tap-only `nudge:short:` early-limit callbacks; Murphy append on weekly early-complete (S10/S11) | ✅ |
 | `app/services/motivation.py` | Nudge ladder (incl. diary text-only) + Sunday report assembly (no LLM) (S10/S13) | ✅ |
 | `app/handlers/__init__.py` | Handlers package | ✅ |
-| `app/handlers/access.py` | Shared unregistered-user ignore + onboarding allowlist | ✅ |
-| `app/handlers/onboarding.py` | `/start` wizard + `layout_buttons` + reactions (S1d) | ✅ |
+| `app/handlers/onboarding.py` | `/start` wizard + access gate branch + `layout_buttons` + reactions (S1d/S18d) | ✅ |
 | `app/handlers/correction.py` | Free-text correction (S2) + shared `render_correction_message` | ✅ |
 | `app/handlers/capture.py` | Forward + `/capture` real-life capture (S15); never writes errors | ✅ |
 | `app/services/capture.py` | Capture validate + persist-after-send; source=`capture`; track NULL default (S15) | ✅ |
@@ -612,6 +631,13 @@ Do not start S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S18d** — from a **second Telegram account**: `/start` → private-bot message + Request access (no onboarding wizard); tap Request → your operator account gets Approve/Decline with id + username
+- [ ] **S18d** — Approve → second account can `/start` and complete onboarding; Decline → warm line, still cannot onboard
+- [ ] **S18d** — second Request while pending → no second operator DM
+- [ ] **S18d** — after two Declines, third Request → no operator DM; row still visible under `/admin` → Pending
+- [ ] **S18d** — `/admin` from your operator account → pending count + user activity (level, streak, active days, last active, paused); no error/chunk/diary text
+- [ ] **S18d** — admin Pause → scheduled quiz/reading skipped; Resume restores; Revoke → that user ignored; data still in DB; Re-approve restores
+- [ ] **S18d** — `/admin` from a non-operator account → silent (no reply); `/help` and `/guide` unchanged (no `/admin` advertised)
 - [ ] **S18c** — open `/guide`; read every section on a phone; confirm Anki setup + weekly field mapping are followable without help
 - [ ] **S18c** — Back from every section returns to the menu; Done closes; restart bot and tap an old section → warm stale line
 - [ ] **S18c** — `/` menu lists `/guide`; `/help` points at it; after Save on `/start`, confirmation mentions `/guide`
@@ -738,4 +764,4 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-Human: verify S18c at the desk — open `/guide`, read every section on a phone, confirm Anki steps are followable. Also still open: S15b real CSV send; S15a real CSV mapping (#27); S8 second user + group; S18b menu/`/help`; S4c cron/`.env` off-site (#6). Do not start the next slice until the human marks the current desk checks.
+Human: verify S18d at the desk — request flow from a second Telegram account (Approve/Decline, decline cap, `/admin` pause/revoke). Also still open: S18c `/guide` phone read-through; S15b real CSV send; S15a real CSV mapping (#27); S8 second user + group; S18b menu/`/help`; S4c cron/`.env` off-site (#6). Do not start the next slice until the human marks the current desk checks.

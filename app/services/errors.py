@@ -328,6 +328,19 @@ def pick_fossil_retest_ids(
     return picked
 
 
+def list_fossil_sweep_user_ids() -> list[int]:
+    """Approved onboarded user ids (drift-test + fossil sweep source)."""
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT telegram_user_id
+              FROM approved_onboarded_users
+             ORDER BY telegram_user_id
+            """
+        ).fetchall()
+    return [int(r["telegram_user_id"]) for r in rows]
+
+
 def run_monthly_fossil_sweep(*, now: datetime) -> int:
     """Queue up to FOSSIL_SWEEP_LIMIT retests per user on their local 1st.
 
@@ -341,8 +354,7 @@ def run_monthly_fossil_sweep(*, now: datetime) -> int:
         rows = conn.execute(
             """
             SELECT telegram_user_id, timezone, paused_until
-              FROM users
-             WHERE onboarded = TRUE
+              FROM approved_onboarded_users
             """
         ).fetchall()
 

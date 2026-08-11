@@ -1,11 +1,13 @@
-"""Shared access control for Phases 1–4.
+"""Shared access gate (S18d).
 
-The bot responds only to telegram_user_id values present in `users`,
-plus `/start` and `/ping`. Everyone else is ignored silently.
+Responds only to approved ``access_requests`` rows, plus ``/start``,
+``/ping``, and ``access:`` callbacks (request / approve / decline).
+The configured operator is always allowed (so Approve/Decline and
+``/admin`` work even before their own approval row exists).
 
-Users mid-onboarding are not in `users` yet (rows are written only on
-Save). Track those ids in bot_data so their answers are not treated as
-unauthorized traffic.
+Registered at handler group ``-1`` and raises ``ApplicationHandlerStop``
+so unapproved traffic never reaches group 0. This gate is load-bearing —
+a bug here silences the whole bot; see the gate surface regression test.
 """
 
 from __future__ import annotations
@@ -13,14 +15,15 @@ from __future__ import annotations
 import logging
 
 from telegram import Update
-from telegram.ext import ContextTypes, TypeHandler
+from telegram.ext import ApplicationHandlerStop, ContextTypes, TypeHandler
 
-from app.services.users import is_registered
+from app.config import load_settings
+from app.services.access_control import is_approved
 
 logger = logging.getLogger(__name__)
 
 _ALLOWED_COMMANDS = frozenset({"/start", "/ping"})
-_ONBOARDING_IDS_KEY = "onboarding_in_progress"
+_ALLOWED_CALLBACK_PREFIX = "access:"
 
 
 def _command_name(text: str) -> str | None:
@@ -30,47 +33,48 @@ def _command_name(text: str) -> str | None:
     return first.split("@", 1)[0].lower()
 
 
-def mark_onboarding(context: ContextTypes.DEFAULT_TYPE, telegram_user_id: int) -> None:
-    ids = context.application.bot_data.setdefault(_ONBOARDING_IDS_KEY, set())
-    ids.add(telegram_user_id)
-
-
-def clear_onboarding(context: ContextTypes.DEFAULT_TYPE, telegram_user_id: int) -> None:
-    ids = context.application.bot_data.get(_ONBOARDING_IDS_KEY)
-    if ids is not None:
-        ids.discard(telegram_user_id)
-
-
-def is_onboarding(context: ContextTypes.DEFAULT_TYPE, telegram_user_id: int) -> bool:
-    ids = context.application.bot_data.get(_ONBOARDING_IDS_KEY, set())
-    return telegram_user_id in ids
-
-
-def is_allowed_without_registration(update: Update) -> bool:
-    """True for the two commands that strangers may use."""
+def is_allowed_without_approval(update: Update) -> bool:
+    """True for commands/callbacks strangers may use before approval."""
     message = update.message
-    if message is None or not message.text:
-        return False
-    cmd = _command_name(message.text.strip())
-    return cmd in _ALLOWED_COMMANDS
+    if message is not None and message.text:
+        cmd = _command_name(message.text.strip())
+        if cmd in _ALLOWED_COMMANDS:
+            return True
+
+    query = update.callback_query
+    if query is not None and query.data is not None:
+        if query.data.startswith(_ALLOWED_CALLBACK_PREFIX):
+            return True
+
+    return False
 
 
-async def ignore_unregistered(
+def _is_operator(user_id: int) -> bool:
+    settings = load_settings()
+    return (
+        settings.operator_telegram_id is not None
+        and user_id == settings.operator_telegram_id
+    )
+
+
+async def gate_unapproved(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Log and swallow updates from strangers. No reply."""
+    """Stop unapproved traffic before group-0 handlers run."""
+    del context  # unused; signature matches TypeHandler
     user = update.effective_user
     if user is None:
         return
-    if is_registered(user.id):
+    if is_approved(user.id):
         return
-    if is_onboarding(context, user.id):
+    if _is_operator(user.id):
         return
-    if is_allowed_without_registration(update):
+    if is_allowed_without_approval(update):
         return
-    logger.info("Ignoring update from unregistered user_id=%s", user.id)
+    logger.info("Stopping update from unapproved user_id=%s", user.id)
+    raise ApplicationHandlerStop
 
 
 def build_access_handler() -> TypeHandler:
-    """Handler for a non-zero group: silently drops unregistered traffic."""
-    return TypeHandler(Update, ignore_unregistered)
+    """Pre-handler gate for group -1."""
+    return TypeHandler(Update, gate_unapproved)

@@ -65,12 +65,12 @@ def is_couple_sunday(now: datetime) -> bool:
 
 
 def registered_user_ids() -> list[int]:
-    """All registered telegram user ids, ascending."""
+    """Approved onboarded telegram user ids, ascending."""
     with connection() as conn:
         rows = conn.execute(
             """
             SELECT telegram_user_id
-              FROM users
+              FROM approved_onboarded_users
              ORDER BY telegram_user_id ASC
             """
         ).fetchall()

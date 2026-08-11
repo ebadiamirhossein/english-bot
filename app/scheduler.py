@@ -125,14 +125,13 @@ def _time_reached(local_hhmm: tuple[int, int], slot: time) -> bool:
 
 
 def list_candidate_users() -> list[EligibleUser]:
-    """All onboarded users (pause filtered per local date in eligibility)."""
+    """Approved onboarded users (pause filtered per local date in eligibility)."""
     with connection() as conn:
         rows = conn.execute(
             """
             SELECT telegram_user_id, timezone, morning_time, evening_time,
                    paused_until
-              FROM users
-             WHERE onboarded = TRUE
+              FROM approved_onboarded_users
             """
         ).fetchall()
     return [

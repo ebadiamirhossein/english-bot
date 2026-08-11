@@ -155,12 +155,12 @@ def compute_accuracy_window(user_id: int) -> AccuracyWindow:
 def _user_context(
     user_id: int,
 ) -> tuple[str, str, date | None] | None:
-    """Return (cefr_level, timezone, paused_until) or None if unknown."""
+    """Return (cefr_level, timezone, paused_until) or None if unknown/revoked."""
     with connection() as conn:
         row = conn.execute(
             """
             SELECT cefr_level, timezone, paused_until
-              FROM users
+              FROM approved_onboarded_users
              WHERE telegram_user_id = %s
             """,
             (user_id,),
@@ -172,6 +172,19 @@ def _user_context(
         str(row["timezone"] or "Europe/Vilnius"),
         row["paused_until"],
     )
+
+
+def list_calibration_user_ids() -> list[int]:
+    """Approved onboarded ids (same view as _user_context; drift-test contract)."""
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT telegram_user_id
+              FROM approved_onboarded_users
+             ORDER BY telegram_user_id
+            """
+        ).fetchall()
+    return [int(r["telegram_user_id"]) for r in rows]
 
 
 def _is_paused(paused_until: date | None, day: date) -> bool:

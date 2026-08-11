@@ -21,7 +21,7 @@ from telegram.ext import (
 )
 
 from app import texts
-from app.handlers.access import clear_onboarding, mark_onboarding
+from app.services.access_control import is_approved
 from app.services.users import User, efset_to_cefr, get_user, save_onboarding
 
 logger = logging.getLogger(__name__)
@@ -629,7 +629,6 @@ async def _begin_wizard(
         _clear_answers(context)
 
     if update.effective_user is not None:
-        mark_onboarding(context, update.effective_user.id)
         if not preserve or not context.user_data.get("suggested_name"):
             first = (update.effective_user.first_name or "").strip()
             if first:
@@ -644,7 +643,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.effective_user is None or update.message is None:
         return ConversationHandler.END
 
-    existing = get_user(update.effective_user.id)
+    user_id = update.effective_user.id
+    if not is_approved(user_id):
+        kb = _keyboard([[(texts.BTN_REQUEST_ACCESS, "access:request")]])
+        await update.message.reply_text(texts.ACCESS_PRIVATE_BOT, reply_markup=kb)
+        return ConversationHandler.END
+
+    existing = get_user(user_id)
     if existing is not None and existing.onboarded:
         context.user_data.pop("wizard_message_id", None)
         context.user_data.pop("wizard_chat_id", None)
@@ -684,8 +689,6 @@ async def profile_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 text=_esc(texts.ONBOARD_KEEP),
                 reply_markup=None,
             )
-        if update.effective_user is not None:
-            clear_onboarding(context, update.effective_user.id)
         _clear_answers(context)
         return ConversationHandler.END
 
@@ -696,7 +699,6 @@ async def profile_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 context.user_data.pop("onboarding", None)
                 _load_user_into_answers(context, user)
                 context.user_data["suggested_name"] = user.name
-                mark_onboarding(context, update.effective_user.id)
                 return await _show(update, context, NAME)
         return await _begin_wizard(update, context, preserve=False)
 
@@ -875,7 +877,6 @@ async def wizard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     text=_esc(texts.ONBOARD_SAVE_FAILED),
                     reply_markup=None,
                 )
-            clear_onboarding(context, update.effective_user.id)
             _clear_answers(context)
             return ConversationHandler.END
 
@@ -887,7 +888,6 @@ async def wizard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if efset is not None
             else texts.ONBOARD_SAVED_EFSET_NUDGE
         )
-        clear_onboarding(context, update.effective_user.id)
         _clear_answers(context)
 
         # Sticker celebration skipped — no stable public file_id without bundling.
@@ -1012,8 +1012,6 @@ async def receive_evening_other(
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     _clear_answers(context)
-    if update.effective_user is not None:
-        clear_onboarding(context, update.effective_user.id)
     if update.message is not None:
         await update.message.reply_text(texts.ONBOARD_CANCELLED)
     return ConversationHandler.END
