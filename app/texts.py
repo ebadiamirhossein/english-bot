@@ -895,6 +895,21 @@ IMPORT_SHARE_RESULT = (
     "Due for you now: {due}"
 )
 
+# --- First-touch presentation (S25) ------------------------------------------
+
+PRESENT_CARD = (
+    "New phrase\n\n"
+    "<b>{chunk}</b>\n"
+    "{sentence}\n\n"
+    "{meaning}"
+)
+
+BTN_PRESENT_GOT_IT = "Got it"
+
+PRESENT_STALE = (
+    "That card went stale — your next morning quiz will show it again if needed."
+)
+
 INTERESTS_TRACK_LABELS: dict[str, str] = {
     "work": "Work",
     "life": "Life & Social",

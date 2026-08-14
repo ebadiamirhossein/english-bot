@@ -1,20 +1,28 @@
-"""Chunk inserts + spaced review (S9a / S15 / S14 / S7a).
+"""Chunk inserts + spaced review (S9a / S15 / S14 / S7a) + presentation (S25).
 
 All queries scoped by user_id. Export state (exported_to_anki) is independent
-of review state (next_review / ladder counters).
+of review state (next_review / ladder counters) and of presentation
+(presented_at). Graded due selection requires presented_at IS NOT NULL.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Sequence
 
 from app.db import connection
 from app.services.errors import spacing_step
 
 logger = logging.getLogger(__name__)
+
+# Single predicate for every graded due-chunk consumer (S25 — same lesson as
+# spacing_step / approved_onboarded_users). Interpolate into SQL; never copy.
+CHUNK_PRESENTED_AND_DUE_SQL = (
+    "presented_at IS NOT NULL AND (next_review IS NULL OR next_review <= %s)"
+)
 
 
 @dataclass(frozen=True)
@@ -32,6 +40,7 @@ class Chunk:
     times_wrong: int
     streak_right: int
     created_at: datetime | None = None
+    presented_at: datetime | None = None
 
 
 def insert_chunks(
@@ -41,6 +50,7 @@ def insert_chunks(
     source: str,
     track: str | None,
     chunks: Sequence[dict[str, str]],
+    presented: bool = True,
 ) -> None:
     """Insert chunk rows on an open connection (caller owns the transaction).
 
@@ -48,26 +58,48 @@ def insert_chunks(
     ``meaning``. Values are stored as provided (not normalised).
     ``track`` may be NULL (S15 capture when classification is uncertain).
     New rows get ``next_review = CURRENT_DATE + 1`` (S7a / same as S2 errors).
+    ``presented=True`` (default) sets ``presented_at = NOW()`` — user-sourced
+    content. Fan-out via shared_content_deliveries passes ``presented=False``.
     """
     for item in chunks:
-        conn.execute(
-            """
-            INSERT INTO chunks (
-                user_id, chunk, full_sentence, meaning, source, track,
-                exported_to_anki, next_review
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, FALSE, CURRENT_DATE + 1
+        if presented:
+            conn.execute(
+                """
+                INSERT INTO chunks (
+                    user_id, chunk, full_sentence, meaning, source, track,
+                    exported_to_anki, next_review, presented_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, FALSE, CURRENT_DATE + 1, NOW()
+                )
+                """,
+                (
+                    user_id,
+                    item["chunk"],
+                    item.get("full_sentence") or None,
+                    item.get("meaning") or None,
+                    source,
+                    track,
+                ),
             )
-            """,
-            (
-                user_id,
-                item["chunk"],
-                item.get("full_sentence") or None,
-                item.get("meaning") or None,
-                source,
-                track,
-            ),
-        )
+        else:
+            conn.execute(
+                """
+                INSERT INTO chunks (
+                    user_id, chunk, full_sentence, meaning, source, track,
+                    exported_to_anki, next_review, presented_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, FALSE, CURRENT_DATE + 1, NULL
+                )
+                """,
+                (
+                    user_id,
+                    item["chunk"],
+                    item.get("full_sentence") or None,
+                    item.get("meaning") or None,
+                    source,
+                    track,
+                ),
+            )
 
 
 def _row_to_chunk(row: Any) -> Chunk:
@@ -89,6 +121,7 @@ def _row_to_chunk(row: Any) -> Chunk:
         times_wrong=int(row["times_wrong"] or 0),
         streak_right=int(row["streak_right"] or 0),
         created_at=row["created_at"],
+        presented_at=row["presented_at"] if row.get("presented_at") is not None else None,
     )
 
 
@@ -98,12 +131,13 @@ def due_chunks(
     *,
     now: date,
 ) -> list[Chunk]:
-    """Due chunks for quiz review, oldest next_review first (NULL first).
+    """Due presented chunks for quiz review, oldest next_review first (NULL first).
 
     Within the same ``next_review``, prefer newer chunks (``id DESC``) so a
     bulk subtitle import cannot starve later captures. Errors keep oldest-first
     (``due_errors``) — different data, different rule (S15a).
 
+    Unpresented rows (``presented_at IS NULL``) are never returned (S25).
     Skips rows whose ``full_sentence`` cannot host a gap; pulls replacements
     until ``limit`` is filled or the pool is exhausted. Does not filter on
     ``exported_to_anki``.
@@ -118,13 +152,13 @@ def due_chunks(
     fetch = max(limit * 4, limit + 8)
     with connection() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT id, user_id, chunk, full_sentence, meaning, source, track,
                    exported_to_anki, next_review, times_right, times_wrong,
-                   streak_right, created_at
+                   streak_right, created_at, presented_at
               FROM chunks
              WHERE user_id = %s
-               AND (next_review IS NULL OR next_review <= %s)
+               AND {CHUNK_PRESENTED_AND_DUE_SQL}
              ORDER BY next_review ASC NULLS FIRST, id DESC
              LIMIT %s
             """,
@@ -152,6 +186,70 @@ def due_chunks(
         if len(selected) >= limit:
             break
     return selected
+
+
+def count_due_chunks(user_id: int, *, now: date) -> int:
+    """Count presented chunks due for review (NULL next_review counts as due)."""
+    with connection() as conn:
+        row = conn.execute(
+            f"""
+            SELECT COUNT(*)::int AS n
+              FROM chunks
+             WHERE user_id = %s
+               AND {CHUNK_PRESENTED_AND_DUE_SQL}
+            """,
+            (user_id, now),
+        ).fetchone()
+    assert row is not None
+    return int(row["n"])
+
+
+def unpresented_chunks(user_id: int, limit: int = 2) -> list[Chunk]:
+    """Oldest-first unpresented chunks for morning presentation (S25).
+
+    Ignores ``next_review``. Cap defaults to 2 (match S7a chunk cap). Ordering
+    is FIFO by ``created_at ASC, id ASC`` — not the graded ``id DESC`` tie-break.
+    """
+    if limit <= 0:
+        return []
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, user_id, chunk, full_sentence, meaning, source, track,
+                   exported_to_anki, next_review, times_right, times_wrong,
+                   streak_right, created_at, presented_at
+              FROM chunks
+             WHERE user_id = %s
+               AND presented_at IS NULL
+             ORDER BY created_at ASC, id ASC
+             LIMIT %s
+            """,
+            (user_id, limit),
+        ).fetchall()
+    return [_row_to_chunk(row) for row in rows]
+
+
+def mark_presented(chunk_id: int, *, now: date) -> bool:
+    """Mark a chunk presented and schedule first graded review for tomorrow.
+
+    Leaves ``times_*`` / ``streak_right`` unchanged. Idempotent: if already
+    presented, returns False and does not rewrite ``next_review``.
+    """
+    tomorrow = now + timedelta(days=1)
+    with connection() as conn:
+        with conn.transaction():
+            row = conn.execute(
+                """
+                UPDATE chunks
+                   SET presented_at = NOW(),
+                       next_review = %s
+                 WHERE id = %s
+                   AND presented_at IS NULL
+             RETURNING id
+                """,
+                (tomorrow, chunk_id),
+            ).fetchone()
+    return row is not None
 
 
 def mark_chunk_result(
@@ -204,17 +302,16 @@ def mark_chunk_result(
                 )
 
 
-def count_due_chunks(user_id: int, *, now: date) -> int:
-    """Count chunks due for review (NULL next_review counts as due)."""
-    with connection() as conn:
-        row = conn.execute(
-            """
-            SELECT COUNT(*)::int AS n
-              FROM chunks
-             WHERE user_id = %s
-               AND (next_review IS NULL OR next_review <= %s)
-            """,
-            (user_id, now),
-        ).fetchone()
-    assert row is not None
-    return int(row["n"])
+def chunk_due_predicate_sites() -> dict[str, Callable[..., Any]]:
+    """Canonical graded-due call sites for the S25 drift test.
+
+    Every consumer of presented-and-due chunk counts must appear here and must
+    reference ``CHUNK_PRESENTED_AND_DUE_SQL`` in its source.
+    """
+    from app.services import stats
+
+    return {
+        "due_chunks": due_chunks,
+        "count_due_chunks": count_due_chunks,
+        "_chunk_counts": stats._chunk_counts,
+    }

@@ -190,6 +190,7 @@ def _deliver_chunk(
                 "meaning": str(payload["meaning"]),
             }
         ],
+        presented=False,
     )
     conn.execute(
         """

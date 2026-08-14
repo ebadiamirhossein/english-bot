@@ -431,10 +431,15 @@ def test_shared_chunks_enter_ladder_and_cap(
         "app.services.shared_content.list_recipients", return_value=[tid]
     ):
         record_and_fanout_chunks(items, created_by=tid, source="slang")
+    # S25: fan-out rows are unpresented — present before graded due selection.
     tomorrow = FIXED_TODAY + timedelta(days=1)
     with connection() as conn:
         conn.execute(
-            "UPDATE chunks SET next_review = %s WHERE user_id = %s",
+            """
+            UPDATE chunks
+               SET presented_at = NOW(), next_review = %s
+             WHERE user_id = %s
+            """,
             (tomorrow, tid),
         )
     selected = due_chunks(tid, 2, now=tomorrow)

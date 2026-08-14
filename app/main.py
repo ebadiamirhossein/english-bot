@@ -32,7 +32,11 @@ from app.handlers.guide import build_guide_handler, build_guide_orphan_handler
 from app.handlers.interests import build_interests_handler
 from app.handlers.nudge import build_nudge_handler
 from app.handlers.onboarding import build_onboarding_handler
-from app.handlers.quiz import build_quiz_handlers, init_quiz_prompt
+from app.handlers.quiz import (
+    build_present_handlers,
+    build_quiz_handlers,
+    init_quiz_prompt,
+)
 from app.handlers.reading import build_reading_handler, init_reading_prompt
 from app.handlers.settings import (
     build_settings_editor_handler,
@@ -94,7 +98,10 @@ def register_handlers(app: Application) -> None:
     app.add_handler(build_settings_editor_handler())  # tapped-only; no text filter
     app.add_handler(build_settings_orphan_handler())  # stale set: after restart
     quiz_text, quiz_choice = build_quiz_handlers()
+    present_ack, present_orphan = build_present_handlers()
     app.add_handler(quiz_choice)
+    app.add_handler(present_ack)
+    app.add_handler(present_orphan)
     # S15: FORWARDED before gap quiz so a forward is never graded as an answer.
     # Narrow filter — ordinary typed CH answers (book Other, interests) cannot match.
     capture_fwd, capture_cmd = build_capture_handlers()

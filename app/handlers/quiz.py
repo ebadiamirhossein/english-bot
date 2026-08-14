@@ -31,7 +31,13 @@ from app.llm import LLMError, chat
 from app.services.anki import make_sentence_with_gap
 from app.services.books import select_topup_items, studied_murphy_unit_numbers
 from app.services.calibration import deliver_raise_notice, maybe_calibrate
-from app.services.chunks import Chunk, due_chunks, mark_chunk_result
+from app.services.chunks import (
+    Chunk,
+    due_chunks,
+    mark_chunk_result,
+    mark_presented,
+    unpresented_chunks,
+)
 from app.services.errors import (
     Error,
     due_errors,
@@ -278,16 +284,31 @@ def user_has_open_quiz(
     return get_open_quiz_session(user_id) is not None
 
 
+def presentation_pending(payload: dict[str, Any]) -> bool:
+    """True while the morning flow still has an untapped presentation card."""
+    presentations = payload.get("presentations") or []
+    if not presentations:
+        return False
+    try:
+        present_index = int(payload.get("present_index", 0))
+    except (TypeError, ValueError):
+        return False
+    return 0 <= present_index < len(presentations)
+
+
 def open_quiz_awaits_gap_answer(user_id: int) -> bool:
     """True when the open quiz's *current* question expects a typed gap answer.
 
     Non-gap formats (choice / order / spot) must not consume private text —
-    that update belongs to free correction (M2).
+    that update belongs to free correction (M2). Presentations (S25) are also
+    tap-only — free text must reach M2 while a card is open.
     """
     session = get_open_quiz_session(user_id)
     if session is None or not session.payload:
         return False
     payload = session.payload
+    if presentation_pending(payload):
+        return False
     questions = payload.get("questions") or []
     try:
         index = int(payload.get("index", 0))
@@ -715,6 +736,49 @@ def quiz_effective_total(payload: dict[str, Any]) -> int:
     return len(questions)
 
 
+def _presentation_text(payload: dict[str, Any]) -> str:
+    """Message body for a first-touch presentation card (S25)."""
+    presentations = payload.get("presentations") or []
+    present_index = int(payload.get("present_index", 0))
+    card = presentations[present_index]
+    sentence = html.escape(str(card.get("full_sentence") or ""), quote=False)
+    meaning = html.escape(str(card.get("meaning") or ""), quote=False)
+    chunk = html.escape(str(card.get("chunk") or ""), quote=False)
+    body = texts.PRESENT_CARD.format(
+        chunk=chunk,
+        sentence=f'"{sentence}"' if sentence else "",
+        meaning=meaning,
+    )
+    preface = str(payload.get("preface") or "").strip()
+    if preface and present_index == 0:
+        return f"{preface}\n\n{body}"
+    return body
+
+
+def _presentation_keyboard(chunk_id: int) -> InlineKeyboardMarkup:
+    label = texts.BTN_PRESENT_GOT_IT
+    if len(label) > _MAX_BUTTON_LABEL_CHARS:
+        logger.warning(
+            "present button label too long (%s chars): %r",
+            len(label),
+            label,
+        )
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    label, callback_data=f"present:ack:{chunk_id}"
+                )
+            ]
+        ]
+    )
+
+
+def s25_present_button_labels() -> list[str]:
+    """S25 button labels for the ≤20-char audit."""
+    return [texts.BTN_PRESENT_GOT_IT]
+
+
 def _question_text(payload: dict[str, Any]) -> str:
     """Message body for READING. Hint → sentence → dots last."""
     questions = payload["questions"]
@@ -742,9 +806,10 @@ def _question_text(payload: dict[str, Any]) -> str:
         opts_block = _numbered_options_block(options)
         body = f"{hint}\n\n{prompt}\n\n{opts_block}\n\n{dots}"
 
-    # Preface (freeze / rescue) only on the first question.
+    # Preface (freeze / rescue) only on the first surface of the morning flow.
+    # If presentations ran first, they already showed it — do not repeat on Q0.
     preface = str(payload.get("preface") or "").strip()
-    if preface and index == 0:
+    if preface and index == 0 and not (payload.get("presentations") or []):
         return f"{preface}\n\n{body}"
     return body
 
@@ -1097,6 +1162,12 @@ async def deliver_morning(
         increment_bot_messages(user_id, day)
         return "free_practice"
 
+    # S25: presentations ride the morning quiz only — never alone, never
+    # rescue / weekly / /test. Cap 2, oldest-first FIFO.
+    presentation_rows: list[Chunk] = []
+    if not rescue and not weekly_test:
+        presentation_rows = unpresented_chunks(user_id, limit=2)
+
     try:
         # Off the event loop — a blocking LLM call would make APScheduler
         # skip the evening poll (misfire grace) for that tick.
@@ -1140,6 +1211,15 @@ async def deliver_morning(
                 q["retest"] = True
                 break
 
+    presentations = [
+        {
+            "chunk_id": c.id,
+            "chunk": c.chunk,
+            "full_sentence": c.full_sentence or "",
+            "meaning": c.meaning or "",
+        }
+        for c in presentation_rows
+    ]
     payload: dict[str, Any] = {
         "index": 0,
         "correct_count": 0,
@@ -1152,6 +1232,8 @@ async def deliver_morning(
         "chat_id": user_id,
         "message_id": None,
         "preface": preface,
+        "presentations": presentations,
+        "present_index": 0,
     }
     if weekly_test:
         payload["weekly_test"] = True
@@ -1162,13 +1244,22 @@ async def deliver_morning(
     )
     payload["session_id"] = session_id
 
-    q0 = questions[0]
-    msg = await bot.send_message(
-        chat_id=user_id,
-        text=_question_text(payload),
-        reply_markup=_keyboard_for_question(q0, payload),
-        parse_mode=ParseMode.HTML,
-    )
+    if presentations:
+        card = presentations[0]
+        msg = await bot.send_message(
+            chat_id=user_id,
+            text=_presentation_text(payload),
+            reply_markup=_presentation_keyboard(int(card["chunk_id"])),
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        q0 = questions[0]
+        msg = await bot.send_message(
+            chat_id=user_id,
+            text=_question_text(payload),
+            reply_markup=_keyboard_for_question(q0, payload),
+            parse_mode=ParseMode.HTML,
+        )
     increment_bot_messages(user_id, day)
     payload["message_id"] = msg.message_id
     update_session_payload(session_id, payload)
@@ -1472,6 +1563,115 @@ async def on_quiz_callback(
         )
 
 
+async def _show_after_presentation(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    session_id: int,
+    payload: dict[str, Any],
+) -> None:
+    """Edit the morning message to the next presentation or first quiz question."""
+    chat_id = int(payload["chat_id"])
+    message_id = int(payload["message_id"])
+    presentations = payload.get("presentations") or []
+    present_index = int(payload.get("present_index", 0))
+    if 0 <= present_index < len(presentations):
+        card = presentations[present_index]
+        update_session_payload(session_id, payload)
+        await _safe_edit(
+            context,
+            chat_id=chat_id,
+            message_id=message_id,
+            text=_presentation_text(payload),
+            reply_markup=_presentation_keyboard(int(card["chunk_id"])),
+        )
+        return
+    questions = payload.get("questions") or []
+    if not questions:
+        update_session_payload(session_id, payload)
+        return
+    payload["index"] = 0
+    q0 = questions[0]
+    update_session_payload(session_id, payload)
+    await _safe_edit(
+        context,
+        chat_id=chat_id,
+        message_id=message_id,
+        text=_question_text(payload),
+        reply_markup=_keyboard_for_question(q0, payload),
+    )
+
+
+async def on_present_ack_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Tap-only presentation ack (S25). Idempotent on double-tap / out-of-order."""
+    query = update.callback_query
+    if query is None or update.effective_user is None:
+        return
+    await query.answer()
+    data = query.data or ""
+    parts = data.split(":")
+    if len(parts) != 3 or parts[0] != "present" or parts[1] != "ack":
+        return
+    try:
+        chunk_id = int(parts[2])
+    except ValueError:
+        return
+
+    user_id = update.effective_user.id
+    session = get_open_quiz_session(user_id)
+    if session is None or not session.payload:
+        try:
+            await query.edit_message_text(texts.PRESENT_STALE)
+        except BadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                if query.message is not None:
+                    await query.message.reply_text(texts.PRESENT_STALE)
+        return
+
+    payload = dict(session.payload)
+    presentations = list(payload.get("presentations") or [])
+    try:
+        present_index = int(payload.get("present_index", 0))
+    except (TypeError, ValueError):
+        return
+
+    # Out of order or already advanced past this card → no-op.
+    if present_index < 0 or present_index >= len(presentations):
+        return
+    current = presentations[present_index]
+    if int(current.get("chunk_id") or 0) != chunk_id:
+        return
+
+    tz = _user_timezone(user_id)
+    review_day = local_today(tz, datetime.now(timezone.utc))
+    mark_presented(chunk_id, now=review_day)
+    payload["present_index"] = present_index + 1
+    await _show_after_presentation(
+        context, session_id=session.id, payload=payload
+    )
+
+
+async def on_present_orphan_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Warm-degrade orphan ``present:`` taps after restart (no open quiz)."""
+    query = update.callback_query
+    if query is None:
+        return
+    await query.answer()
+    try:
+        await query.edit_message_text(texts.PRESENT_STALE)
+    except BadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        if query.message is not None:
+            await query.message.reply_text(texts.PRESENT_STALE)
+    except Exception:
+        if query.message is not None:
+            await query.message.reply_text(texts.PRESENT_STALE)
+
+
 def build_quiz_handlers() -> tuple:
     """Return (text_handler, callback_handler) to register before correction."""
     text_handler = MessageHandler(
@@ -1480,3 +1680,13 @@ def build_quiz_handlers() -> tuple:
     )
     callback_handler = CallbackQueryHandler(on_quiz_callback, pattern=r"^quiz:")
     return text_handler, callback_handler
+
+
+def build_present_handlers() -> tuple[CallbackQueryHandler, CallbackQueryHandler]:
+    """Return (ack_handler, orphan_handler) for ``present:`` taps (S25)."""
+    return (
+        CallbackQueryHandler(
+            on_present_ack_callback, pattern=r"^present:ack:\d+$"
+        ),
+        CallbackQueryHandler(on_present_orphan_callback, pattern=r"^present:"),
+    )

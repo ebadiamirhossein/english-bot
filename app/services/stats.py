@@ -71,14 +71,17 @@ def _due_count(user_id: int) -> int:
 
 
 def _chunk_counts(user_id: int, *, now: date) -> tuple[int, int, int]:
+    # S25: due uses the shared presented-and-due predicate (chunks.py).
+    from app.services.chunks import CHUNK_PRESENTED_AND_DUE_SQL
+
     with connection() as conn:
         row = conn.execute(
-            """
+            f"""
             SELECT COUNT(*)::int AS total,
                    COUNT(*) FILTER (WHERE exported_to_anki = FALSE)::int
                      AS unexported,
                    COUNT(*) FILTER (
-                     WHERE next_review IS NULL OR next_review <= %s
+                     WHERE {CHUNK_PRESENTED_AND_DUE_SQL}
                    )::int AS due
               FROM chunks
              WHERE user_id = %s

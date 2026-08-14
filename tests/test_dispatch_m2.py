@@ -47,6 +47,7 @@ from app.handlers.couple import build_couple_handlers
 from app.handlers.csv_import import build_csv_import_handlers
 from app.handlers.nudge import build_nudge_handler
 from app.handlers.quiz import (
+    build_present_handlers,
     build_quiz_handlers,
     open_quiz_awaits_gap_answer,
 )
@@ -174,6 +175,7 @@ async def _build_app(
         patch("app.handlers.csv_import.on_non_csv_document", non_csv_spy),
     ):
         quiz_text, quiz_choice = build_quiz_handlers()
+        present_ack, present_orphan = build_present_handlers()
         capture_fwd, capture_cmd = build_capture_handlers()
         reading = build_reading_handler()
         nudge = build_nudge_handler()
@@ -199,6 +201,8 @@ async def _build_app(
     app.add_handler(share_cb)
     app.add_handler(share_orphan)
     app.add_handler(quiz_choice)
+    app.add_handler(present_ack)
+    app.add_handler(present_orphan)
     app.add_handler(capture_fwd)
     app.add_handler(capture_cmd)
     app.add_handler(quiz_text)
@@ -437,6 +441,46 @@ def test_open_quiz_awaits_gap_only(cleanup_user: int) -> None:
             conn.execute("DELETE FROM sessions WHERE user_id = %s", (tid,))
     insert_session(tid, "quiz", day, payload=_quiz_payload("gap"), completed=False)
     assert open_quiz_awaits_gap_answer(tid) is True
+
+
+def test_dispatch_presentation_open_reaches_correction(
+    cleanup_user: int,
+) -> None:
+    """S25: free text while a presentation card is open must reach M2."""
+    tid = cleanup_user
+    _onboard(tid)
+    payload = _quiz_payload("gap")
+    payload["presentations"] = [
+        {
+            "chunk_id": 1,
+            "chunk": "delulu",
+            "full_sentence": "She is being delulu.",
+            "meaning": "delusional",
+        }
+    ]
+    payload["present_index"] = 0
+    insert_session(
+        tid, "quiz", date(2026, 8, 8), payload=payload, completed=False
+    )
+    assert open_quiz_awaits_gap_answer(tid) is False
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy, correction_spy=correction_spy
+        )
+        try:
+            update = _text_update(tid, SAMPLE_TEXT)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            quiz_spy.assert_not_awaited()
+            correction_spy.assert_awaited_once()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
 
 
 def test_book_handler_has_conversation_timeout() -> None:

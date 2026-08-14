@@ -100,22 +100,24 @@ def _insert_chunk(
     next_review: date | None | object = ...,
     exported: bool = False,
     streak_right: int = 0,
+    presented: bool = True,
 ) -> int:
     sentence = (
         full_sentence
         if full_sentence is not None
         else f"They said {chunk} yesterday."
     )
+    presented_sql = "NOW()" if presented else "NULL"
     with connection() as conn:
         with conn.transaction():
             if next_review is ...:
                 row = conn.execute(
-                    """
+                    f"""
                     INSERT INTO chunks (
                         user_id, chunk, full_sentence, meaning, source, track,
-                        exported_to_anki, next_review, streak_right
+                        exported_to_anki, next_review, streak_right, presented_at
                     ) VALUES (
-                        %s, %s, %s, %s, %s, 'life', %s, NULL, %s
+                        %s, %s, %s, %s, %s, 'life', %s, NULL, %s, {presented_sql}
                     )
                     RETURNING id
                     """,
@@ -123,12 +125,12 @@ def _insert_chunk(
                 ).fetchone()
             else:
                 row = conn.execute(
-                    """
+                    f"""
                     INSERT INTO chunks (
                         user_id, chunk, full_sentence, meaning, source, track,
-                        exported_to_anki, next_review, streak_right
+                        exported_to_anki, next_review, streak_right, presented_at
                     ) VALUES (
-                        %s, %s, %s, %s, %s, 'life', %s, %s, %s
+                        %s, %s, %s, %s, %s, 'life', %s, %s, %s, {presented_sql}
                     )
                     RETURNING id
                     """,
@@ -215,6 +217,14 @@ def test_migration_004_idempotent_sql() -> None:
         "times_wrong",
         "streak_right",
     }
+    with connection() as conn:
+        presented_col = conn.execute(
+            """
+            SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'chunks' AND column_name = 'presented_at'
+            """
+        ).fetchone()
+    assert presented_col is not None
     assert migrate() == []
 
 

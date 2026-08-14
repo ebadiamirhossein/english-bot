@@ -167,6 +167,10 @@ Forward any English → explanation + chunks mined, `source='capture'`.
 **Build:** Prompt exact-form + register balance (≤~⅓ domain) + everyday sense over idiom. One capped retry for gate failures (exact form); retry LLM failure keeps first-pass rows. Named skips in Telegram reply (capped + “and N more”); log count/reason category only (PRD §10). No gate relaxation, no migration, no Share path changes.
 **Accept:** skipped words named with reasons; clean import = one LLM call; previously-skipped forms like `frustrate` import when the model cooperates; sentences not all domain-flavoured (human check).
 
+### S25 · First touch presents, it does not grade
+**Build:** Migration `007` adds nullable `chunks.presented_at`. Backfill: `presented_at = created_at` where `source <> 'slang' OR source IS NULL` (slang stays NULL). User-sourced inserts set `presented_at = NOW()`; fan-out via `shared_content_deliveries` leaves NULL. `due_chunks` / `count_due_chunks` / `/stats` share one presented-and-due predicate. Morning quiz (not rescue/weekly/`/test`) rides up to 2 oldest-first presentation cards before graded questions; tap sets `presented_at` + `next_review` tomorrow without advancing the ladder. Presentations are not answers (no `errors`, score, calibration, or early_limit). Anki export ungated. Tap-only `present:` + orphan warm line; free text reaches M2.
+**Accept:** unpresented chunks never graded; still export to Anki; cap 2 FIFO; no presentation-only quiz; rescue/weekly/`/test` have zero presentations; tap schedules tomorrow; untapped reappears; repeated/out-of-order ack no-ops; free text during presentation → correction; orphan → stale line; labels ≤20.
+
 ### S16 · Shadowing (M12)
 Bot sends a 10–15s clip → user repeats → Whisper compares word-for-word → scored feedback on rhythm and stress.
 
