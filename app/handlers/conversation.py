@@ -1,8 +1,11 @@
-"""Text conversation mode (/talk, S26).
+"""Text conversation mode (/talk, S26/S26b).
 
 Session-backed filter (not a ConversationHandler free-text state). Implicit
 recasts mid-chat; explicit corrections only at close-out. Never widens
 OpenQuizFilter; never edits correction.py or streaks.py.
+
+Phase ``picking_topic`` stores offered topics when the picker is shown; it is
+intentionally NOT matched by OpenConversationFilter (free text → M2).
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.constants import ChatAction, ChatType
+from telegram.error import BadRequest
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -25,6 +29,7 @@ from telegram.ext import (
 
 from app import texts
 from app.config import load_settings
+from app.db import connection
 from app.handlers.correction import (
     ABSTRACT_ERROR_TYPES,
     error_type_list_text,
@@ -33,10 +38,11 @@ from app.handlers.correction import (
 from app.handlers.quiz import open_quiz_awaits_gap_answer
 from app.llm import LLMError, chat
 from app.services.books import list_units_for_user
-from app.services.chunks import sample_chunks_for_conversation
+from app.services.chunks import Chunk, sample_chunks_for_conversation
 from app.services.errors import record_errors, top_error_types
 from app.services.interests import list_interests
 from app.services.sessions import (
+    SessionRow,
     complete_session,
     get_open_conversation_session,
     insert_session,
@@ -50,16 +56,22 @@ logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "conversation"
 MAX_CLOSE_ERRORS = 3
-_MAX_TOPIC_BUTTONS = 8
-_TURN_MAX_TOKENS = 300
-_CLOSE_MAX_TOKENS = 800
+_MAX_OFFERED_TOPICS = 3
+_TURN_MAX_TOKENS = 500
+_CLOSE_MAX_TOKENS = 2000
 _EXC_MSG_LOG_LIMIT = 120
+_TOPIC_LABEL_MAX = 80
 
 # Trailing user turn required by Anthropic (no assistant-prefill / must end
 # on user). Live session history always ends on the last bot reply.
 _CLOSE_REVIEW_CUE = (
     "The conversation above is finished. Reply with the JSON object "
     "specified in your instructions — errors (max 3) and did_well."
+)
+_CLOSE_REVIEW_CUE_TWO = (
+    "The conversation above is finished. Reply with the JSON object "
+    "specified in your instructions — at most 2 errors and did_well. "
+    "Prefer fewer."
 )
 
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "conversation.txt"
@@ -136,6 +148,7 @@ class OpenConversationFilter(filters.MessageFilter):
     """Match private text only when an open non-stale conversation exists.
 
     Fail-open: any uncertainty → False so M2 correction still runs.
+    ``picking_topic`` is never matched (picker on screen ≠ awaiting Other).
     """
 
     def filter(self, message: Message) -> bool:
@@ -185,12 +198,155 @@ def _topic_keyboard(n_topics: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def _topic_choices(user_id: int) -> list[str]:
-    interests = list_interests(user_id)
-    topics = [item.topic for item in interests if item.topic.strip()]
-    if not topics:
-        topics = list(texts.TALK_DEFAULT_TOPICS)
-    return topics[:_MAX_TOPIC_BUTTONS]
+def chunk_topic_label(chunk: Chunk) -> str:
+    """English-only topic label from chunk / full_sentence — never meaning."""
+    primary = (chunk.chunk or "").strip()
+    sentence = (chunk.full_sentence or "").strip()
+    if primary:
+        label = primary
+    elif sentence:
+        label = sentence
+    else:
+        return ""
+    # Prefer a short sentence fragment when the chunk alone is cryptic.
+    if sentence and len(primary) < 4 and len(sentence) <= _TOPIC_LABEL_MAX:
+        label = sentence
+    label = " ".join(label.split())
+    if len(label) > _TOPIC_LABEL_MAX:
+        label = label[: _TOPIC_LABEL_MAX - 1].rstrip() + "…"
+    return label
+
+
+def book_topic_label(unit: dict[str, Any]) -> str:
+    book = str(unit.get("book") or "book").strip()
+    num = unit.get("unit_number")
+    title = str(unit.get("unit_title") or "").strip()
+    if title:
+        label = f"{book} unit {num}: {title}"
+    else:
+        label = f"{book} unit {num}"
+    label = " ".join(label.split())
+    if len(label) > _TOPIC_LABEL_MAX:
+        label = label[: _TOPIC_LABEL_MAX - 1].rstrip() + "…"
+    return label
+
+
+def _dedupe_preserve(topics: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in topics:
+        key = t.casefold()
+        if not t or key in seen:
+            continue
+        seen.add(key)
+        out.append(t)
+    return out
+
+
+def build_topic_pool(user_id: int) -> list[str]:
+    """Interests + English chunk labels + book units. Defaults only if all empty."""
+    interests = [item.topic.strip() for item in list_interests(user_id) if item.topic.strip()]
+    chunk_labels = [
+        chunk_topic_label(c) for c in sample_chunks_for_conversation(user_id, limit=12)
+    ]
+    chunk_labels = [t for t in chunk_labels if t]
+    book_labels = [
+        book_topic_label(u) for u in list_units_for_user(user_id)[:8]
+    ]
+    book_labels = [t for t in book_labels if t]
+    pool = _dedupe_preserve(interests + chunk_labels + book_labels)
+    if not pool:
+        return list(texts.TALK_DEFAULT_TOPICS)
+    return pool
+
+
+def rotate_topics(
+    pool: list[str],
+    last_offered: list[str] | None,
+    *,
+    limit: int = _MAX_OFFERED_TOPICS,
+) -> list[str]:
+    """Prefer topics not in the previous offer set; fall back to full pool."""
+    if not pool:
+        return list(texts.TALK_DEFAULT_TOPICS)[:limit]
+    last_keys = {t.casefold() for t in (last_offered or [])}
+    preferred = [t for t in pool if t.casefold() not in last_keys]
+    chosen = preferred if preferred else list(pool)
+    # If preferred is non-empty but shorter than limit, top up from pool.
+    if preferred and len(preferred) < limit:
+        for t in pool:
+            if t.casefold() not in {c.casefold() for c in preferred}:
+                preferred.append(t)
+            if len(preferred) >= limit:
+                break
+        chosen = preferred
+    return chosen[:limit]
+
+
+def _topic_choices(
+    user_id: int, *, last_offered: list[str] | None = None
+) -> list[str]:
+    return rotate_topics(build_topic_pool(user_id), last_offered)
+
+
+def get_picking_conversation_session(user_id: int) -> SessionRow | None:
+    """Newest incomplete conversation in ``picking_topic`` (not filter-owned)."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, completed, score, payload
+              FROM sessions
+             WHERE user_id = %s
+               AND task_type = 'conversation'
+               AND completed = FALSE
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    payload = payload or {}
+    if str(payload.get("phase") or "") != "picking_topic":
+        return None
+    return SessionRow(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        date=row["date"],
+        task_type=str(row["task_type"]),
+        completed=bool(row["completed"]),
+        score=float(row["score"]) if row["score"] is not None else None,
+        payload=payload,
+    )
+
+
+def get_last_offered_topics(user_id: int) -> list[str]:
+    """Most recent conversation session's offered_topics (any phase/completed)."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT payload
+              FROM sessions
+             WHERE user_id = %s
+               AND task_type = 'conversation'
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return []
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    payload = payload or {}
+    raw = payload.get("offered_topics") or []
+    if not isinstance(raw, list):
+        return []
+    return [str(t) for t in raw if str(t).strip()]
 
 
 def _gap_blocks_talk(user_id: int) -> bool:
@@ -202,8 +358,6 @@ def _gap_blocks_talk(user_id: int) -> bool:
 
 
 def _user_timezone(user_id: int) -> str:
-    from app.db import connection
-
     with connection() as conn:
         row = conn.execute(
             "SELECT timezone FROM users WHERE telegram_user_id = %s",
@@ -293,6 +447,7 @@ def build_conversation_close_messages(
     history: list[dict[str, str]],
     *,
     max_messages: int,
+    review_cue: str = _CLOSE_REVIEW_CUE,
 ) -> list[dict[str, str]]:
     """Transcript plus trailing user cue (Anthropic requires final = user).
 
@@ -303,7 +458,7 @@ def build_conversation_close_messages(
     trimmed = _trim_history(list(history), max_messages=max_messages)
     if max_messages >= 2 and len(trimmed) >= max_messages:
         trimmed = trimmed[-(max_messages - 1) :]
-    return trimmed + [{"role": "user", "content": _CLOSE_REVIEW_CUE}]
+    return trimmed + [{"role": "user", "content": review_cue}]
 
 
 def _trim_history(
@@ -319,6 +474,7 @@ def _new_payload(
     topic: str | None,
     phase: str,
     now: datetime,
+    offered_topics: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "topic": topic or "",
@@ -327,7 +483,53 @@ def _new_payload(
         "turn_count": 0,
         "last_activity": utc_now_iso(now),
         "warned_last_turn": False,
+        "offered_topics": list(offered_topics or []),
+        "closing": False,
+        "end_keyboard_message_id": None,
     }
+
+
+async def _clear_end_keyboard(
+    message: Message, payload: dict[str, Any]
+) -> None:
+    prev = payload.get("end_keyboard_message_id")
+    if prev is None:
+        return
+    try:
+        mid = int(prev)
+    except (TypeError, ValueError):
+        return
+    bot = message.get_bot()
+    chat_id = message.chat_id
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=chat_id, message_id=mid, reply_markup=None
+        )
+    except BadRequest as exc:
+        if "message is not modified" not in str(exc).lower():
+            logger.debug(
+                "clear end keyboard failed chat_id=%s message_id=%s: %s",
+                chat_id,
+                mid,
+                exc,
+            )
+    except Exception:
+        logger.debug(
+            "clear end keyboard failed chat_id=%s message_id=%s",
+            chat_id,
+            mid,
+            exc_info=True,
+        )
+
+
+async def _reply_with_end_keyboard(
+    message: Message,
+    text: str,
+    payload: dict[str, Any],
+) -> None:
+    await _clear_end_keyboard(message, payload)
+    sent = await message.reply_text(text, reply_markup=_end_keyboard())
+    payload["end_keyboard_message_id"] = getattr(sent, "message_id", None)
 
 
 async def on_talk_command(
@@ -357,15 +559,18 @@ async def on_talk_command(
     if existing is not None and existing.payload:
         phase = str(existing.payload.get("phase") or "active")
         topic = str(existing.payload.get("topic") or "this")
+        payload = dict(existing.payload)
         if phase == "awaiting_topic":
-            await message.reply_text(
-                texts.TALK_AWAITING_TOPIC, reply_markup=_end_keyboard()
+            await _reply_with_end_keyboard(
+                message, texts.TALK_AWAITING_TOPIC, payload
             )
         else:
-            await message.reply_text(
+            await _reply_with_end_keyboard(
+                message,
                 texts.TALK_ALREADY_OPEN.format(topic=topic),
-                reply_markup=_end_keyboard(),
+                payload,
             )
+        update_session_payload(existing.id, payload)
         return
 
     args = list(context.args or [])
@@ -377,7 +582,26 @@ async def on_talk_command(
         await _start_active(message, user_id, topic, now=now)
         return
 
-    topics = _topic_choices(user_id)
+    await _show_topic_picker(message, user_id, now=now)
+
+
+async def _show_topic_picker(
+    message: Message, user_id: int, *, now: datetime
+) -> None:
+    """Persist offered topics at show-time (``picking_topic`` — not filter-owned)."""
+    last = get_last_offered_topics(user_id)
+    topics = _topic_choices(user_id, last_offered=last)
+    day = local_today(_user_timezone(user_id), now)
+    picking = get_picking_conversation_session(user_id)
+    payload = _new_payload(
+        topic=None, phase="picking_topic", now=now, offered_topics=topics
+    )
+    if picking is not None:
+        update_session_payload(picking.id, payload)
+    else:
+        insert_session(
+            user_id, "conversation", day, payload=payload, completed=False
+        )
     lines = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(topics))
     await message.reply_text(
         texts.TALK_PICK_TOPIC.format(topic_lines=lines),
@@ -391,6 +615,8 @@ async def _start_active(
     topic: str,
     *,
     now: datetime,
+    offered_topics: list[str] | None = None,
+    existing_session_id: int | None = None,
 ) -> None:
     if _gap_blocks_talk(user_id):
         await message.reply_text(texts.TALK_GAP_QUIZ_WAITING)
@@ -399,23 +625,24 @@ async def _start_active(
     if user is None:
         return
     day = local_today(_user_timezone(user_id), now)
-    payload = _new_payload(topic=topic, phase="active", now=now)
-    insert_session(
-        user_id, "conversation", day, payload=payload, completed=False
+    payload = _new_payload(
+        topic=topic,
+        phase="active",
+        now=now,
+        offered_topics=offered_topics,
     )
+    if existing_session_id is not None:
+        update_session_payload(existing_session_id, payload)
+        session_id = existing_session_id
+    else:
+        session_id = insert_session(
+            user_id, "conversation", day, payload=payload, completed=False
+        )
     opener = texts.TALK_STARTED.format(topic=topic)
-    await message.reply_text(opener, reply_markup=_end_keyboard())
-    # Seed history with the opener so the model has context.
+    await _reply_with_end_keyboard(message, opener, payload)
     payload["messages"] = [{"role": "assistant", "content": opener}]
     payload["last_activity"] = utc_now_iso(now)
-    session = get_open_conversation_session(
-        user_id,
-        now=now,
-        active_minutes=_settings_timeouts()[0],
-        awaiting_topic_minutes=_settings_timeouts()[1],
-    )
-    if session is not None:
-        update_session_payload(session.id, payload)
+    update_session_payload(session_id, payload)
 
 
 async def on_talk_callback(
@@ -444,12 +671,21 @@ async def on_talk_callback(
     now = datetime.now(timezone.utc)
 
     if data == "talk:other":
+        picking = get_picking_conversation_session(user_id)
         day = local_today(_user_timezone(user_id), now)
-        # Leave any prior incomplete conversation incomplete (Neutral).
-        payload = _new_payload(topic=None, phase="awaiting_topic", now=now)
-        insert_session(
-            user_id, "conversation", day, payload=payload, completed=False
+        offered = list((picking.payload or {}).get("offered_topics") or []) if picking else []
+        payload = _new_payload(
+            topic=None,
+            phase="awaiting_topic",
+            now=now,
+            offered_topics=[str(t) for t in offered],
         )
+        if picking is not None:
+            update_session_payload(picking.id, payload)
+        else:
+            insert_session(
+                user_id, "conversation", day, payload=payload, completed=False
+            )
         if query.message is not None:
             await query.message.reply_text(texts.TALK_AWAITING_TOPIC)
         return
@@ -461,14 +697,29 @@ async def on_talk_callback(
             if query.message is not None:
                 await query.message.reply_text(texts.TALK_STALE_CALLBACK)
             return
-        topics = _topic_choices(user_id)
+        picking = get_picking_conversation_session(user_id)
+        topics: list[str] = []
+        session_id: int | None = None
+        if picking is not None and picking.payload:
+            raw = picking.payload.get("offered_topics") or []
+            topics = [str(t) for t in raw if str(t).strip()]
+            session_id = picking.id
+        if not topics:
+            topics = _topic_choices(user_id)
         if index < 0 or index >= len(topics):
             if query.message is not None:
                 await query.message.reply_text(texts.TALK_STALE_CALLBACK)
             return
         if query.message is None:
             return
-        await _start_active(query.message, user_id, topics[index], now=now)
+        await _start_active(
+            query.message,
+            user_id,
+            topics[index],
+            now=now,
+            offered_topics=topics,
+            existing_session_id=session_id,
+        )
         return
 
     if query.message is not None:
@@ -520,14 +771,16 @@ async def on_conversation_text(
             payload["last_activity"] = utc_now_iso(now)
             update_session_payload(session.id, payload)
             return
+        offered = list(payload.get("offered_topics") or [])
         payload["topic"] = text
         payload["phase"] = "active"
         payload["messages"] = []
         payload["turn_count"] = 0
         payload["last_activity"] = utc_now_iso(now)
+        payload["offered_topics"] = offered
         update_session_payload(session.id, payload)
         opener = texts.TALK_STARTED.format(topic=text)
-        await message.reply_text(opener, reply_markup=_end_keyboard())
+        await _reply_with_end_keyboard(message, opener, payload)
         payload["messages"] = [{"role": "assistant", "content": opener}]
         update_session_payload(session.id, payload)
         return
@@ -577,6 +830,7 @@ async def _handle_active_turn(
             system=system,
             json_mode=False,
             max_tokens=_TURN_MAX_TOKENS,
+            reject_truncation=True,
         )
     except LLMError as exc:
         logger.warning(
@@ -589,18 +843,16 @@ async def _handle_active_turn(
         )
         payload["last_activity"] = utc_now_iso(now)
         update_session_payload(session_id, payload)
-        await message.reply_text(
-            texts.TALK_TURN_FAILED, reply_markup=_end_keyboard()
-        )
+        await _reply_with_end_keyboard(message, texts.TALK_TURN_FAILED, payload)
+        update_session_payload(session_id, payload)
         return
 
     reply = (raw if isinstance(raw, str) else str(raw or "")).strip()
     if not reply:
         payload["last_activity"] = utc_now_iso(now)
         update_session_payload(session_id, payload)
-        await message.reply_text(
-            texts.TALK_TURN_FAILED, reply_markup=_end_keyboard()
-        )
+        await _reply_with_end_keyboard(message, texts.TALK_TURN_FAILED, payload)
+        update_session_payload(session_id, payload)
         return
 
     next_turn = turn_count + 1
@@ -609,7 +861,7 @@ async def _handle_active_turn(
         body = reply + texts.TALK_LAST_TURN_WARN
         payload["warned_last_turn"] = True
 
-    await message.reply_text(body, reply_markup=_end_keyboard())
+    await _reply_with_end_keyboard(message, body, payload)
 
     history.append({"role": "user", "content": text})
     history.append({"role": "assistant", "content": reply})
@@ -651,10 +903,71 @@ async def _close_out_from_callback(query: Any, user_id: int) -> None:
         update_session_payload(session.id, payload)
         await message.reply_text(texts.TALK_STALE_CALLBACK)
         return
+    if payload.get("closing"):
+        # Second tap during close-out — answer already sent; no-op.
+        return
     user = get_user(user_id)
     if user is None:
         return
+
+    # Immediate feedback before any LLM work.
+    try:
+        await message.edit_text(
+            texts.TALK_WRAPPING_UP, reply_markup=None
+        )
+    except BadRequest as exc:
+        if "message is not modified" not in str(exc).lower():
+            try:
+                await message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+    except Exception:
+        try:
+            await message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+    payload["closing"] = True
+    payload["end_keyboard_message_id"] = None
+    update_session_payload(session.id, payload)
+
     await _close_out(message, user_id, session.id, payload, user=user)
+
+
+def _generate_close_result(
+    user: User,
+    history: list[dict[str, str]],
+    *,
+    hist_max: int,
+) -> dict[str, Any]:
+    """Close-out LLM with one truncation retry at max two corrections."""
+    system = build_conversation_close_prompt(user)
+
+    def _call(cue: str) -> dict[str, Any]:
+        transcript_messages = build_conversation_close_messages(
+            history, max_messages=hist_max, review_cue=cue
+        )
+        result = chat(
+            transcript_messages,
+            system=system,
+            json_mode=True,
+            max_tokens=_CLOSE_MAX_TOKENS,
+            reject_truncation=True,
+        )
+        if not isinstance(result, dict):
+            raise LLMError("close response was not a JSON object")
+        return result
+
+    try:
+        return _call(_CLOSE_REVIEW_CUE)
+    except LLMError as first_exc:
+        logger.warning(
+            "conversation close first attempt failed exc_type=%s exc_msg=%s "
+            "— retrying at most two corrections",
+            type(first_exc).__name__,
+            _safe_exc_msg(first_exc),
+        )
+        return _call(_CLOSE_REVIEW_CUE_TWO)
 
 
 async def _close_out(
@@ -673,19 +986,14 @@ async def _close_out(
 
     hist_max = _settings_timeouts()[3]
     try:
-        system = build_conversation_close_prompt(user)
-        transcript_messages = build_conversation_close_messages(
-            history, max_messages=hist_max
-        )
+        await message.chat.send_action(ChatAction.TYPING)
+    except Exception:
+        pass
+
+    try:
         result = await asyncio.to_thread(
-            chat,
-            transcript_messages,
-            system=system,
-            json_mode=True,
-            max_tokens=_CLOSE_MAX_TOKENS,
+            _generate_close_result, user, history, hist_max=hist_max
         )
-        if not isinstance(result, dict):
-            raise LLMError("close response was not a JSON object")
         errors = list(result.get("errors") or [])[:MAX_CLOSE_ERRORS]
         did_well = str(result.get("did_well") or "").strip()
         correction_text = render_correction_message(errors, did_well)
@@ -714,6 +1022,9 @@ async def _close_out(
             type(exc).__name__,
             _safe_exc_msg(exc),
         )
+        # Allow another End tap after a send failure.
+        payload["closing"] = False
+        update_session_payload(session_id, payload)
         return
 
     # Commit-after-send: journal only after the user saw the message.

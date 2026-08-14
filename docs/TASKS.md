@@ -175,6 +175,14 @@ Forward any English → explanation + chunks mined, `source='capture'`.
 **Build:** `/talk` text conversation (M3 sibling). Session-backed `OpenConversationFilter` (not a ConversationHandler free-text state); 30-min active / 2-min `awaiting_topic` staleness at filter time (fail-open). Implicit recasts mid-chat; ≤3 explicit corrections only at close-out (prefer recurring journal types); commit-after-send; migration `008` expands `errors.source` for `'conversation'`. Entrance refuses while a gap quiz awaits (every path). Plain-text turns; Sonnet + prompt caching; history cap 20; turn cap 12 with one-turn warning. No `bot_message_counts`; works while paused; voice/diary/shadow routing untouched; `streaks.py` / `correction.py` / `OpenQuizFilter` untouched.
 **Accept:** open conversation captures private text; stale/none/group fall through to M2; mutual exclusivity with correction; commands mid-chat work; End / turn-cap close with ≤3 corrections; failed send / abandon / mid-turn LLM failure write zero `errors`; `/talk` refused on every entry path while gap quiz open; eligibility helpers unchanged with open conversation; labels ≤20.
 
+### S26a · Conversation close-out fix
+**Build:** Trailing user review cue on close (Anthropic must end on user); generation failure completes session with distinct close copy; never-echo ungrammatical fragments in turn prompt; transport-level construction regression tests.
+**Accept:** End chat reaches the API; gen-fail releases the user with zero `errors`; send-fail keeps session open.
+
+### S26b · Make the conversation worth having
+**Build:** Close `max_tokens=2000` + turn `500` with `reject_truncation` on both; close truncation → one max-2 retry → S26a fallback; `stop_reason` on llm log; End chat answers immediately, edits wrap-up, `closing` idempotency, one live End keyboard; `conversation.txt` partner (not interviewer) rewrite; topics from interests+chunks+books with `picking_topic` offer persistence and rotation; English-only chunk labels (never `meaning`). Report empty-interests → reading skip as known issue (do not fix reading here).
+**Accept:** truncation paths never send mid-sentence / never write `errors` on fallback; End responds before LLM; one live keyboard; picker rotates without a tap; `picking_topic` does not own free text; prompt instructions present; labels ≤20.
+
 ### S16 · Shadowing (M12)
 Bot sends a 10–15s clip → user repeats → Whisper compares word-for-word → scored feedback on rhythm and stress.
 

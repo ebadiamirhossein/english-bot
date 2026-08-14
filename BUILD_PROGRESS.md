@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-14
-**Current slice:** S26a
-**Status:** S26a conversation close-out fix code-complete (698 tests). S26 shipped with every End-chat failing (assistant-final transcript → Anthropic 400 before `llm call` log). S25/S24b/S24a/S24 shared library code-complete; two-user slang fan-out verified live 2026-08-14. First live Trancy vocab import 2026-08-14. User B onboarded; S8 blocked on shared group + `COUPLE_CHAT_ID`. #27 open for LR half. Production off-site backup (#6) still open. Hetzner migrations 007+008 outstanding on next deploy. Unrun desk checks remain.
+**Current slice:** S26b
+**Status:** S26b conversation quality code-complete (709 tests). Prod `interests` empty for both users → evening reading silently skipped since rebuild (#44 high). S26a close-out fix + S26 `/talk` prior. S25/S24b/S24a/S24 shared library code-complete; two-user slang fan-out verified live 2026-08-14. User B onboarded; S8 blocked on shared group + `COUPLE_CHAT_ID`. #27 open for LR half. Production off-site backup (#6) still open. Hetzner migrations 007+008 outstanding on next deploy. Unrun desk checks remain.
 
 ---
 
@@ -62,7 +62,8 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S24b | Vocabulary sentence quality + skip visibility | 🟡 code-complete | 2026-08-14 | Exact-form prompt; one capped gate retry; named skips in reply not log; register-balance prompt (human-verify). |
 | S25 | First touch presents, it does not grade | 🟡 code-complete | 2026-08-14 | Migration 007 `presented_at`; fan-out unpresented; morning quiz ≤2 FIFO cards before graded Qs; shared due predicate; Anki ungated. |
 | S26 | Conversation mode (text) | 🟡 code-complete | 2026-08-14 | `/talk`; `OpenConversationFilter` (not CH free-text); 30m/2m filter-time staleness; plain-text turns + close ≤3; migration 008 `errors.source`; gap entrance refuse. Close-out broken live — fixed in S26a. |
-| S26a | Conversation close-out fix | 🟡 code-complete | 2026-08-14 | Fix S26 End-chat: trailing user cue; gen-fail completes session; distinct close copy; richer failure logs; never-echo prompt; construction tests at transport. 698 tests. |
+| S26a | Conversation close-out fix | 🟡 code-complete | 2026-08-14 | Fix S26 End-chat: trailing user cue; gen-fail completes session; distinct close copy; richer failure logs; never-echo prompt; construction tests at transport. |
+| S26b | Conversation worth having | 🟡 code-complete | 2026-08-14 | Close 2000 + turn 500 `reject_truncation`; close truncation→max-2 retry→fallback; End UX; prompt rewrite; real topics + `picking_topic` rotation; #44 reading skip reported. 709 tests. |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
 | S15a | Watched-folder bridge | 🟡 code-complete | 2026-08-10 | `WATCH_DIR` CSV import (Trancy/LR) + Anki outbox; mtime≥2min; collision-safe moves; due_chunks `id DESC` tie-break; `/import` + settings paths. **Prod:** `WATCH_DIR` unset — folder bridge dormant; CSV via Telegram (S15b) is the only import route. |
 | S15b | CSV via Telegram document | 🟡 code-complete | 2026-08-10 | Private-chat `.csv` → shared S15a pipeline in memory; tool from headers; non-CSV warm line; 5 MiB cap; `/help` upload line; independent of `WATCH_DIR`. |
@@ -110,6 +111,13 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-14 | S26b: prod `interests` **empty for both** `7222549221` and `5013535972` (Hetzner SQL, 0 rows). Mac DB still has 12 interests for the operator — not production. Zero `task_type=reading` sessions for either user on prod. S9 `select_topic` → `None` → `skipped_no_interests` with **no fallback** — evening reading silently skipped since empty-DB rebuild (operator 2026-08-11, User B 2026-08-12). Mon/Wed/Fri slots missed at least Wed 2026-08-13 for both; Mon 2026-08-11 also for the operator if onboarded before that evening. **Not fixed in S26b.** Recommend a follow-up slice: operator alert and/or `/stats` line and/or one-off “run `/interests`” prompt — a silent skip of a scheduled feature must not be invisible. | Live investigation during S26b; known issue #44. |
+| 2026-08-14 | S26b: `_CLOSE_MAX_TOKENS=2000` (was 800). Live success used 513 output; failure hit 800 exactly then “no text blocks”. 2000 ≈ 4× success / ~2.5× failed ceiling — room for three corrections + Murphy refs. A constant-assertion test would not have caught this; mock transport truncation instead. | Observed 2026-08-14 close logs. |
+| 2026-08-14 | S26b: `_TURN_MAX_TOKENS=500` (was 300) + `reject_truncation=True` on turns. Observed turn outs 26–110; Part C lengthens replies — truncated mid-sentence must never be sent. Truncation → existing warm turn-failure path (session open, turn not counted, zero errors). | Same `reject_truncation` flag as close. |
+| 2026-08-14 | S26b: close truncation → one retry asking for at most two corrections → S26a `TALK_CLOSE_FAILED` + complete + zero errors. `stop_reason` logged on every `llm call` line. | Diagnosable from one log line; never trap the user. |
+| 2026-08-14 | S26b: End chat answers callback first, edits wrap-up + clears keyboard, `payload.closing` idempotency; only one live End keyboard (`end_keyboard_message_id` cleared on prior message). Typing during close-out. | Live taps waited ~10s with a column of stale End buttons. |
+| 2026-08-14 | S26b: rewrite `conversation.txt` — recast only on error; never restate whole message; contribute every turn; do not always ask a question; vary length; use chunks sometimes naturally. Original S26 “reuse their sentence” + “end with a question” made every turn an interview. Quality remains human-verified only (#41). | User verdict after two real chats. |
+| 2026-08-14 | S26b: topics from interests + English chunk labels (`chunk`/`full_sentence` never `meaning`) + book units; defaults only if all empty. Persist `offered_topics` at picker show via phase `picking_topic` (filter ignores it — free text → M2). Rotate preferring unoffered. | Defaults were the empty-interests path; rotation must not require a tap. |
 | 2026-08-14 | S26a root cause: close-out passed the live transcript ending on an **assistant** turn; Anthropic 400 (`invalid_request_error` — conversation must end with a user message) raised in `app/llm.py` `_anthropic_once` → wrapped as `LLMError` **before** any successful response, so no `app.llm: llm call` line. Turn path always appends the new user text first and succeeded. Fix: `build_conversation_close_messages` appends a fixed review cue as the final user turn. | Live evidence 2026-08-14 (three End taps, zero close `llm call` lines, session `completed=f`, zero `errors`). Same provider constraint as known issue #10 / S6 prefill removal. |
 | 2026-08-14 | S26a: **generation** failure at close-out → warm `TALK_CLOSE_FAILED`, `completed=TRUE`, zero `errors`. **Send** failure after a successful generate → session stays open, zero `errors`, retry possible. | Being unable to leave trapped the user until the 30-min timeout — worse than losing ≤3 corrections. Send failure is different: the content exists and can still be delivered. Do not “harmonise” these later. |
 | 2026-08-14 | S26a: distinct `TALK_CLOSE_FAILED` copy (chat has ended); never reuse `TALK_TURN_FAILED` (“say it again”) on End | Turn-failure copy after an End tap is confusing — there is nothing to say again. |
@@ -485,10 +493,11 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 37 | S24a generated vocabulary sentences are not mined scene context — memorability loss vs slang CSV / real subtitle examples. Register balance and sense selection are prompt-tuned (S24b) and **not verifiable by unit test** — next live import is the check. First live run also produced an idiomatic `notch` (“a notch above”) against a groove/cut gloss. | medium | S24a → S24b | ⬜ open — human verify next import |
 | 38 | S24a makes the CSV import path’s per-import LLM cost non-zero (was free). | medium | S24a | ✅ closed — 2026-08-14 live: one call, 1052 input / 486 output tokens, 6.3s ≈ 1.1¢ at claude-sonnet-5 (~6¢/mo at 1 file/week). 6.3s is why `asyncio.to_thread` mattered. |
 | 39 | S25: users with many unpresented chunks meet them at 2 presentations/day (FIFO). A large shared library takes days of morning quizzes to clear before graded review starts for the oldest items. | medium | S25 | ⬜ open — by design |
-| 40 | S26/S26a: first live chat (2026-08-14, user 7222549221) turn inputs ≈913→991→1063→1134→1177 tokens, outputs 110/87/92/38/26; every call `cache_read=0, cache_creation=0`. Close never reached the API (S26a). Full successful End-chat cost still unmeasured — fill $ after a fixed close. | medium | S26a | ⬜ open — close path cost after S26a deploy |
-| 41 | S26: **recast quality is not covered by any test.** Suite asserts the prompt instructs implicit recasts, forbids mid-chat correction blocks, and (S26a) never echoes an ungrammatical fragment; whether the model actually corrects without interrupting / without echoing is verified only by a human having a real conversation (same honesty as S24b register balance). | medium | S26 | ⬜ open — human verify |
+| 40 | S26/S26a/S26b: first live chat (2026-08-14, user 7222549221) turn inputs ≈913→991→1063→1134→1177 tokens, outputs 110/87/92/38/26; every call `cache_read=0, cache_creation=0`. After S26a deploy: successful close used **513** output tokens; next close hit **800** exactly (`max_tokens` ceiling) → “no text blocks” / LLMError. S26b raises close budget to 2000 + truncation retry. Full $ cost still unmeasured — fill after a fixed close post-S26b deploy. | medium | S26b | ⬜ open — close path $ after S26b deploy |
+| 41 | S26/S26b: **conversation quality is not covered by any test.** Suite asserts prompt instructions (recast-only-on-error, contribute, don’t always question, use chunks naturally, never-echo, etc.); whether the model actually behaves is verified only by a human having a real conversation (same honesty as S24b register balance). Keep open. | medium | S26b | ⬜ open — human verify |
 | 42 | S26: incomplete abandoned/timeout `conversation` sessions linger as Neutral orphans (filter fails open). Acceptable at this scale; not completed on timeout (would falsely mark Active). **Prod note 2026-08-14:** session **id 9** (`task_type=conversation`, `completed=f`) is the failed live close-out orphan — leave as Neutral, or operator may `UPDATE sessions SET completed = TRUE WHERE id = 9` if they want that day Active; nothing automated required. | low | S26 | ⬜ open — note only |
-| 43 | S26 conversation system prompts are below Anthropic Sonnet’s ephemeral cache floor (~1024 tokens): turn ≈504 tok, close ≈563 tok (char/4 on rendered templates with taxonomy). Caching cannot engage at this size (same shape as early S2 / known issue #4 pattern). Do not pad the prompt just for cache hits. | low | S26a | ⬜ open — by design; do not chase |
+| 43 | S26 conversation system prompts are below Anthropic Sonnet’s ephemeral cache floor (~1024 tokens): turn ≈504 tok, close ≈563 tok (char/4 on rendered templates with taxonomy). Caching still cannot engage after S26b prompt rewrite (do not pad just for cache hits). | low | S26b | ⬜ open — by design; do not chase |
+| 44 | **Evening reading silently skipped for both users since empty-DB rebuild.** Prod `interests` count = 0 for `7222549221` and `5013535972` (queried 2026-08-14). `select_topic` → `None` → `skipped_no_interests` — no fallback passage. Zero `reading` sessions on prod for either user. Onboarding never seeds interests; `/interests` not re-run after 2026-08-11 / 2026-08-12. Mon/Wed/Fri deliveries missed (at least Wed 2026-08-13 both; Mon 2026-08-11 likely for operator). **Do not fix in S26b.** Follow-up slice should make the skip visible (operator alert and/or `/stats` and/or prompt user to `/interests`). | high | S9 / S26b | ⬜ open — own slice |
 
 ---
 
@@ -505,7 +514,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
 | `docs/ARCHITECTURE.md` | Stack, structure, interfaces; §5 jobs; §7 approved access + `/start`/`/ping`/`access:` (S18d) | ✅ |
-| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a–S18d + S24 + S24a + S24b + S25 + S26) | ✅ |
+| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a–S18d + S24 + S24a + S24b + S25 + S26 + S26a + S26b) | ✅ |
 | `docs/DEPLOYMENT.md` | Hetzner runbook: shared host, first-time setup, deploy/update, logs, lockout SQL, restore, two-instance warning | ✅ |
 | `specs/S0-repo-skeleton.md` | S0 spec | ✅ |
 | `specs/S1-onboarding.md` | S1 spec | ✅ |
@@ -535,10 +544,10 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/handlers/couple.py` | `/here` + group answer filter/handler + 18:00 / Sunday delivery | ✅ |
 | `app/prompts/couple.txt` | Journal row → `{question, answer}` JSON | ✅ |
 | `app/db.py` | Pool + migrate/status CLI | ✅ |
-| `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
+| `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse; `reject_truncation` + `stop_reason` log (S26b); no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/couple/streak/freeze + M13 + heartbeat + backup_freshness + watch_poll | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18d + S15/S13/S14/S16 + S7a + S15a/S15b + S8 + S24 share + S24a/S24b vocab/alert/skip prose + S25 present card + S26/S26a talk copy | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18d + S15/S13/S14/S16 + S7a + S15a/S15b + S8 + S24 share + S24a/S24b vocab/alert/skip prose + S25 present card + S26/S26a/S26b talk copy (`TALK_WRAPPING_UP`) | ✅ |
 | `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers` (gate group=-1 + access/admin + guide + CSV + couple); `setMyCommands`; prompts; scheduler | ✅ |
 | `app/services/commands.py` | BotCommand list + `register_bot_commands` (S18b/S18c); `/guide` after `/help`; `/ping` hidden; `/import` conditional | ✅ |
 | `app/handlers/help.py` | `/help` grouped intent map (S18b); `/guide` pointer (S18c); CSV upload line (S15b); no ceiling bump | ✅ |
@@ -588,10 +597,10 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `tests/test_capture.py` | Capture validation, persist/rollback, PII fixture, handler, anki source, labels (S15) | ✅ |
 | `migrations/007_chunk_presented.sql` | S25 `chunks.presented_at` + slang-null backfill | ✅ |
 | `migrations/008_conversation_source.sql` | S26 expand `errors.source` CHECK for `'conversation'` | ✅ |
-| `app/handlers/conversation.py` | S26 `/talk` + filter + close-out; S26a trailing user cue + gen-fail completes | ✅ |
-| `app/prompts/conversation.txt` | S26 turn prompt — recast + do-not-force; S26a never-echo incorrect form | ✅ |
+| `app/handlers/conversation.py` | S26 `/talk` + filter + close-out; S26a trailing user cue + gen-fail completes; S26b truncation/End UX/`picking_topic` topics | ✅ |
+| `app/prompts/conversation.txt` | S26b partner prompt (recast-on-error, contribute, no always-question); S26a never-echo | ✅ |
 | `app/prompts/conversation_close.txt` | S26 close-out ≤3 prefer recurring | ✅ |
-| `tests/test_conversation.py` | S26 turn/close/gap/labels; S26a construction + gen-fail complete | ✅ |
+| `tests/test_conversation.py` | S26/S26a/S26b turn/close/gap/labels/truncation/End UX/topics | ✅ |
 | `app/handlers/quiz.py` | Daily/weekly quiz + chunk middle source + article-tolerant grade; calib_* counters; book fork; OpenQuizFilter gap-only; S25 presentations + `present:` handlers | ✅ |
 | `app/handlers/voice.py` | Voice partner (S5) + S16/S13 router (claimable shadow → live M3 → diary → M3); S5a status helpers | ✅ |
 | `app/handlers/diary.py` | Voice diary deliver + `/diary` + voice processing (S13); no TTS; cap 2 | ✅ |
@@ -725,6 +734,11 @@ Do not start S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S26b** — have a real conversation: bot contributes (opinion/fact/joke), does not only mirror; sometimes uses your slang; varies length / sometimes no question
+- [ ] **S26b** — two `/talk` topic pickers in a row without tapping: offered set differs (rotation)
+- [ ] **S26b** — End chat responds instantly (wrap-up edit); only one live End button; long chat closes with corrections
+- [ ] **S26b** — free text while topic picker is on screen still reaches correction (`picking_topic` not claimed)
+- [ ] **S26b** — both users run `/interests` so evening reading resumes (mitigates #44 until a visibility slice)
 - [ ] **S26a** — `/talk` → real multi-turn chat → tap End chat → corrections (or clean close) arrive; session `completed=TRUE`
 - [ ] **S26a** — if close generation fails (force via bad key / offline briefly): warm close-failure line saying chat has ended; session completed; user can `/talk` again (not trapped)
 - [ ] **S26a** — confirm recasts do not echo ungrammatical fragments (human — #41); note never-echo instruction is in prompt
@@ -890,4 +904,4 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-Human: Prefer verifying against the running server — stop any laptop instance first. Deploy **S26a** (includes S26); run migrations **007 + 008** on **Hetzner**; fill S25 pre-flight counts from production. **S26a desk:** `/talk` → multi-turn → End chat → corrections land and session completes; optionally confirm a forced close-gen failure still ends the chat with the new copy. **S26 desk (carry forward):** recasts (human — #41, incl. never-echo); free text before/after → M2; forgotten >30m → M2; Other >2m → M2; gap quiz refuses all entry paths; voice mid-chat unchanged; `/pause`+`/talk` works; fill #40 cost after a successful close (expect #43 cache still 0). Optional: mark prod session id 9 completed if that day should count Active. **S25 desk (carry forward):** fan-out → presentation; tap → tomorrow; graded next day; Anki ungated; presentations-only → free_practice. **S24b/S24a/S24 desk (carry forward):** named skips; register balance; no Share on vocab; slang Share / quiz+Anki; `SHARED_BOOK_SLUGS`. **S8:** shared group + `/here` → `COUPLE_CHAT_ID`. Still open: S18d / S18c / S15b / S15a LR (#27) / S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3. **Known issue #6 (no off-site backup in production) remains the highest open risk.** Do not start the next slice until the human marks the current desk checks.
+Human: Prefer verifying against the running server — stop any laptop instance first. Deploy **S26b** (includes S26/S26a); run migrations **007 + 008** on **Hetzner**; fill S25 pre-flight counts from production. **Urgent (#44):** both users run `/interests` so Mon/Wed/Fri evening reading resumes — do not wait for a visibility slice. **S26b desk:** real conversation (contributes / slang sometimes / not only mirrors); two `/talk` pickers rotate without tapping; End responds instantly with one live button; long chat closes with corrections; picker on screen → free text still M2. **S26a/S26 desk (carry forward):** gen-fail close copy; recasts/#41; forgotten/Other/gap/voice/`/pause`; fill #40 $ after successful close (expect #43 cache still 0). Optional: mark prod session id 9 completed. **S25 desk (carry forward):** fan-out → presentation; tap → tomorrow; graded next day; Anki ungated; presentations-only → free_practice. **S24b/S24a/S24 desk (carry forward):** named skips; register balance; no Share on vocab; slang Share / quiz+Anki; `SHARED_BOOK_SLUGS`. **S8:** shared group + `/here` → `COUPLE_CHAT_ID`. Still open: S18d / S18c / S15b / S15a LR (#27) / S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3. **Known issue #6 (no off-site backup in production) remains the highest open risk.** Do not start the next slice until the human marks the current desk checks.

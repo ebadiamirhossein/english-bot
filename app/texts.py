@@ -720,6 +720,8 @@ TALK_LAST_TURN_WARN = (
 
 TALK_CLOSING = "Nice chat. Here are a few notes from what we said:"
 
+TALK_WRAPPING_UP = "Wrapping up — one moment…"
+
 TALK_STALE_CALLBACK = "That chat button's out of date — send /talk to start again."
 
 TALK_TOPIC_EMPTY = "Give me a short topic in a few words?"

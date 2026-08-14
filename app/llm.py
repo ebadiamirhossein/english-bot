@@ -44,6 +44,7 @@ def chat(
     max_tokens: int = 1000,
     images: list[bytes] | None = None,
     settings: Settings | None = None,
+    reject_truncation: bool = False,
 ) -> str | dict:
     """Provider chosen by settings.llm_provider. Retries 3x with backoff.
 
@@ -56,6 +57,9 @@ def chat(
     tolerates markdown fences and prose around a ``{...}`` span. Every request
     ends on a user message — assistant prefill is not used (claude-sonnet-5
     rejects trailing assistant turns).
+
+    When ``reject_truncation=True``, a ``stop_reason`` of ``max_tokens`` raises
+    LLMError (do not send mid-sentence or truncated JSON to the user).
     """
     cfg = settings or load_settings()
     provider = cfg.llm_provider or _DEFAULT_PROVIDER
@@ -72,6 +76,7 @@ def chat(
             system=system,
             max_tokens=max_tokens,
             settings=cfg,
+            reject_truncation=reject_truncation,
         )
 
     text = _chat_anthropic(
@@ -79,6 +84,7 @@ def chat(
         system=system,
         max_tokens=max_tokens,
         settings=cfg,
+        reject_truncation=reject_truncation,
     )
     try:
         return _parse_json(text)
@@ -92,6 +98,7 @@ def chat(
             system=system,
             max_tokens=max_tokens,
             settings=cfg,
+            reject_truncation=reject_truncation,
         )
         return _parse_json(repaired)
 
@@ -223,6 +230,7 @@ def _chat_anthropic(
     system: str | None,
     max_tokens: int,
     settings: Settings,
+    reject_truncation: bool = False,
 ) -> str:
     client = anthropic.Anthropic(api_key=settings.llm_api_key)
     kwargs: dict[str, Any] = {
@@ -242,7 +250,12 @@ def _chat_anthropic(
     last_error: Exception | None = None
     for attempt, delay in enumerate(_RETRY_BACKOFF_SECONDS):
         try:
-            return _anthropic_once(client, kwargs, settings.llm_model)
+            return _anthropic_once(
+                client,
+                kwargs,
+                settings.llm_model,
+                reject_truncation=reject_truncation,
+            )
         except _RetriableError as exc:
             last_error = exc
             logger.warning(
@@ -270,6 +283,8 @@ def _anthropic_once(
     client: anthropic.Anthropic,
     kwargs: dict[str, Any],
     model: str,
+    *,
+    reject_truncation: bool = False,
 ) -> str:
     started = time.perf_counter()
     try:
@@ -290,16 +305,22 @@ def _anthropic_once(
     output_tokens = getattr(usage, "output_tokens", 0) or 0
     cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
     cache_creation = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    stop_reason = getattr(response, "stop_reason", None)
     logger.info(
         "llm call model=%s input_tokens=%s output_tokens=%s "
-        "cache_read=%s cache_creation=%s duration_ms=%s",
+        "cache_read=%s cache_creation=%s stop_reason=%s duration_ms=%s",
         model,
         input_tokens,
         output_tokens,
         cache_read,
         cache_creation,
+        stop_reason,
         duration_ms,
     )
+    if reject_truncation and stop_reason == "max_tokens":
+        raise LLMError(
+            f"response truncated stop_reason={stop_reason}"
+        )
     return _extract_text(response)
 
 

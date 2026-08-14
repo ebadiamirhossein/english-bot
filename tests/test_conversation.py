@@ -21,10 +21,15 @@ from app.handlers.conversation import (
     build_conversation_close_prompt,
     build_conversation_system_prompt,
     build_conversation_turn_messages,
+    build_topic_pool,
+    chunk_topic_label,
+    get_picking_conversation_session,
     init_conversation_prompt,
     on_conversation_text,
     on_talk_callback,
     on_talk_command,
+    open_conversation_awaits_text,
+    rotate_topics,
     s26_button_labels,
     _close_out,
     _safe_exc_msg,
@@ -35,6 +40,7 @@ from app.llm import LLMError, _to_anthropic_messages, chat
 from app.services.sessions import (
     get_open_conversation_session,
     insert_session,
+    update_session_payload,
     utc_now_iso,
 )
 from app.services.users import get_user, save_onboarding, set_paused_until
@@ -130,9 +136,16 @@ def _make_message(tid: int, text: str) -> MagicMock:
     message.text = text
     message.chat_id = tid
     message.from_user = MagicMock(id=tid)
-    message.reply_text = AsyncMock()
+    sent = MagicMock()
+    sent.message_id = 9001
+    message.reply_text = AsyncMock(return_value=sent)
+    message.edit_text = AsyncMock()
+    message.edit_reply_markup = AsyncMock()
     message.chat = MagicMock()
     message.chat.send_action = AsyncMock()
+    bot = MagicMock()
+    bot.edit_message_reply_markup = AsyncMock()
+    message.get_bot = MagicMock(return_value=bot)
     return message
 
 
@@ -191,12 +204,18 @@ def test_s26_button_labels_max_20() -> None:
 
 def test_prompt_instructs_recast_and_do_not_force() -> None:
     turn_txt = (_PROMPT_DIR / "conversation.txt").read_text(encoding="utf-8")
-    assert "corrected form" in turn_txt.lower()
+    assert "only when there is an error" in turn_txt.lower()
+    assert "Never restate the whole message" in turn_txt
+    assert "Contribute something every turn" in turn_txt
+    assert "Do not end every turn with a question" in turn_txt
+    assert "Vary length" in turn_txt
+    assert "sometimes and naturally" in turn_txt.lower()
     assert "not a checklist" in turn_txt.lower()
     assert "Do NOT stop the conversation to correct" in turn_txt
     assert "do NOT read this list aloud" in turn_txt
     assert "Never repeat an ungrammatical form" in turn_txt
     assert "every reused fragment must be correct English" in turn_txt
+    assert "end with a question unless" not in turn_txt.lower()
     close_txt = (_PROMPT_DIR / "conversation_close.txt").read_text(
         encoding="utf-8"
     )
@@ -421,7 +440,7 @@ def test_turn_cap_warns_then_closes(cleanup_user: int) -> None:
     )
 
     async def _thread_turn(fn, *a, **kw):
-        if kw.get("json_mode"):
+        if getattr(fn, "__name__", "") == "_generate_close_result":
             return {"errors": [], "did_well": "Clear storytelling."}
         return "What else happened?"
 
@@ -723,14 +742,17 @@ def _llm_settings() -> Settings:
     )
 
 
-def _mock_llm_response(text: str) -> MagicMock:
+def _mock_llm_response(
+    text: str, *, stop_reason: str = "end_turn", output_tokens: int = 5
+) -> MagicMock:
     block = MagicMock()
     block.text = text
     response = MagicMock()
     response.content = [block]
+    response.stop_reason = stop_reason
     response.usage = MagicMock(
         input_tokens=10,
-        output_tokens=5,
+        output_tokens=output_tokens,
         cache_read_input_tokens=0,
         cache_creation_input_tokens=0,
     )
@@ -770,7 +792,8 @@ def test_close_request_constructs_from_realistic_payload(
             messages,
             system=system,
             json_mode=True,
-            max_tokens=800,
+            max_tokens=2000,
+            reject_truncation=True,
             settings=_llm_settings(),
         )
     assert isinstance(result, dict)
@@ -807,7 +830,8 @@ def test_turn_request_constructs_from_realistic_payload(
             messages,
             system=system,
             json_mode=False,
-            max_tokens=300,
+            max_tokens=500,
+            reject_truncation=True,
             settings=_llm_settings(),
         )
     assert isinstance(result, str)
@@ -880,3 +904,415 @@ def test_safe_exc_msg_strips_raw_payload() -> None:
     safe = _safe_exc_msg(exc)
     assert "raw=" not in safe
     assert "a little resting" not in safe
+
+
+# --- S26b -------------------------------------------------------------------
+
+
+def test_close_truncation_retries_then_fallback_zero_errors(
+    cleanup_user: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Close-out truncation → one max-2 retry → S26a fallback; zero errors."""
+    tid = cleanup_user
+    _onboard(tid)
+    history = _realistic_history()
+    sid = insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conv_payload(turn_count=5, messages=history),
+        completed=False,
+    )
+    calls: list[str] = []
+
+    def _fake_chat(messages, **kwargs):
+        assert kwargs.get("reject_truncation") is True
+        assert kwargs.get("max_tokens") == 2000
+        cue = messages[-1]["content"]
+        calls.append(cue)
+        raise LLMError("response truncated stop_reason=max_tokens")
+
+    async def _to_thread(fn, *a, **kw):
+        return fn(*a, **kw)
+
+    async def _run() -> None:
+        message = _make_message(tid, "end")
+        user = get_user(tid)
+        assert user is not None
+        with (
+            patch("app.handlers.conversation.chat", side_effect=_fake_chat),
+            patch(
+                "app.handlers.conversation.asyncio.to_thread",
+                side_effect=_to_thread,
+            ),
+            caplog.at_level(logging.INFO, logger="app.llm"),
+        ):
+            await _close_out(
+                message,
+                tid,
+                sid,
+                _conv_payload(turn_count=5, messages=history),
+                user=user,
+            )
+        assert len(calls) == 2
+        assert "max 3" in calls[0]
+        assert "at most 2" in calls[1]
+        assert message.reply_text.await_args.args[0] == texts.TALK_CLOSE_FAILED
+        assert _error_count(tid) == 0
+        with connection() as conn:
+            row = conn.execute(
+                "SELECT completed FROM sessions WHERE id = %s", (sid,)
+            ).fetchone()
+        assert bool(row["completed"]) is True
+
+    asyncio.run(_run())
+
+
+def test_close_stop_reason_logged_on_llm_call(
+    cleanup_user: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    user = get_user(tid)
+    assert user is not None
+    history = _realistic_history()
+    messages = build_conversation_close_messages(history, max_messages=20)
+    system = build_conversation_close_prompt(user)
+    close_json = '{"errors":[],"did_well":"Concrete detail."}'
+    with (
+        patch("app.llm.anthropic.Anthropic") as mock_cls,
+        caplog.at_level(logging.INFO, logger="app.llm"),
+    ):
+        client = mock_cls.return_value
+        client.messages.create.return_value = _mock_llm_response(
+            close_json, stop_reason="end_turn", output_tokens=40
+        )
+        chat(
+            messages,
+            system=system,
+            json_mode=True,
+            max_tokens=2000,
+            reject_truncation=True,
+            settings=_llm_settings(),
+        )
+    joined = " ".join(r.getMessage() for r in caplog.records)
+    assert "stop_reason=end_turn" in joined
+
+
+def test_truncated_turn_never_sent_warm_failure_no_turn_count(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conv_payload(turn_count=2),
+        completed=False,
+    )
+
+    async def _to_thread(fn, *a, **k):
+        raise LLMError("response truncated stop_reason=max_tokens")
+
+    async def _run() -> None:
+        update, message = _make_update(tid, "we stayed three days")
+        context = MagicMock()
+        with (
+            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch(
+                "app.handlers.conversation.load_settings",
+                return_value=_settings_mock(),
+            ),
+            patch(
+                "app.handlers.conversation.asyncio.to_thread",
+                side_effect=_to_thread,
+            ),
+        ):
+            mock_dt.now = MagicMock(return_value=_FROZEN)
+            await on_conversation_text(update, context)
+
+        body = message.reply_text.await_args.args[0]
+        assert body == texts.TALK_TURN_FAILED
+        assert "we stayed" not in body.lower()
+        session = get_open_conversation_session(
+            tid,
+            now=_FROZEN,
+            active_minutes=30,
+            awaiting_topic_minutes=2,
+        )
+        assert session is not None
+        assert int(session.payload["turn_count"]) == 2
+        assert _error_count(tid) == 0
+
+    asyncio.run(_run())
+
+
+def test_end_chat_answers_before_llm_second_tap_noop(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    history = _realistic_history()
+    sid = insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conv_payload(turn_count=3, messages=history),
+        completed=False,
+    )
+    order: list[str] = []
+
+    async def _answer(*a, **k):
+        order.append("answer")
+
+    async def _edit(*a, **k):
+        order.append("edit")
+
+    async def _to_thread(fn, *a, **kw):
+        order.append("llm")
+        return {"errors": [], "did_well": "Clear detail."}
+
+    async def _run() -> None:
+        message = _make_message(tid, "end")
+        message.edit_text = AsyncMock(side_effect=_edit)
+        query = MagicMock(spec=CallbackQuery)
+        query.from_user = User(id=tid, first_name="A", is_bot=False)
+        query.data = "talk:end"
+        query.answer = AsyncMock(side_effect=_answer)
+        query.message = message
+        update = MagicMock(spec=Update)
+        update.callback_query = query
+        update.message = None
+        update.effective_user = query.from_user
+        context = MagicMock()
+        with (
+            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch(
+                "app.handlers.conversation.load_settings",
+                return_value=_settings_mock(),
+            ),
+            patch(
+                "app.handlers.conversation.asyncio.to_thread",
+                side_effect=_to_thread,
+            ),
+        ):
+            mock_dt.now = MagicMock(return_value=_FROZEN)
+            await on_talk_callback(update, context)
+            assert order[0] == "answer"
+            assert "edit" in order
+            assert order.index("answer") < order.index("llm")
+            assert message.edit_text.await_count >= 1
+            assert message.edit_text.await_args.kwargs.get("reply_markup") is None
+            assert texts.TALK_WRAPPING_UP in message.edit_text.await_args.args[0]
+
+            # Re-open for second-tap idempotency while closing=True.
+            update_session_payload(
+                sid,
+                {
+                    **_conv_payload(turn_count=3, messages=history),
+                    "closing": True,
+                },
+            )
+            with connection() as conn:
+                conn.execute(
+                    "UPDATE sessions SET completed = FALSE WHERE id = %s",
+                    (sid,),
+                )
+            llm_before = order.count("llm")
+            await on_talk_callback(update, context)
+            assert order.count("llm") == llm_before
+
+    asyncio.run(_run())
+
+
+def test_one_live_end_keyboard_after_turn_reply(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    payload = _conv_payload(turn_count=1)
+    payload["end_keyboard_message_id"] = 4242
+    insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=payload,
+        completed=False,
+    )
+
+    async def _to_thread(fn, *a, **k):
+        return "Beach towns are great for that vibe."
+
+    async def _run() -> None:
+        update, message = _make_update(tid, "it was groove techno")
+        context = MagicMock()
+        bot = message.get_bot()
+        with (
+            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch(
+                "app.handlers.conversation.load_settings",
+                return_value=_settings_mock(),
+            ),
+            patch(
+                "app.handlers.conversation.asyncio.to_thread",
+                side_effect=_to_thread,
+            ),
+        ):
+            mock_dt.now = MagicMock(return_value=_FROZEN)
+            await on_conversation_text(update, context)
+
+        bot.edit_message_reply_markup.assert_awaited()
+        call_kw = bot.edit_message_reply_markup.await_args.kwargs
+        assert call_kw["message_id"] == 4242
+        assert call_kw["reply_markup"] is None
+        session = get_open_conversation_session(
+            tid,
+            now=_FROZEN,
+            active_minutes=30,
+            awaiting_topic_minutes=2,
+        )
+        assert session is not None
+        assert session.payload.get("end_keyboard_message_id") == 9001
+        assert _error_count(tid) == 0
+
+    asyncio.run(_run())
+
+
+def test_chunk_topic_label_english_only_ignores_persian_meaning() -> None:
+    from datetime import datetime as dt
+
+    from app.services.chunks import Chunk
+
+    chunk = Chunk(
+        id=1,
+        user_id=1,
+        chunk="a notch above",
+        full_sentence="That hotel is a notch above the rest.",
+        meaning="یک پله بالاتر (/nɒtʃ/)",
+        source="vocabulary",
+        track="life",
+        exported_to_anki=False,
+        next_review=None,
+        times_right=0,
+        times_wrong=0,
+        streak_right=0,
+        created_at=dt.now(timezone.utc),
+        presented_at=dt.now(timezone.utc),
+    )
+    label = chunk_topic_label(chunk)
+    assert "یک" not in label
+    assert "پله" not in label
+    assert "/nɒtʃ/" not in label
+    assert "یک پله بالاتر" not in label
+    assert label == "a notch above"
+
+
+def test_picking_topic_not_claimed_by_conversation_filter(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload={
+            "phase": "picking_topic",
+            "topic": "",
+            "messages": [],
+            "turn_count": 0,
+            "last_activity": utc_now_iso(_FROZEN),
+            "offered_topics": ["travel", "cooking", "space"],
+            "closing": False,
+        },
+        completed=False,
+    )
+    assert open_conversation_awaits_text(tid, now=_FROZEN) is False
+    assert get_picking_conversation_session(tid) is not None
+
+
+def test_topic_picker_persists_offered_and_rotates(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    from app.services.interests import replace_interests
+
+    replace_interests(
+        tid,
+        [
+            ("travel", "life"),
+            ("cooking", "life"),
+            ("space", "curiosity"),
+            ("sport", "curiosity"),
+            ("pricing", "work"),
+            ("standups", "work"),
+        ],
+    )
+
+    async def _run() -> None:
+        update, message = _make_update(tid, "/talk")
+        context = MagicMock()
+        context.args = []
+        with patch("app.handlers.conversation.datetime") as mock_dt:
+            mock_dt.now = MagicMock(return_value=_FROZEN)
+            await on_talk_command(update, context)
+        picking = get_picking_conversation_session(tid)
+        assert picking is not None
+        first = list(picking.payload.get("offered_topics") or [])
+        assert len(first) == 3
+        assert open_conversation_awaits_text(tid, now=_FROZEN) is False
+
+        # Second /talk without tapping — must rotate away from the same set.
+        update2, message2 = _make_update(tid, "/talk")
+        with patch("app.handlers.conversation.datetime") as mock_dt:
+            mock_dt.now = MagicMock(return_value=_FROZEN)
+            await on_talk_command(update2, context)
+        picking2 = get_picking_conversation_session(tid)
+        assert picking2 is not None
+        second = list(picking2.payload.get("offered_topics") or [])
+        assert len(second) == 3
+        assert set(x.casefold() for x in second) != set(
+            x.casefold() for x in first
+        )
+
+    asyncio.run(_run())
+
+
+def test_topic_pool_defaults_only_when_all_empty(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    assert build_topic_pool(tid) == list(texts.TALK_DEFAULT_TOPICS)
+    from app.services.interests import replace_interests
+
+    replace_interests(
+        tid, [("travel", "life"), ("cooking", "life")]
+    )
+    pool = build_topic_pool(tid)
+    assert "travel" in pool
+    assert pool != list(texts.TALK_DEFAULT_TOPICS)
+
+
+def test_rotate_topics_prefers_unoffered() -> None:
+    pool = ["a", "b", "c", "d", "e", "f"]
+    first = rotate_topics(pool, None, limit=3)
+    second = rotate_topics(pool, first, limit=3)
+    assert len(first) == 3
+    assert len(second) == 3
+    assert set(second).isdisjoint(set(first))
+
+
+def test_reject_truncation_raises_on_max_tokens_stop(
+    cleanup_user: int,
+) -> None:
+    with patch("app.llm.anthropic.Anthropic") as mock_cls:
+        client = mock_cls.return_value
+        client.messages.create.return_value = _mock_llm_response(
+            "partial sentence that got cut",
+            stop_reason="max_tokens",
+            output_tokens=500,
+        )
+        with pytest.raises(LLMError, match="truncated"):
+            chat(
+                [{"role": "user", "content": "hi"}],
+                system="sys",
+                json_mode=False,
+                max_tokens=500,
+                reject_truncation=True,
+                settings=_llm_settings(),
+            )
