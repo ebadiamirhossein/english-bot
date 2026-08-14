@@ -828,6 +828,30 @@ IMPORT_DOC_FAILED_HEADERS = (
     "Forward that file to the person who runs the bot and they'll take a look."
 )
 
+OPERATOR_CSV_FAILED_HEADERS = (
+    "Couldn't map a CSV from user {user_id}. "
+    "File: {filename}. "
+    "Headers found: {headers}. "
+    "Expected one of: slang "
+    "(Word, Phonetic, Meaning, Example, Date); "
+    "Trancy vocabulary "
+    "(Word, Phonetic, Translation, Date); "
+    "Trancy with a sentence column "
+    "(Word + Translation + Sentence/Context/Subtitle); "
+    "or Language Reactor "
+    "(Phrase + Definition/Context/Video)."
+)
+
+IMPORT_DOC_VOCAB_LLM_FAILED = (
+    "I couldn't build example sentences for that vocabulary list just now. "
+    "Nothing was imported — try sending the file again in a bit."
+)
+
+OPERATOR_CSV_VOCAB_LLM_FAILED = (
+    "Vocabulary CSV sentence generation failed for user {user_id}. "
+    "File: {filename}. Zero rows imported."
+)
+
 IMPORT_DOC_NOT_CSV = (
     "I only read CSV exports from Trancy or Language Reactor — "
     "send one of those."

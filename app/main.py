@@ -27,6 +27,7 @@ from app.handlers.couple import build_couple_handlers, init_couple_prompt
 from app.handlers.diary import build_diary_handlers, init_diary_prompt
 from app.handlers.shadow import build_shadow_handlers
 from app.handlers.help import build_help_handler
+from app.services.vocab_import import init_vocab_prompt
 from app.handlers.guide import build_guide_handler, build_guide_orphan_handler
 from app.handlers.interests import build_interests_handler
 from app.handlers.nudge import build_nudge_handler
@@ -181,6 +182,7 @@ def main() -> int:
     init_capture_prompt()
     init_prep_prompt()
     init_couple_prompt()
+    init_vocab_prompt()
 
     app = (
         ApplicationBuilder()

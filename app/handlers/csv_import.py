@@ -1,18 +1,25 @@
-"""Telegram document CSV import (S15b) + slang Share confirm (S24).
+"""Telegram document CSV import (S15b) + slang Share (S24) + vocabulary (S24a).
 
 User-initiated — does not increment ``bot_message_counts``. Independent of
 ``WATCH_DIR``. Downloads to memory only; never writes the upload to disk.
 
 Slang Share uses CallbackQueryHandler only — no MessageHandler /
 ConversationHandler (free text must still reach M2).
+
+Vocabulary (Trancy Word/Phonetic/Translation/Date) is sender-only: no Share
+keyboard, no shared_content. LLM sentence generation runs via
+``asyncio.to_thread`` through ``vocab_import`` (this handler never imports
+the LLM wrapper module directly).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
@@ -26,7 +33,12 @@ from app.services.alerts import notify_operator
 from app.services.chunks import count_due_chunks, insert_chunks
 from app.services.reading import normalize_for_match
 from app.services.shared_content import record_and_fanout_chunks
-from app.services.users import is_registered
+from app.services.users import get_user, is_registered
+from app.services.vocab_import import (
+    VocabGenerationError,
+    persist_vocabulary_and_send,
+    prepare_vocabulary_import,
+)
 from app.services.watch_import import (
     CSV_IMPORT_MAX_BYTES,
     classify_csv_format,
@@ -70,6 +82,40 @@ def _share_keyboard() -> InlineKeyboardMarkup:
 
 def s24_share_button_labels() -> list[str]:
     return [texts.BTN_SHARE_SLANG_ALL, texts.BTN_SHARE_SLANG_ME]
+
+
+def _failed_headers_log_line(
+    *, user_id: int, filename: str, headers: list[str]
+) -> str:
+    """Stable operator log line — do not change wording without cause."""
+    return (
+        f"telegram csv failed_headers user_id={user_id} "
+        f"file={filename} headers={headers}"
+    )
+
+
+async def _alert_failed_headers(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    user_id: int,
+    filename: str,
+    headers: list[str],
+    now: datetime,
+) -> None:
+    log_line = _failed_headers_log_line(
+        user_id=user_id, filename=filename, headers=headers
+    )
+    logger.warning("%s", log_line)
+    await notify_operator(
+        context.application,
+        key=f"csv_headers:{user_id}:{filename}",
+        text=texts.OPERATOR_CSV_FAILED_HEADERS.format(
+            user_id=user_id,
+            filename=filename,
+            headers=headers,
+        ),
+        now=now,
+    )
 
 
 async def on_csv_document(
@@ -143,13 +189,11 @@ async def on_csv_document(
 
     fmt = classify_csv_format(headers)
     if fmt is None:
-        await notify_operator(
-            context.application,
-            key=f"csv_headers:{user_id}:{filename}",
-            text=(
-                f"telegram csv failed_headers user_id={user_id} "
-                f"file={filename} headers={list(headers)}"
-            ),
+        await _alert_failed_headers(
+            context,
+            user_id=user_id,
+            filename=filename,
+            headers=list(headers),
             now=now,
         )
         await message.reply_text(
@@ -176,7 +220,78 @@ async def on_csv_document(
         )
         return
 
-    # Trancy / Language Reactor — sender-only (never share).
+    if fmt == "vocabulary":
+        profile = get_user(user_id)
+        if profile is None:
+            return
+        await context.bot.send_chat_action(
+            chat_id=message.chat_id, action=ChatAction.TYPING
+        )
+        try:
+            chunks, counts = await asyncio.to_thread(
+                prepare_vocabulary_import,
+                headers,
+                rows,
+                user_id=user_id,
+                cefr_level=profile.cefr_level,
+                work_domain=profile.work_domain or "",
+                now=now.date(),
+            )
+        except VocabGenerationError:
+            logger.exception(
+                "csv import vocab_llm_failed user_id=%s file=%s handler=%s",
+                user_id,
+                filename,
+                HANDLER_NAME,
+            )
+            await notify_operator(
+                context.application,
+                key=f"csv_vocab_llm:{user_id}:{filename}",
+                text=texts.OPERATOR_CSV_VOCAB_LLM_FAILED.format(
+                    user_id=user_id,
+                    filename=filename,
+                ),
+                now=now,
+            )
+            await message.reply_text(texts.IMPORT_DOC_VOCAB_LLM_FAILED)
+            return
+        except Exception:
+            logger.exception(
+                "csv import vocab_error user_id=%s file=%s handler=%s",
+                user_id,
+                filename,
+                HANDLER_NAME,
+            )
+            await message.reply_text(texts.IMPORT_DOC_READ_FAILED)
+            return
+
+        body = texts.IMPORT_DOC_RESULT.format(
+            imported=counts.imported,
+            duplicates=counts.duplicates,
+            invalid=counts.invalid,
+            due=counts.due,
+        )
+
+        async def _send() -> None:
+            await message.reply_text(body)
+
+        try:
+            await persist_vocabulary_and_send(
+                user_id=user_id,
+                chunks=chunks,
+                send=_send,
+            )
+        except Exception:
+            logger.exception(
+                "csv import vocab_persist user_id=%s file=%s handler=%s",
+                user_id,
+                filename,
+                HANDLER_NAME,
+            )
+            await message.reply_text(texts.IMPORT_DOC_READ_FAILED)
+        return
+
+    # Trancy-legacy / Language Reactor — sender-only (never share).
     try:
         result = import_csv_bytes(
             data, user_id=user_id, filename=filename, now=now, tool=fmt
@@ -192,13 +307,11 @@ async def on_csv_document(
         return
 
     if result.status == "failed_headers":
-        await notify_operator(
-            context.application,
-            key=f"csv_headers:{user_id}:{filename}",
-            text=(
-                f"telegram csv failed_headers user_id={user_id} "
-                f"file={filename} headers={list(result.headers_seen)}"
-            ),
+        await _alert_failed_headers(
+            context,
+            user_id=user_id,
+            filename=filename,
+            headers=list(result.headers_seen),
             now=now,
         )
         await message.reply_text(

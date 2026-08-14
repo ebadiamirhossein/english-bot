@@ -165,6 +165,13 @@ def test_detect_tool_from_headers() -> None:
     assert (
         classify_csv_format(["Word", "Sentence", "Translation"]) == "trancy"
     )
+    assert (
+        classify_csv_format(["Word", "Phonetic", "Translation", "Date"])
+        == "vocabulary"
+    )
+    assert classify_csv_format(
+        ["Word", "Phonetic", "Translation", "Date"]
+    ) != "trancy"
 
 
 def test_assert_path_outside_repo_refuses_inside() -> None:

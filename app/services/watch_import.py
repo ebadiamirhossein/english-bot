@@ -2,6 +2,7 @@
 
 Trancy / Language Reactor exports → ``chunks`` (S7a review + Anki pool).
 S24: exact five-column slang signature is mutually exclusive with Trancy/LR.
+S24a: exact four-column Trancy vocabulary (no sentence) — Telegram + LLM only.
 No provider SDKs. Stdlib ``csv`` only. Logs filenames and counts, never row
 content (PRD §10). Both entrances share ``import_csv_rows`` / ``map_headers``.
 """
@@ -50,7 +51,11 @@ _MATERIAL_TOKENS = ("title", "video", "movie", "show")
 SLANG_HEADER_SET = frozenset(
     {"word", "phonetic", "meaning", "example", "date"}
 )
-CsvFormat = Literal["slang", "trancy", "language_reactor"]
+# Real Trancy vocabulary export (S24a) — four columns, no sentence.
+VOCABULARY_HEADER_SET = frozenset(
+    {"word", "phonetic", "translation", "date"}
+)
+CsvFormat = Literal["slang", "vocabulary", "trancy", "language_reactor"]
 
 # Module-level: resets on process restart (acceptable — notify_operator
 # throttles; do not put this in bot_data).
@@ -151,6 +156,41 @@ def is_slang_headers(headers: Sequence[str]) -> bool:
     return normalised_header_set(headers) == SLANG_HEADER_SET
 
 
+def is_vocabulary_headers(headers: Sequence[str]) -> bool:
+    """True only for the real Trancy vocabulary four-column signature."""
+    return normalised_header_set(headers) == VOCABULARY_HEADER_SET
+
+
+def is_trancy_legacy_headers(headers: Sequence[str]) -> bool:
+    """Word + Translation + a sentence-like column; not phrase; not vocab.
+
+    Sentence presence is structural — not ordering-dependent vs vocabulary.
+    """
+    if is_slang_headers(headers) or is_vocabulary_headers(headers):
+        return False
+    has_word = _first_matching(headers, ("word",)) is not None
+    has_phrase = _first_matching(headers, ("phrase",)) is not None
+    has_translation = _first_matching(headers, ("translation",)) is not None
+    has_sentence = _first_matching(headers, _SENTENCE_TOKENS) is not None
+    return (
+        has_word
+        and has_translation
+        and has_sentence
+        and not has_phrase
+    )
+
+
+def is_language_reactor_headers(headers: Sequence[str]) -> bool:
+    """Phrase + definition/context/video; never slang or vocabulary."""
+    if is_slang_headers(headers) or is_vocabulary_headers(headers):
+        return False
+    has_phrase = _first_matching(headers, ("phrase",)) is not None
+    has_definition = _first_matching(headers, ("definition",)) is not None
+    has_context = _first_matching(headers, ("context", "subtitle")) is not None
+    has_video = _first_matching(headers, ("video",)) is not None
+    return has_phrase and (has_definition or has_context or has_video)
+
+
 def _header_by_norm(headers: Sequence[str], want: str) -> str | None:
     for header in headers:
         if header is None:
@@ -161,33 +201,33 @@ def _header_by_norm(headers: Sequence[str], want: str) -> str | None:
 
 
 def classify_csv_format(headers: Sequence[str]) -> CsvFormat | None:
-    """Mutually exclusive format: slang | trancy | language_reactor | None.
+    """Mutually exclusive: slang | vocabulary | trancy | language_reactor | None.
 
-    Slang is an exact five-column signature. Trancy/LR keep confident token
-    rules. Ambiguous or unknown shapes return None — never guess.
+    Predicates are structural (vocabulary ≠ Trancy-legacy even if order flips).
+    Zero or multiple matches → None — never guess.
     """
+    matches: list[CsvFormat] = []
     if is_slang_headers(headers):
-        return "slang"
-
-    has_word = _first_matching(headers, ("word",)) is not None
-    has_phrase = _first_matching(headers, ("phrase",)) is not None
-    has_translation = _first_matching(headers, ("translation",)) is not None
-    has_definition = _first_matching(headers, ("definition",)) is not None
-    has_context = _first_matching(headers, ("context", "subtitle")) is not None
-    has_video = _first_matching(headers, ("video",)) is not None
-
-    trancy_confident = has_word and has_translation and not has_phrase
-    lr_confident = has_phrase and (has_definition or has_context or has_video)
-
-    if trancy_confident and not lr_confident:
-        return "trancy"
-    if lr_confident and not trancy_confident:
-        return "language_reactor"
+        matches.append("slang")
+    if is_vocabulary_headers(headers):
+        matches.append("vocabulary")
+    if is_trancy_legacy_headers(headers):
+        matches.append("trancy")
+    if is_language_reactor_headers(headers):
+        matches.append("language_reactor")
+    if len(matches) == 1:
+        return matches[0]
     return None
 
 
 def map_headers(headers: Sequence[str]) -> HeaderMap | None:
-    """Return a column map, or None if a required field cannot be identified."""
+    """Return a column map, or None if a required field cannot be identified.
+
+    Vocabulary has no CSV sentence column — use ``parse_vocabulary_seed_items``
+    / the Telegram LLM path instead of this mapper.
+    """
+    if is_vocabulary_headers(headers):
+        return None
     if is_slang_headers(headers):
         word = _header_by_norm(headers, "word")
         example = _header_by_norm(headers, "example")
@@ -205,7 +245,7 @@ def map_headers(headers: Sequence[str]) -> HeaderMap | None:
         )
 
     fmt = classify_csv_format(headers)
-    if fmt is None:
+    if fmt is None or fmt == "vocabulary":
         return None
 
     chunk = _first_matching(headers, _CHUNK_TOKENS)
@@ -243,8 +283,9 @@ def tool_from_parent(parent_name: str) -> str:
 def detect_tool_from_headers(headers: Sequence[str]) -> str:
     """Infer tool/format from header shape (Telegram path).
 
-    Returns ``slang``, ``trancy``, ``language_reactor``, or ``csv`` when
-    unrecognised (caller should treat unrecognised as failed_headers).
+    Returns ``slang``, ``vocabulary``, ``trancy``, ``language_reactor``, or
+    ``csv`` when unrecognised (caller should treat unrecognised as
+    failed_headers).
     """
     fmt = classify_csv_format(headers)
     if fmt is None:
@@ -367,7 +408,8 @@ def _cell(row: dict[str, str | None], key: str) -> str:
     return str(raw).strip()
 
 
-def _existing_chunk_norms(user_id: int) -> set[str]:
+def existing_chunk_norms(user_id: int) -> set[str]:
+    """Normalised chunk keys already owned by this user (dedupe / re-import)."""
     with connection() as conn:
         rows = conn.execute(
             """
@@ -376,6 +418,10 @@ def _existing_chunk_norms(user_id: int) -> set[str]:
             (user_id,),
         ).fetchall()
     return {normalize_for_match(str(r["chunk"])) for r in rows if r["chunk"]}
+
+
+def _existing_chunk_norms(user_id: int) -> set[str]:
+    return existing_chunk_norms(user_id)
 
 
 def parse_csv_text(
@@ -600,6 +646,34 @@ def process_csv_file(
     """Import one stable CSV from disk. Caller must have checked ``is_stable``."""
     filename = path.name
     headers, rows = _read_csv_rows(path)
+    # S24a: vocabulary needs an LLM call — never from the scheduler job
+    # (known issue #7). Telegram upload is the acceptance path.
+    if is_vocabulary_headers(headers):
+        logger.warning(
+            "watch import refuse_vocabulary user_id=%s file=%s — "
+            "Trancy vocabulary CSV (Word,Phonetic,Translation,Date); "
+            "send via Telegram instead (folder path does not call the LLM)",
+            user_id,
+            filename,
+        )
+        dest = move_collision_safe(
+            path, failed_path(root, user_id), now=now
+        )
+        logger.warning(
+            "watch import refuse_vocabulary moved user_id=%s file=%s "
+            "moved_to=%s",
+            user_id,
+            filename,
+            dest.name,
+        )
+        return FileImportResult(
+            filename=filename,
+            status="refused_vocabulary",
+            headers_seen=tuple(headers),
+            source_tool=tool,
+            csv_format="vocabulary",
+        )
+
     result = import_csv_rows(
         headers,
         rows,
@@ -622,6 +696,48 @@ def process_csv_file(
 
     move_collision_safe(path, processed_path(root, user_id), now=now)
     return result
+
+
+def parse_vocabulary_seed_items(
+    headers: Sequence[str],
+    rows: Sequence[dict[str, str | None]],
+) -> tuple[list[dict[str, str]], int]:
+    """Parse Trancy vocabulary rows → seeds without sentences.
+
+    Returns ``(seeds, empty_or_bad_count)``. ``Date`` is ignored. Meaning
+    keeps the full Translation text (semicolon-separated senses intact).
+    Phonetic is appended via ``format_meaning``. Within-file duplicates are
+    not collapsed here — callers dedupe before the LLM.
+    """
+    if not is_vocabulary_headers(headers):
+        raise ValueError("not a vocabulary header map")
+    word_h = _header_by_norm(headers, "word")
+    meaning_h = _header_by_norm(headers, "translation")
+    phonetic_h = _header_by_norm(headers, "phonetic")
+    if word_h is None or meaning_h is None:
+        raise ValueError("vocabulary headers missing word/translation")
+    seeds: list[dict[str, str]] = []
+    skipped = 0
+    for row in rows:
+        chunk = _cell(row, word_h)
+        meaning = _cell(row, meaning_h)
+        if not chunk:
+            continue
+        if not meaning:
+            skipped += 1
+            continue
+        chunk_norm = normalize_for_match(chunk)
+        if not chunk_norm:
+            skipped += 1
+            continue
+        phonetic = _cell(row, phonetic_h) if phonetic_h else ""
+        seeds.append(
+            {
+                "chunk": chunk,
+                "meaning": format_meaning(meaning, phonetic or None),
+            }
+        )
+    return seeds, skipped
 
 
 def _iter_user_csv_files(inbox: Path) -> list[tuple[Path, str]]:

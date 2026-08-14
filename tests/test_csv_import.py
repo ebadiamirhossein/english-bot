@@ -148,6 +148,12 @@ def test_detect_tool_trancy_and_lr_and_fallback() -> None:
     )
     assert (
         detect_tool_from_headers(
+            ["Word", "Phonetic", "Translation", "Date"]
+        )
+        == "vocabulary"
+    )
+    assert (
+        detect_tool_from_headers(
             ["Phrase", "Context / Subtitle", "Definition", "Video title"]
         )
         == "language_reactor"
@@ -255,10 +261,11 @@ def test_unrecognisable_headers_no_persist_alerts_operator(
     assert "Forward" in body or "forward" in body
     notify.assert_awaited_once()
     alert = notify.await_args.kwargs["text"]
-    assert "failed_headers" in alert
+    assert "Couldn't map a CSV" in alert
     assert "alpha" in alert
     assert DISTINCTIVE not in alert
     assert DISTINCTIVE not in caplog.text
+    assert "failed_headers" in caplog.text
     with connection() as conn:
         n = conn.execute(
             "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (tid,)
