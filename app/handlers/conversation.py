@@ -53,6 +53,14 @@ MAX_CLOSE_ERRORS = 3
 _MAX_TOPIC_BUTTONS = 8
 _TURN_MAX_TOKENS = 300
 _CLOSE_MAX_TOKENS = 800
+_EXC_MSG_LOG_LIMIT = 120
+
+# Trailing user turn required by Anthropic (no assistant-prefill / must end
+# on user). Live session history always ends on the last bot reply.
+_CLOSE_REVIEW_CUE = (
+    "The conversation above is finished. Reply with the JSON object "
+    "specified in your instructions — errors (max 3) and did_well."
+)
 
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "conversation.txt"
 _CLOSE_PROMPT_PATH = (
@@ -73,6 +81,19 @@ _FALLBACK_RULE_TRUE = (
 _FALLBACK_RULE_FALSE = (
     "Write every explanation in English, including abstract grammar types."
 )
+
+
+def _safe_exc_msg(exc: BaseException) -> str:
+    """Exception text for logs — no learner message/topic/chunk bodies."""
+    msg = str(exc)
+    # json_mode LLMError may embed ``raw=...`` with model output that quotes
+    # the learner; drop that span before logging.
+    if "raw=" in msg:
+        msg = msg.split("raw=", 1)[0].rstrip(" ;,")
+    msg = msg.replace("\n", " ").strip()
+    if len(msg) > _EXC_MSG_LOG_LIMIT:
+        return msg[:_EXC_MSG_LOG_LIMIT] + "..."
+    return msg
 
 
 def init_conversation_prompt() -> None:
@@ -253,6 +274,36 @@ def build_conversation_close_prompt(user: User) -> str:
         recurring_error_labels=", ".join(labels) if labels else "(none yet)",
         explanation_language_rule=explanation_rule,
     )
+
+
+def build_conversation_turn_messages(
+    history: list[dict[str, str]],
+    user_text: str,
+    *,
+    max_messages: int,
+) -> list[dict[str, str]]:
+    """Messages for a mid-chat turn — always ends on the new user text."""
+    return _trim_history(
+        list(history) + [{"role": "user", "content": user_text}],
+        max_messages=max_messages,
+    )
+
+
+def build_conversation_close_messages(
+    history: list[dict[str, str]],
+    *,
+    max_messages: int,
+) -> list[dict[str, str]]:
+    """Transcript plus trailing user cue (Anthropic requires final = user).
+
+    Live session history is seeded with the opener and then alternates; after
+    any successful turn it ends on assistant. Passing that transcript as-is
+    raises before the API responds (S26a).
+    """
+    trimmed = _trim_history(list(history), max_messages=max_messages)
+    if max_messages >= 2 and len(trimmed) >= max_messages:
+        trimmed = trimmed[-(max_messages - 1) :]
+    return trimmed + [{"role": "user", "content": _CLOSE_REVIEW_CUE}]
 
 
 def _trim_history(
@@ -515,9 +566,8 @@ async def _handle_active_turn(
     await message.chat.send_action(ChatAction.TYPING)
 
     system = build_conversation_system_prompt(user, topic=topic)
-    history_for_llm = _trim_history(
-        history + [{"role": "user", "content": text}],
-        max_messages=hist_max,
+    history_for_llm = build_conversation_turn_messages(
+        history, text, max_messages=hist_max
     )
 
     try:
@@ -528,11 +578,14 @@ async def _handle_active_turn(
             json_mode=False,
             max_tokens=_TURN_MAX_TOKENS,
         )
-    except LLMError:
+    except LLMError as exc:
         logger.warning(
-            "conversation turn LLM failed user_id=%s handler=%s",
+            "conversation turn LLM failed user_id=%s handler=%s "
+            "exc_type=%s exc_msg=%s",
             user_id,
             HANDLER_NAME,
+            type(exc).__name__,
+            _safe_exc_msg(exc),
         )
         payload["last_activity"] = utc_now_iso(now)
         update_session_payload(session_id, payload)
@@ -618,13 +671,12 @@ async def _close_out(
         await message.reply_text(texts.TALK_CLOSING)
         return
 
-    system = build_conversation_close_prompt(user)
-    transcript_messages = _trim_history(
-        history,
-        max_messages=_settings_timeouts()[3],
-    )
-
+    hist_max = _settings_timeouts()[3]
     try:
+        system = build_conversation_close_prompt(user)
+        transcript_messages = build_conversation_close_messages(
+            history, max_messages=hist_max
+        )
         result = await asyncio.to_thread(
             chat,
             transcript_messages,
@@ -632,28 +684,35 @@ async def _close_out(
             json_mode=True,
             max_tokens=_CLOSE_MAX_TOKENS,
         )
-    except LLMError:
+        if not isinstance(result, dict):
+            raise LLMError("close response was not a JSON object")
+        errors = list(result.get("errors") or [])[:MAX_CLOSE_ERRORS]
+        did_well = str(result.get("did_well") or "").strip()
+        correction_text = render_correction_message(errors, did_well)
+        body = f"{texts.TALK_CLOSING}\n\n{correction_text}"
+    except Exception as exc:
+        # Generation failure: release the user. Losing ≤3 corrections is
+        # better than trapping them until the 30-minute timeout (S26a).
         logger.warning(
-            "conversation close LLM failed user_id=%s", user_id
+            "conversation close LLM failed user_id=%s exc_type=%s exc_msg=%s",
+            user_id,
+            type(exc).__name__,
+            _safe_exc_msg(exc),
         )
-        await message.reply_text(texts.TALK_TURN_FAILED)
+        await message.reply_text(texts.TALK_CLOSE_FAILED)
+        complete_session(session_id, None)
         return
-
-    if not isinstance(result, dict):
-        await message.reply_text(texts.TALK_TURN_FAILED)
-        return
-
-    errors = list(result.get("errors") or [])[:MAX_CLOSE_ERRORS]
-    did_well = str(result.get("did_well") or "").strip()
-    correction_text = render_correction_message(errors, did_well)
-    body = f"{texts.TALK_CLOSING}\n\n{correction_text}"
 
     try:
         await message.reply_text(body)
-    except Exception:
-        logger.exception(
-            "conversation close send failed user_id=%s — no errors written",
+    except Exception as exc:
+        # Send failure: content exists — keep session open for retry.
+        logger.warning(
+            "conversation close send failed user_id=%s exc_type=%s "
+            "exc_msg=%s — no errors written",
             user_id,
+            type(exc).__name__,
+            _safe_exc_msg(exc),
         )
         return
 

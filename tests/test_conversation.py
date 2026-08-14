@@ -1,8 +1,9 @@
-"""S26 text conversation (/talk) — behaviour, close-out, prompts, labels."""
+"""S26/S26a text conversation (/talk) — behaviour, close-out, prompts, labels."""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -13,20 +14,24 @@ import pytest
 from telegram import CallbackQuery, Message, Update, User
 
 from app import texts
+from app.config import Settings
 from app.db import close_pool, connection, migrate
 from app.handlers.conversation import (
+    build_conversation_close_messages,
     build_conversation_close_prompt,
     build_conversation_system_prompt,
+    build_conversation_turn_messages,
     init_conversation_prompt,
     on_conversation_text,
     on_talk_callback,
     on_talk_command,
     s26_button_labels,
     _close_out,
+    _safe_exc_msg,
 )
 from app.handlers.correction import init_correction_prompt
 from app.handlers.quiz import open_quiz_awaits_gap_answer
-from app.llm import LLMError
+from app.llm import LLMError, _to_anthropic_messages, chat
 from app.services.sessions import (
     get_open_conversation_session,
     insert_session,
@@ -190,11 +195,19 @@ def test_prompt_instructs_recast_and_do_not_force() -> None:
     assert "not a checklist" in turn_txt.lower()
     assert "Do NOT stop the conversation to correct" in turn_txt
     assert "do NOT read this list aloud" in turn_txt
+    assert "Never repeat an ungrammatical form" in turn_txt
+    assert "every reused fragment must be correct English" in turn_txt
     close_txt = (_PROMPT_DIR / "conversation_close.txt").read_text(
         encoding="utf-8"
     )
     assert "Maximum 3" in close_txt
     assert "recurring" in close_txt.lower()
+
+
+def test_close_failure_copy_distinct_from_turn_failure() -> None:
+    assert texts.TALK_CLOSE_FAILED != texts.TALK_TURN_FAILED
+    assert "done chatting" in texts.TALK_CLOSE_FAILED.lower()
+    assert "say it again" not in texts.TALK_CLOSE_FAILED.lower()
 
 
 @pytest.mark.parametrize(
@@ -628,3 +641,242 @@ def test_grep_no_mid_conversation_record_errors() -> None:
     # Only one call site: inside _close_out after successful send.
     assert src.count("record_errors(") == 1
     assert "record_errors" in src[src.index("async def _close_out") :]
+
+
+def _realistic_history() -> list[dict[str, str]]:
+    """Opener-first transcript ending on assistant — the live shape that broke."""
+    return [
+        {
+            "role": "assistant",
+            "content": (
+                "Alright — let's talk about weekend plans. "
+                "What's on your mind?"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "I want to after work go home and a little resting "
+                "and preparing for drinking alcohol"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Nice — go home after work, rest a little, and get ready "
+                "for a fun night with some drinks. Who are you meeting?"
+            ),
+        },
+        {
+            "role": "user",
+            "content": "Maybe my friends from university",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Cool — university friends. What do you usually do together?"
+            ),
+        },
+        {
+            "role": "user",
+            "content": "We talk about job and sometimes play games",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sounds fun — talking about jobs and playing games. "
+                "Any game you love lately?"
+            ),
+        },
+    ]
+
+
+def _seed_recurring_errors(tid: int) -> None:
+    with connection() as conn:
+        with conn.transaction():
+            for code, said, form in (
+                ("verb_tense_past", "I go yesterday", "I went yesterday"),
+                ("article_missing", "I saw movie", "I saw a movie"),
+                ("preposition", "depend of", "depend on"),
+            ):
+                conn.execute(
+                    """
+                    INSERT INTO errors (
+                        user_id, source, you_said, correct_form,
+                        error_type, next_review, resolved
+                    ) VALUES (
+                        %s, 'text', %s, %s, %s,
+                        CURRENT_DATE + 1, FALSE
+                    )
+                    """,
+                    (tid, said, form, code),
+                )
+
+
+def _llm_settings() -> Settings:
+    return Settings(
+        database_url="postgresql://x:y@localhost:5433/english_bot",
+        telegram_bot_token="token",
+        llm_api_key="test-key",
+        llm_provider="anthropic",
+        llm_model="claude-sonnet-5",
+    )
+
+
+def _mock_llm_response(text: str) -> MagicMock:
+    block = MagicMock()
+    block.text = text
+    response = MagicMock()
+    response.content = [block]
+    response.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    return response
+
+
+def test_close_request_constructs_from_realistic_payload(
+    cleanup_user: int,
+) -> None:
+    """Regression: close path must build a valid provider request (S26a).
+
+    Mocks at the Anthropic transport only — prompt render, message shaping,
+    and ``chat()`` construction all run for real.
+    """
+    tid = cleanup_user
+    _onboard(tid)
+    _seed_recurring_errors(tid)
+    user = get_user(tid)
+    assert user is not None
+
+    history = _realistic_history()
+    assert history[0]["role"] == "assistant"
+    assert history[-1]["role"] == "assistant"
+
+    system = build_conversation_close_prompt(user)
+    messages = build_conversation_close_messages(history, max_messages=20)
+    assert messages[-1]["role"] == "user"
+    _to_anthropic_messages(messages)
+
+    close_json = (
+        '{"errors":[],"did_well":"You kept the chat going with concrete detail."}'
+    )
+    with patch("app.llm.anthropic.Anthropic") as mock_cls:
+        client = mock_cls.return_value
+        client.messages.create.return_value = _mock_llm_response(close_json)
+        result = chat(
+            messages,
+            system=system,
+            json_mode=True,
+            max_tokens=800,
+            settings=_llm_settings(),
+        )
+    assert isinstance(result, dict)
+    assert client.messages.create.call_count == 1
+    sent = client.messages.create.call_args.kwargs["messages"]
+    assert sent[-1]["role"] == "user"
+    assert sent[0]["role"] == "assistant"
+
+
+def test_turn_request_constructs_from_realistic_payload(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    _seed_recurring_errors(tid)
+    user = get_user(tid)
+    assert user is not None
+
+    history = _realistic_history()
+    system = build_conversation_system_prompt(user, topic="weekend plans")
+    messages = build_conversation_turn_messages(
+        history, "We play chess mostly", max_messages=20
+    )
+    assert messages[-1]["role"] == "user"
+    assert messages[-1]["content"] == "We play chess mostly"
+    _to_anthropic_messages(messages)
+
+    with patch("app.llm.anthropic.Anthropic") as mock_cls:
+        client = mock_cls.return_value
+        client.messages.create.return_value = _mock_llm_response(
+            "Chess is great — rated or just for fun?"
+        )
+        result = chat(
+            messages,
+            system=system,
+            json_mode=False,
+            max_tokens=300,
+            settings=_llm_settings(),
+        )
+    assert isinstance(result, str)
+    assert client.messages.create.call_count == 1
+    sent = client.messages.create.call_args.kwargs["messages"]
+    assert sent[-1]["role"] == "user"
+
+
+def test_failed_close_generation_completes_session_zero_errors(
+    cleanup_user: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    history = _realistic_history()
+    sid = insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conv_payload(turn_count=3, messages=history),
+        completed=False,
+    )
+
+    async def _run() -> None:
+        message = _make_message(tid, "end")
+        user = get_user(tid)
+        assert user is not None
+        with (
+            patch(
+                "app.handlers.conversation.asyncio.to_thread",
+                side_effect=LLMError(
+                    "Anthropic API error 400: conversation must end "
+                    "with a user message"
+                ),
+            ),
+            caplog.at_level(
+                logging.WARNING, logger="app.handlers.conversation"
+            ),
+        ):
+            await _close_out(
+                message,
+                tid,
+                sid,
+                _conv_payload(turn_count=3, messages=history),
+                user=user,
+            )
+        assert message.reply_text.await_count == 1
+        assert message.reply_text.await_args.args[0] == texts.TALK_CLOSE_FAILED
+        assert _error_count(tid) == 0
+        with connection() as conn:
+            row = conn.execute(
+                "SELECT completed FROM sessions WHERE id = %s",
+                (sid,),
+            ).fetchone()
+        assert bool(row["completed"]) is True
+
+        joined = " ".join(r.getMessage() for r in caplog.records)
+        assert "exc_type=LLMError" in joined
+        assert "conversation must end" in joined
+        assert "a little resting" not in joined
+        assert "drinking alcohol" not in joined
+
+    asyncio.run(_run())
+
+
+def test_safe_exc_msg_strips_raw_payload() -> None:
+    exc = LLMError(
+        'Response was not valid JSON: Expecting value; raw=\'{"you_said": '
+        '"I want to after work go home and a little resting"}\''
+    )
+    safe = _safe_exc_msg(exc)
+    assert "raw=" not in safe
+    assert "a little resting" not in safe

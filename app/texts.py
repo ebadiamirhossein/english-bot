@@ -709,6 +709,11 @@ TALK_TURN_FAILED = (
     "I lost that for a second — say it again when you're ready?"
 )
 
+TALK_CLOSE_FAILED = (
+    "I couldn't put the notes together this time — but we're done chatting. "
+    "Send /talk whenever you want another round."
+)
+
 TALK_LAST_TURN_WARN = (
     "\n\n(One more turn after this, then I'll wrap up with a few notes.)"
 )
