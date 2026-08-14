@@ -208,6 +208,26 @@ def _preload_from_db(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     wiz["options"] = options
 
 
+def _summary_from_selections(
+    selections: list[tuple[str, str]],
+) -> str:
+    """Plain-text summary of saved topics by track (for the finish message)."""
+    by_track: dict[str, list[str]] = {t: [] for t in _TRACKS}
+    for topic, track in selections:
+        if track in by_track:
+            by_track[track].append(topic)
+    lines: list[str] = []
+    for track in _TRACKS:
+        topics = by_track[track]
+        label = texts.INTERESTS_TRACK_LABELS[track]
+        if topics:
+            shown = ", ".join(topics)
+        else:
+            shown = "—"
+        lines.append(f"{label}: {shown}")
+    return "\n".join(lines)
+
+
 def _summary_body(user_id: int) -> str:
     rows = list_interests(user_id)
     by_track: dict[str, list[str]] = {t: [] for t in _TRACKS}
@@ -492,11 +512,15 @@ async def wizard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             _clear_wizard(context)
             return ConversationHandler.END
+        selections = _selections_for_save(context)
+        summary = _summary_from_selections(selections)
         await _show(
             update,
             context,
             CURIOSITY,
-            text=_esc(texts.INTERESTS_SAVED),
+            text=_esc(
+                texts.INTERESTS_SAVED_NAMED.format(summary=summary)
+            ),
             reply_markup=None,
         )
         _clear_wizard(context)
@@ -507,6 +531,12 @@ async def wizard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def receive_other(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Accept a custom topic from free text (Other screen or track screen).
+
+    S26c: track screens previously had no MessageHandler, so ConversationHandler
+    claimed the update (block=True) and dropped it — silence. Treat typed text
+    on a track screen the same as Other: add the topic and confirm.
+    """
     if update.message is None or update.message.text is None:
         current = int(_wizard(context).get("wizard_state", WORK_OTHER))
         track = _STATE_TRACK.get(current, "work")
@@ -526,7 +556,12 @@ async def receive_other(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         _set_options(context, track, options)
     _selected(context, track).add(topic)
 
-    # User typed a new message; keep editing the wizard message (not the typed one).
+    # Confirm on the typed message so the user always sees a reply (never silence).
+    await update.message.reply_text(
+        texts.INTERESTS_CUSTOM_ADDED.format(topic=topic)
+    )
+
+    # Keep editing the wizard message (not the typed one).
     return await _show_track(update, context, track)
 
 
@@ -568,6 +603,8 @@ _WIZARD_MAP: dict[object, object] = {
 
 
 def build_interests_handler() -> ConversationHandler:
+    """Interests wizard. Free text on track + Other screens always gets a reply."""
+    track_text = MessageHandler(filters.TEXT & ~filters.COMMAND, receive_other)
     return ConversationHandler(
         entry_points=[CommandHandler("interests", start)],
         states={
@@ -584,6 +621,7 @@ def build_interests_handler() -> ConversationHandler:
                 ),
             ],
             WORK: [
+                track_text,
                 _button_conversation(
                     "interests_wiz_work",
                     wizard_callback,
@@ -592,7 +630,7 @@ def build_interests_handler() -> ConversationHandler:
                 ),
             ],
             WORK_OTHER: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_other),
+                track_text,
                 _button_conversation(
                     "interests_wiz_work_other",
                     wizard_callback,
@@ -601,6 +639,7 @@ def build_interests_handler() -> ConversationHandler:
                 ),
             ],
             LIFE: [
+                track_text,
                 _button_conversation(
                     "interests_wiz_life",
                     wizard_callback,
@@ -609,7 +648,7 @@ def build_interests_handler() -> ConversationHandler:
                 ),
             ],
             LIFE_OTHER: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_other),
+                track_text,
                 _button_conversation(
                     "interests_wiz_life_other",
                     wizard_callback,
@@ -618,6 +657,7 @@ def build_interests_handler() -> ConversationHandler:
                 ),
             ],
             CURIOSITY: [
+                track_text,
                 _button_conversation(
                     "interests_wiz_curiosity",
                     wizard_callback,
@@ -626,7 +666,7 @@ def build_interests_handler() -> ConversationHandler:
                 ),
             ],
             CURIOSITY_OTHER: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_other),
+                track_text,
                 _button_conversation(
                     "interests_wiz_curiosity_other",
                     wizard_callback,

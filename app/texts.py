@@ -784,6 +784,12 @@ INTERESTS_PROFILE_INTRO = "Here's what I'm aiming at for reading and video."
 
 INTERESTS_SAVED = "Got it — I'll lean on these for reading and video."
 
+INTERESTS_SAVED_NAMED = (
+    "Got it — saved for reading and video:\n\n{summary}"
+)
+
+INTERESTS_CUSTOM_ADDED = "Added “{topic}” — keep picking or tap Done."
+
 INTERESTS_KEEP = "Alright — leaving your interests as they are."
 
 INTERESTS_CANCELLED = "Okay — nothing changed. Say /interests whenever you're ready."

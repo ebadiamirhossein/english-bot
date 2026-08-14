@@ -135,6 +135,7 @@ def _make_message(tid: int, text: str) -> MagicMock:
     message = MagicMock(spec=Message)
     message.text = text
     message.chat_id = tid
+    message.message_id = 7001
     message.from_user = MagicMock(id=tid)
     sent = MagicMock()
     sent.message_id = 9001
@@ -145,6 +146,7 @@ def _make_message(tid: int, text: str) -> MagicMock:
     message.chat.send_action = AsyncMock()
     bot = MagicMock()
     bot.edit_message_reply_markup = AsyncMock()
+    bot.set_message_reaction = AsyncMock()
     message.get_bot = MagicMock(return_value=bot)
     return message
 
@@ -216,11 +218,16 @@ def test_prompt_instructs_recast_and_do_not_force() -> None:
     assert "Never repeat an ungrammatical form" in turn_txt
     assert "every reused fragment must be correct English" in turn_txt
     assert "end with a question unless" not in turn_txt.lower()
+    assert "short paragraphs" in turn_txt.lower()
+    assert "own line" in turn_txt.lower()
+    assert "Emoji occasionally" in turn_txt
     close_txt = (_PROMPT_DIR / "conversation_close.txt").read_text(
         encoding="utf-8"
     )
     assert "Maximum 3" in close_txt
     assert "recurring" in close_txt.lower()
+    assert "ONE language only" in close_txt
+    assert "transliterat" in close_txt.lower()
 
 
 def test_close_failure_copy_distinct_from_turn_failure() -> None:
@@ -1316,3 +1323,102 @@ def test_reject_truncation_raises_on_max_tokens_stop(
                 reject_truncation=True,
                 settings=_llm_settings(),
             )
+
+
+# --- S26c -------------------------------------------------------------------
+
+
+def test_reaction_occasional_not_every_turn(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _to_thread(fn, *a, **k):
+        return "Nice detail — that tracking layer is a notch above gut feel alone."
+
+    async def _one_turn(*, turn_count: int) -> MagicMock:
+        with connection() as conn:
+            conn.execute(
+                "UPDATE sessions SET completed = TRUE "
+                "WHERE user_id = %s AND task_type = 'conversation'",
+                (tid,),
+            )
+        insert_session(
+            tid,
+            "conversation",
+            date(2026, 8, 14),
+            payload=_conv_payload(turn_count=turn_count),
+            completed=False,
+        )
+        update, message = _make_update(tid, f"turn body {turn_count}")
+        context = MagicMock()
+        with (
+            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch(
+                "app.handlers.conversation.load_settings",
+                return_value=_settings_mock(),
+            ),
+            patch(
+                "app.handlers.conversation.asyncio.to_thread",
+                side_effect=_to_thread,
+            ),
+        ):
+            mock_dt.now = MagicMock(return_value=_FROZEN)
+            await on_conversation_text(update, context)
+        return message
+
+    async def _run() -> None:
+        m1 = await _one_turn(turn_count=0)  # next=1 → react
+        assert m1.get_bot().set_message_reaction.await_count == 1
+        m2 = await _one_turn(turn_count=1)  # next=2 → no react
+        assert m2.get_bot().set_message_reaction.await_count == 0
+
+    asyncio.run(_run())
+
+
+def test_reaction_failure_does_not_break_turn(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conv_payload(turn_count=0),
+        completed=False,
+    )
+
+    async def _to_thread(fn, *a, **k):
+        return "Fire 🔥"
+
+    async def _run() -> None:
+        update, message = _make_update(tid, "we pressed high all game")
+        context = MagicMock()
+        bot = message.get_bot()
+        bot.set_message_reaction = AsyncMock(
+            side_effect=RuntimeError("reactions disabled")
+        )
+        with (
+            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch(
+                "app.handlers.conversation.load_settings",
+                return_value=_settings_mock(),
+            ),
+            patch(
+                "app.handlers.conversation.asyncio.to_thread",
+                side_effect=_to_thread,
+            ),
+        ):
+            mock_dt.now = MagicMock(return_value=_FROZEN)
+            await on_conversation_text(update, context)
+        assert message.reply_text.await_count >= 1
+        assert "Fire" in message.reply_text.await_args.args[0]
+        session = get_open_conversation_session(
+            tid,
+            now=_FROZEN,
+            active_minutes=30,
+            awaiting_topic_minutes=2,
+        )
+        assert session is not None
+        assert int(session.payload["turn_count"]) == 1
+        assert _error_count(tid) == 0
+
+    asyncio.run(_run())

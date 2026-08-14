@@ -183,6 +183,10 @@ Forward any English → explanation + chunks mined, `source='capture'`.
 **Build:** Close `max_tokens=2000` + turn `500` with `reject_truncation` on both; close truncation → one max-2 retry → S26a fallback; `stop_reason` on llm log; End chat answers immediately, edits wrap-up, `closing` idempotency, one live End keyboard; `conversation.txt` partner (not interviewer) rewrite; topics from interests+chunks+books with `picking_topic` offer persistence and rotation; English-only chunk labels (never `meaning`). Report empty-interests → reading skip as known issue (do not fix reading here).
 **Accept:** truncation paths never send mid-sentence / never write `errors` on fallback; End responds before LLM; one live keyboard; picker rotates without a tap; `picking_topic` does not own free text; prompt instructions present; labels ≤20.
 
+### S26c · Readable, alive, English-clean
+**Build:** Single-language no-transliteration close explanations; paragraph + question-on-own-line turn shaping; occasional `setMessageReaction` (not sticker packs); `/interests` track-screen free text no longer silently dropped; save confirmation names all three tracks.
+**Accept:** close prompt has single-language rule; turn prompt has paragraph rules; reactions occasional and non-fatal; interests free text always replies; confirmation lists Work/Life/Curiosity; S26–S26b tests still pass; labels ≤20.
+
 ### S16 · Shadowing (M12)
 Bot sends a 10–15s clip → user repeats → Whisper compares word-for-word → scored feedback on rhythm and stress.
 

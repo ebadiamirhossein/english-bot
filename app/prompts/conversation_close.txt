@@ -32,5 +32,13 @@ Rules for errors:
   would actually use.
 - explanation: max 25 words. English by default.
 {explanation_language_rule}
+- Language consistency for explanations (mandatory):
+  Write each explanation in ONE language only — never mix languages in the
+  same sentence. Never half-translate. Never transliterate a native word into
+  Latin script (bad: "zaman"; write it in the native script instead).
+  If the native language is used, the sentence must be entirely in that
+  language and script; English grammar-term names (e.g. present perfect
+  continuous) may remain in English inside an otherwise fully native sentence.
+  If English is used, the whole explanation is English.
 - did_well: always present. Name one concrete thing the user got RIGHT across
   the conversation. Never restate an error. Never generic praise like "Good job."

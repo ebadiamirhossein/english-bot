@@ -16,8 +16,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
-from telegram.constants import ChatAction, ChatType
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReactionTypeEmoji,
+    Update,
+)
+from telegram.constants import ChatAction, ChatType, ReactionEmoji
 from telegram.error import BadRequest
 from telegram.ext import (
     CallbackQueryHandler,
@@ -61,6 +67,16 @@ _TURN_MAX_TOKENS = 500
 _CLOSE_MAX_TOKENS = 2000
 _EXC_MSG_LOG_LIMIT = 120
 _TOPIC_LABEL_MAX = 80
+_REACTION_EVERY_N = 3  # roughly one in three successful turns
+_REACTION_EMOJIS = (
+    ReactionEmoji.THUMBS_UP,
+    ReactionEmoji.FIRE,
+    ReactionEmoji.PARTY_POPPER,
+    ReactionEmoji.CLAPPING_HANDS,
+    ReactionEmoji.HIGH_VOLTAGE_SIGN,
+    ReactionEmoji.RED_HEART,
+    ReactionEmoji.HUNDRED_POINTS_SYMBOL,
+)
 
 # Trailing user turn required by Anthropic (no assistant-prefill / must end
 # on user). Live session history always ends on the last bot reply.
@@ -87,11 +103,17 @@ _FALLBACK_RULE_TRUE = (
     f"({', '.join(ABSTRACT_ERROR_TYPES)}) AND the user's "
     "explanation_language_fallback is enabled, write that explanation in "
     "their native language ({native_language}) instead. Concrete error types "
-    "stay English regardless."
+    "stay English regardless. "
+    "Each explanation must be ONE language only — never mix. "
+    "If using {native_language}, write the whole sentence in that language's "
+    "own script (never Latin transliteration like \"zaman\"). "
+    "Standard English grammar terms (e.g. present perfect continuous) may "
+    "stay in English inside an otherwise fully {native_language} sentence."
 )
 
 _FALLBACK_RULE_FALSE = (
-    "Write every explanation in English, including abstract grammar types."
+    "Write every explanation in English, including abstract grammar types. "
+    "Never mix in another language or transliterate."
 )
 
 
@@ -797,6 +819,32 @@ async def on_conversation_text(
     )
 
 
+async def _maybe_react_to_user_message(
+    message: Message, *, turn_count: int
+) -> None:
+    """Occasional emoji reaction on the learner's message. Never fatal."""
+    # After this turn succeeds, turn_count becomes turn_count+1; react on
+    # turns 1, 4, 7… (~1 in 3) using the count before increment.
+    next_turn = turn_count + 1
+    if next_turn % _REACTION_EVERY_N != 1:
+        return
+    emoji = _REACTION_EMOJIS[(next_turn // _REACTION_EVERY_N) % len(_REACTION_EMOJIS)]
+    try:
+        bot = message.get_bot()
+        await bot.set_message_reaction(
+            chat_id=message.chat_id,
+            message_id=message.message_id,
+            reaction=[ReactionTypeEmoji(emoji)],
+        )
+    except Exception:
+        logger.debug(
+            "set_message_reaction failed chat_id=%s message_id=%s",
+            getattr(message, "chat_id", None),
+            getattr(message, "message_id", None),
+            exc_info=True,
+        )
+
+
 async def _handle_active_turn(
     message: Message,
     user_id: int,
@@ -854,6 +902,9 @@ async def _handle_active_turn(
         await _reply_with_end_keyboard(message, texts.TALK_TURN_FAILED, payload)
         update_session_payload(session_id, payload)
         return
+
+    # Reaction only on a successful turn — never replaces the reply / close-out.
+    await _maybe_react_to_user_message(message, turn_count=turn_count)
 
     next_turn = turn_count + 1
     body = reply

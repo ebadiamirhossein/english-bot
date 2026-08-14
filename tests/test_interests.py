@@ -342,3 +342,121 @@ def test_preset_emoji_treatment_consistent_across_tracks() -> None:
             assert _starts_with_emoji(label), f"{track}/{topic}: {label!r}"
     # Customs (not in the label map) stay plain.
     assert topic_button_label("ai: the future") == "ai: the future"
+
+
+def test_track_screen_free_text_never_silent() -> None:
+    """S26c regression: typing on a track screen (not Other) must get a reply.
+
+    Before the fix, WORK/LIFE/CURIOSITY had no MessageHandler; the parent
+    ConversationHandler claimed the update (block=True) and dropped it.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.handlers.interests import WORK, receive_other
+
+    update = MagicMock()
+    message = MagicMock()
+    message.text = "Vibe Coding and programming"
+    message.reply_text = AsyncMock()
+    update.message = message
+    update.effective_message = message
+    update.effective_user = MagicMock(id=1)
+
+    context = MagicMock()
+    context.user_data = {
+        "interests": {
+            "wizard_state": WORK,
+            "wizard_message_id": 10,
+            "wizard_chat_id": 20,
+            "selected": {
+                "work": {"campaigns", "pricing"},
+                "life": set(),
+                "curiosity": set(),
+            },
+            "options": {
+                "work": list(texts.INTEREST_PRESETS["work"]),
+                "life": list(texts.INTEREST_PRESETS["life"]),
+                "curiosity": list(texts.INTEREST_PRESETS["curiosity"]),
+            },
+        }
+    }
+    context.bot = MagicMock()
+    context.bot.edit_message_text = AsyncMock()
+
+    result = asyncio.run(receive_other(update, context))
+
+    assert message.reply_text.await_count >= 1
+    body = message.reply_text.await_args.args[0]
+    assert "vibe coding and programming" in body.lower()
+    assert result == WORK
+    selected = context.user_data["interests"]["selected"]["work"]
+    assert "vibe coding and programming" in selected
+
+
+def test_wizard_save_confirmation_names_all_three_tracks() -> None:
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from telegram.ext import ConversationHandler
+
+    from app.handlers.interests import CURIOSITY, wizard_callback
+
+    update = MagicMock()
+    query = MagicMock()
+    query.data = "int:done:c"
+    query.answer = AsyncMock()
+    update.callback_query = query
+    update.effective_user = MagicMock(id=9_999_001)
+
+    context = MagicMock()
+    context.user_data = {
+        "interests": {
+            "wizard_state": CURIOSITY,
+            "wizard_message_id": 10,
+            "wizard_chat_id": 20,
+            "selected": {
+                "work": {"pricing", "standups"},
+                "life": {"travel", "cooking"},
+                "curiosity": {"space", "sport"},
+            },
+            "options": {
+                "work": list(texts.INTEREST_PRESETS["work"]),
+                "life": list(texts.INTEREST_PRESETS["life"]),
+                "curiosity": list(texts.INTEREST_PRESETS["curiosity"]),
+            },
+        }
+    }
+    context.bot = MagicMock()
+    context.bot.edit_message_text = AsyncMock()
+
+    with patch("app.handlers.interests.replace_interests") as mock_save:
+        result = asyncio.run(wizard_callback(update, context))
+
+    assert result == ConversationHandler.END
+    mock_save.assert_called_once()
+    edited = context.bot.edit_message_text.await_args.kwargs["text"]
+    assert "Work" in edited
+    assert "Life" in edited
+    assert "Curiosity" in edited
+    assert "pricing" in edited
+    assert "travel" in edited
+    assert "space" in edited
+    assert "Got it" in edited
+
+
+def test_interests_handler_registers_text_on_track_states() -> None:
+    """Track states must include a TEXT MessageHandler (S26c silent-drop fix)."""
+    from telegram.ext import MessageHandler
+
+    from app.handlers.interests import (
+        CURIOSITY,
+        LIFE,
+        WORK,
+        build_interests_handler,
+    )
+
+    ch = build_interests_handler()
+    for state in (WORK, LIFE, CURIOSITY):
+        handlers = ch.states[state]
+        assert any(isinstance(h, MessageHandler) for h in handlers), state
