@@ -134,7 +134,10 @@ def test_source_marker() -> None:
 
 
 def test_detect_tool_from_headers() -> None:
-    from app.services.watch_import import detect_tool_from_headers
+    from app.services.watch_import import (
+        classify_csv_format,
+        detect_tool_from_headers,
+    )
 
     assert (
         detect_tool_from_headers(["Word", "Sentence", "Translation", "Title"])
@@ -147,6 +150,21 @@ def test_detect_tool_from_headers() -> None:
         == "language_reactor"
     )
     assert detect_tool_from_headers(["Phrase", "Sentence", "Meaning"]) == "csv"
+    assert classify_csv_format(["Phrase", "Sentence", "Meaning"]) is None
+
+    slang = ["Word", "Phonetic", "Meaning", "Example", "Date"]
+    assert detect_tool_from_headers(slang) == "slang"
+    assert classify_csv_format(slang) == "slang"
+    assert classify_csv_format(
+        ["Word", "Sentence", "Translation", "Title"]
+    ) == "trancy"
+    # Mutual exclusion: slang signature is not Trancy/LR.
+    assert classify_csv_format(slang) != "trancy"
+    assert classify_csv_format(slang) != "language_reactor"
+    # Token presence of Word/Meaning alone is not slang.
+    assert (
+        classify_csv_format(["Word", "Sentence", "Translation"]) == "trancy"
+    )
 
 
 def test_assert_path_outside_repo_refuses_inside() -> None:
@@ -243,7 +261,7 @@ def test_row_level_dedupe(cleanup_user: int, watch_root: Path) -> None:
     tid = cleanup_user
     _onboard(tid)
     ensure_user_layout(watch_root, tid)
-    header = "Phrase,Sentence,Meaning"
+    header = "Phrase,Context,Definition"
     rows = [
         'cut costs,"We need to cut costs this quarter",reduce spending',
     ]
@@ -252,7 +270,7 @@ def test_row_level_dedupe(cleanup_user: int, watch_root: Path) -> None:
     _age_file(p1)
     now = datetime.now(timezone.utc)
     r1 = process_csv_file(
-        p1, user_id=tid, tool="csv", root=watch_root, now=now
+        p1, user_id=tid, tool="language_reactor", root=watch_root, now=now
     )
     assert r1.imported == 1
 
@@ -267,7 +285,7 @@ def test_row_level_dedupe(cleanup_user: int, watch_root: Path) -> None:
     )
     _age_file(p2)
     r2 = process_csv_file(
-        p2, user_id=tid, tool="csv", root=watch_root, now=now
+        p2, user_id=tid, tool="language_reactor", root=watch_root, now=now
     )
     assert r2.imported == 1
     assert r2.duplicates == 1

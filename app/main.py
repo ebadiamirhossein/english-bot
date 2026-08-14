@@ -76,9 +76,11 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("anki", handle_anki_command))
     app.add_handler(CommandHandler("import", handle_import_command))
     # S15b: private CSV documents; IMAGE excluded from non-CSV so /book keeps pages.
-    csv_doc, non_csv_doc = build_csv_import_handlers()
+    csv_doc, non_csv_doc, share_cb, share_orphan = build_csv_import_handlers()
     app.add_handler(csv_doc)
     app.add_handler(non_csv_doc)
+    app.add_handler(share_cb)
+    app.add_handler(share_orphan)
     app.add_handler(build_prep_handler())
     app.add_handler(build_diary_handlers())
     shadow_cmd, shadow_cb = build_shadow_handlers()

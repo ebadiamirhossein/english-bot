@@ -465,7 +465,8 @@ def test_delivery_listers_exclude_revoked(cleanup_user: int) -> None:
     _onboard(tid)
     revoke_access(tid)
     listers = delivery_lister_ids()
-    assert len(listers) == 6
+    assert len(listers) == 7
+    assert "list_recipients" in listers
     for name, fn in listers.items():
         ids = fn()
         assert tid not in ids, f"{name} still includes revoked user"
@@ -637,7 +638,7 @@ def test_gate_surface_regression_approved_user(cleanup_user: int) -> None:
         from app.handlers.settings import build_settings_editor_handler
 
         quiz_text, quiz_choice = build_quiz_handlers()
-        csv_doc, _non = build_csv_import_handlers()
+        csv_doc, _non, _share, _orphan = build_csv_import_handlers()
         voice = build_voice_handler()
         settings_ed = build_settings_editor_handler()
         correction = build_correction_handler()

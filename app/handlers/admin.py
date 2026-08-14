@@ -31,6 +31,7 @@ from app.services.access_control import (
     list_pending_requests,
     revoke_access,
 )
+from app.services.alerts import notify_operator
 from app.services.admin_panel import (
     admin_user_label,
     format_admin_home,
@@ -39,6 +40,7 @@ from app.services.admin_panel import (
 )
 from app.services.motivation import WEEKLY_SUCCESS_DAYS
 from app.services.sessions import local_today
+from app.services.shared_content import try_backfill_soft
 from app.services.users import set_paused_until
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,17 @@ logger = logging.getLogger(__name__)
 (HOME, PENDING, USER) = range(3)
 
 _WIZARD_KEY = "admin"
+
+
+async def _soft_backfill_after_approve(
+    context: ContextTypes.DEFAULT_TYPE, target_id: int
+) -> None:
+    if not try_backfill_soft(target_id):
+        await notify_operator(
+            context.application,
+            key=f"shared_backfill:{target_id}",
+            text=f"shared backfill failed after approve user_id={target_id}",
+        )
 
 
 def _esc(value: str) -> str:
@@ -327,6 +340,7 @@ async def pending_callback(
 
     if action == "approve":
         approve_access(tid)
+        await _soft_backfill_after_approve(context, tid)
         try:
             await context.bot.send_message(chat_id=tid, text=texts.ACCESS_APPROVED)
         except Exception:
@@ -383,6 +397,7 @@ async def user_callback(
         )
     if action == "reapprove":
         approve_access(tid)
+        await _soft_backfill_after_approve(context, tid)
         return await _show_home(
             update, context, notice=texts.ADMIN_REAPPROVED.format(name=name)
         )

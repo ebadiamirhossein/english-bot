@@ -182,7 +182,7 @@ async def _build_app(
         book = build_book_handler()
         couple_here, couple_answers = build_couple_handlers()
         correction = build_correction_handler()
-        csv_doc, non_csv_doc = build_csv_import_handlers()
+        csv_doc, non_csv_doc, share_cb, share_orphan = build_csv_import_handlers()
 
     pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
     settings_editor = build_settings_editor_handler()
@@ -196,6 +196,8 @@ async def _build_app(
     app.add_handler(settings_orphan)
     app.add_handler(csv_doc)
     app.add_handler(non_csv_doc)
+    app.add_handler(share_cb)
+    app.add_handler(share_orphan)
     app.add_handler(quiz_choice)
     app.add_handler(capture_fwd)
     app.add_handler(capture_cmd)
@@ -1328,6 +1330,58 @@ def test_dispatch_plain_text_still_reaches_correction_with_csv_handlers(
             await app.process_update(update)
             correction_spy.assert_awaited_once()
             csv_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_share_pending_plain_text_reaches_correction(
+    cleanup_user: int,
+) -> None:
+    """S24: Share pending in user_data must not swallow free English (no MessageHandler)."""
+    from telegram.ext import CallbackQueryHandler, MessageHandler
+
+    csv_h, non_csv_h, share_h, orphan_h = build_csv_import_handlers()
+    assert isinstance(csv_h, MessageHandler)
+    assert isinstance(non_csv_h, MessageHandler)
+    assert isinstance(share_h, CallbackQueryHandler)
+    assert isinstance(orphan_h, CallbackQueryHandler)
+
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        csv_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            csv_spy=csv_spy,
+        )
+        try:
+            # Simulate: slang CSV arrived, Share confirmation pending.
+            app.user_data[tid]["share_slang_pending"] = {
+                "items": [
+                    {
+                        "chunk": "mid",
+                        "full_sentence": "The movie was mid.",
+                        "meaning": "average",
+                    }
+                ],
+                "rejected": 0,
+                "filename": "slang.csv",
+            }
+            update = _text_update(tid, SAMPLE_TEXT)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            correction_spy.assert_awaited_once()
+            csv_spy.assert_not_awaited()
+            quiz_spy.assert_not_awaited()
+            # Pending must still be there — free text did not consume it.
+            assert "share_slang_pending" in app.user_data[tid]
         finally:
             app._initialized = False
 

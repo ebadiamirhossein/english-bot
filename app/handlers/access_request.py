@@ -19,8 +19,22 @@ from app.services.access_control import (
     get_access_request,
     request_access,
 )
+from app.services.alerts import notify_operator
+from app.services.shared_content import try_backfill_soft
 
 logger = logging.getLogger(__name__)
+
+
+async def _soft_backfill_after_approve(
+    context: ContextTypes.DEFAULT_TYPE, target_id: int
+) -> None:
+    """Convergent backfill; no-op without users row. Soft-fail + operator alert."""
+    if not try_backfill_soft(target_id):
+        await notify_operator(
+            context.application,
+            key=f"shared_backfill:{target_id}",
+            text=f"shared backfill failed after approve user_id={target_id}",
+        )
 
 
 def _keyboard(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
@@ -143,6 +157,7 @@ async def on_access_decide(
 
     if action == "approve":
         approve_access(target_id)
+        await _soft_backfill_after_approve(context, target_id)
         await query.edit_message_text(
             texts.ACCESS_OPERATOR_APPROVED.format(telegram_id=target_id)
         )

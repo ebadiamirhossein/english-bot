@@ -27,9 +27,11 @@ from telegram.ext import (
 )
 
 from app import texts
+from app.config import load_settings
 from app.llm import LLMError
 from app.services.books import (
     MAX_PAGES_PER_BATCH,
+    MergedUnit,
     PageFailure,
     build_summary_text,
     merge_page_results,
@@ -39,6 +41,8 @@ from app.services.books import (
     preset_book_slug,
     slugify_book_name,
 )
+from app.services.reading import normalize_for_match
+from app.services.shared_content import record_and_fanout_book_units
 from app.services.users import is_registered
 
 logger = logging.getLogger(__name__)
@@ -48,6 +52,48 @@ ASK_BOOK, ASK_BOOK_OTHER, COLLECT_PAGES = range(3)
 _SESSION_KEY = "book"
 _DEBOUNCE_SECONDS = 2.5
 _CHAT_ACTION_INTERVAL_SECONDS = 4.0
+
+
+def _shared_book_slug_set() -> set[str]:
+    return {
+        normalize_for_match(s)
+        for s in load_settings().shared_book_slugs
+        if s.strip()
+    }
+
+
+def _maybe_fanout_shared_book(
+    user_id: int, book: str, units: list[MergedUnit]
+) -> None:
+    """Fan out operator uploads of configured shared books; else log and stay personal."""
+    if not units:
+        return
+    settings = load_settings()
+    operator_id = settings.operator_telegram_id
+    shared = _shared_book_slug_set()
+    book_norm = normalize_for_match(book)
+
+    if operator_id is None or user_id != operator_id:
+        return
+    if book_norm not in shared:
+        logger.info(
+            "book stay_personal user_id=%s book=%s reason=slug_not_in_SHARED_BOOK_SLUGS "
+            "configured=%s",
+            user_id,
+            book,
+            sorted(shared),
+        )
+        return
+    stats = record_and_fanout_book_units(
+        book, units, created_by=user_id
+    )
+    logger.info(
+        "book shared_fanout user_id=%s book=%s units=%s users_reached=%s",
+        user_id,
+        book,
+        len(units),
+        stats.users_reached,
+    )
 CONVERSATION_TIMEOUT_SECONDS = 3600.0
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "book_ocr.txt"
 _prompt_template: str | None = None
@@ -464,6 +510,10 @@ async def process_pages(context: ContextTypes.DEFAULT_TYPE) -> None:
             await _edit_status(bot, chat_id, status_id, texts.BOOK_STATUS_SAVING)
 
         written = await asyncio.to_thread(persist_units, user_id, book, units)
+
+        await asyncio.to_thread(
+            _maybe_fanout_shared_book, user_id, book, units
+        )
 
         logger.info(
             "book batch user_id=%s pages=%s units_written=%s pages_failed=%s",

@@ -12,7 +12,7 @@ import re
 import statistics
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Callable
+from typing import Any, Callable  # Any used by upsert_unit_shared conn
 
 from app.db import connection
 from app.llm import LLMError, chat
@@ -215,65 +215,125 @@ def upsert_unit(
     today = studied_at or date.today()
     with connection() as conn:
         with conn.transaction():
-            row = conn.execute(
-                """
-                SELECT id, unit_title, target_items
-                  FROM book_units
-                 WHERE user_id = %s AND book = %s AND unit_number = %s
-                 ORDER BY id
-                 LIMIT 1
-                """,
-                (user_id, book, unit.unit_number),
-            ).fetchone()
-            if row is None:
-                conn.execute(
-                    """
-                    INSERT INTO book_units (
-                        user_id, book, unit_number, unit_title,
-                        target_items, studied_at
-                    ) VALUES (%s, %s, %s, %s, %s::jsonb, %s)
-                    """,
-                    (
-                        user_id,
-                        book,
-                        unit.unit_number,
-                        unit.unit_title or None,
-                        json.dumps(unit.target_items),
-                        today,
-                    ),
-                )
-                return
+            _upsert_unit_conn(
+                conn,
+                user_id,
+                book,
+                unit,
+                studied_at=today,
+                touch_studied_at=True,
+            )
 
-            existing_items = row["target_items"]
-            if isinstance(existing_items, str):
-                try:
-                    existing_items = json.loads(existing_items)
-                except json.JSONDecodeError:
-                    existing_items = []
-            if not isinstance(existing_items, list):
-                existing_items = []
-            merged_items = union_target_items(
-                [str(x) for x in existing_items],
-                unit.target_items,
-            )
-            existing_title = row["unit_title"] or ""
-            new_title = unit.unit_title or existing_title
-            conn.execute(
-                """
-                UPDATE book_units
-                   SET target_items = %s::jsonb,
-                       unit_title = %s,
-                       studied_at = %s
-                 WHERE id = %s AND user_id = %s
-                """,
-                (
-                    json.dumps(merged_items),
-                    new_title or None,
-                    today,
-                    row["id"],
-                    user_id,
-                ),
-            )
+
+def upsert_unit_shared(
+    conn: Any,
+    user_id: int,
+    book: str,
+    unit: MergedUnit,
+    *,
+    studied_at: date | None = None,
+) -> None:
+    """Shared fan-out upsert on an open connection.
+
+    Inserts with ``studied_at`` when missing. On update, refreshes
+    ``unit_title`` / ``target_items`` only — never ``studied_at`` or
+    ``created_at`` (S6a / S11 progress).
+    """
+    today = studied_at or date.today()
+    _upsert_unit_conn(
+        conn,
+        user_id,
+        book,
+        unit,
+        studied_at=today,
+        touch_studied_at=False,
+    )
+
+
+def _upsert_unit_conn(
+    conn: Any,
+    user_id: int,
+    book: str,
+    unit: MergedUnit,
+    *,
+    studied_at: date,
+    touch_studied_at: bool,
+) -> None:
+    row = conn.execute(
+        """
+        SELECT id, unit_title, target_items
+          FROM book_units
+         WHERE user_id = %s AND book = %s AND unit_number = %s
+         ORDER BY id
+         LIMIT 1
+        """,
+        (user_id, book, unit.unit_number),
+    ).fetchone()
+    if row is None:
+        conn.execute(
+            """
+            INSERT INTO book_units (
+                user_id, book, unit_number, unit_title,
+                target_items, studied_at
+            ) VALUES (%s, %s, %s, %s, %s::jsonb, %s)
+            """,
+            (
+                user_id,
+                book,
+                unit.unit_number,
+                unit.unit_title or None,
+                json.dumps(unit.target_items),
+                studied_at,
+            ),
+        )
+        return
+
+    existing_items = row["target_items"]
+    if isinstance(existing_items, str):
+        try:
+            existing_items = json.loads(existing_items)
+        except json.JSONDecodeError:
+            existing_items = []
+    if not isinstance(existing_items, list):
+        existing_items = []
+    merged_items = union_target_items(
+        [str(x) for x in existing_items],
+        unit.target_items,
+    )
+    existing_title = row["unit_title"] or ""
+    new_title = unit.unit_title or existing_title
+    if touch_studied_at:
+        conn.execute(
+            """
+            UPDATE book_units
+               SET target_items = %s::jsonb,
+                   unit_title = %s,
+                   studied_at = %s
+             WHERE id = %s AND user_id = %s
+            """,
+            (
+                json.dumps(merged_items),
+                new_title or None,
+                studied_at,
+                row["id"],
+                user_id,
+            ),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE book_units
+               SET target_items = %s::jsonb,
+                   unit_title = %s
+             WHERE id = %s AND user_id = %s
+            """,
+            (
+                json.dumps(merged_items),
+                new_title or None,
+                row["id"],
+                user_id,
+            ),
+        )
 
 
 def persist_units(

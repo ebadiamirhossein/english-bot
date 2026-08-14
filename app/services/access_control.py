@@ -277,7 +277,14 @@ def delivery_lister_ids() -> dict[str, Callable[[], set[int]]]:
     forgets the view will not be in this dict — add it when you add the list.
     """
     from app.scheduler import list_candidate_users
-    from app.services import calibration, couple, errors, motivation, watch_import
+    from app.services import (
+        calibration,
+        couple,
+        errors,
+        motivation,
+        shared_content,
+        watch_import,
+    )
 
     def _candidate() -> set[int]:
         return {u.telegram_user_id for u in list_candidate_users()}
@@ -297,6 +304,9 @@ def delivery_lister_ids() -> dict[str, Callable[[], set[int]]]:
     def _watch() -> set[int]:
         return set(watch_import.list_registered_user_ids())
 
+    def _shared() -> set[int]:
+        return set(shared_content.list_recipients())
+
     return {
         "list_candidate_users": _candidate,
         "list_motivation_users": _motivation,
@@ -304,4 +314,5 @@ def delivery_lister_ids() -> dict[str, Callable[[], set[int]]]:
         "list_calibration_user_ids": _calibration,
         "registered_user_ids": _couple,
         "list_registered_user_ids": _watch,
+        "list_recipients": _shared,
     }

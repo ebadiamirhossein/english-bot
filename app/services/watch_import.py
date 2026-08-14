@@ -1,6 +1,7 @@
 """Subtitle CSV import (S15a folder + S15b Telegram document).
 
 Trancy / Language Reactor exports → ``chunks`` (S7a review + Anki pool).
+S24: exact five-column slang signature is mutually exclusive with Trancy/LR.
 No provider SDKs. Stdlib ``csv`` only. Logs filenames and counts, never row
 content (PRD §10). Both entrances share ``import_csv_rows`` / ``map_headers``.
 """
@@ -14,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Sequence
+from typing import Literal, Sequence
 
 from app.config import load_settings
 from app.db import connection
@@ -45,6 +46,11 @@ _CHUNK_TOKENS = ("word", "phrase", "expression")
 _SENTENCE_TOKENS = ("sentence", "context", "subtitle")
 _MEANING_TOKENS = ("translation", "meaning", "definition")
 _MATERIAL_TOKENS = ("title", "video", "movie", "show")
+# Whole-header signature only — never token presence (S24 / known issue #27).
+SLANG_HEADER_SET = frozenset(
+    {"word", "phonetic", "meaning", "example", "date"}
+)
+CsvFormat = Literal["slang", "trancy", "language_reactor"]
 
 # Module-level: resets on process restart (acceptable — notify_operator
 # throttles; do not put this in bot_data).
@@ -61,6 +67,8 @@ class HeaderMap:
     full_sentence: str
     meaning: str
     material: str | None
+    phonetic: str | None = None
+    format: str = "subtitle"  # slang | subtitle
 
 
 @dataclass(frozen=True)
@@ -73,6 +81,7 @@ class FileImportResult:
     due_after: int | None = None
     source_tool: str = "csv"
     headers_seen: tuple[str, ...] = ()
+    csv_format: str | None = None
 
 
 @dataclass
@@ -131,8 +140,74 @@ def _first_matching(
     return None
 
 
+def normalised_header_set(headers: Sequence[str]) -> frozenset[str]:
+    return frozenset(
+        normalize_header(h) for h in headers if h is not None and str(h).strip()
+    )
+
+
+def is_slang_headers(headers: Sequence[str]) -> bool:
+    """True only when the header set is exactly the five slang columns."""
+    return normalised_header_set(headers) == SLANG_HEADER_SET
+
+
+def _header_by_norm(headers: Sequence[str], want: str) -> str | None:
+    for header in headers:
+        if header is None:
+            continue
+        if normalize_header(header) == want:
+            return header
+    return None
+
+
+def classify_csv_format(headers: Sequence[str]) -> CsvFormat | None:
+    """Mutually exclusive format: slang | trancy | language_reactor | None.
+
+    Slang is an exact five-column signature. Trancy/LR keep confident token
+    rules. Ambiguous or unknown shapes return None — never guess.
+    """
+    if is_slang_headers(headers):
+        return "slang"
+
+    has_word = _first_matching(headers, ("word",)) is not None
+    has_phrase = _first_matching(headers, ("phrase",)) is not None
+    has_translation = _first_matching(headers, ("translation",)) is not None
+    has_definition = _first_matching(headers, ("definition",)) is not None
+    has_context = _first_matching(headers, ("context", "subtitle")) is not None
+    has_video = _first_matching(headers, ("video",)) is not None
+
+    trancy_confident = has_word and has_translation and not has_phrase
+    lr_confident = has_phrase and (has_definition or has_context or has_video)
+
+    if trancy_confident and not lr_confident:
+        return "trancy"
+    if lr_confident and not trancy_confident:
+        return "language_reactor"
+    return None
+
+
 def map_headers(headers: Sequence[str]) -> HeaderMap | None:
     """Return a column map, or None if a required field cannot be identified."""
+    if is_slang_headers(headers):
+        word = _header_by_norm(headers, "word")
+        example = _header_by_norm(headers, "example")
+        meaning = _header_by_norm(headers, "meaning")
+        phonetic = _header_by_norm(headers, "phonetic")
+        if word is None or example is None or meaning is None:
+            return None
+        return HeaderMap(
+            chunk=word,
+            full_sentence=example,
+            meaning=meaning,
+            material=None,
+            phonetic=phonetic,
+            format="slang",
+        )
+
+    fmt = classify_csv_format(headers)
+    if fmt is None:
+        return None
+
     chunk = _first_matching(headers, _CHUNK_TOKENS)
     sentence = _first_matching(headers, _SENTENCE_TOKENS)
     meaning = _first_matching(headers, _MEANING_TOKENS)
@@ -147,6 +222,8 @@ def map_headers(headers: Sequence[str]) -> HeaderMap | None:
         full_sentence=sentence,
         meaning=meaning,
         material=material,
+        phonetic=None,
+        format="subtitle",
     )
 
 
@@ -164,27 +241,26 @@ def tool_from_parent(parent_name: str) -> str:
 
 
 def detect_tool_from_headers(headers: Sequence[str]) -> str:
-    """Infer Trancy vs Language Reactor from header shape.
+    """Infer tool/format from header shape (Telegram path).
 
-    Without a folder hint (Telegram path), only return a tool name when the
-    signals are distinctive. Ambiguous shapes fall back to ``csv`` rather than
-    guessing wrong.
+    Returns ``slang``, ``trancy``, ``language_reactor``, or ``csv`` when
+    unrecognised (caller should treat unrecognised as failed_headers).
     """
-    has_word = _first_matching(headers, ("word",)) is not None
-    has_phrase = _first_matching(headers, ("phrase",)) is not None
-    has_translation = _first_matching(headers, ("translation",)) is not None
-    has_definition = _first_matching(headers, ("definition",)) is not None
-    has_context = _first_matching(headers, ("context", "subtitle")) is not None
-    has_video = _first_matching(headers, ("video",)) is not None
+    fmt = classify_csv_format(headers)
+    if fmt is None:
+        return "csv"
+    return fmt
 
-    trancy_confident = has_word and has_translation and not has_phrase
-    lr_confident = has_phrase and (has_definition or has_context or has_video)
 
-    if trancy_confident and not lr_confident:
-        return "trancy"
-    if lr_confident and not trancy_confident:
-        return "language_reactor"
-    return "csv"
+def format_meaning(meaning: str, phonetic: str | None) -> str:
+    """Append phonetic to meaning when present; no schema column for IPA."""
+    meaning = meaning.strip()
+    if not phonetic:
+        return meaning
+    ipa = phonetic.strip().strip("/")
+    if not ipa:
+        return meaning
+    return f"{meaning} (/{ipa}/)"
 
 
 def source_marker(tool: str, material: str) -> str:
@@ -340,6 +416,7 @@ def import_csv_rows(
     Used by both the watched-folder path and Telegram document upload.
     """
     mapping = map_headers(headers)
+    csv_format = classify_csv_format(headers)
     if mapping is None:
         logger.warning(
             "watch import failed_headers user_id=%s file=%s headers=%s",
@@ -352,6 +429,7 @@ def import_csv_rows(
             status="failed_headers",
             headers_seen=tuple(headers),
             source_tool=tool,
+            csv_format=csv_format,
         )
 
     existing = _existing_chunk_norms(user_id)
@@ -360,6 +438,7 @@ def import_csv_rows(
     imported = 0
     duplicates = 0
     invalid = 0
+    is_slang = mapping.format == "slang"
     for row in rows:
         chunk = _cell(row, mapping.chunk)
         sentence = _cell(row, mapping.full_sentence)
@@ -380,15 +459,23 @@ def import_csv_rows(
             duplicates += 1
             continue
         existing.add(chunk_norm)
-        mat = (
-            _cell(row, mapping.material) if mapping.material else ""
-        ) or "untitled"
-        source = source_marker(tool, mat)
+        if is_slang:
+            phonetic = (
+                _cell(row, mapping.phonetic) if mapping.phonetic else ""
+            )
+            source = "slang"
+            meaning_out = format_meaning(meaning, phonetic or None)
+        else:
+            mat = (
+                _cell(row, mapping.material) if mapping.material else ""
+            ) or "untitled"
+            source = source_marker(tool, mat)
+            meaning_out = meaning
         batches.setdefault(source, []).append(
             {
                 "chunk": chunk,
                 "full_sentence": sentence,
-                "meaning": meaning,
+                "meaning": meaning_out,
             }
         )
         imported += 1
@@ -407,7 +494,10 @@ def import_csv_rows(
 
     due_day = instant_date(now)
     due = count_due_chunks(user_id, now=due_day)
-    first_source = next(iter(batches), source_marker(tool, "untitled"))
+    first_source = next(
+        iter(batches),
+        "slang" if is_slang else source_marker(tool, "untitled"),
+    )
     logger.info(
         "watch import ok user_id=%s file=%s imported=%s duplicates=%s "
         "invalid=%s due=%s source=%s",
@@ -426,9 +516,47 @@ def import_csv_rows(
         duplicates=duplicates,
         invalid=invalid,
         due_after=due,
-        source_tool=tool,
+        source_tool="slang" if is_slang else tool,
         headers_seen=tuple(headers),
+        csv_format=csv_format,
     )
+
+
+def parse_slang_chunk_items(
+    headers: Sequence[str],
+    rows: Sequence[dict[str, str | None]],
+) -> tuple[list[dict[str, str]], int]:
+    """Validate slang rows → chunk dicts. Returns (items, invalid_count)."""
+    mapping = map_headers(headers)
+    if mapping is None or mapping.format != "slang":
+        raise ValueError("not a slang header map")
+    items: list[dict[str, str]] = []
+    invalid = 0
+    for row in rows:
+        chunk = _cell(row, mapping.chunk)
+        sentence = _cell(row, mapping.full_sentence)
+        meaning = _cell(row, mapping.meaning)
+        if not chunk:
+            continue
+        if not sentence or not meaning:
+            invalid += 1
+            continue
+        chunk_norm = normalize_for_match(chunk)
+        if not chunk_norm:
+            invalid += 1
+            continue
+        if chunk_norm not in normalize_for_match(sentence):
+            invalid += 1
+            continue
+        phonetic = _cell(row, mapping.phonetic) if mapping.phonetic else ""
+        items.append(
+            {
+                "chunk": chunk,
+                "full_sentence": sentence,
+                "meaning": format_meaning(meaning, phonetic or None),
+            }
+        )
+    return items, invalid
 
 
 def import_csv_bytes(
@@ -442,11 +570,20 @@ def import_csv_bytes(
     """Import CSV bytes in memory (Telegram path). Never writes the upload."""
     headers, rows = parse_csv_bytes(data)
     resolved = tool if tool is not None else detect_tool_from_headers(headers)
+    # Telegram: unrecognised / ambiguous headers are rejected (S24).
+    if tool is None and classify_csv_format(headers) is None:
+        return FileImportResult(
+            filename=filename,
+            status="failed_headers",
+            headers_seen=tuple(headers),
+            source_tool=resolved,
+            csv_format=None,
+        )
     return import_csv_rows(
         headers,
         rows,
         user_id=user_id,
-        tool=resolved,
+        tool=resolved if resolved != "slang" else "csv",
         filename=filename,
         now=now,
     )

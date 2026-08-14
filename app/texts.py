@@ -843,6 +843,28 @@ IMPORT_DOC_READ_FAILED = (
     "Try sending the CSV again, or forward it to the person who runs the bot."
 )
 
+# --- Shared slang CSV (S24) ---------------------------------------------------
+
+IMPORT_SLANG_CONFIRM = (
+    "This looks like a slang list ({n} phrase(s)). "
+    "Share with everyone, or keep it just for you?"
+)
+
+BTN_SHARE_SLANG_ALL = "Share with all"
+BTN_SHARE_SLANG_ME = "Just me"
+
+IMPORT_SHARE_STALE = (
+    "That share choice expired — send the CSV again and tap Share or Just me."
+)
+
+IMPORT_SHARE_RESULT = (
+    "Shared slang import.\n"
+    "Your copies — imported: {imported} · already had: {duplicates} · "
+    "skipped: {rejected}\n"
+    "Users reached: {users_reached}\n"
+    "Due for you now: {due}"
+)
+
 INTERESTS_TRACK_LABELS: dict[str, str] = {
     "work": "Work",
     "life": "Life & Social",

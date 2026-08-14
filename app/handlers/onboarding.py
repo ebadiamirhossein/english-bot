@@ -22,6 +22,8 @@ from telegram.ext import (
 
 from app import texts
 from app.services.access_control import is_approved
+from app.services.alerts import notify_operator
+from app.services.shared_content import try_backfill_soft
 from app.services.users import User, efset_to_cefr, get_user, save_onboarding
 
 logger = logging.getLogger(__name__)
@@ -879,6 +881,15 @@ async def wizard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
             _clear_answers(context)
             return ConversationHandler.END
+
+        # S24: convergent backfill after Save commits — soft-fail only.
+        uid = update.effective_user.id
+        if not try_backfill_soft(uid):
+            await notify_operator(
+                context.application,
+                key=f"shared_backfill:{uid}",
+                text=f"shared backfill failed after onboarding save user_id={uid}",
+            )
 
         name = str(data_answers["name"])
         morning = _format_time(data_answers["morning_time"])

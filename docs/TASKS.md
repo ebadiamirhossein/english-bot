@@ -155,6 +155,10 @@ Forward any English → explanation + chunks mined, `source='capture'`.
 **Build:** Accept a `.csv` document in a private chat; download to memory; run through the shared S15a pipeline (`import_csv_rows` / `map_headers`). Attribution = sender. Tool from header shape (else `subtitle_csv_*`). Non-CSV → warm line (IMAGE excluded so `/book` keeps pages); refuse >5 MiB before download. Unrecognisable headers → warm reply + `notify_operator` (no move). Independent of `WATCH_DIR`. No migration, no new dependency, no `bot_message_counts`.
 **Accept:** send a Trancy or Language Reactor CSV to the bot → imported/duplicate/invalid + due count; second user uploads under their own `user_id`; re-send after folder import → zero new rows.
 
+### S24 · Shared content library (slang CSV + operator book uploads)
+**Build:** Fan-out shared library — one `chunks`/`book_units` row per approved user. Migration `006` `shared_content` + `shared_content_deliveries` (outcomes `delivered`|`skipped_owned`). Exact five-column slang header signature (mutually exclusive with Trancy/LR); opt-in Share confirmation (CallbackQuery only); Trancy/LR stay sender-only. Convergent backfill after onboarding Save (soft-fail) + both approve/re-approve handlers + reconcile at fan-out top. `SHARED_BOOK_SLUGS` config; operator-only fan-out; refresh title/items never `studied_at`. Recipients = `approved_onboarded_users` only (drift registry). No `correction.py`/`streaks.py`/`OpenQuizFilter`/`tenant_id` changes; never writes `errors`; no receiver Telegram / ceiling bump.
+**Accept:** slang CSV Share fans out; re-import zero; per-user dedupe; revoked excluded; backfill at Save; Trancy/LR sender-only; operator shared books fan out; button labels ≤20.
+
 ### S16 · Shadowing (M12)
 Bot sends a 10–15s clip → user repeats → Whisper compares word-for-word → scored feedback on rhythm and stress.
 

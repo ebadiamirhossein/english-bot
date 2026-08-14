@@ -66,6 +66,8 @@ class Settings:
     backup_offsite_max_age_hours: float = 48.0
     # S15a — empty means watch poll / /import / Anki outbox are silent no-ops.
     watch_dir: str = ""
+    # S24 — comma-separated book slugs the operator shares (empty = none).
+    shared_book_slugs: tuple[str, ...] = ()
     # S8 couple challenge — empty means the whole feature is inert.
     couple_chat_id: int | None = None
 
@@ -191,6 +193,11 @@ def load_settings() -> Settings:
         errors,
     )
     watch_dir = os.environ.get("WATCH_DIR", "").strip()
+    shared_book_slugs = tuple(
+        part.strip()
+        for part in os.environ.get("SHARED_BOOK_SLUGS", "").split(",")
+        if part.strip()
+    )
     couple_chat_id = _parse_optional_int(
         "COUPLE_CHAT_ID",
         os.environ.get("COUPLE_CHAT_ID", ""),
@@ -264,6 +271,7 @@ def load_settings() -> Settings:
         backup_offsite_dir=backup_offsite_dir,
         backup_offsite_max_age_hours=backup_offsite_max_age_hours,
         watch_dir=watch_dir,
+        shared_book_slugs=shared_book_slugs,
         couple_chat_id=couple_chat_id,
     )
 
