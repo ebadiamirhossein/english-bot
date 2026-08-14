@@ -52,6 +52,11 @@ class Settings:
     voice_max_turns: int = 10
     # S13 diary — separate from M3's 120s; ~60s ask with headroom.
     diary_max_seconds: int = 90
+    # S26 text conversation (/talk).
+    conversation_timeout_minutes: int = 30
+    conversation_awaiting_topic_minutes: int = 2
+    conversation_max_turns: int = 12
+    conversation_history_max_messages: int = 20
     # S18 hardening — operator alerts + runtime files (optional ids).
     operator_telegram_id: int | None = None
     runtime_dir: str = ""
@@ -149,6 +154,26 @@ def load_settings() -> Settings:
         os.environ.get("DIARY_MAX_SECONDS", "90"),
         errors,
     )
+    conversation_timeout_minutes = _parse_int(
+        "CONVERSATION_TIMEOUT_MINUTES",
+        os.environ.get("CONVERSATION_TIMEOUT_MINUTES", "30"),
+        errors,
+    )
+    conversation_awaiting_topic_minutes = _parse_int(
+        "CONVERSATION_AWAITING_TOPIC_MINUTES",
+        os.environ.get("CONVERSATION_AWAITING_TOPIC_MINUTES", "2"),
+        errors,
+    )
+    conversation_max_turns = _parse_int(
+        "CONVERSATION_MAX_TURNS",
+        os.environ.get("CONVERSATION_MAX_TURNS", "12"),
+        errors,
+    )
+    conversation_history_max_messages = _parse_int(
+        "CONVERSATION_HISTORY_MAX_MESSAGES",
+        os.environ.get("CONVERSATION_HISTORY_MAX_MESSAGES", "20"),
+        errors,
+    )
 
     operator_telegram_id = _parse_optional_int(
         "OPERATOR_TELEGRAM_ID",
@@ -228,6 +253,35 @@ def load_settings() -> Settings:
             "BACKUP_OFFSITE_MAX_AGE_HOURS must be > 0 "
             f"(got {backup_offsite_max_age_hours})"
         )
+    if (
+        conversation_timeout_minutes is not None
+        and conversation_timeout_minutes < 1
+    ):
+        errors.append(
+            "CONVERSATION_TIMEOUT_MINUTES must be >= 1 "
+            f"(got {conversation_timeout_minutes})"
+        )
+    if (
+        conversation_awaiting_topic_minutes is not None
+        and conversation_awaiting_topic_minutes < 1
+    ):
+        errors.append(
+            "CONVERSATION_AWAITING_TOPIC_MINUTES must be >= 1 "
+            f"(got {conversation_awaiting_topic_minutes})"
+        )
+    if conversation_max_turns is not None and conversation_max_turns < 2:
+        errors.append(
+            "CONVERSATION_MAX_TURNS must be >= 2 "
+            f"(got {conversation_max_turns})"
+        )
+    if (
+        conversation_history_max_messages is not None
+        and conversation_history_max_messages < 2
+    ):
+        errors.append(
+            "CONVERSATION_HISTORY_MAX_MESSAGES must be >= 2 "
+            f"(got {conversation_history_max_messages})"
+        )
 
     if errors:
         raise ConfigError("; ".join(errors))
@@ -237,6 +291,10 @@ def load_settings() -> Settings:
     assert voice_context_minutes is not None
     assert voice_max_turns is not None
     assert diary_max_seconds is not None
+    assert conversation_timeout_minutes is not None
+    assert conversation_awaiting_topic_minutes is not None
+    assert conversation_max_turns is not None
+    assert conversation_history_max_messages is not None
     assert log_max_bytes is not None
     assert log_backup_count is not None
     assert backup_offsite_max_age_hours is not None
@@ -260,6 +318,10 @@ def load_settings() -> Settings:
         voice_context_minutes=voice_context_minutes,
         voice_max_turns=voice_max_turns,
         diary_max_seconds=diary_max_seconds,
+        conversation_timeout_minutes=conversation_timeout_minutes,
+        conversation_awaiting_topic_minutes=conversation_awaiting_topic_minutes,
+        conversation_max_turns=conversation_max_turns,
+        conversation_history_max_messages=conversation_history_max_messages,
         operator_telegram_id=operator_telegram_id,
         runtime_dir=runtime_dir,
         log_file=log_file,

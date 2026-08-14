@@ -23,6 +23,7 @@ _MENU_CORE: tuple[tuple[str, str], ...] = (
     ("guide", texts.CMD_DESC_GUIDE),
     ("stats", texts.CMD_DESC_STATS),
     ("diary", texts.CMD_DESC_DIARY),
+    ("talk", texts.CMD_DESC_TALK),
     ("shadow", texts.CMD_DESC_SHADOW),
     ("capture", texts.CMD_DESC_CAPTURE),
     ("prep", texts.CMD_DESC_PREP),

@@ -43,6 +43,7 @@ from app.handlers.book import (
 from app.handlers.book_test import build_book_test_handlers
 from app.handlers.capture import build_capture_handlers
 from app.handlers.correction import build_correction_handler
+from app.handlers.conversation import build_conversation_handlers
 from app.handlers.couple import build_couple_handlers
 from app.handlers.csv_import import build_csv_import_handlers
 from app.handlers.nudge import build_nudge_handler
@@ -60,10 +61,18 @@ from app.handlers.settings import (
 )
 from app.handlers.voice import build_voice_handler
 from app.services.alerts import on_error
-from app.services.sessions import insert_session, local_today, save_voice_exchange
+from app.services.sessions import (
+    has_diary_session_on,
+    has_reading_session_on,
+    has_session_on,
+    insert_session,
+    local_today,
+    save_voice_exchange,
+    utc_now_iso,
+)
 from app.services.users import save_onboarding
 from app.services.couple import insert_challenge_if_absent, couple_local_today
-
+from datetime import timedelta
 FAKE_TELEGRAM_ID_BASE = 9_470_000_000
 SAMPLE_TEXT = "her english is not so much good"
 CAPTURE_SAMPLE = "Could you circle back on this by Friday please?"
@@ -155,8 +164,9 @@ async def _build_app(
     couple_spy: AsyncMock | None = None,
     csv_spy: AsyncMock | None = None,
     non_csv_spy: AsyncMock | None = None,
+    conversation_spy: AsyncMock | None = None,
 ):
-    """Application mirroring main.py: capture → quiz text → voice → couple → correction."""
+    """Application mirroring main.py group 0: quiz → conversation → … → correction."""
     if capture_spy is None:
         capture_spy = AsyncMock()
     if couple_spy is None:
@@ -165,9 +175,12 @@ async def _build_app(
         csv_spy = AsyncMock()
     if non_csv_spy is None:
         non_csv_spy = AsyncMock()
+    if conversation_spy is None:
+        conversation_spy = AsyncMock()
     with (
         patch("app.handlers.quiz.on_quiz_text", quiz_spy),
         patch("app.handlers.correction.correct_text", correction_spy),
+        patch("app.handlers.conversation.on_conversation_text", conversation_spy),
         patch("app.handlers.capture.on_forwarded_capture", capture_spy),
         patch("app.handlers.capture.on_capture_command", capture_spy),
         patch("app.handlers.couple.on_couple_answer", couple_spy),
@@ -177,6 +190,7 @@ async def _build_app(
         quiz_text, quiz_choice = build_quiz_handlers()
         present_ack, present_orphan = build_present_handlers()
         capture_fwd, capture_cmd = build_capture_handlers()
+        talk_cmd, talk_text, talk_cb, talk_orphan = build_conversation_handlers()
         reading = build_reading_handler()
         nudge = build_nudge_handler()
         test_cmd, test_cb = build_book_test_handlers()
@@ -206,6 +220,10 @@ async def _build_app(
     app.add_handler(capture_fwd)
     app.add_handler(capture_cmd)
     app.add_handler(quiz_text)
+    app.add_handler(talk_cmd)
+    app.add_handler(talk_cb)
+    app.add_handler(talk_orphan)
+    app.add_handler(talk_text)  # after quiz gap; before correction — S26
     app.add_handler(reading)  # callbacks only — must not swallow free text
     app.add_handler(nudge)  # nudge: taps only — must not swallow free text
     app.add_handler(test_cb)
@@ -1626,3 +1644,353 @@ def test_dispatch_group_unregistered_reaches_nothing(
                     )
 
     asyncio.run(_run())
+
+
+# --- S26 conversation dispatch -----------------------------------------------
+
+
+def _conversation_payload(
+    *,
+    phase: str = "active",
+    topic: str = "weekend plans",
+    last_activity: datetime | None = None,
+    turn_count: int = 0,
+) -> dict[str, Any]:
+    when = last_activity or datetime.now(timezone.utc)
+    return {
+        "phase": phase,
+        "topic": topic,
+        "messages": [],
+        "turn_count": turn_count,
+        "last_activity": utc_now_iso(when),
+        "warned_last_turn": False,
+    }
+
+
+def test_dispatch_handlers_conversation_and_correction_same_group() -> None:
+    """PTB first-match-wins only applies within the same handler group."""
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        conversation_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            conversation_spy=conversation_spy,
+        )
+        try:
+            group0 = app.handlers.get(0, [])
+            from telegram.ext import MessageHandler as MH
+
+            text_handlers = [
+                h
+                for h in group0
+                if isinstance(h, MH) and h.callback is not None
+            ]
+            # Spied callbacks live on the handlers built under the patch.
+            callbacks = {h.callback for h in text_handlers}
+            assert conversation_spy in callbacks
+            assert correction_spy in callbacks
+            assert all(h in group0 for h in text_handlers)
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_open_conversation_captures_correction_spy_zero(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conversation_payload(),
+        completed=False,
+    )
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        conversation_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            conversation_spy=conversation_spy,
+        )
+        try:
+            update = _text_update(tid, SAMPLE_TEXT)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            conversation_spy.assert_awaited_once()
+            correction_spy.assert_not_awaited()
+            quiz_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_no_conversation_correction_conversation_spy_zero(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        conversation_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            conversation_spy=conversation_spy,
+        )
+        try:
+            update = _text_update(tid, SAMPLE_TEXT)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            correction_spy.assert_awaited_once()
+            conversation_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_stale_conversation_falls_through_to_correction(
+    cleanup_user: int,
+) -> None:
+    """Filter-time staleness — no scheduler. Injected last_activity + frozen now."""
+    from app.services.sessions import get_open_conversation_session
+
+    tid = cleanup_user
+    _onboard(tid)
+    stale = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
+    insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conversation_payload(last_activity=stale),
+        completed=False,
+    )
+    frozen = stale + timedelta(minutes=45)
+
+    def _awaits(uid: int, now: datetime | None = None) -> bool:
+        return (
+            get_open_conversation_session(
+                uid,
+                now=frozen,
+                active_minutes=30,
+                awaiting_topic_minutes=2,
+            )
+            is not None
+        )
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        conversation_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            conversation_spy=conversation_spy,
+        )
+        try:
+            with patch(
+                "app.handlers.conversation.open_conversation_awaits_text",
+                side_effect=_awaits,
+            ):
+                update = _text_update(tid, SAMPLE_TEXT)
+                update._bot = app.bot
+                update.message._bot = app.bot
+                await app.process_update(update)
+            correction_spy.assert_awaited_once()
+            conversation_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_stale_via_get_open_returns_none(cleanup_user: int) -> None:
+    """Staleness evaluated in get_open_conversation_session with injected now."""
+    from app.services.sessions import get_open_conversation_session
+
+    tid = cleanup_user
+    _onboard(tid)
+    stale = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
+    insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conversation_payload(last_activity=stale),
+        completed=False,
+    )
+    now = stale + timedelta(minutes=45)
+    assert (
+        get_open_conversation_session(
+            tid, now=now, active_minutes=30, awaiting_topic_minutes=2
+        )
+        is None
+    )
+    assert (
+        get_open_conversation_session(
+            tid, now=stale + timedelta(minutes=5), active_minutes=30, awaiting_topic_minutes=2
+        )
+        is not None
+    )
+
+
+def test_dispatch_awaiting_topic_stale_after_two_minutes(
+    cleanup_user: int,
+) -> None:
+    from app.services.sessions import get_open_conversation_session
+
+    tid = cleanup_user
+    _onboard(tid)
+    start = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
+    insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conversation_payload(
+            phase="awaiting_topic", last_activity=start
+        ),
+        completed=False,
+    )
+    assert (
+        get_open_conversation_session(
+            tid,
+            now=start + timedelta(minutes=1),
+            active_minutes=30,
+            awaiting_topic_minutes=2,
+        )
+        is not None
+    )
+    assert (
+        get_open_conversation_session(
+            tid,
+            now=start + timedelta(minutes=3),
+            active_minutes=30,
+            awaiting_topic_minutes=2,
+        )
+        is None
+    )
+
+
+def test_dispatch_group_chat_never_captured_by_conversation(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conversation_payload(),
+        completed=False,
+    )
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        conversation_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            conversation_spy=conversation_spy,
+        )
+        try:
+            update = _group_text_update(tid, SAMPLE_TEXT)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            conversation_spy.assert_not_awaited()
+            correction_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_dispatch_command_mid_conversation_reaches_handler(
+    cleanup_user: int,
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    insert_session(
+        tid,
+        "conversation",
+        date(2026, 8, 14),
+        payload=_conversation_payload(),
+        completed=False,
+    )
+
+    async def _run() -> None:
+        quiz_spy = AsyncMock()
+        correction_spy = AsyncMock()
+        conversation_spy = AsyncMock()
+        app, _book, _settings = await _build_app(
+            quiz_spy=quiz_spy,
+            correction_spy=correction_spy,
+            conversation_spy=conversation_spy,
+        )
+        try:
+            from telegram import MessageEntity
+
+            user = User(id=tid, first_name="A", is_bot=False)
+            chat = Chat(id=tid, type="private")
+            msg = Message(
+                message_id=10,
+                date=datetime.now(timezone.utc),
+                chat=chat,
+                from_user=user,
+                text="/stats",
+                entities=[
+                    MessageEntity(
+                        type=MessageEntity.BOT_COMMAND,
+                        offset=0,
+                        length=6,
+                    )
+                ],
+            )
+            update = Update(update_id=1, message=msg)
+            update._bot = app.bot
+            update.message._bot = app.bot
+            await app.process_update(update)
+            conversation_spy.assert_not_awaited()
+            correction_spy.assert_not_awaited()
+        finally:
+            app._initialized = False
+
+    asyncio.run(_run())
+
+
+def test_open_conversation_does_not_change_eligibility(
+    cleanup_user: int,
+) -> None:
+    """S7a lesson: open conversation must not affect quiz/reading/diary gates."""
+    tid = cleanup_user
+    _onboard(tid)
+    day = date(2026, 8, 14)
+    before_quiz = has_session_on(tid, day)
+    before_reading = has_reading_session_on(tid, day)
+    before_diary = has_diary_session_on(tid, day)
+    insert_session(
+        tid,
+        "conversation",
+        day,
+        payload=_conversation_payload(),
+        completed=False,
+    )
+    assert has_session_on(tid, day) is before_quiz
+    assert has_reading_session_on(tid, day) is before_reading
+    assert has_diary_session_on(tid, day) is before_diary
+    assert before_quiz is False
+    assert before_reading is False
+    assert before_diary is False

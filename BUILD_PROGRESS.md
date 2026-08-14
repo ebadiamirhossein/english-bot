@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-14
-**Current slice:** S25
-**Status:** S25 first-touch presentation code-complete (668 tests). S24b/S24a/S24 shared library code-complete; two-user slang fan-out verified live 2026-08-14. First live Trancy vocab import 2026-08-14. User B onboarded; S8 blocked on shared group + `COUPLE_CHAT_ID`. #27 open for LR half. Production off-site backup (#6) still open. Hetzner pre-flight counts for migration 007 **outstanding** (operator). Unrun desk checks remain.
+**Current slice:** S26
+**Status:** S26 text conversation (`/talk`) code-complete (693 tests). S25/S24b/S24a/S24 shared library code-complete; two-user slang fan-out verified live 2026-08-14. First live Trancy vocab import 2026-08-14. User B onboarded; S8 blocked on shared group + `COUPLE_CHAT_ID`. #27 open for LR half. Production off-site backup (#6) still open. Hetzner migrations 007+008 outstanding on next deploy. Unrun desk checks remain.
 
 ---
 
@@ -61,6 +61,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S24a | Trancy vocabulary CSV (generated sentences) | 🟡 code-complete | 2026-08-14 | Exact `{Word,Phonetic,Translation,Date}`; batched LLM sentences; sender-only; folder refuses vocab; prose failed-headers alert. **Live 2026-08-14:** 9 words → 8 imported / 1 skipped (`frustrate`); one call 1052 in / 486 out / 6.3s. |
 | S24b | Vocabulary sentence quality + skip visibility | 🟡 code-complete | 2026-08-14 | Exact-form prompt; one capped gate retry; named skips in reply not log; register-balance prompt (human-verify). |
 | S25 | First touch presents, it does not grade | 🟡 code-complete | 2026-08-14 | Migration 007 `presented_at`; fan-out unpresented; morning quiz ≤2 FIFO cards before graded Qs; shared due predicate; Anki ungated. |
+| S26 | Conversation mode (text) | 🟡 code-complete | 2026-08-14 | `/talk`; `OpenConversationFilter` (not CH free-text); 30m/2m filter-time staleness; plain-text turns + close ≤3; migration 008 `errors.source`; gap entrance refuse; 693 tests. |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
 | S15a | Watched-folder bridge | 🟡 code-complete | 2026-08-10 | `WATCH_DIR` CSV import (Trancy/LR) + Anki outbox; mtime≥2min; collision-safe moves; due_chunks `id DESC` tie-break; `/import` + settings paths. **Prod:** `WATCH_DIR` unset — folder bridge dormant; CSV via Telegram (S15b) is the only import route. |
 | S15b | CSV via Telegram document | 🟡 code-complete | 2026-08-10 | Private-chat `.csv` → shared S15a pipeline in memory; tool from headers; non-CSV warm line; 5 MiB cap; `/help` upload line; independent of `WATCH_DIR`. |
@@ -80,7 +81,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 |---|---|---|
 | Hetzner server | ✅ | CPX32 `fonderis-worker`, 78.46.240.136, Nuremberg, Ubuntu 24.04.4 LTS, Python 3.12.3. **Shared** with Node app `fonderis-worker.service` (port 3011), Redis 6379, Caddy 80/443 — bot must not assume exclusive use. No inbound port (Telegram long-poll outbound). See `docs/DEPLOYMENT.md`. |
 | PostgreSQL 16 (local / Mac / development only) | ✅ | 16.14 on port **5433** (5432 taken by Docker). Not production; Mac data was **not** migrated to Hetzner. |
-| PostgreSQL 16 (Hetzner / prod) | ✅ | Ubuntu repos, port **5432**. Database `english_bot`, owner `bot`. Migrations 001–006 applied (007 on next deploy). Started empty 2026-08-11. |
+| PostgreSQL 16 (Hetzner / prod) | ✅ | Ubuntu repos, port **5432**. Database `english_bot`, owner `bot`. Migrations 001–006 applied (007+008 on next deploy). Started empty 2026-08-11. |
 | DATABASE_URL | ✅ | Prod: local DSN `postgresql://bot:…@127.0.0.1:5432/english_bot` in `/home/bot/english-bot/.env` (mode 600). Mac keeps its own for development. |
 | Telegram bot token | ✅ | in `.env` (Mac + server) |
 | Shared group created | ⬜ | — |
@@ -108,6 +109,16 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-14 | S26: session-backed `OpenConversationFilter` — **not** a ConversationHandler free-text state | Free-text CH states twice killed M2 (S18a/S18c decisions). Same family as gap-only `OpenQuizFilter`; fail-open; never widen OpenQuizFilter. |
+| 2026-08-14 | S26: `/talk` refuses on every entry path while a gap quiz awaits (`/talk`, `/talk <topic>`, topic tap, `talk:other`) | Quiz filter is correctly ahead of conversation. Without an entrance guard, a forgotten gap would grade a conversational sentence and advance the ladder. |
+| 2026-08-14 | S26: `/talk` works while paused | `/pause` suppresses scheduled sends only; `/talk` is user-initiated (same class as `/diary`/`/shadow`). |
+| 2026-08-14 | S26: implicit recasts mid-chat; ≤3 explicit corrections only at close-out, preferring recurring journal types | Conversation is the only sustained-production surface; interrupting to correct turns it into a quiz. Cap 3 (diary caps 2). |
+| 2026-08-14 | S26: plain-text turn replies; JSON only for close-out | Errors-key argument applies to close. Turn parse/LLM failure → warm line, session stays open, `last_activity` refreshed, turn not counted, zero `errors`. |
+| 2026-08-14 | S26: filter-time staleness — 30 min active, 2 min `awaiting_topic`; no scheduler | Forgotten chat must not permanently swallow M2. Other-topic wait must not turn a later correction sentence into a topic. |
+| 2026-08-14 | S26: turn cap 12 + history 20 messages; a priori ~6–12¢/conversation; log `cache_read` | Cost ballpark fine for caps; fifty cents would force redesign. Hard turn cap is primary bound; history truncate from front is belt-and-suspenders. |
+| 2026-08-14 | S26: voice during open text conversation unchanged (shadow → M3 → diary → M3) | Out of scope; do not let text conversation claim voice. |
+| 2026-08-14 | S26: completed conversation → Active day without editing `streaks.py` | Active = any `completed=TRUE` (type-agnostic). Timeout leaves incomplete → Neutral. |
+| 2026-08-14 | S26: migration 008 expands `errors.source` CHECK for `'conversation'` | Close-out inserts otherwise fail the CHECK. Verified constraint accepts `conversation` after apply. |
 | 2026-08-14 | S25: nullable `presented_at` — do **not** overload `spacing_step` / `streak_right = 0` as unpresented | `spacing_step` is shared by `errors` and `chunks` (S7a). Errors are always already seen. A chunks-only meaning for step 0 would fork the shared ladder implicitly. |
 | 2026-08-14 | S25: fan-out inserts leave `presented_at` NULL; user-sourced inserts set `NOW()` | Content through `shared_content_deliveries` was never studied — including the operator’s Share copy. Capture/prep/vocab/reading/Just-me already met the word outside the bot. |
 | 2026-08-14 | S25: backfill uses `source <> 'slang' OR source IS NULL` — **not** a ledger join on `content_key` | Fuzzy SQL-approx `normalize_for_match` can under-match and silently mark fan-out rows presented — reintroducing the bug on the exact rows this slice fixes. Just-me slang gets one extra card (safe direction). **Future shared sources must set NULL at insert** — backfill is a one-off and must never be re-derived. |
@@ -468,6 +479,9 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 37 | S24a generated vocabulary sentences are not mined scene context — memorability loss vs slang CSV / real subtitle examples. Register balance and sense selection are prompt-tuned (S24b) and **not verifiable by unit test** — next live import is the check. First live run also produced an idiomatic `notch` (“a notch above”) against a groove/cut gloss. | medium | S24a → S24b | ⬜ open — human verify next import |
 | 38 | S24a makes the CSV import path’s per-import LLM cost non-zero (was free). | medium | S24a | ✅ closed — 2026-08-14 live: one call, 1052 input / 486 output tokens, 6.3s ≈ 1.1¢ at claude-sonnet-5 (~6¢/mo at 1 file/week). 6.3s is why `asyncio.to_thread` mattered. |
 | 39 | S25: users with many unpresented chunks meet them at 2 presentations/day (FIFO). A large shared library takes days of morning quizzes to clear before graded review starts for the oldest items. | medium | S25 | ⬜ open — by design |
+| 40 | S26: per-conversation LLM cost unmeasured — a priori ~6–12¢ for a full 12-turn Sonnet chat with cache hits; fill observed `cache_read` / tokens / $ after the first real Telegram run (same pattern as #38). | medium | S26 | ⬜ open — fill after first live run |
+| 41 | S26: **recast quality is not covered by any test.** Suite asserts the prompt instructs implicit recasts and forbids mid-chat correction blocks; whether the model actually corrects without interrupting is verified only by a human having a real conversation (same honesty as S24b register balance). | medium | S26 | ⬜ open — human verify |
+| 42 | S26: incomplete abandoned/timeout `conversation` sessions linger as Neutral orphans (filter fails open). Acceptable at this scale; not completed on timeout (would falsely mark Active). | low | S26 | ⬜ open — note only |
 
 ---
 
@@ -484,7 +498,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
 | `docs/ARCHITECTURE.md` | Stack, structure, interfaces; §5 jobs; §7 approved access + `/start`/`/ping`/`access:` (S18d) | ✅ |
-| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a–S18d + S24 + S24a + S24b + S25) | ✅ |
+| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a–S18d + S24 + S24a + S24b + S25 + S26) | ✅ |
 | `docs/DEPLOYMENT.md` | Hetzner runbook: shared host, first-time setup, deploy/update, logs, lockout SQL, restore, two-instance warning | ✅ |
 | `specs/S0-repo-skeleton.md` | S0 spec | ✅ |
 | `specs/S1-onboarding.md` | S1 spec | ✅ |
@@ -565,6 +579,12 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/services/capture.py` | Capture validate + persist-after-send; source=`capture`; track NULL default (S15) | ✅ |
 | `app/prompts/capture.txt` | Capture JSON prompt — adaptive chunks, generic carriers (S15) | ✅ |
 | `tests/test_capture.py` | Capture validation, persist/rollback, PII fixture, handler, anki source, labels (S15) | ✅ |
+| `migrations/007_chunk_presented.sql` | S25 `chunks.presented_at` + slang-null backfill | ✅ |
+| `migrations/008_conversation_source.sql` | S26 expand `errors.source` CHECK for `'conversation'` | ✅ |
+| `app/handlers/conversation.py` | S26 `/talk` + `OpenConversationFilter` + close-out; gap entrance refuse | ✅ |
+| `app/prompts/conversation.txt` | S26 turn prompt — recast + do-not-force | ✅ |
+| `app/prompts/conversation_close.txt` | S26 close-out ≤3 prefer recurring | ✅ |
+| `tests/test_conversation.py` | S26 turn/close/gap-refuse/pause/labels/prompts/migration | ✅ |
 | `app/handlers/quiz.py` | Daily/weekly quiz + chunk middle source + article-tolerant grade; calib_* counters; book fork; OpenQuizFilter gap-only; S25 presentations + `present:` handlers | ✅ |
 | `app/handlers/voice.py` | Voice partner (S5) + S16/S13 router (claimable shadow → live M3 → diary → M3); S5a status helpers | ✅ |
 | `app/handlers/diary.py` | Voice diary deliver + `/diary` + voice processing (S13); no TTS; cap 2 | ✅ |
@@ -698,6 +718,16 @@ Do not start S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S26** — `/talk` → pick or type a topic → chat; confirm the bot **recasts** rather than interrupts (human — not covered by suite; known issue #41)
+- [ ] **S26** — free text before the conversation and after End chat still reaches correction
+- [ ] **S26** — forgotten conversation (>30 min) → next text reaches correction (does not swallow M2)
+- [ ] **S26** — tap Other, wait >2 min, type a sentence → correction (not turned into a topic)
+- [ ] **S26** — open gap quiz → `/talk` / `/talk topic` / topic tap / Other all refuse; quiz untouched
+- [ ] **S26** — End chat → at most three warm corrections; journal rows only after that send
+- [ ] **S26** — voice note mid-text-chat → still S5/S13/S16 routing (not captured by `/talk`)
+- [ ] **S26** — `/pause` then `/talk` still works; no `bot_message_counts` bump
+- [ ] **S26** — after deploy: apply migration 008 on Hetzner; confirm `errors.source` accepts `conversation`
+- [ ] **S26** — first live full chat: record observed cost + `cache_read` into known issue #40
 - [ ] **S25** — after deploy + migrate 007 on Hetzner: fill pre-flight counts in decisions log (total / stay_null slang / become_presented; confirm non_slang_delivered = 0)
 - [ ] **S25** — a fan-out slang chunk appears as a presentation card before it is ever graded
 - [ ] **S25** — tap “Got it” → `presented_at` set; `next_review` = tomorrow; ladder counters unchanged
@@ -850,4 +880,4 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-Human: Prefer verifying against the running server — stop any laptop instance first. Deploy S25; run migration 007 on **Hetzner**; fill the decisions-log pre-flight count placeholder from production (not the desk DB). **S25 desk:** fan-out chunk → presentation before graded; tap → tomorrow; graded next day; unpresented still in Anki; presentations-only → free_practice. **S24b desk (carry forward):** Trancy vocab → named skips; sentences not all domain-flavoured; `frustrate`-style exact forms. **S24a/S24 desk (carry forward):** no Share on vocab; sender-only; re-import zero; slang Share / quiz+Anki; `SHARED_BOOK_SLUGS`. **S8:** shared group + `/here` → `COUPLE_CHAT_ID`. Still open: S18d / S18c / S15b / S15a LR (#27) / S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3. **Known issue #6 (no off-site backup in production) remains the highest open risk.** Do not start the next slice until the human marks the current desk checks.
+Human: Prefer verifying against the running server — stop any laptop instance first. Deploy S26; run migrations **007 + 008** on **Hetzner**; fill S25 pre-flight counts from production. **S26 desk:** start `/talk` and confirm recasts (human — #41); free text before/after → M2; forgotten >30m → M2; Other >2m → M2; gap quiz refuses all entry paths; End → ≤3 corrections; voice mid-chat unchanged; `/pause`+`/talk` works; fill #40 cost after first live run. **S25 desk (carry forward):** fan-out → presentation; tap → tomorrow; graded next day; Anki ungated; presentations-only → free_practice. **S24b/S24a/S24 desk (carry forward):** named skips; register balance; no Share on vocab; slang Share / quiz+Anki; `SHARED_BOOK_SLUGS`. **S8:** shared group + `/here` → `COUPLE_CHAT_ID`. Still open: S18d / S18c / S15b / S15a LR (#27) / S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3. **Known issue #6 (no off-site backup in production) remains the highest open risk.** Do not start the next slice until the human marks the current desk checks.

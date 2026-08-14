@@ -315,3 +315,27 @@ def chunk_due_predicate_sites() -> dict[str, Callable[..., Any]]:
         "count_due_chunks": count_due_chunks,
         "_chunk_counts": stats._chunk_counts,
     }
+
+
+def sample_chunks_for_conversation(user_id: int, *, limit: int = 8) -> list[Chunk]:
+    """Recent slang / vocabulary / capture chunks for conversation prompt colour.
+
+    Newest first. Empty list is fine — the prompt must not force unused items.
+    """
+    if limit < 1:
+        return []
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, user_id, chunk, full_sentence, meaning, source, track,
+                   exported_to_anki, next_review, times_right, times_wrong,
+                   streak_right, created_at, presented_at
+              FROM chunks
+             WHERE user_id = %s
+               AND source IN ('slang', 'vocabulary', 'capture', 'prep', 'reading')
+             ORDER BY id DESC
+             LIMIT %s
+            """,
+            (user_id, limit),
+        ).fetchall()
+    return [_row_to_chunk(row) for row in rows]

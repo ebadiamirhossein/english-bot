@@ -22,6 +22,10 @@ from app.handlers.book_test import (
 )
 from app.handlers.capture import build_capture_handlers, init_capture_prompt
 from app.handlers.prep import build_prep_handler, init_prep_prompt
+from app.handlers.conversation import (
+    build_conversation_handlers,
+    init_conversation_prompt,
+)
 from app.handlers.correction import build_correction_handler, init_correction_prompt
 from app.handlers.couple import build_couple_handlers, init_couple_prompt
 from app.handlers.diary import build_diary_handlers, init_diary_prompt
@@ -108,6 +112,11 @@ def register_handlers(app: Application) -> None:
     app.add_handler(capture_fwd)
     app.add_handler(capture_cmd)
     app.add_handler(quiz_text)  # before correction — open-quiz filter
+    talk_cmd, talk_text, talk_cb, talk_orphan = build_conversation_handlers()
+    app.add_handler(talk_cmd)
+    app.add_handler(talk_cb)
+    app.add_handler(talk_orphan)
+    app.add_handler(talk_text)  # after quiz gap; before correction — S26
     app.add_handler(build_reading_handler())  # callbacks only; no text filter
     app.add_handler(build_nudge_handler())  # nudge: taps only; no text filter
     test_cmd, test_cb = build_book_test_handlers()
@@ -183,6 +192,7 @@ def main() -> int:
     init_quiz_prompt()
     init_voice_prompt()
     init_diary_prompt()
+    init_conversation_prompt()
     init_reading_prompt()
     init_book_prompt()
     init_book_test_prompt()

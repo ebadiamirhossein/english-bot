@@ -12,6 +12,7 @@ CMD_DESC_HELP = "see what i can do"
 CMD_DESC_GUIDE = "how to save phrases and use anki"
 CMD_DESC_STATS = "see your progress snapshot"
 CMD_DESC_DIARY = "record a spoken diary entry"
+CMD_DESC_TALK = "have a text chat in english"
 CMD_DESC_SHADOW = "practise a phrase out loud"
 CMD_DESC_CAPTURE = "explain english you paste"
 CMD_DESC_PREP = "get phrases for a real situation"
@@ -32,6 +33,7 @@ HELP_LINE_STATS = "/stats — your progress snapshot"
 HELP_LINE_QUIZ_ARRIVES = "The daily quiz arrives on its own."
 
 HELP_SECTION_SPEAKING = "Speaking"
+HELP_LINE_TALK = "/talk — text conversation in English"
 HELP_LINE_DIARY = "/diary — spoken diary"
 HELP_LINE_SHADOW = "/shadow — practise a phrase out loud"
 
@@ -670,6 +672,52 @@ VOICE_DIDNT_CATCH = (
 VOICE_STATUS_LISTENING = "🎧 Got it, listening…"
 VOICE_STATUS_THINKING = "💭 Thinking…"
 VOICE_STATUS_RECORDING = "🔊 Recording my reply…"
+
+
+# --- Text conversation /talk (S26) --------------------------------------------
+
+BTN_TALK_OTHER = "Other"
+BTN_TALK_END = "End chat"
+
+TALK_DEFAULT_TOPICS: tuple[str, ...] = (
+    "weekend plans",
+    "something at work",
+    "a recent trip",
+)
+
+TALK_PICK_TOPIC = (
+    "What do you want to talk about?\n\n{topic_lines}\n\n"
+    "Tap a number, or Other to type your own."
+)
+
+TALK_GAP_QUIZ_WAITING = (
+    "Your quiz still has a typed answer waiting — finish that first, "
+    "then we can chat."
+)
+
+TALK_ALREADY_OPEN = (
+    "We're still chatting about {topic}. Keep typing, or End chat when you're done."
+)
+
+TALK_AWAITING_TOPIC = (
+    "Type a short topic whenever you're ready — or send /talk again to pick one."
+)
+
+TALK_STARTED = "Alright — let's talk about {topic}. What's on your mind?"
+
+TALK_TURN_FAILED = (
+    "I lost that for a second — say it again when you're ready?"
+)
+
+TALK_LAST_TURN_WARN = (
+    "\n\n(One more turn after this, then I'll wrap up with a few notes.)"
+)
+
+TALK_CLOSING = "Nice chat. Here are a few notes from what we said:"
+
+TALK_STALE_CALLBACK = "That chat button's out of date — send /talk to start again."
+
+TALK_TOPIC_EMPTY = "Give me a short topic in a few words?"
 
 
 # --- Voice diary (S13 / M9) ---------------------------------------------------

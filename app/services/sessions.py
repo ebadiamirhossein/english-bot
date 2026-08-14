@@ -932,3 +932,96 @@ def save_voice_exchange(
             (Jsonb(payload), session_id, user_id),
         )
         return session_id
+
+
+def _parse_last_activity(payload: dict[str, Any] | None) -> datetime | None:
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("last_activity")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def conversation_timeout_for_phase(
+    phase: str,
+    *,
+    active_minutes: int,
+    awaiting_topic_minutes: int,
+) -> int:
+    """Minutes of inactivity before the filter fails open."""
+    if phase == "awaiting_topic":
+        return awaiting_topic_minutes
+    return active_minutes
+
+
+def get_open_conversation_session(
+    user_id: int,
+    *,
+    now: datetime,
+    active_minutes: int = 30,
+    awaiting_topic_minutes: int = 2,
+) -> SessionRow | None:
+    """Newest incomplete conversation session still inside its phase window.
+
+    Staleness is evaluated here (filter time) — no scheduler. Fail-open: missing
+    or unparseable last_activity → None.
+    """
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, date, task_type, completed, score, payload
+              FROM sessions
+             WHERE user_id = %s
+               AND task_type = 'conversation'
+               AND completed = FALSE
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    payload = row["payload"]
+    if payload is not None and not isinstance(payload, dict):
+        payload = dict(payload)
+    payload = payload or {}
+    phase = str(payload.get("phase") or "active")
+    if phase not in ("awaiting_topic", "active"):
+        return None
+    last = _parse_last_activity(payload)
+    if last is None:
+        return None
+    timeout_min = conversation_timeout_for_phase(
+        phase,
+        active_minutes=active_minutes,
+        awaiting_topic_minutes=awaiting_topic_minutes,
+    )
+    age = now - last
+    if age.total_seconds() > timeout_min * 60:
+        return None
+    return SessionRow(
+        id=int(row["id"]),
+        user_id=int(row["user_id"]),
+        date=row["date"],
+        task_type=str(row["task_type"]),
+        completed=bool(row["completed"]),
+        score=float(row["score"]) if row["score"] is not None else None,
+        payload=payload,
+    )
+
+
+def utc_now_iso(now: datetime | None = None) -> str:
+    """UTC ISO timestamp for session payload activity stamps."""
+    instant = now if now is not None else datetime.now(timezone.utc)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=timezone.utc)
+    return instant.astimezone(timezone.utc).isoformat()
