@@ -5,9 +5,9 @@
 
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
-**Last updated:** 2026-08-11
+**Last updated:** 2026-08-14
 **Current slice:** S18d
-**Status:** S18d access approval + `/admin` code-complete — needs second-account request flow + operator Approve/Decline live; S18c phone read-through still open; S15b needs a real CSV send; S8 couple needs second user + shared group; S15a real CSV (#27) and S4c cron/`.env` (#6) still open; unrun checks remain on S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
+**Status:** Deployed to Hetzner 2026-08-11 (see `docs/DEPLOYMENT.md`). S18d access approval + `/admin` code-complete — second-account request flow exercised on empty prod DB; S18c phone read-through still open; S15b needs a real CSV send; S8 couple needs second user + shared group; S15a real CSV (#27) and production off-site backup (#6) still open; unrun checks remain on S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3
 
 ---
 
@@ -36,7 +36,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S3d | Quiz feedback + format mix | ✅ done & verified | 2026-08-03 | Full-sentence feedback; 2 typed/3 tapped. Verified live. |
 | S4 | Streaks, freeze, rescue | ✅ done & verified | 2026-08-03 | 03:00 local rollover; freeze; rescue 3Q. Verified live. |
 | S4b | Database backups | ✅ done & verified | 2026-08-04 | pg_dump/restore scripts; restore verified; off-site deferred to S4c. Verified live. |
-| S4c | Off-site backup + freshness | 🟡 code-complete | 2026-08-10 | Verified daily copy to `BACKUP_OFFSITE_DIR` (keep 14, iCloud placeholders); in-process 48h freshness alert. **2026-08-10 fix:** `backup.sh` now reads `BACKUP_DIR` / `BACKUP_OFFSITE_*` from `.env` (was env-only; silent skip when set only in `.env`). |
+| S4c | Off-site backup + freshness | 🟡 code-complete | 2026-08-10 | Mechanism verified on Mac; `.env` load fixed 2026-08-10. **Prod (Hetzner):** `BACKUP_OFFSITE_DIR` deliberately unset — local cron dumps only; known issue #6 restated. |
 | — | **PHASE 1 SHIPPED — 14-day usage gate** | ⬜ | | Phase 1 slices verified; 14-day use gate still open |
 | S5 | Voice partner | 🟡 code-complete | 2026-08-04 | Whisper+TTS; voice sessions; Active>Missed. Unrun: mid-conversation restart. |
 | S5a | Voice processing status | 🟡 code-complete | 2026-08-04 | Repeating chat action + 3-stage status message. Unrun: never tested in Telegram. |
@@ -58,7 +58,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S18c | `/guide` how-to | 🟡 code-complete | 2026-08-10 | Tapped-only topic wizard from GUIDE-saving-phrases; Anki template + field map exact; `/help` + onboarding point at `/guide`; prose command-drift test. |
 | S18d | Access approval + `/admin` | 🟡 code-complete | 2026-08-11 | Migration 005 `access_requests` + `approved_onboarded_users` view; gate at group=-1; operator `/admin` activity-never-content; revoke≠delete; decline cap=2. |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
-| S15a | Watched-folder bridge | 🟡 code-complete | 2026-08-10 | `WATCH_DIR` CSV import (Trancy/LR) + Anki outbox; mtime≥2min; collision-safe moves; due_chunks `id DESC` tie-break; `/import` + settings paths. |
+| S15a | Watched-folder bridge | 🟡 code-complete | 2026-08-10 | `WATCH_DIR` CSV import (Trancy/LR) + Anki outbox; mtime≥2min; collision-safe moves; due_chunks `id DESC` tie-break; `/import` + settings paths. **Prod:** `WATCH_DIR` unset — folder bridge dormant; CSV via Telegram (S15b) is the only import route. |
 | S15b | CSV via Telegram document | 🟡 code-complete | 2026-08-10 | Private-chat `.csv` → shared S15a pipeline in memory; tool from headers; non-CSV warm line; 5 MiB cap; `/help` upload line; independent of `WATCH_DIR`. |
 | S13 | Voice diary (M9) | 🟡 code-complete | 2026-08-09 | Tue/Thu prompts + `/diary`; live M3 wins voice routing; max 2 corrections; no TTS; full transcript discarded. |
 | S14 | Load-up mode (M10) | 🟡 code-complete | 2026-08-09 | `/prep <topic>` → 10 chunks + 3 frames; persist `prep_<slug>` to Anki pool; no sessions/errors; commit-after-send. |
@@ -74,21 +74,27 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 
 | Item | Status | Value / note |
 |---|---|---|
-| Hetzner server | ⬜ | — |
-| PostgreSQL 16 (local / dev) | ✅ | 16.14 on port 5433 (5432 taken by a Docker container from another project) |
-| PostgreSQL 16 (Hetzner / prod) | ⬜ | pending; will use 5432 |
-| DATABASE_URL (session pooler) | ⬜ | put in `.env` from `.env.example` |
-| Telegram bot token | ✅ | in `.env` |
+| Hetzner server | ✅ | CPX32 `fonderis-worker`, 78.46.240.136, Nuremberg, Ubuntu 24.04.4 LTS, Python 3.12.3. **Shared** with Node app `fonderis-worker.service` (port 3011), Redis 6379, Caddy 80/443 — bot must not assume exclusive use. No inbound port (Telegram long-poll outbound). See `docs/DEPLOYMENT.md`. |
+| PostgreSQL 16 (local / Mac / development only) | ✅ | 16.14 on port **5433** (5432 taken by Docker). Not production; Mac data was **not** migrated to Hetzner. |
+| PostgreSQL 16 (Hetzner / prod) | ✅ | Ubuntu repos, port **5432**. Database `english_bot`, owner `bot`. Migrations 001–005 applied. Started empty 2026-08-11. |
+| DATABASE_URL | ✅ | Prod: local DSN `postgresql://bot:…@127.0.0.1:5432/english_bot` in `/home/bot/english-bot/.env` (mode 600). Mac keeps its own for development. |
+| Telegram bot token | ✅ | in `.env` (Mac + server) |
 | Shared group created | ⬜ | — |
-| LLM provider + key | 🟡 | `LLM_PROVIDER`/`LLM_MODEL`/`ANTHROPIC_API_KEY` in config; add real key to `.env` before Telegram verify |
+| LLM provider + key | 🟡 | `LLM_PROVIDER`/`LLM_MODEL`/`ANTHROPIC_API_KEY` in config; real key on server `.env` |
 | Whisper/TTS key | 🟡 | `OPENAI_API_KEY` + STT/TTS model env in config; optional at boot, required before first voice message |
 | YouTube Data API key (S9b) | ⬜ | — |
-| systemd unit | ⬜ | — |
-| Weekly pg_dump to independent storage | 🟡 | Daily local dump ✅; S4c off-site mechanism ✅; `.env` load fixed — confirm copy via `.env`/cron (known issue #6) |
-| User A onboarded | ✅ | `7222549221` — streaks, sessions, book units, calibration history |
+| systemd unit | ✅ | `/etc/systemd/system/english-bot.service` — `User=bot`, `Restart=always`, `RestartSec=10`, journal, enabled at boot |
+| Service user + code | ✅ | User `bot`, home `/home/bot`, code `/home/bot/english-bot`, venv `.venv` |
+| GitHub deploy key | ✅ | Read-only deploy key generated on the server; clone over SSH |
+| Backup cron | ✅ | `bot` crontab `0 4 * * *` → `scripts/backup.sh` (**04:00 UTC = 07:00 Vilnius**). Local dumps → `/home/bot/english-bot-backups` |
+| Weekly pg_dump to independent storage | ⬜ | Local daily dump on same disk ✅; **`BACKUP_OFFSITE_DIR` unset on server** — no off-site copy (known issue #6) |
+| User A onboarded | ✅ | `7222549221` — re-onboarded on empty prod DB via S18d (2026-08-11). Mac still holds prior 5 Murphy units + settings (deliberately left behind). |
 | User B onboarded | ⬜ | EF SET: — |
-| OPERATOR_TELEGRAM_ID | 🟡 | Tracked in `.env` / config (`Settings.operator_telegram_id`); set for S18 alerts |
-| WATCH_DIR (S15a) | ⬜ | Empty = silent no-op; set to existing Drive-synced folder outside the repo |
+| OPERATOR_TELEGRAM_ID | ✅ | Set on server `.env` |
+| RUNTIME_DIR | ✅ | `/home/bot/english-bot-runtime` |
+| BACKUP_DIR | ✅ | `/home/bot/english-bot-backups` |
+| WATCH_DIR (S15a) | ✅ unset (deliberate) | No Drive client on server; folder bridge dormant in prod. CSV via Telegram (S15b) only. |
+| BACKUP_OFFSITE_DIR (S4c) | ✅ unset (deliberate) | Google Drive unreachable from server; freshness check silent while unset (known issue #6 / #31) |
 
 ---
 
@@ -98,6 +104,10 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-11 | Deployed to Hetzner alongside an existing production service | The bot needs no inbound port (Telegram long-poll outbound), so it cannot conflict with the Node app on 3011 / Redis / Caddy. PostgreSQL 16 was added to the shared host rather than a separate box. |
+| 2026-08-11 | Started with an empty database rather than migrating the Mac data | The Mac database had been truncated the previous evening and held only book units and settings; a clean start also exercised the S18d approval flow end to end. Mac data left behind deliberately. |
+| 2026-08-11 | `WATCH_DIR` unset on the server | The S15a folder bridge reads a local path that Google Drive syncs; no Drive client exists on the server and neither user's laptop Drive is reachable. CSV upload via Telegram (S15b) is now the only import route — exactly why it was built. **S15a is effectively dormant in production.** |
+| 2026-08-11 | `BACKUP_OFFSITE_DIR` unset on the server | Google Drive is unreachable from the host; no off-site destination configured yet. Local dumps land on the same disk as the database (known issue #6). |
 | 2026-08-11 | S18d: configured operator always passes the gate | Approve/Decline and `/admin` must work even if the operator id has no `access_requests` row yet (bootstrap). Strangers still blocked. |
 | 2026-08-11 | S18d: `access_requests` table (+ `decline_count`) — not `plan`/`tenant_id`/status-on-users | Pending cannot live on `users` (NOT NULL name/language; write-nothing-until-Save). `plan`/`tenant_id` are Phase 5 commercial vocabulary — reusing them muddies S21. |
 | 2026-08-11 | S18d: view `approved_onboarded_users` is the single delivery predicate; six call sites + drift test | Same lesson as S7a `spacing_step` — six hand-rolled JOINs drift; a missed site silently keeps delivering to a revoked user. |
@@ -388,7 +398,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 3 | Timezone not collected in S1; all users get schema default `Europe/Vilnius`. S20 (Generalize) must add timezone selection when location assumptions are removed. | medium | S1 → S20 | ⬜ open — assumption recorded |
 | 4 | System prompt was under Anthropic Sonnet cache minimum (~1024). Fixed by adding two worked examples; live verify: call2 `cache_read=1641`. | low | S2 | ✅ closed — 2026-08-03 |
 | 5 | Chat-message UI has reached its design ceiling; a Telegram Mini App is the real answer for quiz UX — revisit after the 14-day usage gate, sharing design work with S23. | medium | S3d → post-gate / S23 | ⬜ open |
-| 6 | S4c off-site mechanism exists (verified copy + 48h freshness alert). Human configured `BACKUP_OFFSITE_DIR` to a Google Drive path; verified copy landed off-machine (`size=38564`, sha256 confirmed) via **environment-variable workaround** while `.env` was unread. `.env` load fixed 2026-08-10 — closes once the same works from `.env` and the daily cron run produces a copy without manual intervention. Freshness is in-process only (bot down → no alert). iCloud Optimise Mac Storage may replace dumps with `.….icloud` placeholders — counted as present; prefer turning Optimise off for that folder, or expect placeholders. | high | S4c | ⬜ open — `.env` fix landed; confirm cron/`.env` path |
+| 6 | **Production has no off-site backup.** Daily local dumps (`bot` crontab 04:00 UTC) land in `/home/bot/english-bot-backups` on the **same disk as the database** — not a backup against disk or host failure. `BACKUP_OFFSITE_DIR` is deliberately unset (Google Drive unreachable from the server). Open options (none chosen): (1) Hetzner snapshot backups in the panel (~20% of server cost; whole machine including the other service); (2) `rclone` to Drive or object storage (first real cloud credential on the box); (3) `rsync` down to the Mac (unreliable — Mac not always on). Mac-era note: mechanism + `.env` load were verified before deploy; iCloud placeholders still matter for any Mac-side off-site path. | high | S4c | ⬜ open — restated 2026-08-11 after Hetzner deploy |
 | 7 | Morning quiz LLM blocked the event loop (~17s); APScheduler skipped that tick's evening reading poll (jobs first=10/15). | high | S9a | ✅ closed — 2026-08-06 (`asyncio.to_thread` + mid-interval evening offset) |
 | 8 | S6 per-batch vision cost unmeasured — record observed cost from the first real 10–20 page run | medium | S6 | ⬜ open |
 | 9 | S6 OCR accuracy on real Murphy pages unverified until a clean single-page batch succeeds (first live run failed on JSON shape before accuracy could be judged) | medium | S6 | ✅ closed — 2026-08-09 (clean 10-page OCR batch with valid `target_items`) |
@@ -413,6 +423,8 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 28 | S8 couple challenge produces **no learning signal**: question is generated from a specific error journal row, but a correct group answer does not call `mark_result` (no `source_error_id` column; no migration). Same answer in the morning quiz would advance the spacing ladder. Only product surface where getting something right teaches the system nothing. Fix path: migration adding `source_error_id` → winner’s claim calls `mark_result(..., True)`. | medium | S8 → later | ⬜ open — deliberate omission |
 | 29 | S8 cannot be verified live until a second user is onboarded and a shared Telegram group exists (`COUPLE_CHAT_ID` via `/here`). Ships more unverified surface than most slices. | high | S8 | ⬜ open — blocked on second user + group |
 | 30 | S18c: `docs/GUIDE-saving-phrases.md` and the in-bot `/guide` strings in `texts.py` are two copies of the same content and can diverge. Markdown is the human-facing source for editing; `texts.py` is what ships to Telegram. | low | S18c | ⬜ open — dual copy by design |
+| 31 | `backup_freshness` (S4c) is silent while `BACKUP_OFFSITE_DIR` is unset — by design (do not nag someone who has not opted in). Combined with #6, the absence of off-site copies is invisible until someone looks. | high | S4c | ⬜ open — by design while unset |
+| 32 | Pending kernel upgrade on Hetzner host (running 6.8.0-124, available 6.8.0-137). Reboot also restarts the other production service (`fonderis-worker`) — needs a chosen window. | low | ops | ⬜ open — do not forget |
 
 ---
 
@@ -430,6 +442,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
 | `docs/ARCHITECTURE.md` | Stack, structure, interfaces; §5 jobs; §7 approved access + `/start`/`/ping`/`access:` (S18d) | ✅ |
 | `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a + S18b + S18c + S18d) | ✅ |
+| `docs/DEPLOYMENT.md` | Hetzner runbook: shared host, first-time setup, deploy/update, logs, lockout SQL, restore, two-instance warning | ✅ |
 | `specs/S0-repo-skeleton.md` | S0 spec | ✅ |
 | `specs/S1-onboarding.md` | S1 spec | ✅ |
 | `specs/S1a-onboarding-ux.md` | S1a onboarding UX polish spec | ✅ |
@@ -600,9 +613,9 @@ processed/<telegram_user_id>/
 failed/<telegram_user_id>/
 ```
 
-On this Mac: point at a Google Drive–synced folder (no credentials). On Hetzner: same path via `rclone` + Google service account (deferred — first real cloud credential).
+On this Mac: point at a Google Drive–synced folder (no credentials). **On Hetzner prod: `WATCH_DIR` deliberately unset** — no Drive client; S15a dormant; CSV via Telegram (S15b) only. `rclone` + Google service account remains an open option if the folder bridge is ever needed on the server.
 
-**Operator log tail (S18):** `tail -f ~/english-bot-runtime/bot.log`
+**Operator logs (S18 / prod):** `journalctl -u english-bot -f` (preferred on Hetzner); also `tail -f /home/bot/english-bot-runtime/bot.log`. Message content never appears in either.
 
 ---
 
@@ -713,7 +726,7 @@ Commands and taps needing only a running bot.
 - [ ] **S10** — tapping `Just do 2` completes after 2 answers; DB `score = correct/2`; day can count Active
 - [ ] **S10** — free text mid-nudge reaches correction, not swallowed
 
-### 2. Needs a reading evening (Mon/Wed/Fri, laptop open at `evening_time`)
+### 2. Needs a reading evening (Mon/Wed/Fri at `evening_time` — **runs against the Hetzner server**, not the laptop)
 
 - [ ] **S13** — Mon/Wed/Fri evening is still reading only (no diary prompt that night); `/diary` still works
 - [ ] **S9c** — fresh evening reading message has `Questions`
@@ -723,13 +736,13 @@ Commands and taps needing only a running bot.
 - [ ] **S9a** — second evening poll same day delivers no second reading
 - [ ] **S9a** — next morning's quiz still delivers (reading session does not block it)
 
-### 2b. Needs a diary evening (Tue/Thu, laptop open at `evening_time`)
+### 2b. Needs a diary evening (Tue/Thu at `evening_time` — **runs against the Hetzner server**, not the laptop)
 
 - [ ] **S13** — Tue or Thu at `evening_time` → one diary prompt; second poll same day → nothing; reading does not also fire
 - [ ] **S13** — paused user → no diary prompt
 - [ ] **S13** — with `bot_message_counts = 3` → diary prompt skipped (WARNING), no session row
 
-### 3. Needs a Sunday
+### 3. Needs a Sunday (**checks run against the Hetzner server**, not the laptop)
 
 - [ ] **S11** — Sunday morning delivers a 15-question weekly test with preface; finish → Murphy recommendation matches top error types (labels, studied vs new); no codes; under 400 chars
 - [ ] **S11** — Sunday in rescue → 3Q, not 15
@@ -764,4 +777,4 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-Human: verify S18d at the desk — request flow from a second Telegram account (Approve/Decline, decline cap, `/admin` pause/revoke). Also still open: S18c `/guide` phone read-through; S15b real CSV send; S15a real CSV mapping (#27); S8 second user + group; S18b menu/`/help`; S4c cron/`.env` off-site (#6). Do not start the next slice until the human marks the current desk checks.
+Human: Hetzner deploy is recorded (`docs/DEPLOYMENT.md`). Prefer verifying against the running server — stop any laptop instance first (two pollers split updates). Still open: S18d desk checks that need a second account beyond the empty-DB re-onboard; S18c `/guide` phone read-through; S15b real CSV send; S15a real CSV mapping (#27); S8 second user + group; S18b menu/`/help`; production off-site backup (#6). Do not start the next slice until the human marks the current desk checks.
