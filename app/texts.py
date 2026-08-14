@@ -823,6 +823,12 @@ IMPORT_DOC_RESULT = (
     "Due for review now: {due}"
 )
 
+IMPORT_DOC_VOCAB_SKIPS = (
+    "Couldn't use these words:\n{lines}"
+)
+
+IMPORT_DOC_VOCAB_SKIPS_MORE = "• and {n} more"
+
 IMPORT_DOC_FAILED_HEADERS = (
     "Couldn't map the columns in {filename}. "
     "Forward that file to the person who runs the bot and they'll take a look."

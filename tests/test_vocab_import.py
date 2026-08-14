@@ -22,10 +22,12 @@ from app.services.anki import fetch_unexported_chunks
 from app.services.chunks import due_chunks
 from app.services.users import save_onboarding
 from app.services.vocab_import import (
+    SKIP_LIST_CAP,
     VOCAB_BATCH_SIZE,
     VOCAB_SOURCE,
     VocabGenerationError,
     dedupe_vocabulary_seeds,
+    format_vocab_import_reply,
     generate_vocab_sentences,
     init_vocab_prompt,
     match_and_validate_sentences,
@@ -707,3 +709,253 @@ def test_handler_source_has_no_direct_llm_sdk_import() -> None:
     assert "from app.llm import" not in src
     assert "import app.llm" not in src
     assert "anthropic" not in src
+
+
+# --- S24b: exact-form retry + skip visibility --------------------------------
+
+
+def _vocab_csv_bytes(*words: tuple[str, str]) -> bytes:
+    """Build a minimal vocabulary CSV (Word,Phonetic,Translation,Date)."""
+    lines = ["Word,Phonetic,Translation,Date"]
+    for word, gloss in words:
+        lines.append(f"{word},/{word}/,{gloss},2026-08-11")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def test_s24b_clean_import_exactly_one_chat_call(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    headers, rows = parse_csv_bytes(
+        _vocab_csv_bytes(("tier", "سطح"), ("notch", "شکاف"))
+    )
+    chat_fn = MagicMock(return_value=_fake_sentences(["tier", "notch"]))
+    chunks, counts = prepare_vocabulary_import(
+        headers,
+        rows,
+        user_id=tid,
+        cefr_level="B1",
+        work_domain="Ai engineer",
+        now=date(2026, 8, 14),
+        chat_fn=chat_fn,
+    )
+    assert chat_fn.call_count == 1
+    assert counts.imported == 2
+    assert counts.named_skips == ()
+    assert len(chunks) == 2
+    assert _error_count(tid) == 0
+
+
+def test_s24b_gate_failure_retries_only_failed_word(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    headers, rows = parse_csv_bytes(
+        _vocab_csv_bytes(("tier", "سطح"), ("frustrate", "ناامید کردن"))
+    )
+    calls: list[str] = []
+
+    def _chat(messages, **kwargs):
+        content = messages[0]["content"]
+        calls.append(content)
+        if len(calls) == 1:
+            return {
+                "sentences": [
+                    {
+                        "word": "tier",
+                        "full_sentence": "I noticed a tier in the plan.",
+                    },
+                    {
+                        "word": "frustrate",
+                        "full_sentence": "This is frustrating for me.",
+                    },
+                ]
+            }
+        assert "word: frustrate" in content
+        assert "word: tier" not in content
+        assert "EXACTLY" in content or "exact" in content.casefold()
+        return {
+            "sentences": [
+                {
+                    "word": "frustrate",
+                    "full_sentence": "I frustrate easily when plans change.",
+                }
+            ]
+        }
+
+    chat_fn = MagicMock(side_effect=_chat)
+    chunks, counts = prepare_vocabulary_import(
+        headers,
+        rows,
+        user_id=tid,
+        cefr_level="B1",
+        work_domain="Ai engineer",
+        now=date(2026, 8, 14),
+        chat_fn=chat_fn,
+    )
+    assert chat_fn.call_count == 2
+    assert counts.imported == 2
+    assert counts.named_skips == ()
+    assert {c["chunk"] for c in chunks} == {"tier", "frustrate"}
+    assert _error_count(tid) == 0
+
+
+def test_s24b_fail_both_passes_named_skip_not_written(
+    cleanup_user: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    headers, rows = parse_csv_bytes(
+        _vocab_csv_bytes(("frustrate", "ناامید کردن"))
+    )
+
+    def _chat(messages, **kwargs):
+        return {
+            "sentences": [
+                {
+                    "word": "frustrate",
+                    "full_sentence": "This is frustrating again.",
+                }
+            ]
+        }
+
+    chat_fn = MagicMock(side_effect=_chat)
+    with caplog.at_level(logging.INFO):
+        chunks, counts = prepare_vocabulary_import(
+            headers,
+            rows,
+            user_id=tid,
+            cefr_level="B1",
+            work_domain="marketing",
+            now=date(2026, 8, 14),
+            chat_fn=chat_fn,
+        )
+    assert chat_fn.call_count == 2
+    assert chunks == []
+    assert counts.imported == 0
+    assert counts.named_skips == (
+        ("frustrate", "no sentence used the exact word"),
+    )
+    assert "frustrate" not in caplog.text
+    assert "gate_skips" in caplog.text
+    assert "count=1" in caplog.text
+    assert _error_count(tid) == 0
+
+
+def test_s24b_retry_llm_error_keeps_first_pass(cleanup_user: int) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    headers, rows = parse_csv_bytes(
+        _vocab_csv_bytes(("tier", "سطح"), ("frustrate", "ناامید"))
+    )
+    n = 0
+
+    def _chat(messages, **kwargs):
+        nonlocal n
+        n += 1
+        if n == 1:
+            return {
+                "sentences": [
+                    {
+                        "word": "tier",
+                        "full_sentence": "I noticed a tier in the plan.",
+                    },
+                    {
+                        "word": "frustrate",
+                        "full_sentence": "So frustrating today.",
+                    },
+                ]
+            }
+        raise VocabGenerationError("retry down")
+
+    chat_fn = MagicMock(side_effect=_chat)
+    chunks, counts = prepare_vocabulary_import(
+        headers,
+        rows,
+        user_id=tid,
+        cefr_level="B1",
+        work_domain="marketing",
+        now=date(2026, 8, 14),
+        chat_fn=chat_fn,
+    )
+    assert n == 2
+    assert [c["chunk"] for c in chunks] == ["tier"]
+    assert counts.imported == 1
+    assert counts.named_skips[0][0] == "frustrate"
+    asyncio.run(
+        persist_vocabulary_and_send(
+            user_id=tid, chunks=chunks, send=AsyncMock()
+        )
+    )
+    with connection() as conn:
+        rows_db = conn.execute(
+            "SELECT chunk FROM chunks WHERE user_id = %s", (tid,)
+        ).fetchall()
+    assert [r["chunk"] for r in rows_db] == ["tier"]
+    assert _error_count(tid) == 0
+
+
+def test_s24b_skipped_words_in_reply_not_log(
+    cleanup_user: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    tid = cleanup_user
+    _onboard(tid)
+    headers, rows = parse_csv_bytes(
+        _vocab_csv_bytes(("frustrate", "x"), ("tier", "y"))
+    )
+
+    def _chat(messages, **kwargs):
+        return {
+            "sentences": [
+                {"word": "tier", "full_sentence": "A tier of seats."},
+                {"word": "frustrate", "full_sentence": "Frustrating day."},
+            ]
+        }
+
+    chat_fn = MagicMock(side_effect=_chat)
+    with caplog.at_level(logging.INFO):
+        chunks, counts = prepare_vocabulary_import(
+            headers,
+            rows,
+            user_id=tid,
+            cefr_level="B1",
+            work_domain="marketing",
+            now=date(2026, 8, 14),
+            chat_fn=chat_fn,
+        )
+    reply = format_vocab_import_reply(counts)
+    assert "frustrate" in reply
+    assert "no sentence used the exact word" in reply
+    assert "tier" in {c["chunk"] for c in chunks}
+    assert "frustrate" not in caplog.text
+    assert _error_count(tid) == 0
+
+
+def test_s24b_long_skip_list_truncated() -> None:
+    from app.services.vocab_import import VocabImportCounts
+
+    skips = tuple(
+        (f"w{i}", "no sentence used the exact word")
+        for i in range(SKIP_LIST_CAP + 3)
+    )
+    counts = VocabImportCounts(
+        imported=0,
+        duplicates=0,
+        invalid=len(skips),
+        due=0,
+        named_skips=skips,
+    )
+    reply = format_vocab_import_reply(counts)
+    assert "w0" in reply
+    assert f"w{SKIP_LIST_CAP - 1}" in reply
+    assert f"w{SKIP_LIST_CAP}" not in reply
+    assert "and 3 more" in reply
+
+
+def test_s24b_prompt_contains_quality_instructions() -> None:
+    text = Path("app/prompts/vocab_sentences.txt").read_text(encoding="utf-8")
+    lower = text.casefold()
+    assert "exactly the form" in lower or "exact" in lower
+    assert "inflection" in lower or "derived form" in lower
+    assert "one third" in lower or "third" in lower
+    assert "everyday" in lower
+    assert "idiom" in lower or "notch above" in lower
+    assert "friend" in lower or "ordinary" in lower

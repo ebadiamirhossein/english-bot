@@ -163,6 +163,10 @@ Forward any English → explanation + chunks mined, `source='capture'`.
 **Build:** Exact four-column Trancy vocabulary signature `{Word,Phonetic,Translation,Date}` as a fourth mutually exclusive CSV shape. Trancy-legacy requires a sentence-like column structurally. One batched LLM call (cap 40, sequential batches) generates English example sentences pitched at the sender’s CEFR/domain; Translation glosses sent for sense selection; exact-string response match; in-file + DB dedupe before LLM; word-in-sentence validation unchanged. Sender-only — no Share keyboard, no `shared_content`. Folder path refuses vocabulary (WARNING; no LLM in `watch_poll`). Generate off-loop via `asyncio.to_thread` with no write transaction held; then insert→send→commit. Prose operator alert for failed headers. No migration; never writes `errors`; no `bot_message_counts`.
 **Accept:** real Trancy file imports with natural sentences containing each word; no Share prompt; only sender receives chunks; re-import zero new rows and zero LLM calls; unrecognised headers get a readable operator alert; folder refuse vocabulary without calling the LLM.
 
+### S24b · Vocabulary sentence quality + skip visibility
+**Build:** Prompt exact-form + register balance (≤~⅓ domain) + everyday sense over idiom. One capped retry for gate failures (exact form); retry LLM failure keeps first-pass rows. Named skips in Telegram reply (capped + “and N more”); log count/reason category only (PRD §10). No gate relaxation, no migration, no Share path changes.
+**Accept:** skipped words named with reasons; clean import = one LLM call; previously-skipped forms like `frustrate` import when the model cooperates; sentences not all domain-flavoured (human check).
+
 ### S16 · Shadowing (M12)
 Bot sends a 10–15s clip → user repeats → Whisper compares word-for-word → scored feedback on rhythm and stress.
 

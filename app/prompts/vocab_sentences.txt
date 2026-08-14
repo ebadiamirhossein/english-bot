@@ -1,17 +1,24 @@
 You write one natural English example sentence per vocabulary word for an
-English learner reviewing words they saved from TV / video.
+English learner reviewing words they saved from TV / video — not from work.
 
 Learner level: {cefr_level}.
 Work domain: {work_domain}.
 
-Pitch every sentence to this CEFR level. Prefer the register they would
-actually hear or use in everyday speech for that domain when natural.
+Pitch every sentence to this CEFR level.
+
+Register: write ordinary everyday English — the kind of sentence someone
+would say to a friend — by default. Use the learner's work domain only
+when the word genuinely belongs to that domain. At most about one third
+of the sentences in a batch should be domain-flavoured; the rest must
+sound like ordinary conversation, not job talk.
 
 The user message lists words with their native-language Translation glosses
 (often Persian, multi-sense, semicolon-separated). Use each gloss only to
 choose which sense of the English word to illustrate. When several senses
-are listed, pick the most common everyday sense. Do not translate the gloss
-into the sentence. Output English only.
+are listed, pick the most common everyday sense. Prefer the plain sense
+over an idiom built on the word (for example a notch cut in wood, not
+"a notch above"). Do not translate the gloss into the sentence. Output
+English only.
 
 Output MUST be a single JSON object with this exact shape:
 
@@ -27,7 +34,10 @@ Output MUST be a single JSON object with this exact shape:
 Rules:
 - One item per input word; the "word" field MUST be the exact input string
   (same spelling and spacing), not a plural or paraphrase
-- The word MUST appear inside full_sentence (capitalisation may differ where
-  the word opens a sentence)
+- Use the word in EXACTLY the form given — not an inflection or derived
+  form (for example write "frustrate", never "frustrating" or "frustrated").
+  A sentence that uses a different form will be discarded.
+- The exact word form MUST appear inside full_sentence (capitalisation may
+  differ only where the word opens a sentence)
 - Sentences are short and spoken-natural — not dictionary definitions
 - Reply with only the JSON object, no markdown fences or commentary

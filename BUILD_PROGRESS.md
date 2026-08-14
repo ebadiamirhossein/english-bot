@@ -6,8 +6,8 @@
 **Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
 **Repo:** `english-bot`
 **Last updated:** 2026-08-14
-**Current slice:** S24a
-**Status:** S24a Trancy vocabulary CSV code-complete (634 tests). S24 shared library code-complete; two-user slang fan-out verified live 2026-08-14. Deployed to Hetzner 2026-08-11 (see `docs/DEPLOYMENT.md`). User B onboarded; S8 blocked only on shared group + `COUPLE_CHAT_ID` via `/here`. #27 open for Language Reactor half only. Production off-site backup (#6) still open. Unrun checks remain on S24 / S24a desk + S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3.
+**Current slice:** S24b
+**Status:** S24b vocabulary sentence quality + skip visibility code-complete (641 tests). S24a/S24 shared library code-complete; two-user slang fan-out verified live 2026-08-14. First live Trancy vocab import 2026-08-14 (9 words / 8 imported / 1 skipped; #38 closed). User B onboarded; S8 blocked on shared group + `COUPLE_CHAT_ID`. #27 open for LR half. Production off-site backup (#6) still open. Unrun desk checks remain.
 
 ---
 
@@ -58,7 +58,8 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S18c | `/guide` how-to | 🟡 code-complete | 2026-08-10 | Tapped-only topic wizard from GUIDE-saving-phrases; Anki template + field map exact; `/help` + onboarding point at `/guide`; prose command-drift test. |
 | S18d | Access approval + `/admin` | 🟡 code-complete | 2026-08-11 | Migration 005 `access_requests` + `approved_onboarded_users` view; gate at group=-1; operator `/admin` activity-never-content; revoke≠delete; decline cap=2. |
 | S24 | Shared content library | 🟡 code-complete | 2026-08-14 | Fan-out slang + operator shared books; migration 006 ledger; opt-in Share; convergent backfill; Trancy/LR sender-only. **Live 2026-08-14:** Share prompt for slang; Share fanned to both users (`users_reached: 2`, 5 slang chunks each); re-import imported 0 / already had 5; unrecognised header rejected with zero rows. |
-| S24a | Trancy vocabulary CSV (generated sentences) | 🟡 code-complete | 2026-08-14 | Exact `{Word,Phonetic,Translation,Date}`; batched LLM sentences; sender-only; folder refuses vocab; prose failed-headers alert. |
+| S24a | Trancy vocabulary CSV (generated sentences) | 🟡 code-complete | 2026-08-14 | Exact `{Word,Phonetic,Translation,Date}`; batched LLM sentences; sender-only; folder refuses vocab; prose failed-headers alert. **Live 2026-08-14:** 9 words → 8 imported / 1 skipped (`frustrate`); one call 1052 in / 486 out / 6.3s. |
+| S24b | Vocabulary sentence quality + skip visibility | 🟡 code-complete | 2026-08-14 | Exact-form prompt; one capped gate retry; named skips in reply not log; register-balance prompt (human-verify). |
 | S15 | Real-life capture (M11) | 🟡 code-complete | 2026-08-09 | Forward/`/capture` → explain + chunks only (`source=capture`); never `errors`; commit-after-send; dispatch spies pin M2. |
 | S15a | Watched-folder bridge | 🟡 code-complete | 2026-08-10 | `WATCH_DIR` CSV import (Trancy/LR) + Anki outbox; mtime≥2min; collision-safe moves; due_chunks `id DESC` tie-break; `/import` + settings paths. **Prod:** `WATCH_DIR` unset — folder bridge dormant; CSV via Telegram (S15b) is the only import route. |
 | S15b | CSV via Telegram document | 🟡 code-complete | 2026-08-10 | Private-chat `.csv` → shared S15a pipeline in memory; tool from headers; non-CSV warm line; 5 MiB cap; `/help` upload line; independent of `WATCH_DIR`. |
@@ -106,6 +107,10 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-14 | S24b: exact-form instruction in the prompt — do not relax the word-in-sentence gate | Same `normalize_for_match` invariant as S24/S15a/capture/prep; forking it for vocabulary is how invariants die. Base forms work in present simple. |
+| 2026-08-14 | S24b: one capped retry for gate failures; retry LLMError does not abort when first pass succeeded | Failed words were invisible before. One retry recovers exact-form misses. First-pass rows are already good — aborting them on a retry blip would discard successful work. Whole-file abort still applies only when the **first** pass fails (S24a). |
+| 2026-08-14 | S24b: name skipped words in the Telegram reply; log count + reason category only | Sender owns the content and needs the detail. Logs must not hold vocabulary (PRD §10). Cap + “and N more” avoids a wall of text. |
+| 2026-08-14 | S24b: register balance + everyday sense as prompt instructions only | `work_domain` was colouring nearly every sentence. No unit test can judge register — next live import is the real check. Prefer plain sense over idiom (“a notch above”). |
 | 2026-08-14 | S24a: generate example sentences rather than reject sentence-less Trancy files | Real Trancy vocabulary export has no sentence column and cannot be configured to add one. Chunks without `full_sentence` cannot feed S7 Anki cloze, S16 shadowing, or S7a gap-fill. Cost: sentences are generated, not mined — the word is no longer tied to the scene where it was met (memorability loss). Slang CSV (real examples) stays the better source. |
 | 2026-08-14 | S24a: send Translation glosses into the LLM for sense selection | Multi-sense words (`notch`, `tier`) need the Persian gloss; bare word makes the model pick a sense at random. Prompt: use gloss for sense only, everyday sense when several listed, English output only. |
 | 2026-08-14 | S24a: `Translation` column name is the structural never-share marker | Native-language meanings by construction. A column name (not a separate flag) is what the classifier already sees — a flag could drift from the header. Vocabulary never reaches Share / `shared_content` code. |
@@ -449,8 +454,8 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 34 | S24 two-user fan-out cannot be verified live until User B is onboarded (only one approved user in production). | high | S24 | ✅ closed — 2026-08-14 (slang CSV Share `users_reached: 2`; `SELECT user_id, count(*) FROM chunks WHERE source='slang' GROUP BY user_id` → 5 each) |
 | 35 | S24: a new user’s backfill inserts the whole library with `next_review` = tomorrow; at 2 chunk items/quiz a hundred-item library is ~50 quiz days before anything else competes. Ladder unchanged (constraint 4); bulk-starve `id DESC` still holds for later captures. | medium | S24 | ⬜ open — by design |
 | 36 | S24 shared content ignores the recipient’s CEFR level. B2-level slang now enters an A2 user’s ladder unchanged. | medium | S24 | ⬜ open — no fix this slice |
-| 37 | S24a generated vocabulary sentences are not mined scene context — memorability loss vs slang CSV / real subtitle examples. | medium | S24a | ⬜ open — cost of Trancy export shape |
-| 38 | S24a makes the CSV import path’s per-import LLM cost non-zero (was free). Record observed cost after the first real Trancy vocabulary run. | medium | S24a | ⬜ open — measure on first live import |
+| 37 | S24a generated vocabulary sentences are not mined scene context — memorability loss vs slang CSV / real subtitle examples. Register balance and sense selection are prompt-tuned (S24b) and **not verifiable by unit test** — next live import is the check. First live run also produced an idiomatic `notch` (“a notch above”) against a groove/cut gloss. | medium | S24a → S24b | ⬜ open — human verify next import |
+| 38 | S24a makes the CSV import path’s per-import LLM cost non-zero (was free). | medium | S24a | ✅ closed — 2026-08-14 live: one call, 1052 input / 486 output tokens, 6.3s ≈ 1.1¢ at claude-sonnet-5 (~6¢/mo at 1 file/week). 6.3s is why `asyncio.to_thread` mattered. |
 
 ---
 
@@ -467,7 +472,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `BUILD_PROGRESS.md` | Slice progress / resume context | ✅ |
 | `docs/PRD.md` | Product requirements (B2 band 51–60) | ✅ |
 | `docs/ARCHITECTURE.md` | Stack, structure, interfaces; §5 jobs; §7 approved access + `/start`/`/ping`/`access:` (S18d) | ✅ |
-| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a–S18d + S24 + S24a) | ✅ |
+| `docs/TASKS.md` | Vertical slice list (+ S15a + S15b + S18a–S18d + S24 + S24a + S24b) | ✅ |
 | `docs/DEPLOYMENT.md` | Hetzner runbook: shared host, first-time setup, deploy/update, logs, lockout SQL, restore, two-instance warning | ✅ |
 | `specs/S0-repo-skeleton.md` | S0 spec | ✅ |
 | `specs/S1-onboarding.md` | S1 spec | ✅ |
@@ -499,7 +504,7 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/llm.py` | Anthropic chat + vision (`images=`); `json_mode` tolerant parse + raw truncate on fail; no assistant prefill; only LLM provider SDK import | ✅ |
 | `app/speech.py` | OpenAI STT/TTS wrapper; only speech provider SDK import | ✅ |
 | `app/scheduler.py` | Morning/evening/diary/Sunday report/Anki/nudge/couple/streak/freeze + M13 + heartbeat + backup_freshness + watch_poll | ✅ |
-| `app/texts.py` | User-facing strings + S1d–S18d + S15/S13/S14/S16 + S7a + S15a/S15b + S8 + S24 share + S24a vocab/alert prose | ✅ |
+| `app/texts.py` | User-facing strings + S1d–S18d + S15/S13/S14/S16 + S7a + S15a/S15b + S8 + S24 share + S24a/S24b vocab/alert/skip prose | ✅ |
 | `app/main.py` | Entrypoint; flock; rotating log; error handler; `register_handlers` (gate group=-1 + access/admin + guide + CSV + couple); `setMyCommands`; prompts; scheduler | ✅ |
 | `app/services/commands.py` | BotCommand list + `register_bot_commands` (S18b/S18c); `/guide` after `/help`; `/ping` hidden; `/import` conditional | ✅ |
 | `app/handlers/help.py` | `/help` grouped intent map (S18b); `/guide` pointer (S18c); CSV upload line (S15b); no ceiling bump | ✅ |
@@ -508,10 +513,10 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 | `app/handlers/admin.py` | Operator-only tapped `/admin` panel; pause/resume/revoke; orphan `admin:`; S24 backfill on approve/re-approve | ✅ |
 | `app/services/access_control.py` | approve/decline/revoke/request; `is_approved`; delivery lister drift registry (+ S24 `list_recipients`) | ✅ |
 | `app/services/shared_content.py` | S24 ledger fan-out, convergent backfill, book refresh | ✅ |
-| `app/services/vocab_import.py` | S24a batched sentence generation + validate + persist_and_send | ✅ |
-| `app/prompts/vocab_sentences.txt` | S24a CEFR/domain + gloss→sense → JSON sentences | ✅ |
+| `app/services/vocab_import.py` | S24a/S24b batched sentences + gate retry + named skips + persist_and_send | ✅ |
+| `app/prompts/vocab_sentences.txt` | S24a/S24b CEFR + gloss→sense + exact form + register balance | ✅ |
 | `tests/test_shared_content.py` | S24 slang/books/backfill/idempotency/labels | ✅ |
-| `tests/test_vocab_import.py` | S24a classifier exclusivity, match/dedupe, folder refuse, handler | ✅ |
+| `tests/test_vocab_import.py` | S24a classifier/dedupe/folder + S24b retry/skips/prompt | ✅ |
 | `app/services/admin_panel.py` | Activity-only admin list/format (never journal/chunk/diary text) | ✅ |
 | `tests/test_access_approval.py` | S18d approval/gate/delivery drift/admin content/surface regression | ✅ |
 | `app/handlers/guide.py` | `/guide` tapped-only topic wizard (S18c); orphan `guide:` stale degrade; no MessageHandler | ✅ |
@@ -679,6 +684,9 @@ Do not start S9b until these are cleared or explicitly deferred.
 
 Commands and taps needing only a running bot.
 
+- [ ] **S24b** — send a Trancy vocabulary CSV → skipped words (if any) are named in the reply with a short reason; not only a count
+- [ ] **S24b** — read the generated sentences: not all domain-flavoured (AI/work); ordinary everyday English dominates
+- [ ] **S24b** — a previously-skipped exact-form miss like `frustrate` imports when the model uses the base form
 - [ ] **S24a** — send the real Trancy file (`VOCABULARY_LIST_*.csv`, Word/Phonetic/Translation/Date) → import result with no Share prompt
 - [ ] **S24a** — confirm only the sender receives the chunks (second user has zero new `source=vocabulary` rows)
 - [ ] **S24a** — confirm generated sentences read naturally and contain their words
@@ -822,4 +830,4 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-Human: Prefer verifying against the running server — stop any laptop instance first (two pollers split updates). Deploy if needed. **S24a desk:** send the real Trancy vocabulary CSV → confirm no Share prompt, only sender gets chunks, sentences contain their words, operator failed-headers alert reads as prose; re-send → zero new + fast. **S24 desk (carry forward):** slang Share counts / re-import / quiz+Anki; shared books with `SHARED_BOOK_SLUGS`. **S8:** create shared group + `/here` → set `COUPLE_CHAT_ID` (second user already onboarded). Still open: S18d second-account checks; S18c `/guide` phone read-through; S15b; S15a LR half of #27; S18b menu/`/help`; S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3 unrun items above. After first live vocab import, record observed LLM cost on known issue #38. **Known issue #6 (no off-site backup in production) remains the highest open risk.** Do not start the next slice until the human marks the current desk checks.
+Human: Prefer verifying against the running server — stop any laptop instance first. Deploy if needed. **S24b desk:** send a Trancy vocabulary CSV → confirm skipped words are named with reasons; sentences are not all domain-flavoured; `frustrate`-style exact forms import. **S24a/S24 desk (carry forward):** no Share on vocab; sender-only; re-import zero; slang Share / quiz+Anki; `SHARED_BOOK_SLUGS`. **S8:** shared group + `/here` → `COUPLE_CHAT_ID`. Still open: S18d / S18c / S15b / S15a LR (#27) / S18b / S18a / S7a / S16 / S14 / S13 / S15 / S18 / S11 / S12 / S10 / S6a / S9c / S9a / S9 / S6 / S5 / S5a / S3. **Known issue #6 (no off-site backup in production) remains the highest open risk.** Do not start the next slice until the human marks the current desk checks.

@@ -36,6 +36,7 @@ from app.services.shared_content import record_and_fanout_chunks
 from app.services.users import get_user, is_registered
 from app.services.vocab_import import (
     VocabGenerationError,
+    format_vocab_import_reply,
     persist_vocabulary_and_send,
     prepare_vocabulary_import,
 )
@@ -265,12 +266,7 @@ async def on_csv_document(
             await message.reply_text(texts.IMPORT_DOC_READ_FAILED)
             return
 
-        body = texts.IMPORT_DOC_RESULT.format(
-            imported=counts.imported,
-            duplicates=counts.duplicates,
-            invalid=counts.invalid,
-            due=counts.due,
-        )
+        body = format_vocab_import_reply(counts)
 
         async def _send() -> None:
             await message.reply_text(body)
