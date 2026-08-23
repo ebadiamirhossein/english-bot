@@ -5,7 +5,7 @@ Read this before every task. It replaces `.cursorrules`.
 **Project:** English learning web app (PWA). Rebuild of a Telegram bot into a real app.
 **Learners:** two adults in Vilnius, native Farsi and Lithuanian, B1 → B2.
 **Source of truth:** `docs/PRD-v3-web.md`, `docs/ARCHITECTURE-v3-web.md`, `docs/TASKS-v3-web.md`.
-**Progress record:** `BUILD_PROGRESS.md` — the only one. Do not create per-slice spec markdown files in the repo.
+**Progress record:** `BUILD_PROGRESS.md` — the only one. Do not create per-slice spec markdown files in the repo: nothing may compete with it as the record of what is built and what is verified. `prompts/` is the exception and is not a competing record — it archives the prompt each slice was given, which documents intent rather than state. It is written to only when a slice's prompt is first committed, and is never consulted for build status.
 
 The v2 files (`docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/TASKS.md`) are **superseded historical record**. Read them for context and for the known-issues table. Never build from them.
 
@@ -95,6 +95,8 @@ HTTP route  →  service function  →  SQL
 - The admin panel shows activity, never content.
 
 **Deployment sequence, settled, not to be re-argued:** backup → pull → `pip install -e packages/core` → migrate → restart.
+
+**The production host is shared and is not ours alone.** A separate production Node service (`fonderis-worker`, port 3011) runs on it, Caddy owns 80/443 for that service, and PostgreSQL serves both projects. No slice may `apt upgrade` broadly, reboot, restart a system-wide service, bind to 80/443/3011, rewrite the Caddy config, or run a destructive PostgreSQL command without naming the exact database. Caddy changes are additive site blocks, applied with `reload` and never `restart`. **Every server step is written as an explicit command for the human to run** — Claude Code has no SSH access to this host and is not to be given any, so a server action is never an acceptance criterion a slice can satisfy on its own.
 
 ---
 
