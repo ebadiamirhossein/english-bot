@@ -102,7 +102,8 @@ Then migrate:
 
 ```bash
 cd /home/bot/english-bot
-.venv/bin/python -m app.db migrate
+.venv/bin/pip install -e packages/core   # W1: makes `core` importable
+.venv/bin/python -m core.db migrate
 # Expect migrations 001–005 applied
 ```
 
@@ -121,7 +122,7 @@ Type=simple
 User=bot
 Group=bot
 WorkingDirectory=/home/bot/english-bot
-ExecStart=/home/bot/english-bot/.venv/bin/python -m app.main
+ExecStart=/home/bot/english-bot/.venv/bin/python -m apps.bot.main
 Restart=always
 RestartSec=10
 # Logs go to the journal (no disk message bodies — by design)
@@ -154,14 +155,16 @@ With `BACKUP_OFFSITE_DIR` unset, the script still dumps locally and logs `off-si
 
 ## Deploying an update
 
-Stop any laptop/`python -m app.main` instance first (see **Two instances** below).
+Stop any laptop/`python -m apps.bot.main` instance first (see **Two instances** below).
 
 ```bash
 sudo -u bot -i
 cd /home/bot/english-bot
 git pull
 .venv/bin/pip install -r requirements.txt   # when requirements.txt changed
-.venv/bin/python -m app.db migrate
+.venv/bin/pip install -e packages/core      # W1: required once, and after any
+                                            # packages/core/pyproject.toml change
+.venv/bin/python -m core.db migrate
 sudo systemctl restart english-bot
 ```
 
@@ -239,6 +242,6 @@ Telegram delivers each update to **one** long-poller. A laptop instance left run
 
 Before starting or restarting production:
 
-1. Stop the other process (`Ctrl-C`, kill the local `python -m app.main`, or disable any other host’s unit).
+1. Stop the other process (`Ctrl-C`, kill the local `python -m apps.bot.main`, or disable any other host’s unit).
 2. Confirm only one poller: `/ping` succeeds consistently; `journalctl -u english-bot -f` shows traffic for your taps.
 3. The in-process flock only protects two processes on the **same** machine — it does not stop a second host.
