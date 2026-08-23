@@ -17,8 +17,8 @@ import logging
 from telegram import Update
 from telegram.ext import ApplicationHandlerStop, ContextTypes, TypeHandler
 
-from app.config import load_settings
-from app.services.access_control import is_approved
+from core.config import load_settings
+from core.services.access_control import is_approved
 
 logger = logging.getLogger(__name__)
 

@@ -4,6 +4,65 @@ Handlers and services must import constants from here. Never write a
 user-visible message inline in a handler or service.
 """
 
+# Copy that core services render themselves is defined once, in
+# `core.copy`, and re-exported here so handler call sites and the
+# `dir(texts)` no-guilt tests are unchanged.
+from core.copy import (  # noqa: F401
+    ADMIN_EMPTY,
+    ADMIN_LAST_NEVER,
+    ADMIN_PAUSED_NO,
+    ADMIN_PAUSED_YES,
+    ADMIN_PENDING_ITEM,
+    ADMIN_PENDING_LINE,
+    ADMIN_PENDING_NONE,
+    ADMIN_REVOKED_TAG,
+    ADMIN_TITLE,
+    ADMIN_USER_LINE,
+    ANKI_EMPTY,
+    ANKI_MANUAL,
+    ANKI_SEND_FAILED,
+    ANKI_WEEKLY,
+    BTN_NUDGE_JUST_2,
+    IMPORT_DOC_RESULT,
+    IMPORT_DOC_VOCAB_SKIPS,
+    IMPORT_DOC_VOCAB_SKIPS_MORE,
+    LEVEL_RAISE,
+    NUDGE_FIRST_DIARY,
+    NUDGE_FIRST_QUIZ,
+    NUDGE_FIRST_READING,
+    NUDGE_SECOND_DIARY,
+    NUDGE_SECOND_QUIZ,
+    NUDGE_SECOND_READING,
+    NUDGE_SHORT_ACK,
+    NUDGE_SHORT_DONE,
+    PREP_SECTION_CHUNKS,
+    PREP_SECTION_FRAMES,
+    PREP_TITLE,
+    SHADOW_TIP_AGAIN,
+    SHADOW_TIP_CLEAR,
+    SHADOW_TIP_PART,
+    SOFT_UNHANDLED,
+    STATS_ACTIVE,
+    STATS_BOOKS,
+    STATS_CALIBRATION,
+    STATS_CALIBRATION_NONE,
+    STATS_CHUNKS,
+    STATS_DUE,
+    STATS_HEADER,
+    STATS_LEVEL,
+    STATS_OPERATOR_SWEEP,
+    STATS_RESOLVED,
+    STATS_RESOLVED_NONE,
+    STATS_STREAK,
+    SUNDAY_ACTIVE_FULL,
+    SUNDAY_ACTIVE_SHORT,
+    SUNDAY_LEAD_KEEPING,
+    SUNDAY_LEAD_QUIET,
+    SUNDAY_SHORTFALL,
+    SUNDAY_WHY,
+    format_shadow_feedback,
+)
+
 PONG = "pong"
 
 # --- S18b: Telegram command menu descriptions (outcome-first, lowercase start) ---
@@ -756,14 +815,6 @@ DIARY_DIDNT_CATCH = (
     "I didn't catch that — send another voice note when you're ready?"
 )
 
-NUDGE_FIRST_DIARY = (
-    "Tonight's diary is still open — about a minute whenever you like."
-)
-
-NUDGE_SECOND_DIARY = (
-    "No time for a full minute? Even half a minute still counts."
-)
-
 
 # --- Interests profile (S9) ---------------------------------------------------
 
@@ -822,21 +873,6 @@ READING_CLOSE = "Thanks — I'll lean on that for the next picks."
 
 # --- Anki export (S7 / M6) ----------------------------------------------------
 
-ANKI_WEEKLY = (
-    "Your Anki pack for the week — {count} new card(s). "
-    "Import the TSV into Anki when you're ready."
-)
-
-ANKI_MANUAL = (
-    "Here's your Anki export — {count} new card(s). "
-    "Import the TSV when you're ready."
-)
-
-ANKI_EMPTY = "Nothing new to export yet — keep reading and they'll show up here."
-
-ANKI_SEND_FAILED = (
-    "Something broke on my side sending the file — try /anki again in a moment."
-)
 
 # --- Watched-folder import (S15a) ---------------------------------------------
 
@@ -878,17 +914,6 @@ IMPORT_POLL_RESULT = (
 
 # --- Telegram CSV document (S15b) ---------------------------------------------
 
-IMPORT_DOC_RESULT = (
-    "Import done.\n"
-    "Imported: {imported} · already had: {duplicates} · skipped: {invalid}\n"
-    "Due for review now: {due}"
-)
-
-IMPORT_DOC_VOCAB_SKIPS = (
-    "Couldn't use these words:\n{lines}"
-)
-
-IMPORT_DOC_VOCAB_SKIPS_MORE = "• and {n} more"
 
 IMPORT_DOC_FAILED_HEADERS = (
     "Couldn't map the columns in {filename}. "
@@ -1128,51 +1153,12 @@ BTN_TEST_UNIT_PREFIX = "Unit {unit}"
 
 # --- Motivation / nudges + Sunday report (S10) --------------------------------
 
-NUDGE_FIRST_QUIZ = (
-    "Your quiz is still here whenever you have a few minutes."
-)
-
-NUDGE_FIRST_READING = (
-    "Your reading is still here whenever you have a few minutes."
-)
-
-NUDGE_SECOND_QUIZ = (
-    "No time for the full set? Just do 2 — it still counts."
-)
-
-NUDGE_SECOND_READING = (
-    "No time for all five? Just do 2 questions — it still counts."
-)
-
-NUDGE_SHORT_ACK = "Two questions whenever you're free — tap on the task above."
-
-NUDGE_SHORT_DONE = "Nice — those two count. You're done for this one."
-
-BTN_NUDGE_JUST_2 = "Just do 2"
-
-SUNDAY_LEAD_QUIET = "Quiet this week: {labels}."
-
-SUNDAY_LEAD_KEEPING = "You've been showing up — keep the thread going."
-
-SUNDAY_ACTIVE_FULL = "{n} active days — full week."
-
-SUNDAY_ACTIVE_SHORT = "{n} of {target} active days."
-
-SUNDAY_SHORTFALL = "Room for a couple more next week."
-
-SUNDAY_WHY = "{why}"
-
 
 # --- Calibration (S12 / M14) --------------------------------------------------
-
-LEVEL_RAISE = (
-    "Your English is settling at {level} — I'll pitch things a step up from here."
-)
 
 
 # --- Settings / pause / stats (S18) -------------------------------------------
 
-SOFT_UNHANDLED = "Something broke on my side — try that again in a moment."
 
 PAUSE_PICK = "How long should I hold scheduled messages?"
 
@@ -1188,20 +1174,6 @@ BTN_PAUSE_1D = "1 day"
 BTN_PAUSE_3D = "3 days"
 BTN_PAUSE_7D = "1 week"
 BTN_PAUSE_RESUME = "Resume"
-
-STATS_HEADER = "Your snapshot"
-
-STATS_LEVEL = "Level: {level}"
-STATS_STREAK = "Streak: {streak} day(s) · freeze tokens: {freezes}"
-STATS_ACTIVE = "{active_line}"
-STATS_DUE = "Due errors: {n}"
-STATS_RESOLVED = "Quiet types: {labels}"
-STATS_RESOLVED_NONE = "Quiet types: none yet"
-STATS_CHUNKS = "Chunks: {total} · due: {due} · unexported: {unexported}"
-STATS_BOOKS = "Book units stored: {n}"
-STATS_CALIBRATION = "Calibration: {accuracy} · last change: {change}"
-STATS_CALIBRATION_NONE = "Calibration: not enough recent evidence yet"
-STATS_OPERATOR_SWEEP = "Sweep (ops): pending {pending} · done {done}"
 
 
 # --- Settings editor (S18a) ---------------------------------------------------
@@ -1302,12 +1274,6 @@ PREP_FAILED = (
     "Something broke on my side — try that prep again in a moment."
 )
 
-PREP_TITLE = "Prep: {topic}"
-
-PREP_SECTION_CHUNKS = "Phrases"
-
-PREP_SECTION_FRAMES = "Reply frames"
-
 
 # --- Shadowing (S16 / M12) ----------------------------------------------------
 
@@ -1330,28 +1296,10 @@ SHADOW_FAILED_STT = (
     "I couldn't catch that recording — try the voice note once more?"
 )
 
-SHADOW_TIP_CLEAR = "That came through clearly."
-
-SHADOW_TIP_AGAIN = "Try this part again — a few words didn't come through clearly."
-
-SHADOW_TIP_PART = "Try this part again: {detail}"
 
 SHADOW_DONE = "Nice — that's enough for this one."
 
 BTN_SHADOW_AGAIN = "Try again"
-
-
-def format_shadow_feedback(
-    target: str, attempt: str, tip: str
-) -> str:
-    """Fixed scannable shape for shadow compare (ASR intelligibility)."""
-    return "\n".join(
-        [
-            f"🎯 {target}",
-            f"🎤 {attempt}",
-            f"💡 {tip}",
-        ]
-    )
 
 
 # --- Couple challenge (S8 / M8) -----------------------------------------------
@@ -1429,18 +1377,6 @@ ACCESS_OPERATOR_APPROVED = "Approved {telegram_id}."
 ACCESS_OPERATOR_DECLINED = "Declined {telegram_id}."
 ACCESS_OPERATOR_DONE = "Already handled."
 
-ADMIN_TITLE = "Operator panel"
-ADMIN_PENDING_LINE = "Pending requests: {n}"
-ADMIN_PENDING_NONE = "No pending requests."
-ADMIN_USER_LINE = (
-    "{name} · {level} · streak {streak} · "
-    "active {active}/{week} · last {last} · {paused}"
-)
-ADMIN_PAUSED_YES = "paused"
-ADMIN_PAUSED_NO = "active"
-ADMIN_REVOKED_TAG = "revoked"
-ADMIN_LAST_NEVER = "never"
-ADMIN_EMPTY = "No onboarded users yet."
 ADMIN_STALE = "That panel went stale — send /admin again."
 ADMIN_DONE = "Admin closed."
 ADMIN_CANCELLED = "Admin closed."
@@ -1449,7 +1385,6 @@ ADMIN_REVOKED = "Access revoked for {name}. History kept."
 ADMIN_REAPPROVED = "Access restored for {name}."
 ADMIN_PAUSED = "Paused {name} until {until}."
 ADMIN_RESUMED = "Resumed {name}."
-ADMIN_PENDING_ITEM = "{display} · id {telegram_id}"
 
 BTN_ADMIN_PENDING = "Pending"
 BTN_ADMIN_USERS = "Users"

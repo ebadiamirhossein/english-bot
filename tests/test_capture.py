@@ -12,12 +12,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram import Chat, Message, Update, User
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers import capture as capture_handler
-from app.llm import LLMError
-from app.services.anki import build_tsv, fetch_unexported_chunks
-from app.services.capture import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers import capture as capture_handler
+from core.llm import LLMError
+from core.services.anki import build_tsv, fetch_unexported_chunks
+from core.services.capture import (
     CAPTURE_SOURCE,
     CaptureValidationError,
     format_capture_reply,
@@ -25,9 +25,9 @@ from app.services.capture import (
     target_chunk_count,
     validate_capture_payload,
 )
-from app.services.reading import normalize_for_match
-from app.services.sessions import has_session_on
-from app.services.users import save_onboarding
+from core.services.reading import normalize_for_match
+from core.services.sessions import has_session_on
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
 
@@ -345,7 +345,7 @@ def test_handler_success_no_errors_no_body_in_logs(
     async def _run() -> None:
         with (
             patch(
-                "app.handlers.capture.chat",
+                "apps.bot.handlers.capture.chat",
                 return_value=_sanitized_pii_llm(),
             ),
             caplog.at_level(logging.INFO),
@@ -376,7 +376,7 @@ def test_handler_over_length_no_llm(cleanup_user: int) -> None:
     context.args = [long_text]
     update.message.text = f"/capture {long_text}"
 
-    with patch("app.handlers.capture.chat") as chat_mock:
+    with patch("apps.bot.handlers.capture.chat") as chat_mock:
         asyncio.run(capture_handler.on_capture_command(update, context))
     chat_mock.assert_not_called()
     message.reply_text.assert_awaited_once_with(texts.CAPTURE_TOO_LONG)
@@ -389,7 +389,7 @@ def test_handler_under_length_no_llm(cleanup_user: int) -> None:
     context = MagicMock()
     context.bot.send_chat_action = AsyncMock()
 
-    with patch("app.handlers.capture.chat") as chat_mock:
+    with patch("apps.bot.handlers.capture.chat") as chat_mock:
         asyncio.run(
             capture_handler.on_forwarded_capture(update, context)
         )
@@ -404,7 +404,7 @@ def test_handler_bare_capture_usage_no_llm(cleanup_user: int) -> None:
     context = MagicMock()
     context.args = []
 
-    with patch("app.handlers.capture.chat") as chat_mock:
+    with patch("apps.bot.handlers.capture.chat") as chat_mock:
         asyncio.run(capture_handler.on_capture_command(update, context))
     chat_mock.assert_not_called()
     message.reply_text.assert_awaited_once_with(texts.CAPTURE_USAGE)
@@ -421,7 +421,7 @@ def test_handler_malformed_json_warm_degrade(
 
     async def _run() -> None:
         with (
-            patch("app.handlers.capture.chat", return_value="not-json-object"),
+            patch("apps.bot.handlers.capture.chat", return_value="not-json-object"),
             caplog.at_level(logging.WARNING),
         ):
             await capture_handler._run_capture(update, context, PASSAGE_OK)
@@ -442,7 +442,7 @@ def test_handler_llm_error_warm_degrade(cleanup_user: int) -> None:
 
     async def _run() -> None:
         with patch(
-            "app.handlers.capture.chat",
+            "apps.bot.handlers.capture.chat",
             side_effect=LLMError("boom"),
         ):
             await capture_handler._run_capture(update, context, PASSAGE_OK)
@@ -461,7 +461,7 @@ def test_handler_ok_false_warm_degrade(cleanup_user: int) -> None:
 
     async def _run() -> None:
         with patch(
-            "app.handlers.capture.chat",
+            "apps.bot.handlers.capture.chat",
             return_value={"ok": False, "chunks": []},
         ):
             await capture_handler._run_capture(update, context, PASSAGE_OK)
@@ -485,7 +485,7 @@ def test_handler_send_failure_no_chunks(cleanup_user: int) -> None:
 
     async def _run() -> None:
         with patch(
-            "app.handlers.capture.chat",
+            "apps.bot.handlers.capture.chat",
             return_value=_good_llm(),
         ):
             await capture_handler._run_capture(update, context, PASSAGE_OK)

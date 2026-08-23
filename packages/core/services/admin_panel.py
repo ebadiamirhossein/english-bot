@@ -9,13 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from app import texts
-from app.db import connection
-from app.services.access_control import AccessRequest, count_pending_requests, list_pending_requests
-from app.services.motivation import ACTIVE_LOOKBACK_DAYS, WEEKLY_SUCCESS_DAYS
-from app.services.sessions import count_active_days, local_today
-from app.services.streaks import get_streak
-from app.services.users import get_paused_until
+from core import copy
+from core.db import connection
+from core.services.access_control import AccessRequest, count_pending_requests, list_pending_requests
+from core.services.motivation import ACTIVE_LOOKBACK_DAYS, WEEKLY_SUCCESS_DAYS
+from core.services.sessions import count_active_days, local_today
+from core.services.streaks import get_streak
+from core.services.users import get_paused_until
 
 
 @dataclass(frozen=True)
@@ -92,26 +92,26 @@ def format_admin_home(
 ) -> str:
     n = count_pending_requests() if pending_count is None else pending_count
     lines = [
-        texts.ADMIN_TITLE,
-        texts.ADMIN_PENDING_LINE.format(n=n),
+        copy.ADMIN_TITLE,
+        copy.ADMIN_PENDING_LINE.format(n=n),
         "",
     ]
     if not users:
-        lines.append(texts.ADMIN_EMPTY)
+        lines.append(copy.ADMIN_EMPTY)
         return "\n".join(lines)
 
     for u in users:
         last = (
             u.last_active.isoformat()
             if u.last_active is not None
-            else texts.ADMIN_LAST_NEVER
+            else copy.ADMIN_LAST_NEVER
         )
-        paused = texts.ADMIN_PAUSED_YES if u.paused else texts.ADMIN_PAUSED_NO
+        paused = copy.ADMIN_PAUSED_YES if u.paused else copy.ADMIN_PAUSED_NO
         name = u.name
         if u.revoked:
-            name = f"{name} ({texts.ADMIN_REVOKED_TAG})"
+            name = f"{name} ({copy.ADMIN_REVOKED_TAG})"
         lines.append(
-            texts.ADMIN_USER_LINE.format(
+            copy.ADMIN_USER_LINE.format(
                 name=name,
                 level=u.cefr_level,
                 streak=u.current_streak,
@@ -126,16 +126,16 @@ def format_admin_home(
 
 def format_pending_list(pending: list[AccessRequest] | None = None) -> str:
     items = list_pending_requests() if pending is None else pending
-    lines = [texts.ADMIN_TITLE, texts.ADMIN_PENDING_LINE.format(n=len(items)), ""]
+    lines = [copy.ADMIN_TITLE, copy.ADMIN_PENDING_LINE.format(n=len(items)), ""]
     if not items:
-        lines.append(texts.ADMIN_PENDING_NONE)
+        lines.append(copy.ADMIN_PENDING_NONE)
         return "\n".join(lines)
     for req in items:
         display = req.display_name or (
             f"@{req.username}" if req.username else str(req.telegram_user_id)
         )
         lines.append(
-            texts.ADMIN_PENDING_ITEM.format(
+            copy.ADMIN_PENDING_ITEM.format(
                 display=display,
                 telegram_id=req.telegram_user_id,
             )

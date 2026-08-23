@@ -1,4 +1,4 @@
-"""Unit tests for app.llm — provider is mocked; no real API calls."""
+"""Unit tests for core.llm — provider is mocked; no real API calls."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 import anthropic
 import pytest
 
-from app.config import Settings
-from app.llm import LLMError, _JSON_RAW_LOG_LIMIT, _parse_json, chat
+from core.config import Settings
+from core.llm import LLMError, _JSON_RAW_LOG_LIMIT, _parse_json, chat
 
 
 def _settings() -> Settings:
@@ -54,8 +54,8 @@ def _assert_ends_on_user(create_call: MagicMock) -> None:
     assert messages[-1]["role"] == "user"
 
 
-@patch("app.llm.time.sleep", return_value=None)
-@patch("app.llm.anthropic.Anthropic")
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
 def test_retries_three_times_on_500_then_raises(
     mock_anthropic_cls: MagicMock, mock_sleep: MagicMock
 ) -> None:
@@ -74,8 +74,8 @@ def test_retries_three_times_on_500_then_raises(
     mock_sleep.assert_any_call(2.0)
 
 
-@patch("app.llm.time.sleep", return_value=None)
-@patch("app.llm.anthropic.Anthropic")
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
 def test_does_not_retry_on_400(
     mock_anthropic_cls: MagicMock, mock_sleep: MagicMock
 ) -> None:
@@ -92,7 +92,7 @@ def test_does_not_retry_on_400(
     mock_sleep.assert_not_called()
 
 
-@patch("app.llm.anthropic.Anthropic")
+@patch("core.llm.anthropic.Anthropic")
 def test_json_mode_parses_valid_json(mock_anthropic_cls: MagicMock) -> None:
     client = mock_anthropic_cls.return_value
     client.messages.create.return_value = _make_response(
@@ -110,8 +110,8 @@ def test_json_mode_parses_valid_json(mock_anthropic_cls: MagicMock) -> None:
     _assert_ends_on_user(client.messages.create.call_args)
 
 
-@patch("app.llm.time.sleep", return_value=None)
-@patch("app.llm.anthropic.Anthropic")
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
 def test_json_mode_retries_once_then_raises_on_garbage(
     mock_anthropic_cls: MagicMock, _mock_sleep: MagicMock
 ) -> None:
@@ -134,8 +134,8 @@ def test_json_mode_retries_once_then_raises_on_garbage(
     assert "not-json{{{" in str(exc_info.value)
 
 
-@patch("app.llm.time.sleep", return_value=None)
-@patch("app.llm.anthropic.Anthropic")
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
 def test_json_mode_parse_failure_logs_truncated_raw(
     mock_anthropic_cls: MagicMock,
     _mock_sleep: MagicMock,
@@ -146,7 +146,7 @@ def test_json_mode_parse_failure_logs_truncated_raw(
     client = mock_anthropic_cls.return_value
     client.messages.create.return_value = _make_response(long_prose)
 
-    with caplog.at_level("WARNING", logger="app.llm"):
+    with caplog.at_level("WARNING", logger="core.llm"):
         with pytest.raises(LLMError) as exc_info:
             chat(
                 [{"role": "user", "content": "hi"}],
@@ -203,7 +203,7 @@ def _image_blocks_from_call(create_call: MagicMock) -> list[dict]:
     return []
 
 
-@patch("app.llm.anthropic.Anthropic")
+@patch("core.llm.anthropic.Anthropic")
 def test_images_attached_to_user_message(mock_anthropic_cls: MagicMock) -> None:
     client = mock_anthropic_cls.return_value
     client.messages.create.return_value = _make_response("ok")
@@ -223,8 +223,8 @@ def test_images_attached_to_user_message(mock_anthropic_cls: MagicMock) -> None:
     _assert_ends_on_user(client.messages.create.call_args)
 
 
-@patch("app.llm.time.sleep", return_value=None)
-@patch("app.llm.anthropic.Anthropic")
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
 def test_json_mode_repair_resends_image_blocks(
     mock_anthropic_cls: MagicMock, _mock_sleep: MagicMock
 ) -> None:
@@ -249,8 +249,8 @@ def test_json_mode_repair_resends_image_blocks(
         _assert_ends_on_user(call)
 
 
-@patch("app.llm.time.sleep", return_value=None)
-@patch("app.llm.anthropic.Anthropic")
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
 def test_json_mode_never_ends_on_assistant(
     mock_anthropic_cls: MagicMock, _mock_sleep: MagicMock
 ) -> None:

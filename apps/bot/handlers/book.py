@@ -26,10 +26,11 @@ from telegram.ext import (
     filters,
 )
 
-from app import texts
-from app.config import load_settings
-from app.llm import LLMError
-from app.services.books import (
+from apps.bot import texts
+from core import PROMPTS_DIR
+from core.config import load_settings
+from core.llm import LLMError
+from core.services.books import (
     MAX_PAGES_PER_BATCH,
     MergedUnit,
     PageFailure,
@@ -41,9 +42,9 @@ from app.services.books import (
     preset_book_slug,
     slugify_book_name,
 )
-from app.services.reading import normalize_for_match
-from app.services.shared_content import record_and_fanout_book_units
-from app.services.users import is_registered
+from core.services.reading import normalize_for_match
+from core.services.shared_content import record_and_fanout_book_units
+from core.services.users import is_registered
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ def _maybe_fanout_shared_book(
         stats.users_reached,
     )
 CONVERSATION_TIMEOUT_SECONDS = 3600.0
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "book_ocr.txt"
+_PROMPT_PATH = PROMPTS_DIR / "book_ocr.txt"
 _prompt_template: str | None = None
 
 HANDLER_NAME = "book"

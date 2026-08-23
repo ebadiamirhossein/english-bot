@@ -20,14 +20,14 @@ from telegram import (
 )
 from telegram.ext import ApplicationBuilder, ApplicationHandlerStop, ConversationHandler
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers.access import build_access_handler, gate_unapproved, is_allowed_without_approval
-from app.handlers.access_request import on_access_decide, on_access_request
-from app.handlers.admin import on_admin_command, s18d_button_labels
-from app.handlers.onboarding import start
-from app.main import register_handlers
-from app.services.access_control import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers.access import build_access_handler, gate_unapproved, is_allowed_without_approval
+from apps.bot.handlers.access_request import on_access_decide, on_access_request
+from apps.bot.handlers.admin import on_admin_command, s18d_button_labels
+from apps.bot.handlers.onboarding import start
+from apps.bot.main import register_handlers
+from core.services.access_control import (
     MAX_OPERATOR_DECLINES,
     approve_access,
     decline_access,
@@ -37,21 +37,21 @@ from app.services.access_control import (
     request_access,
     revoke_access,
 )
-from app.services.admin_panel import format_admin_home, list_admin_users
-from app.services.users import is_registered, save_onboarding
-from app.scheduler import (
+from core.services.admin_panel import format_admin_home, list_admin_users
+from core.services.users import is_registered, save_onboarding
+from apps.bot.scheduler import (
     EligibleUser,
     is_user_due_for_anki,
     is_user_due_for_diary,
     is_user_due_for_evening,
     is_user_due_for_morning,
 )
-from app.services.motivation import (
+from core.services.motivation import (
     MotivationUser,
     is_user_due_for_sunday_report,
     sessions_due_for_nudge,
 )
-from app.services.users import get_paused_until, set_paused_until
+from core.services.users import get_paused_until, set_paused_until
 
 FAKE_TELEGRAM_ID_BASE = 9_610_000_000
 OPERATOR_ID = 9_610_999_001
@@ -206,7 +206,7 @@ def test_request_notifies_operator_approve_onboard(
     context.bot.send_message = AsyncMock()
 
     with patch(
-        "app.handlers.access_request.load_settings"
+        "apps.bot.handlers.access_request.load_settings"
     ) as load_settings:
         settings = MagicMock()
         settings.operator_telegram_id = OPERATOR_ID
@@ -225,7 +225,7 @@ def test_request_notifies_operator_approve_onboard(
     context.bot.send_message.reset_mock()
     update2 = _callback_update(tid, "access:request", username="alice")
     with patch(
-        "app.handlers.access_request.load_settings"
+        "apps.bot.handlers.access_request.load_settings"
     ) as load_settings:
         settings = MagicMock()
         settings.operator_telegram_id = OPERATOR_ID
@@ -244,7 +244,7 @@ def test_request_notifies_operator_approve_onboard(
     op_context.bot = MagicMock()
     op_context.bot.send_message = AsyncMock()
     with patch(
-        "app.handlers.access_request.load_settings"
+        "apps.bot.handlers.access_request.load_settings"
     ) as load_settings:
         settings = MagicMock()
         settings.operator_telegram_id = OPERATOR_ID
@@ -273,7 +273,7 @@ def test_request_notifies_operator_approve_onboard(
 def test_decline_warm_line_and_cap(cleanup_user: int, cleanup_operator: int) -> None:
     tid = cleanup_user
     with patch(
-        "app.handlers.access_request.load_settings"
+        "apps.bot.handlers.access_request.load_settings"
     ) as load_settings:
         settings = MagicMock()
         settings.operator_telegram_id = OPERATOR_ID
@@ -323,7 +323,7 @@ def test_operator_unset_stores_no_crash(cleanup_user: int) -> None:
     context.bot = MagicMock()
     context.bot.send_message = AsyncMock()
     with patch(
-        "app.handlers.access_request.load_settings"
+        "apps.bot.handlers.access_request.load_settings"
     ) as load_settings:
         settings = MagicMock()
         settings.operator_telegram_id = None
@@ -478,7 +478,7 @@ def test_admin_ignores_non_operator(cleanup_user: int) -> None:
     update = _message_update(tid, "/admin")
     context = MagicMock()
     context.user_data = {}
-    with patch("app.handlers.admin.load_settings") as load_settings:
+    with patch("apps.bot.handlers.admin.load_settings") as load_settings:
         settings = MagicMock()
         settings.operator_telegram_id = OPERATOR_ID
         load_settings.return_value = settings
@@ -606,7 +606,7 @@ def test_gate_allows_start_and_access_callback(cleanup_user: int) -> None:
 
 
 def test_no_onboarding_bot_data_exports() -> None:
-    import app.handlers.access as access_mod
+    import apps.bot.handlers.access as access_mod
 
     assert not hasattr(access_mod, "mark_onboarding")
     assert not hasattr(access_mod, "clear_onboarding")
@@ -625,17 +625,17 @@ def test_gate_surface_regression_approved_user(cleanup_user: int) -> None:
     settings_spy = AsyncMock(return_value=0)
 
     with (
-        patch("app.handlers.correction.correct_text", correction_spy),
-        patch("app.handlers.quiz.on_quiz_callback", quiz_cb_spy),
-        patch("app.handlers.voice.handle_voice", voice_spy),
-        patch("app.handlers.csv_import.on_csv_document", csv_spy),
-        patch("app.handlers.settings.on_settings_command", settings_spy),
+        patch("apps.bot.handlers.correction.correct_text", correction_spy),
+        patch("apps.bot.handlers.quiz.on_quiz_callback", quiz_cb_spy),
+        patch("apps.bot.handlers.voice.handle_voice", voice_spy),
+        patch("apps.bot.handlers.csv_import.on_csv_document", csv_spy),
+        patch("apps.bot.handlers.settings.on_settings_command", settings_spy),
     ):
-        from app.handlers.correction import build_correction_handler
-        from app.handlers.quiz import build_quiz_handlers
-        from app.handlers.voice import build_voice_handler
-        from app.handlers.csv_import import build_csv_import_handlers
-        from app.handlers.settings import build_settings_editor_handler
+        from apps.bot.handlers.correction import build_correction_handler
+        from apps.bot.handlers.quiz import build_quiz_handlers
+        from apps.bot.handlers.voice import build_voice_handler
+        from apps.bot.handlers.csv_import import build_csv_import_handlers
+        from apps.bot.handlers.settings import build_settings_editor_handler
 
         quiz_text, quiz_choice = build_quiz_handlers()
         csv_doc, _non, _share, _orphan = build_csv_import_handlers()

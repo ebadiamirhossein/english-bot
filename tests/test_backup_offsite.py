@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.scheduler import run_backup_freshness_check
-from app.services.backup_freshness import (
+from apps.bot.scheduler import run_backup_freshness_check
+from core.services.backup_freshness import (
     check_offsite_freshness,
     list_offsite_candidates,
     newest_offsite,
@@ -497,11 +497,11 @@ def test_freshness_alert_throttled(
     (tmp_path / "empty-offsite").mkdir()
     (tmp_path / "runtime").mkdir()
 
-    from app import config as config_mod
+    from core import config as config_mod
 
     settings = config_mod.load_settings()
-    monkeypatch.setattr("app.scheduler.load_settings", lambda: settings)
-    monkeypatch.setattr("app.services.alerts.load_settings", lambda: settings)
+    monkeypatch.setattr("apps.bot.scheduler.load_settings", lambda: settings)
+    monkeypatch.setattr("core.services.alerts.load_settings", lambda: settings)
 
     app = MagicMock()
     app.bot.send_message = AsyncMock()
@@ -532,11 +532,11 @@ def test_freshness_unset_no_alert(
     monkeypatch.setenv("BACKUP_OFFSITE_DIR", "")
     (tmp_path / "runtime").mkdir()
 
-    from app import config as config_mod
+    from core import config as config_mod
 
     settings = config_mod.load_settings()
-    monkeypatch.setattr("app.scheduler.load_settings", lambda: settings)
-    monkeypatch.setattr("app.services.alerts.load_settings", lambda: settings)
+    monkeypatch.setattr("apps.bot.scheduler.load_settings", lambda: settings)
+    monkeypatch.setattr("core.services.alerts.load_settings", lambda: settings)
 
     app = MagicMock()
     app.bot.send_message = AsyncMock()
@@ -563,11 +563,11 @@ def test_freshness_fresh_silent_no_alert(
     monkeypatch.setenv("BACKUP_OFFSITE_DIR", str(offsite))
     (tmp_path / "runtime").mkdir()
 
-    from app import config as config_mod
+    from core import config as config_mod
 
     settings = config_mod.load_settings()
-    monkeypatch.setattr("app.scheduler.load_settings", lambda: settings)
-    monkeypatch.setattr("app.services.alerts.load_settings", lambda: settings)
+    monkeypatch.setattr("apps.bot.scheduler.load_settings", lambda: settings)
+    monkeypatch.setattr("core.services.alerts.load_settings", lambda: settings)
 
     app = MagicMock()
     app.bot.send_message = AsyncMock()

@@ -21,9 +21,9 @@ from telegram.ext import (
     ConversationHandler,
 )
 
-from app import texts
-from app.handlers.onboarding import layout_buttons
-from app.services.users import is_registered
+from apps.bot import texts
+from apps.bot.handlers.onboarding import layout_buttons
+from core.services.users import is_registered
 
 logger = logging.getLogger(__name__)
 

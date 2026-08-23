@@ -98,7 +98,7 @@ def load_settings() -> Settings:
 
     database_url = os.environ.get("DATABASE_URL", "").strip()
     telegram_bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-    # Provider default lives in app.llm (keeps the SDK name out of this file).
+    # Provider default lives in core.llm (keeps the SDK name out of this file).
     llm_api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     llm_provider = os.environ.get("LLM_PROVIDER", "").strip()
     llm_model = (

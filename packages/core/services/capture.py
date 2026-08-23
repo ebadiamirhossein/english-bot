@@ -6,9 +6,9 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Sequence
 
-from app.db import connection
-from app.services.chunks import insert_chunks
-from app.services.reading import normalize_for_match, word_count
+from core.db import connection
+from core.services.chunks import insert_chunks
+from core.services.reading import normalize_for_match, word_count
 
 logger = logging.getLogger(__name__)
 

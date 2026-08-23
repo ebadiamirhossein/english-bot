@@ -16,20 +16,20 @@ from telegram.ext import (
     ConversationHandler,
 )
 
-from app.db import close_pool, connection
-from app.handlers.help import (
+from core.db import close_pool, connection
+from apps.bot.handlers.help import (
     format_help_message,
     on_help_command,
     s18b_user_facing_strings,
 )
-from app.main import register_handlers
-from app.services.commands import (
+from apps.bot.main import register_handlers
+from apps.bot.commands import (
     build_bot_commands,
     hidden_from_menu,
     menu_command_names,
     register_bot_commands,
 )
-from app.services.users import save_onboarding
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_500_000_000
 
@@ -147,7 +147,7 @@ def test_register_bot_commands_calls_set_my_commands_once() -> None:
     bot = MagicMock()
     bot.set_my_commands = AsyncMock()
     with patch(
-        "app.services.commands.watch_dir_configured", return_value=""
+        "apps.bot.commands.watch_dir_configured", return_value=""
     ):
         asyncio.run(register_bot_commands(bot))
     bot.set_my_commands.assert_awaited_once()
@@ -162,7 +162,7 @@ def test_register_bot_commands_failure_logs_warning_not_raise(
 ) -> None:
     bot = MagicMock()
     bot.set_my_commands = AsyncMock(side_effect=RuntimeError("network"))
-    with caplog.at_level(logging.WARNING, logger="app.services.commands"):
+    with caplog.at_level(logging.WARNING, logger="apps.bot.commands"):
         asyncio.run(register_bot_commands(bot))
     assert any("setMyCommands" in r.message for r in caplog.records)
     assert any(r.levelno == logging.WARNING for r in caplog.records)

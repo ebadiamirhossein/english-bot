@@ -8,10 +8,10 @@ from datetime import date
 import pytest
 from psycopg.types.json import Jsonb
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers import quiz as quiz_handler
-from app.handlers.quiz import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers import quiz as quiz_handler
+from apps.bot.handlers.quiz import (
     distribute_tracks,
     error_type_label,
     format_completion_message,
@@ -19,8 +19,8 @@ from app.handlers.quiz import (
     init_quiz_prompt,
     recent_prompts_for_errors,
 )
-from app.services.errors import Error
-from app.services.users import save_onboarding
+from core.services.errors import Error
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_330_000_000
 

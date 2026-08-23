@@ -12,18 +12,18 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app import texts
-from app.config import Settings
-from app.db import close_pool, connection
-from app.handlers import couple as couple_handler
-from app.handlers.couple import (
+from apps.bot import texts
+from core.config import Settings
+from core.db import close_pool, connection
+from apps.bot.handlers import couple as couple_handler
+from apps.bot.handlers.couple import (
     generate_question_from_error,
     run_couple_poll,
     wrap_error_row,
 )
-from app.scheduler import EligibleUser, is_user_due_for_morning
-from app.services.calibration import compute_accuracy_window
-from app.services.couple import (
+from apps.bot.scheduler import EligibleUser, is_user_due_for_morning
+from core.services.calibration import compute_accuracy_window
+from apps.bot.services.couple import (
     add_point,
     claim_sunday_leaderboard,
     claim_win,
@@ -39,9 +39,9 @@ from app.services.couple import (
     scores_for_week,
     week_start,
 )
-from app.services.sessions import has_session_on
-from app.services.streaks import evaluate_pending, get_streak, roll_over_day
-from app.services.users import save_onboarding
+from core.services.sessions import has_session_on
+from core.services.streaks import evaluate_pending, get_streak, roll_over_day
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_490_000_000
 COUPLE_CHAT = -100999888777
@@ -209,12 +209,12 @@ def test_feature_ready_requires_chat_and_two_users(
     assert feature_ready(_settings(couple_chat_id=None)) is False
     _onboard(a, name="A")
     with patch(
-        "app.services.couple.registered_user_ids", return_value=[a]
+        "apps.bot.services.couple.registered_user_ids", return_value=[a]
     ):
         assert feature_ready(_settings()) is False
     _onboard(b, name="B")
     with patch(
-        "app.services.couple.registered_user_ids",
+        "apps.bot.services.couple.registered_user_ids",
         return_value=sorted([a, b]),
     ):
         assert feature_ready(_settings()) is True
@@ -235,7 +235,7 @@ def test_pick_source_error_from_journal(
     )
     _insert_error(other, you_said="other-form", times_wrong=1)
     with patch(
-        "app.services.couple.registered_user_ids", return_value=ids
+        "apps.bot.services.couple.registered_user_ids", return_value=ids
     ):
         err = pick_source_error(day)
     assert err is not None
@@ -284,7 +284,7 @@ def test_wrong_answer_warm_reply_no_point(
         update.message.reply_text = AsyncMock()
         update.effective_user = MagicMock(id=a, first_name="A")
         with patch(
-            "app.handlers.couple.couple_local_today", return_value=day
+            "apps.bot.handlers.couple.couple_local_today", return_value=day
         ):
             await couple_handler.on_couple_answer(update, MagicMock())
         update.message.reply_text.assert_awaited_once_with(
@@ -314,7 +314,7 @@ def test_already_claimed_no_second_point(
     assert ch is not None
     # Simulate the race window: handler still sees an "open" row, but the
     # conditional UPDATE finds winner_user_id already set.
-    from app.services.couple import CoupleChallenge
+    from apps.bot.services.couple import CoupleChallenge
 
     open_view = CoupleChallenge(
         id=ch.id,
@@ -333,10 +333,10 @@ def test_already_claimed_no_second_point(
         update_b.effective_user = MagicMock(id=b, first_name="B")
         with (
             patch(
-                "app.handlers.couple.couple_local_today", return_value=day
+                "apps.bot.handlers.couple.couple_local_today", return_value=day
             ),
             patch(
-                "app.handlers.couple.get_open_challenge",
+                "apps.bot.handlers.couple.get_open_challenge",
                 return_value=open_view,
             ),
         ):
@@ -406,7 +406,7 @@ def test_poll_inert_with_one_user(cleanup_pair: tuple[int, int]) -> None:
 
     async def _run() -> None:
         with patch(
-            "app.handlers.couple.feature_ready", return_value=False
+            "apps.bot.handlers.couple.feature_ready", return_value=False
         ):
             actions = await run_couple_poll(
                 app, now=now, settings=_settings()
@@ -421,7 +421,7 @@ def test_one_user_feature_ready_false(cleanup_pair: tuple[int, int]) -> None:
     a, _b = cleanup_pair
     _onboard(a)
     with patch(
-        "app.services.couple.registered_user_ids", return_value=[a]
+        "apps.bot.services.couple.registered_user_ids", return_value=[a]
     ):
         assert feature_ready(_settings()) is False
 
@@ -451,14 +451,14 @@ def test_question_posts_from_real_error(
 
     async def _run() -> None:
         with (
-            patch("app.handlers.couple.feature_ready", return_value=True),
-            patch("app.handlers.couple.chat", side_effect=_fake_chat),
+            patch("apps.bot.handlers.couple.feature_ready", return_value=True),
+            patch("apps.bot.handlers.couple.chat", side_effect=_fake_chat),
             patch(
-                "app.handlers.couple.registered_user_ids",
+                "apps.bot.handlers.couple.registered_user_ids",
                 return_value=sorted([a, b]),
             ),
             patch(
-                "app.services.couple.registered_user_ids",
+                "apps.bot.services.couple.registered_user_ids",
                 return_value=sorted([a, b]),
             ),
         ):
@@ -508,13 +508,13 @@ def test_sunday_leaderboard_once(
 
     async def _run() -> None:
         with (
-            patch("app.handlers.couple.feature_ready", return_value=True),
+            patch("apps.bot.handlers.couple.feature_ready", return_value=True),
             patch(
-                "app.handlers.couple.registered_user_ids",
+                "apps.bot.handlers.couple.registered_user_ids",
                 return_value=sorted([a, b]),
             ),
             patch(
-                "app.services.couple.registered_user_ids",
+                "apps.bot.services.couple.registered_user_ids",
                 return_value=sorted([a, b]),
             ),
         ):
@@ -628,7 +628,7 @@ def test_wrap_error_includes_journal_forms(
     _onboard(a)
     _onboard(b)
     eid = _insert_error(a, you_said="so much good", correct_form="very good")
-    from app.services.errors import get_error_for_user
+    from core.services.errors import get_error_for_user
 
     err = get_error_for_user(a, eid)
     assert err is not None
@@ -644,14 +644,14 @@ def test_generate_question_uses_to_thread(
     _onboard(a)
     _onboard(b)
     eid = _insert_error(a)
-    from app.services.errors import get_error_for_user
+    from core.services.errors import get_error_for_user
 
     err = get_error_for_user(a, eid)
     assert err is not None
 
     async def _run() -> None:
         with patch(
-            "app.handlers.couple.chat",
+            "apps.bot.handlers.couple.chat",
             return_value={"question": "Q?", "answer": "A"},
         ) as chat_mock:
             result = await generate_question_from_error(err)

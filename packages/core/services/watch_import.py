@@ -18,16 +18,16 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, Sequence
 
-from app.config import load_settings
-from app.db import connection
-from app.services.chunks import count_due_chunks, insert_chunks
-from app.services.paths import (
+from core.config import load_settings
+from core.db import connection
+from core.services.chunks import count_due_chunks, insert_chunks
+from core.services.paths import (
     PathSafetyError,
     assert_path_outside_repo,
     collision_safe_dest,
     move_collision_safe,
 )
-from app.services.reading import normalize_for_match
+from core.services.reading import normalize_for_match
 
 logger = logging.getLogger(__name__)
 

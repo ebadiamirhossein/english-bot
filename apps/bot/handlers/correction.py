@@ -15,18 +15,19 @@ from telegram.ext import ContextTypes, MessageHandler, filters
 
 from datetime import datetime, timezone
 
-from app import texts
-from app.db import connection
-from app.llm import LLMError, chat
-from app.services.errors import record_errors
-from app.services.sessions import complete_open_free_practice, local_today
-from app.services.users import User, get_user, is_registered
+from apps.bot import texts
+from core import PROMPTS_DIR
+from core.db import connection
+from core.llm import LLMError, chat
+from core.services.errors import record_errors
+from core.services.sessions import complete_open_free_practice, local_today
+from core.services.users import User, get_user, is_registered
 
 logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "correction"
 
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "correction.txt"
+_PROMPT_PATH = PROMPTS_DIR / "correction.txt"
 _MIN_CHARS = 10
 _MAX_CHARS = 1000
 

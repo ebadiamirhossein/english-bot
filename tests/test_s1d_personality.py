@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app import texts
-from app.handlers.onboarding import layout_buttons
+from apps.bot import texts
+from apps.bot.handlers.onboarding import layout_buttons
 
 
 def _all_option_reaction_keys() -> set[str]:

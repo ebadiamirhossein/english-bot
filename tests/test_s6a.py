@@ -11,17 +11,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.db import close_pool, connection
-from app.handlers import book_test as book_test_handler
-from app.handlers import quiz as quiz_handler
-from app.handlers.book_test import (
+from core.db import close_pool, connection
+from apps.bot.handlers import book_test as book_test_handler
+from apps.bot.handlers import quiz as quiz_handler
+from apps.bot.handlers.book_test import (
     all_s6a_button_labels,
     parse_test_unit_arg,
     plan_tap_formats,
 )
-from app.handlers.correction import init_correction_prompt
-from app.handlers.quiz import init_quiz_prompt
-from app.services.books import (
+from apps.bot.handlers.correction import init_correction_prompt
+from apps.bot.handlers.quiz import init_quiz_prompt
+from core.services.books import (
     MergedUnit,
     dedupe_teachable_items,
     find_units_by_number,
@@ -30,14 +30,14 @@ from app.services.books import (
     teachable_items_for_unit,
     upsert_unit,
 )
-from app.services.errors import record_errors
-from app.services.sessions import (
+from core.services.errors import record_errors
+from core.services.sessions import (
     abandon_open_book_tests,
     has_session_on,
     insert_session,
 )
-from app.services.streaks import get_streak, roll_over_day
-from app.services.users import save_onboarding
+from core.services.streaks import get_streak, roll_over_day
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
 
@@ -801,7 +801,7 @@ def test_one_book_no_disambiguation(cleanup_user: int) -> None:
         context.bot.send_message = AsyncMock(
             return_value=MagicMock(message_id=55)
         )
-        with patch("app.handlers.book_test.chat", side_effect=fake_chat):
+        with patch("apps.bot.handlers.book_test.chat", side_effect=fake_chat):
             await book_test_handler.handle_test_command(update, context)
         # Started a set — no which-book prompt
         update.message.reply_text.assert_not_awaited()

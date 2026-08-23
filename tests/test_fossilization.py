@@ -9,22 +9,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.db import close_pool, connection
-from app.handlers import quiz as quiz_handler
-from app.services.errors import (
+from core.db import close_pool, connection
+from apps.bot.handlers import quiz as quiz_handler
+from core.services.errors import (
     get_error_for_user,
     mark_result,
     pick_fossil_retest_ids,
     resolved_types,
     run_monthly_fossil_sweep,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     create_fossil_sweep_session,
     get_session_by_id,
     mark_fossil_retest_done,
     open_fossil_sweep_for_user,
 )
-from app.services.users import save_onboarding
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_521_000_000
 
@@ -376,7 +376,7 @@ def test_advance_correct_retest_preserves_resolved_at(cleanup_user: int) -> None
     resolved_at = date(2026, 4, 15)
     eid = _insert_resolved(tid, resolved_at=resolved_at)
     fossil_sid = create_fossil_sweep_session(tid, _MONTH_START, pending=[eid])
-    from app.services.sessions import insert_session, update_session_payload
+    from core.services.sessions import insert_session, update_session_payload
 
     payload = {
         "index": 0,

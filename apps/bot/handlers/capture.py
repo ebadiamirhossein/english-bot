@@ -19,21 +19,22 @@ from telegram.ext import (
     filters,
 )
 
-from app import texts
-from app.llm import LLMError, chat
-from app.services.capture import (
+from apps.bot import texts
+from core import PROMPTS_DIR
+from core.llm import LLMError, chat
+from core.services.capture import (
     CaptureValidationError,
     format_capture_reply,
     persist_and_send,
     validate_capture_payload,
 )
-from app.services.users import User, get_user, is_registered
+from core.services.users import User, get_user, is_registered
 
 logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "capture"
 
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "capture.txt"
+_PROMPT_PATH = PROMPTS_DIR / "capture.txt"
 _MIN_CHARS = 20
 _MAX_CHARS = 4000
 _MAX_TOKENS = 1500

@@ -10,8 +10,8 @@ import logging
 
 from telegram import BotCommand
 
-from app import texts
-from app.services.watch_import import watch_dir_configured
+from apps.bot import texts
+from core.services.watch_import import watch_dir_configured
 
 logger = logging.getLogger(__name__)
 

@@ -22,11 +22,12 @@ from telegram.ext import (
     ContextTypes,
 )
 
-from app import texts
-from app.db import connection
-from app.handlers.correction import error_type_list_text
-from app.handlers.onboarding import layout_buttons
-from app.handlers.quiz import (
+from apps.bot import texts
+from core import PROMPTS_DIR
+from core.db import connection
+from apps.bot.handlers.correction import error_type_list_text
+from apps.bot.handlers.onboarding import layout_buttons
+from apps.bot.handlers.quiz import (
     _MAX_BUTTON_LABEL_CHARS,
     _advance_after_answer,
     _clean_question_fields,
@@ -36,25 +37,25 @@ from app.handlers.quiz import (
     grade_answer,
     grade_spot,
 )
-from app.llm import LLMError, chat
-from app.services.books import (
+from core.llm import LLMError, chat
+from core.services.books import (
     find_units_by_number,
     list_units_for_user,
     teachable_items_for_unit,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     abandon_open_book_tests,
     get_book_test_session_by_message,
     insert_session,
     local_today,
     update_session_payload,
 )
-from app.services.users import get_user
+from core.services.users import get_user
 
 logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "book_test"
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "book_quiz.txt"
+_PROMPT_PATH = PROMPTS_DIR / "book_quiz.txt"
 _prompt_template: str | None = None
 
 _BOOK_LABELS = {

@@ -9,9 +9,9 @@ from __future__ import annotations
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
-from app import texts
-from app.services.users import is_registered
-from app.services.watch_import import watch_dir_configured
+from apps.bot import texts
+from core.services.users import is_registered
+from core.services.watch_import import watch_dir_configured
 
 
 def format_help_message(*, include_import: bool | None = None) -> str:

@@ -27,20 +27,20 @@ from telegram.ext import (
     filters,
 )
 
-from app import texts
-from app.db import connection
-from app.services.alerts import notify_operator
-from app.services.chunks import count_due_chunks, insert_chunks
-from app.services.reading import normalize_for_match
-from app.services.shared_content import record_and_fanout_chunks
-from app.services.users import get_user, is_registered
-from app.services.vocab_import import (
+from apps.bot import texts
+from core.db import connection
+from core.services.alerts import notify_operator
+from core.services.chunks import count_due_chunks, insert_chunks
+from core.services.reading import normalize_for_match
+from core.services.shared_content import record_and_fanout_chunks
+from core.services.users import get_user, is_registered
+from core.services.vocab_import import (
     VocabGenerationError,
     format_vocab_import_reply,
     persist_vocabulary_and_send,
     prepare_vocabulary_import,
 )
-from app.services.watch_import import (
+from core.services.watch_import import (
     CSV_IMPORT_MAX_BYTES,
     classify_csv_format,
     import_csv_bytes,

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Sequence
 
-from app.db import connection
+from core.db import connection
 
 logger = logging.getLogger(__name__)
 

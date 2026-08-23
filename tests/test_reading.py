@@ -12,22 +12,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.db import close_pool, connection
-from app.handlers.reading import deliver_evening, init_reading_prompt
-from app.scheduler import (
+from core.db import close_pool, connection
+from apps.bot.handlers.reading import deliver_evening, init_reading_prompt
+from apps.bot.scheduler import (
     EVENING_FIRST_SECONDS,
     POLL_SECONDS,
     EligibleUser,
     is_user_due_for_evening,
     is_user_due_for_morning,
 )
-from app.services.interests import list_interests, replace_interests, select_topic
-from app.services.reading import (
+from core.services.interests import list_interests, replace_interests, select_topic
+from core.services.reading import (
     ReadingValidationError,
     normalize_for_match,
     validate_reading_payload,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     bot_initiated_count,
     has_reading_session_on,
     has_session_on,
@@ -35,7 +35,7 @@ from app.services.sessions import (
     insert_session,
     local_today,
 )
-from app.services.users import save_onboarding
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_460_000_000
 

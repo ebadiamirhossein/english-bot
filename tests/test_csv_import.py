@@ -12,14 +12,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram import Chat, Document, Message, Update, User
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers.csv_import import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers.csv_import import (
     on_csv_document,
     on_non_csv_document,
 )
-from app.services.users import save_onboarding
-from app.services.watch_import import (
+from core.services.users import save_onboarding
+from core.services.watch_import import (
     CSV_IMPORT_MAX_BYTES,
     clear_orphan_warnings,
     detect_tool_from_headers,
@@ -129,12 +129,12 @@ def _context_with_download(data: bytes) -> MagicMock:
 
 def test_one_mapping_implementation() -> None:
     """Folder and Telegram entrances must not drift into two mappers."""
-    src = Path("app/services/watch_import.py").read_text(encoding="utf-8")
+    src = Path("packages/core/services/watch_import.py").read_text(encoding="utf-8")
     assert src.count("def map_headers(") == 1
     assert src.count("def import_csv_rows(") == 1
     assert "def import_csv_bytes(" in src
     assert "def process_csv_file(" in src
-    handler = Path("app/handlers/csv_import.py").read_text(encoding="utf-8")
+    handler = Path("apps/bot/handlers/csv_import.py").read_text(encoding="utf-8")
     assert "map_headers" not in handler
     assert "import_csv_bytes" in handler
 
@@ -250,7 +250,7 @@ def test_unrecognisable_headers_no_persist_alerts_operator(
     context = _context_with_download(_BAD_HEADERS_CSV.encode("utf-8"))
     with (
         patch(
-            "app.handlers.csv_import.notify_operator", new=AsyncMock()
+            "apps.bot.handlers.csv_import.notify_operator", new=AsyncMock()
         ) as notify,
         caplog.at_level(logging.WARNING),
         patch.object(Message, "reply_text", new=AsyncMock()) as reply,
@@ -279,15 +279,15 @@ def test_non_csv_warm_line_no_llm(cleanup_user: int) -> None:
     update = _doc_update(tid, file_name="notes.xlsx")
     context = MagicMock()
     with (
-        patch("app.llm.chat", new=MagicMock()) as llm,
+        patch("core.llm.chat", new=MagicMock()) as llm,
         patch.object(Message, "reply_text", new=AsyncMock()) as reply,
     ):
         asyncio.run(on_non_csv_document(update, context))
     llm.assert_not_called()
     reply.assert_awaited_once_with(texts.IMPORT_DOC_NOT_CSV)
-    handler_src = Path("app/handlers/csv_import.py").read_text(encoding="utf-8")
-    assert "app.llm" not in handler_src
-    assert "from app import llm" not in handler_src
+    handler_src = Path("apps/bot/handlers/csv_import.py").read_text(encoding="utf-8")
+    assert "core.llm" not in handler_src
+    assert "from core import llm" not in handler_src
 
 
 def test_oversized_refused_before_download(cleanup_user: int) -> None:
@@ -318,7 +318,7 @@ def test_handler_reports_counts(cleanup_user: int) -> None:
     update = _doc_update(tid, file_name="export.csv")
     context = _context_with_download(_TRANCY_CSV.encode("utf-8"))
     with (
-        patch("app.handlers.csv_import.notify_operator", new=AsyncMock()),
+        patch("apps.bot.handlers.csv_import.notify_operator", new=AsyncMock()),
         patch.object(Message, "reply_text", new=AsyncMock()) as reply,
     ):
         asyncio.run(on_csv_document(update, context))
@@ -336,11 +336,11 @@ def test_dedupe_across_folder_and_telegram(
     root = tmp_path / "watch"
     root.mkdir()
     monkeypatch.setattr(
-        "app.services.watch_import.load_settings",
+        "core.services.watch_import.load_settings",
         lambda: MagicMock(watch_dir=str(root)),
     )
     monkeypatch.setattr(
-        "app.services.watch_import.assert_path_outside_repo",
+        "core.services.watch_import.assert_path_outside_repo",
         lambda path, label="WATCH_DIR": Path(path).resolve(),
     )
     ensure_user_layout(root, tid)
@@ -349,7 +349,7 @@ def test_dedupe_across_folder_and_telegram(
     # Age via utime without sleeping the wall clock.
     import os
     import time
-    from app.services.watch_import import IMPORT_STABLE_AFTER
+    from core.services.watch_import import IMPORT_STABLE_AFTER
     from datetime import timedelta
 
     age = IMPORT_STABLE_AFTER + timedelta(seconds=30)
@@ -378,10 +378,10 @@ def test_watch_dir_unset_telegram_still_works(
     tid = cleanup_user
     _onboard(tid)
     monkeypatch.setattr(
-        "app.services.watch_import.load_settings",
+        "core.services.watch_import.load_settings",
         lambda: MagicMock(watch_dir=""),
     )
-    from app.services.watch_import import watch_dir_configured
+    from core.services.watch_import import watch_dir_configured
 
     assert watch_dir_configured() == ""
     result = import_csv_bytes(
@@ -394,7 +394,7 @@ def test_watch_dir_unset_telegram_still_works(
 
 
 def test_no_disk_write_in_handler() -> None:
-    src = Path("app/handlers/csv_import.py").read_text(encoding="utf-8")
+    src = Path("apps/bot/handlers/csv_import.py").read_text(encoding="utf-8")
     assert "download_as_bytearray" in src
     assert "WATCH_DIR" not in src or "Independent" in src
     assert "write_bytes" not in src

@@ -15,22 +15,23 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import CommandHandler, ContextTypes
 
-from app import texts
-from app.llm import LLMError, chat
-from app.services.prep import (
+from apps.bot import texts
+from core import PROMPTS_DIR
+from core.llm import LLMError, chat
+from core.services.prep import (
     EXPECTED_CHUNKS,
     PrepValidationError,
     format_prep_reply,
     persist_and_send,
     validate_prep_payload,
 )
-from app.services.users import User, get_user, is_registered
+from core.services.users import User, get_user, is_registered
 
 logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "prep"
 
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "prep.txt"
+_PROMPT_PATH = PROMPTS_DIR / "prep.txt"
 _MIN_TOPIC_CHARS = 3
 _MAX_TOPIC_CHARS = 200
 _MAX_TOKENS = 2500

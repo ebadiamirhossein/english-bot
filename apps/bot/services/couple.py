@@ -15,10 +15,10 @@ from datetime import date, datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.config import Settings
-from app.db import connection
-from app.services.errors import Error
-from app.services.sessions import local_today
+from core.config import Settings
+from core.db import connection
+from core.services.errors import Error
+from core.services.sessions import local_today
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from psycopg.types.json import Jsonb
 
-from app.db import connection
+from core.db import connection
 
 logger = logging.getLogger(__name__)
 

@@ -15,14 +15,14 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from app import texts
-from app.db import connection
-from app.services.sessions import (
+from core import copy
+from core.db import connection
+from core.services.sessions import (
     increment_bot_messages,
     local_today,
     under_message_ceiling,
 )
-from app.services.users import update_cefr_level
+from core.services.users import update_cefr_level
 
 logger = logging.getLogger(__name__)
 
@@ -360,7 +360,7 @@ def maybe_calibrate(user_id: int, *, now: datetime) -> CalibrationOutcome:
             raised = _raise_level(level)
             if raised is not None:
                 new_level = raised
-                raise_notice = texts.LEVEL_RAISE.format(level=new_level)
+                raise_notice = copy.LEVEL_RAISE.format(level=new_level)
         elif accuracy < LOWER_THRESHOLD:
             lowered = _lower_level(level)
             if lowered is not None:
@@ -429,5 +429,5 @@ async def deliver_raise_notice(
 def s12_user_facing_strings() -> list[str]:
     """Every S12 user-facing string for no-guilt assertions."""
     return [
-        texts.LEVEL_RAISE.format(level="B2"),
+        copy.LEVEL_RAISE.format(level="B2"),
     ]

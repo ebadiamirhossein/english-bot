@@ -21,12 +21,12 @@ from telegram.ext import (
     ConversationHandler,
 )
 
-from app import texts
-from app.config import load_settings
-from app.handlers.onboarding import layout_buttons
-from app.services.sessions import local_today
-from app.services.stats import collect_stats, format_stats_message
-from app.services.users import (
+from apps.bot import texts
+from core.config import load_settings
+from apps.bot.handlers.onboarding import layout_buttons
+from core.services.sessions import local_today
+from core.services.stats import collect_stats, format_stats_message
+from core.services.users import (
     User,
     get_paused_until,
     get_user,
@@ -37,7 +37,7 @@ from app.services.users import (
     update_morning_time,
     update_track_weights,
 )
-from app.db import connection
+from core.db import connection
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +260,7 @@ def _menu_body(user: User, *, notice: str | None = None) -> str:
 
 def _watch_settings_line(user_id: int) -> str | None:
     """Read-only watch paths when WATCH_DIR is configured; else omit."""
-    from app.services.watch_import import paths_for_user_display
+    from core.services.watch_import import paths_for_user_display
 
     paths = paths_for_user_display(user_id)
     if paths is None:

@@ -10,18 +10,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app import texts
-from app.config import Settings
-from app.db import close_pool, connection
-from app.handlers.correction import init_correction_prompt
-from app.handlers.diary import (
+from apps.bot import texts
+from core.config import Settings
+from core.db import close_pool, connection
+from apps.bot.handlers.correction import init_correction_prompt
+from apps.bot.handlers.diary import (
     deliver_diary,
     handle_diary_voice,
     init_diary_prompt,
     on_diary_command,
 )
-from app.handlers.voice import handle_voice, init_voice_prompt
-from app.scheduler import (
+from apps.bot.handlers.voice import handle_voice, init_voice_prompt
+from apps.bot.scheduler import (
     DIARY_WEEKDAYS,
     READING_WEEKDAYS,
     EligibleUser,
@@ -29,7 +29,7 @@ from app.scheduler import (
     is_user_due_for_evening,
     is_user_due_for_morning,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     bot_initiated_count,
     complete_session,
     get_open_diary_session,
@@ -41,9 +41,9 @@ from app.services.sessions import (
     local_today,
     save_voice_exchange,
 )
-from app.services.streaks import get_streak, roll_over_day
-from app.services.users import save_onboarding, set_paused_until
-from app.speech import SpeechError
+from core.services.streaks import get_streak, roll_over_day
+from core.services.users import save_onboarding, set_paused_until
+from core.speech import SpeechError
 
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
 
@@ -338,7 +338,7 @@ def test_diary_command_opens_session_no_ceiling(cleanup_user: int) -> None:
         return_value=MagicMock(chat_id=tid, message_id=77)
     )
     update.message = message
-    with patch("app.handlers.diary.local_today", return_value=day):
+    with patch("apps.bot.handlers.diary.local_today", return_value=day):
         asyncio.run(on_diary_command(update, MagicMock()))
     assert get_open_diary_session(tid, day) is not None
     assert bot_initiated_count(tid, day) == 3  # unchanged
@@ -354,7 +354,7 @@ def test_diary_command_reuses_open(cleanup_user: int) -> None:
     message = MagicMock()
     message.reply_text = AsyncMock()
     update.message = message
-    with patch("app.handlers.diary.local_today", return_value=day):
+    with patch("apps.bot.handlers.diary.local_today", return_value=day):
         asyncio.run(on_diary_command(update, MagicMock()))
     message.reply_text.assert_awaited_once_with(texts.DIARY_ALREADY_OPEN)
     with connection() as conn:
@@ -379,7 +379,7 @@ def test_diary_command_already_done(cleanup_user: int) -> None:
     message = MagicMock()
     message.reply_text = AsyncMock()
     update.message = message
-    with patch("app.handlers.diary.local_today", return_value=day):
+    with patch("apps.bot.handlers.diary.local_today", return_value=day):
         asyncio.run(on_diary_command(update, MagicMock()))
     message.reply_text.assert_awaited_once_with(texts.DIARY_ALREADY_DONE)
 
@@ -405,19 +405,19 @@ def test_six_corrections_become_two_diary_errors(cleanup_user: int) -> None:
     context = _make_context()
     with (
         patch(
-            "app.handlers.voice.load_settings",
+            "apps.bot.handlers.voice.load_settings",
             return_value=_settings(),
         ),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.diary.local_today", return_value=day),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.diary.local_today", return_value=day),
         patch(
-            "app.handlers.diary.transcribe", return_value="I go to work yesterday"
+            "apps.bot.handlers.diary.transcribe", return_value="I go to work yesterday"
         ),
         patch(
-            "app.handlers.diary.chat",
+            "apps.bot.handlers.diary.chat",
             return_value=_diary_llm(errors=six),
         ),
-        patch("app.speech.synthesize") as synth,
+        patch("core.speech.synthesize") as synth,
     ):
         asyncio.run(handle_voice(update, context))
     assert _error_count(tid) == 2
@@ -435,14 +435,14 @@ def test_zero_corrections_still_names_did_well(cleanup_user: int) -> None:
     context = _make_context()
     with (
         patch(
-            "app.handlers.voice.load_settings",
+            "apps.bot.handlers.voice.load_settings",
             return_value=_settings(),
         ),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.diary.local_today", return_value=day),
-        patch("app.handlers.diary.transcribe", return_value="I went home early."),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.diary.local_today", return_value=day),
+        patch("apps.bot.handlers.diary.transcribe", return_value="I went home early."),
         patch(
-            "app.handlers.diary.chat",
+            "apps.bot.handlers.diary.chat",
             return_value=_diary_llm(
                 errors=[], did_well="Natural past tense on went."
             ),
@@ -468,14 +468,14 @@ def test_full_transcript_absent_from_payload_and_logs(
     with (
         caplog.at_level(logging.DEBUG),
         patch(
-            "app.handlers.voice.load_settings",
+            "apps.bot.handlers.voice.load_settings",
             return_value=_settings(),
         ),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.diary.local_today", return_value=day),
-        patch("app.handlers.diary.transcribe", return_value=PERSONAL_FIXTURE),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.diary.local_today", return_value=day),
+        patch("apps.bot.handlers.diary.transcribe", return_value=PERSONAL_FIXTURE),
         patch(
-            "app.handlers.diary.chat",
+            "apps.bot.handlers.diary.chat",
             return_value=_diary_llm(
                 errors=[
                     {
@@ -514,14 +514,14 @@ def test_no_chunks_from_diary(cleanup_user: int) -> None:
     context = _make_context()
     with (
         patch(
-            "app.handlers.voice.load_settings",
+            "apps.bot.handlers.voice.load_settings",
             return_value=_settings(),
         ),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.diary.local_today", return_value=day),
-        patch("app.handlers.diary.transcribe", return_value="I cooked dinner."),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.diary.local_today", return_value=day),
+        patch("apps.bot.handlers.diary.transcribe", return_value="I cooked dinner."),
         patch(
-            "app.handlers.diary.chat",
+            "apps.bot.handlers.diary.chat",
             return_value=_diary_llm(errors=[]),
         ),
     ):
@@ -538,11 +538,11 @@ def test_over_length_declined_before_download(cleanup_user: int) -> None:
     context = _make_context()
     with (
         patch(
-            "app.handlers.voice.load_settings",
+            "apps.bot.handlers.voice.load_settings",
             return_value=_settings(),
         ),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.diary.transcribe") as tr,
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.diary.transcribe") as tr,
     ):
         asyncio.run(handle_voice(update, context))
     tr.assert_not_called()
@@ -562,13 +562,13 @@ def test_stt_failure_warm_degrade(
     with (
         caplog.at_level(logging.WARNING),
         patch(
-            "app.handlers.voice.load_settings",
+            "apps.bot.handlers.voice.load_settings",
             return_value=_settings(),
         ),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.diary.local_today", return_value=day),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.diary.local_today", return_value=day),
         patch(
-            "app.handlers.diary.transcribe",
+            "apps.bot.handlers.diary.transcribe",
             side_effect=SpeechError("fail"),
         ),
     ):
@@ -679,11 +679,11 @@ def test_live_m3_wins_over_open_diary_unit(cleanup_user: int) -> None:
     m3_spy = AsyncMock()
     with (
         patch(
-            "app.handlers.voice.load_settings",
+            "apps.bot.handlers.voice.load_settings",
             return_value=_settings(),
         ),
-        patch("app.handlers.diary.handle_diary_voice", diary_spy),
-        patch("app.handlers.voice._handle_voice_locked", m3_spy),
+        patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
+        patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
     ):
         asyncio.run(handle_voice(update, context))
     m3_spy.assert_awaited_once()

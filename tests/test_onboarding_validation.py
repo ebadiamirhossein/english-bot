@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 from telegram.error import BadRequest
 
-from app import texts
-from app.handlers import onboarding as ob
+from apps.bot import texts
+from apps.bot.handlers import onboarding as ob
 
 
 def _text_update(text: str) -> MagicMock:

@@ -16,21 +16,22 @@ from typing import Any, Callable, Awaitable
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
-from app import texts
-from app.config import load_settings
-from app.handlers.correction import (
+from apps.bot import texts
+from core import PROMPTS_DIR
+from core.config import load_settings
+from apps.bot.handlers.correction import (
     ABSTRACT_ERROR_TYPES,
     error_type_list_text,
     render_correction_message,
 )
-from app.handlers.voice import (
+from apps.bot.handlers.voice import (
     _delete_status,
     _edit_status,
     _repeat_record_voice,
 )
-from app.llm import LLMError, chat
-from app.services.errors import record_errors
-from app.services.sessions import (
+from core.llm import LLMError, chat
+from core.services.errors import record_errors
+from core.services.sessions import (
     complete_session,
     get_open_diary_session,
     has_completed_diary_on,
@@ -40,15 +41,15 @@ from app.services.sessions import (
     local_today,
     under_message_ceiling,
 )
-from app.services.users import User, get_user, is_registered
-from app.speech import SpeechError, transcribe
+from core.services.users import User, get_user, is_registered
+from core.speech import SpeechError, transcribe
 
 logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "diary"
 MAX_DIARY_ERRORS = 2
 
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "diary.txt"
+_PROMPT_PATH = PROMPTS_DIR / "diary.txt"
 _prompt_template: str | None = None
 
 _FALLBACK_RULE_TRUE = (
@@ -105,7 +106,7 @@ def build_diary_system_prompt(user: User) -> str:
 
 
 def _user_timezone(user_id: int) -> str:
-    from app.db import connection
+    from core.db import connection
 
     with connection() as conn:
         row = conn.execute(

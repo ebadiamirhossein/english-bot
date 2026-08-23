@@ -11,21 +11,27 @@ import pytest
 from psycopg.types.json import Jsonb
 from telegram import InlineKeyboardMarkup
 
-from app.db import close_pool, connection
-from app.handlers import quiz as quiz_handler
-from app.handlers.quiz import (
+from core.db import close_pool, connection
+from apps.bot.handlers import quiz as quiz_handler
+from apps.bot.handlers.quiz import (
     _VALID_FORMATS,
     _keyboard_for_question,
     compose_body,
     init_quiz_prompt,
     recent_scenarios,
 )
-from app.services.errors import Error
-from app.services.users import save_onboarding
+from core.services.errors import Error
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_340_000_000
-_PROMPT_PATH = Path(__file__).resolve().parents[1] / "app" / "prompts" / "quiz.txt"
-_HANDLER_PATH = Path(__file__).resolve().parents[1] / "app" / "handlers" / "quiz.py"
+_PROMPT_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "packages" / "core" / "prompts" / "quiz.txt"
+)
+_HANDLER_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "apps" / "bot" / "handlers" / "quiz.py"
+)
 
 
 @pytest.fixture

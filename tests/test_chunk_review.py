@@ -13,29 +13,29 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app import texts
-from app.db import close_pool, connection, migrate
-from app.handlers import quiz as quiz_handler
-from app.handlers.quiz import (
+from apps.bot import texts
+from core.db import close_pool, connection, migrate
+from apps.bot.handlers import quiz as quiz_handler
+from apps.bot.handlers.quiz import (
     assign_formats,
     build_chunk_question,
     grade_chunk_answer,
     plan_formats,
     typed_gap_count,
 )
-from app.services import chunks as chunks_mod
-from app.services.books import MergedUnit, upsert_unit
-from app.services.calibration import _session_counts, compute_accuracy_window
-from app.services.chunks import (
+from core.services import chunks as chunks_mod
+from core.services.books import MergedUnit, upsert_unit
+from core.services.calibration import _session_counts, compute_accuracy_window
+from core.services.chunks import (
     count_due_chunks,
     due_chunks,
     insert_chunks,
     mark_chunk_result,
 )
-from app.services.errors import SPACING_DAYS, due_errors, record_errors, spacing_step
-from app.services.sessions import complete_session, insert_session
-from app.services.stats import collect_stats, format_stats_message
-from app.services.users import save_onboarding
+from core.services.errors import SPACING_DAYS, due_errors, record_errors, spacing_step
+from core.services.sessions import complete_session, insert_session
+from core.services.stats import collect_stats, format_stats_message
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_490_000_000
 MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
@@ -232,13 +232,14 @@ def test_single_spacing_implementation() -> None:
     errors_src = inspect.getsource(chunks_mod)
     assert "SPACING_DAYS" not in errors_src
     assert "spacing_step" in errors_src
-    root = Path(__file__).resolve().parent.parent / "app"
+    repo = Path(__file__).resolve().parent.parent
     hits = 0
-    for path in root.rglob("*.py"):
-        text = path.read_text(encoding="utf-8")
-        if re.search(r"^SPACING_DAYS\b", text, re.M):
-            hits += 1
-            assert path.name == "errors.py"
+    for root in (repo / "packages" / "core", repo / "apps"):
+        for path in root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if re.search(r"^SPACING_DAYS\b", text, re.M):
+                hits += 1
+                assert path.name == "errors.py"
     assert hits == 1
 
 

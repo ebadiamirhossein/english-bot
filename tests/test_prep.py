@@ -11,12 +11,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram import Chat, Message, Update, User
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers import prep as prep_handler
-from app.llm import LLMError
-from app.services.anki import build_tsv, fetch_unexported_chunks
-from app.services.prep import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers import prep as prep_handler
+from core.llm import LLMError
+from core.services.anki import build_tsv, fetch_unexported_chunks
+from core.services.prep import (
     EXPECTED_CHUNKS,
     PrepValidationError,
     format_prep_reply,
@@ -25,8 +25,8 @@ from app.services.prep import (
     slugify_topic,
     validate_prep_payload,
 )
-from app.services.reading import normalize_for_match
-from app.services.users import save_onboarding
+from core.services.reading import normalize_for_match
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_490_000_000
 
@@ -314,7 +314,7 @@ def test_handler_success_persists_and_no_topic_in_logs(
     async def _run() -> None:
         with (
             patch(
-                "app.handlers.prep.chat",
+                "apps.bot.handlers.prep.chat",
                 return_value=_good_llm(),
             ),
             caplog.at_level(logging.INFO),
@@ -352,7 +352,7 @@ def test_handler_partial_chunks_sends_and_warns(
 
     async def _run() -> None:
         with (
-            patch("app.handlers.prep.chat", return_value=raw),
+            patch("apps.bot.handlers.prep.chat", return_value=raw),
             caplog.at_level(logging.WARNING),
         ):
             await prep_handler.on_prep_command(update, context)
@@ -373,7 +373,7 @@ def test_handler_bare_prep_usage_no_llm(cleanup_user: int) -> None:
     context = MagicMock()
     context.args = []
 
-    with patch("app.handlers.prep.chat") as chat_mock:
+    with patch("apps.bot.handlers.prep.chat") as chat_mock:
         asyncio.run(prep_handler.on_prep_command(update, context))
     chat_mock.assert_not_called()
     message.reply_text.assert_awaited_once_with(texts.PREP_USAGE)
@@ -386,7 +386,7 @@ def test_handler_short_topic_usage_no_llm(cleanup_user: int) -> None:
     context = MagicMock()
     context.args = ["ab"]
 
-    with patch("app.handlers.prep.chat") as chat_mock:
+    with patch("apps.bot.handlers.prep.chat") as chat_mock:
         asyncio.run(prep_handler.on_prep_command(update, context))
     chat_mock.assert_not_called()
     message.reply_text.assert_awaited_once_with(texts.PREP_USAGE)
@@ -400,7 +400,7 @@ def test_handler_over_length_no_llm(cleanup_user: int) -> None:
     context = MagicMock()
     context.args = [long_topic]
 
-    with patch("app.handlers.prep.chat") as chat_mock:
+    with patch("apps.bot.handlers.prep.chat") as chat_mock:
         asyncio.run(prep_handler.on_prep_command(update, context))
     chat_mock.assert_not_called()
     message.reply_text.assert_awaited_once_with(texts.PREP_TOO_LONG)
@@ -418,7 +418,7 @@ def test_handler_malformed_json_warm_degrade(
 
     async def _run() -> None:
         with (
-            patch("app.handlers.prep.chat", return_value="not-json-object"),
+            patch("apps.bot.handlers.prep.chat", return_value="not-json-object"),
             caplog.at_level(logging.WARNING),
         ):
             await prep_handler.on_prep_command(update, context)
@@ -440,7 +440,7 @@ def test_handler_llm_error_warm_degrade(cleanup_user: int) -> None:
 
     async def _run() -> None:
         with patch(
-            "app.handlers.prep.chat",
+            "apps.bot.handlers.prep.chat",
             side_effect=LLMError("boom"),
         ):
             await prep_handler.on_prep_command(update, context)
@@ -463,7 +463,7 @@ def test_handler_send_failure_no_chunks(cleanup_user: int) -> None:
 
     async def _run() -> None:
         with patch(
-            "app.handlers.prep.chat",
+            "apps.bot.handlers.prep.chat",
             return_value=_good_llm(),
         ):
             await prep_handler.on_prep_command(update, context)
@@ -489,7 +489,7 @@ def test_cefr_and_work_domain_reach_prompt(cleanup_user: int) -> None:
         return _good_llm()
 
     async def _run() -> None:
-        with patch("app.handlers.prep.chat", side_effect=fake_chat):
+        with patch("apps.bot.handlers.prep.chat", side_effect=fake_chat):
             await prep_handler.on_prep_command(update, context)
 
     asyncio.run(_run())

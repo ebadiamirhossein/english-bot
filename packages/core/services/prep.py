@@ -11,10 +11,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Sequence
 
-from app import texts
-from app.db import connection
-from app.services.chunks import insert_chunks
-from app.services.reading import normalize_for_match
+from core import copy
+from core.db import connection
+from core.services.chunks import insert_chunks
+from core.services.reading import normalize_for_match
 
 logger = logging.getLogger(__name__)
 
@@ -170,16 +170,16 @@ def format_prep_reply(
 ) -> str:
     """Phone-scannable prep list: chunks and frames clearly separated."""
     lines: list[str] = [
-        texts.PREP_TITLE.format(topic=topic.strip()),
+        copy.PREP_TITLE.format(topic=topic.strip()),
         "",
-        texts.PREP_SECTION_CHUNKS,
+        copy.PREP_SECTION_CHUNKS,
     ]
     for i, item in enumerate(chunks, start=1):
         lines.append(f"{i}. {item['chunk']} — {item['meaning']}")
 
     if frames:
         lines.append("")
-        lines.append(texts.PREP_SECTION_FRAMES)
+        lines.append(copy.PREP_SECTION_FRAMES)
         for frame in frames:
             lines.append(f"▸ {frame}")
 

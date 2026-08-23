@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app import texts
-from app.db import close_pool, connection
-from app.services.calibration import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from core.services.calibration import (
     CEFR_LADDER,
     MIN_SAMPLE,
     compute_accuracy_window,
@@ -21,13 +21,13 @@ from app.services.calibration import (
     maybe_calibrate,
     s12_user_facing_strings,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     bot_initiated_count,
     complete_session,
     increment_bot_messages,
     insert_session,
 )
-from app.services.users import get_user, save_onboarding
+from core.services.users import get_user, save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_520_000_000
 

@@ -7,9 +7,9 @@ from datetime import date
 
 import pytest
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers.interests import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers.interests import (
     build_option_list,
     can_proceed,
     done_button_label,
@@ -17,8 +17,8 @@ from app.handlers.interests import (
     track_ask_body,
     track_topic_button_rows,
 )
-from app.services.interests import list_interests, replace_interests
-from app.services.users import save_onboarding
+from core.services.interests import list_interests, replace_interests
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_450_000_000
 
@@ -289,7 +289,7 @@ def test_below_threshold_done_answers_with_toast() -> None:
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
 
-    from app.handlers.interests import WORK, wizard_callback
+    from apps.bot.handlers.interests import WORK, wizard_callback
 
     update = MagicMock()
     query = MagicMock()
@@ -353,7 +353,7 @@ def test_track_screen_free_text_never_silent() -> None:
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
 
-    from app.handlers.interests import WORK, receive_other
+    from apps.bot.handlers.interests import WORK, receive_other
 
     update = MagicMock()
     message = MagicMock()
@@ -400,7 +400,7 @@ def test_wizard_save_confirmation_names_all_three_tracks() -> None:
 
     from telegram.ext import ConversationHandler
 
-    from app.handlers.interests import CURIOSITY, wizard_callback
+    from apps.bot.handlers.interests import CURIOSITY, wizard_callback
 
     update = MagicMock()
     query = MagicMock()
@@ -430,7 +430,7 @@ def test_wizard_save_confirmation_names_all_three_tracks() -> None:
     context.bot = MagicMock()
     context.bot.edit_message_text = AsyncMock()
 
-    with patch("app.handlers.interests.replace_interests") as mock_save:
+    with patch("apps.bot.handlers.interests.replace_interests") as mock_save:
         result = asyncio.run(wizard_callback(update, context))
 
     assert result == ConversationHandler.END
@@ -449,7 +449,7 @@ def test_interests_handler_registers_text_on_track_states() -> None:
     """Track states must include a TEXT MessageHandler (S26c silent-drop fix)."""
     from telegram.ext import MessageHandler
 
-    from app.handlers.interests import (
+    from apps.bot.handlers.interests import (
         CURIOSITY,
         LIFE,
         WORK,

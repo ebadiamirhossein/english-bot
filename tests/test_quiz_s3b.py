@@ -6,8 +6,8 @@ import re
 
 from telegram import InlineKeyboardMarkup
 
-from app import texts
-from app.handlers.quiz import (
+from apps.bot import texts
+from apps.bot.handlers.quiz import (
     _MAX_BUTTON_LABEL_CHARS,
     _keyboard_for_question,
     _question_text,

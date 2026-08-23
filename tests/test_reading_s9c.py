@@ -14,8 +14,8 @@ from psycopg.types.json import Jsonb
 from telegram import CallbackQuery, Chat, Message, Update, User
 from telegram.error import BadRequest
 
-from app.db import close_pool, connection
-from app.handlers.reading import (
+from core.db import close_pool, connection
+from apps.bot.handlers.reading import (
     _MAX_BUTTON_LABEL_CHARS,
     _edit_or_resend,
     all_s9c_button_labels,
@@ -26,13 +26,13 @@ from app.handlers.reading import (
     rating_keyboard,
     score_from_answers,
 )
-from app.services.interests import adjust_weight_for_rating, list_interests
-from app.services.reading import ReadingMcq, parse_stored_questions
-from app.services.sessions import (
+from core.services.interests import adjust_weight_for_rating, list_interests
+from core.services.reading import ReadingMcq, parse_stored_questions
+from core.services.sessions import (
     get_reading_session_by_message,
     insert_session,
 )
-from app.services.users import save_onboarding
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
 

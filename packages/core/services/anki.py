@@ -21,16 +21,16 @@ from psycopg.types.json import Jsonb
 from telegram import InputFile
 from telegram.ext import ContextTypes
 
-from app import texts
-from app.db import connection
-from app.services.reading import normalize_for_match
-from app.services.sessions import (
+from core import copy
+from core.db import connection
+from core.services.reading import normalize_for_match
+from core.services.sessions import (
     has_anki_session_on,
     increment_bot_messages,
     local_today,
     under_message_ceiling,
 )
-from app.services.users import is_registered
+from core.services.users import is_registered
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +205,7 @@ async def export_and_send(
             # S15a: folder write is additive and failure-tolerant — never
             # blocks Telegram delivery or exported_to_anki marks.
             try:
-                from app.services.watch_import import write_anki_outbox
+                from core.services.watch_import import write_anki_outbox
 
                 write_anki_outbox(
                     user_id,
@@ -288,7 +288,7 @@ async def deliver_weekly(
         return "skipped_empty"
 
     count = len(pending)
-    caption = texts.ANKI_WEEKLY.format(count=count)
+    caption = copy.ANKI_WEEKLY.format(count=count)
 
     async def _send(tsv_bytes: bytes, filename: str, cap: str) -> None:
         await bot.send_document(
@@ -343,11 +343,11 @@ async def handle_anki_command(
     with connection() as conn:
         pending = fetch_unexported_chunks(conn, user_id)
     if not pending:
-        await message.reply_text(texts.ANKI_EMPTY)
+        await message.reply_text(copy.ANKI_EMPTY)
         return
 
     count = len(pending)
-    caption = texts.ANKI_MANUAL.format(count=count)
+    caption = copy.ANKI_MANUAL.format(count=count)
     bot = context.bot
 
     async def _send(tsv_bytes: bytes, filename: str, cap: str) -> None:
@@ -367,8 +367,8 @@ async def handle_anki_command(
         )
     except Exception:
         logger.exception("anki /anki send failed user_id=%s", user_id)
-        await message.reply_text(texts.ANKI_SEND_FAILED)
+        await message.reply_text(copy.ANKI_SEND_FAILED)
         return
 
     if exported == 0:
-        await message.reply_text(texts.ANKI_EMPTY)
+        await message.reply_text(copy.ANKI_EMPTY)

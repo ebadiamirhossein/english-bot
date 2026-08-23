@@ -12,16 +12,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram import Chat, Document, Message, Update, User
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers.csv_import import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers.csv_import import (
     on_csv_document,
     s24_share_button_labels,
 )
-from app.services.anki import fetch_unexported_chunks
-from app.services.chunks import due_chunks
-from app.services.users import save_onboarding
-from app.services.vocab_import import (
+from core.services.anki import fetch_unexported_chunks
+from core.services.chunks import due_chunks
+from core.services.users import save_onboarding
+from core.services.vocab_import import (
     SKIP_LIST_CAP,
     VOCAB_BATCH_SIZE,
     VOCAB_SOURCE,
@@ -34,7 +34,7 @@ from app.services.vocab_import import (
     persist_vocabulary_and_send,
     prepare_vocabulary_import,
 )
-from app.services.watch_import import (
+from core.services.watch_import import (
     classify_csv_format,
     ensure_user_layout,
     is_language_reactor_headers,
@@ -373,7 +373,7 @@ def test_generation_completes_before_transaction_opens(cleanup_user: int) -> Non
 
     chat_fn = MagicMock(return_value=_fake_sentences(["tier"]))
     with patch(
-        "app.services.vocab_import.connection", side_effect=_tracking_connection
+        "core.services.vocab_import.connection", side_effect=_tracking_connection
     ):
         # generate_vocab_sentences itself must not touch connection.
         out = generate_vocab_sentences(
@@ -397,7 +397,7 @@ def test_generation_completes_before_transaction_opens(cleanup_user: int) -> Non
         )
 
     with patch(
-        "app.services.vocab_import.connection", side_effect=_tracking_connection
+        "core.services.vocab_import.connection", side_effect=_tracking_connection
     ):
         asyncio.run(_run())
     assert conn_calls == ["open"]
@@ -470,11 +470,11 @@ def test_folder_path_refuses_vocabulary_without_llm(
     root = tmp_path / "watch"
     root.mkdir()
     monkeypatch.setattr(
-        "app.services.watch_import.load_settings",
+        "core.services.watch_import.load_settings",
         lambda: MagicMock(watch_dir=str(root)),
     )
     monkeypatch.setattr(
-        "app.services.watch_import.assert_path_outside_repo",
+        "core.services.watch_import.assert_path_outside_repo",
         lambda path, label="WATCH_DIR": Path(path).resolve(),
     )
     ensure_user_layout(root, tid)
@@ -488,8 +488,8 @@ def test_folder_path_refuses_vocabulary_without_llm(
 
     chat_spy = MagicMock()
     with (
-        patch("app.services.vocab_import.chat", chat_spy),
-        patch("app.llm.chat", chat_spy),
+        patch("core.services.vocab_import.chat", chat_spy),
+        patch("core.llm.chat", chat_spy),
         caplog.at_level(logging.WARNING),
     ):
         result = process_csv_file(
@@ -535,15 +535,15 @@ def test_handler_vocabulary_uses_to_thread_no_share(cleanup_user: int) -> None:
     sc_before, sd_before = _shared_counts()
     with (
         patch(
-            "app.handlers.csv_import.asyncio.to_thread",
+            "apps.bot.handlers.csv_import.asyncio.to_thread",
             new=_fake_to_thread,
         ),
         patch(
-            "app.handlers.csv_import.notify_operator", new=AsyncMock()
+            "apps.bot.handlers.csv_import.notify_operator", new=AsyncMock()
         ),
         patch.object(Message, "reply_text", new=AsyncMock()) as reply,
-        patch("app.llm.chat", new=MagicMock()) as real_llm,
-        patch("app.services.vocab_import.chat", chat_fn),
+        patch("core.llm.chat", new=MagicMock()) as real_llm,
+        patch("core.services.vocab_import.chat", chat_fn),
     ):
         asyncio.run(on_csv_document(update, context))
 
@@ -580,14 +580,14 @@ def test_handler_vocab_llm_failure_zero_rows(cleanup_user: int) -> None:
 
     with (
         patch(
-            "app.handlers.csv_import.asyncio.to_thread",
+            "apps.bot.handlers.csv_import.asyncio.to_thread",
             new=_failing_to_thread,
         ),
         patch(
-            "app.handlers.csv_import.notify_operator", new=AsyncMock()
+            "apps.bot.handlers.csv_import.notify_operator", new=AsyncMock()
         ) as notify,
         patch.object(Message, "reply_text", new=AsyncMock()) as reply,
-        patch("app.llm.chat", new=MagicMock()) as real_llm,
+        patch("core.llm.chat", new=MagicMock()) as real_llm,
     ):
         asyncio.run(on_csv_document(update, context))
 
@@ -611,10 +611,10 @@ def test_handler_failed_headers_prose_alert(cleanup_user: int) -> None:
     context = _context_with_download(b"alpha,beta\n1,2\n")
     with (
         patch(
-            "app.handlers.csv_import.notify_operator", new=AsyncMock()
+            "apps.bot.handlers.csv_import.notify_operator", new=AsyncMock()
         ) as notify,
         patch.object(Message, "reply_text", new=AsyncMock()) as reply,
-        patch("app.llm.chat", new=MagicMock()) as real_llm,
+        patch("core.llm.chat", new=MagicMock()) as real_llm,
     ):
         asyncio.run(on_csv_document(update, context))
     real_llm.assert_not_called()
@@ -705,9 +705,9 @@ def test_s24a_share_button_labels_le_20() -> None:
 
 
 def test_handler_source_has_no_direct_llm_sdk_import() -> None:
-    src = Path("app/handlers/csv_import.py").read_text(encoding="utf-8")
-    assert "from app.llm import" not in src
-    assert "import app.llm" not in src
+    src = Path("apps/bot/handlers/csv_import.py").read_text(encoding="utf-8")
+    assert "from core.llm import" not in src
+    assert "import core.llm" not in src
     assert "anthropic" not in src
 
 
@@ -930,7 +930,7 @@ def test_s24b_skipped_words_in_reply_not_log(
 
 
 def test_s24b_long_skip_list_truncated() -> None:
-    from app.services.vocab_import import VocabImportCounts
+    from core.services.vocab_import import VocabImportCounts
 
     skips = tuple(
         (f"w{i}", "no sentence used the exact word")
@@ -951,7 +951,7 @@ def test_s24b_long_skip_list_truncated() -> None:
 
 
 def test_s24b_prompt_contains_quality_instructions() -> None:
-    text = Path("app/prompts/vocab_sentences.txt").read_text(encoding="utf-8")
+    text = Path("packages/core/prompts/vocab_sentences.txt").read_text(encoding="utf-8")
     lower = text.casefold()
     assert "exactly the form" in lower or "exact" in lower
     assert "inflection" in lower or "derived form" in lower

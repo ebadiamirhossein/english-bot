@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.handlers.quiz import (
+from apps.bot.handlers.quiz import (
     _question_text,
     format_feedback,
     plan_formats,

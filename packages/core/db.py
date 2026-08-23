@@ -3,8 +3,8 @@
 Use `connection()` / `cursor()` for application queries. Migrations use a
 dedicated connection (not the pool) and are invoked via:
 
-    python -m app.db migrate
-    python -m app.db status
+    python -m core.db migrate
+    python -m core.db status
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from app.config import ConfigError, Settings, load_settings
+from core.config import ConfigError, Settings, load_settings
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0] not in {"migrate", "status"}:
         print(
-            "Usage: python -m app.db migrate|status",
+            "Usage: python -m core.db migrate|status",
             file=sys.stderr,
         )
         return 2

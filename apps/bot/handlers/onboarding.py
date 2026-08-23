@@ -20,11 +20,11 @@ from telegram.ext import (
     filters,
 )
 
-from app import texts
-from app.services.access_control import is_approved
-from app.services.alerts import notify_operator
-from app.services.shared_content import try_backfill_soft
-from app.services.users import User, efset_to_cefr, get_user, save_onboarding
+from apps.bot import texts
+from core.services.access_control import is_approved
+from core.services.alerts import notify_operator
+from core.services.shared_content import try_backfill_soft
+from core.services.users import User, efset_to_cefr, get_user, save_onboarding
 
 logger = logging.getLogger(__name__)
 

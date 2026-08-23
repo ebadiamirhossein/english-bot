@@ -1,6 +1,6 @@
 """Nudge ladder and Sunday progress report (S10 / M7).
 
-No LLM — copy is assembled from database facts and texts.py templates.
+No LLM — copy is assembled from database facts and copy.py templates.
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ from zoneinfo import ZoneInfo
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app import texts
-from app.db import connection
-from app.services.errors import resolved_types
-from app.services.sessions import (
+from core import copy
+from core.db import connection
+from core.services.errors import resolved_types
+from core.services.sessions import (
     MAX_NUDGES_PER_DAY,
     MAX_NUDGES_PER_SESSION,
     NudgeableSession,
@@ -142,7 +142,7 @@ def nudge_keyboard(session_id: int) -> InlineKeyboardMarkup:
         [
             [
                 InlineKeyboardButton(
-                    texts.BTN_NUDGE_JUST_2,
+                    copy.BTN_NUDGE_JUST_2,
                     callback_data=f"nudge:short:{session_id}",
                 )
             ]
@@ -157,17 +157,17 @@ def format_nudge_message(session: NudgeableSession) -> tuple[str, InlineKeyboard
     """
     if session.nudges_sent == 0:
         if session.task_type == "reading":
-            return texts.NUDGE_FIRST_READING, None
+            return copy.NUDGE_FIRST_READING, None
         if session.task_type == "diary":
-            return texts.NUDGE_FIRST_DIARY, None
-        return texts.NUDGE_FIRST_QUIZ, None
+            return copy.NUDGE_FIRST_DIARY, None
+        return copy.NUDGE_FIRST_QUIZ, None
     # Second (and only second) nudge.
     if session.task_type == "diary":
-        return texts.NUDGE_SECOND_DIARY, None
+        return copy.NUDGE_SECOND_DIARY, None
     if session.task_type == "reading":
-        body = texts.NUDGE_SECOND_READING
+        body = copy.NUDGE_SECOND_READING
     else:
-        body = texts.NUDGE_SECOND_QUIZ
+        body = copy.NUDGE_SECOND_QUIZ
     return body, nudge_keyboard(session.id)
 
 
@@ -272,8 +272,8 @@ async def run_nudge_pass(
 def format_active_days_line(active_days: int) -> str:
     """Weekly success copy. Never use denominator 7; never N/5 for N>5."""
     if active_days >= WEEKLY_SUCCESS_DAYS:
-        return texts.SUNDAY_ACTIVE_FULL.format(n=active_days)
-    return texts.SUNDAY_ACTIVE_SHORT.format(
+        return copy.SUNDAY_ACTIVE_FULL.format(n=active_days)
+    return copy.SUNDAY_ACTIVE_SHORT.format(
         n=active_days, target=WEEKLY_SUCCESS_DAYS
     )
 
@@ -287,13 +287,13 @@ def assemble_sunday_report(
     """Deterministic Sunday report body (no LLM)."""
     newly = resolved_types(user_id, since_days=ACTIVE_LOOKBACK_DAYS)
     if newly:
-        lead = texts.SUNDAY_LEAD_QUIET.format(labels=_join_labels(newly))
+        lead = copy.SUNDAY_LEAD_QUIET.format(labels=_join_labels(newly))
     else:
         all_quiet = resolved_types(user_id, since_days=None)
         if all_quiet:
-            lead = texts.SUNDAY_LEAD_QUIET.format(labels=_join_labels(all_quiet))
+            lead = copy.SUNDAY_LEAD_QUIET.format(labels=_join_labels(all_quiet))
         else:
-            lead = texts.SUNDAY_LEAD_KEEPING
+            lead = copy.SUNDAY_LEAD_KEEPING
 
     start = local_day - timedelta(days=ACTIVE_LOOKBACK_DAYS - 1)
     active = count_active_days(user_id, start=start, end=local_day)
@@ -301,11 +301,11 @@ def assemble_sunday_report(
 
     parts = [lead, active_line]
     if active < WEEKLY_SUCCESS_DAYS:
-        parts.append(texts.SUNDAY_SHORTFALL)
+        parts.append(copy.SUNDAY_SHORTFALL)
 
     body = "\n".join(parts)
     if why_statement:
-        why_line = texts.SUNDAY_WHY.format(why=why_statement.strip())
+        why_line = copy.SUNDAY_WHY.format(why=why_statement.strip())
         candidate = f"{body}\n{why_line}"
         if len(candidate) <= 400:
             body = candidate
@@ -406,27 +406,27 @@ async def run_sunday_report_pass(
 
 def s10_button_labels() -> list[str]:
     """All S10 button labels for the ≤20-char audit."""
-    return [texts.BTN_NUDGE_JUST_2]
+    return [copy.BTN_NUDGE_JUST_2]
 
 
 def s10_user_facing_strings() -> list[str]:
     """Every nudge/report template for no-guilt checks."""
     samples = [
-        texts.NUDGE_FIRST_QUIZ,
-        texts.NUDGE_FIRST_READING,
-        texts.NUDGE_FIRST_DIARY,
-        texts.NUDGE_SECOND_QUIZ,
-        texts.NUDGE_SECOND_READING,
-        texts.NUDGE_SECOND_DIARY,
-        texts.NUDGE_SHORT_ACK,
-        texts.NUDGE_SHORT_DONE,
-        texts.SUNDAY_LEAD_QUIET.format(labels="Prepositions"),
-        texts.SUNDAY_LEAD_KEEPING,
-        texts.SUNDAY_ACTIVE_FULL.format(n=5),
-        texts.SUNDAY_ACTIVE_FULL.format(n=7),
-        texts.SUNDAY_ACTIVE_SHORT.format(n=4, target=5),
-        texts.SUNDAY_SHORTFALL,
-        texts.SUNDAY_WHY.format(why="Speak in meetings"),
-        texts.BTN_NUDGE_JUST_2,
+        copy.NUDGE_FIRST_QUIZ,
+        copy.NUDGE_FIRST_READING,
+        copy.NUDGE_FIRST_DIARY,
+        copy.NUDGE_SECOND_QUIZ,
+        copy.NUDGE_SECOND_READING,
+        copy.NUDGE_SECOND_DIARY,
+        copy.NUDGE_SHORT_ACK,
+        copy.NUDGE_SHORT_DONE,
+        copy.SUNDAY_LEAD_QUIET.format(labels="Prepositions"),
+        copy.SUNDAY_LEAD_KEEPING,
+        copy.SUNDAY_ACTIVE_FULL.format(n=5),
+        copy.SUNDAY_ACTIVE_FULL.format(n=7),
+        copy.SUNDAY_ACTIVE_SHORT.format(n=4, target=5),
+        copy.SUNDAY_SHORTFALL,
+        copy.SUNDAY_WHY.format(why="Speak in meetings"),
+        copy.BTN_NUDGE_JUST_2,
     ]
     return samples

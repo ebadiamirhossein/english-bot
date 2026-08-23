@@ -27,9 +27,9 @@ from telegram import (
 )
 from telegram.ext import ApplicationBuilder, ConversationHandler
 
-from app.config import Settings
-from app.db import close_pool, connection
-from app.handlers.book import (
+from core.config import Settings
+from core.db import close_pool, connection
+from apps.bot.handlers.book import (
     ASK_BOOK,
     ASK_BOOK_OTHER,
     COLLECT_PAGES,
@@ -40,28 +40,28 @@ from app.handlers.book import (
     on_conversation_timeout,
     start,
 )
-from app.handlers.book_test import build_book_test_handlers
-from app.handlers.capture import build_capture_handlers
-from app.handlers.correction import build_correction_handler
-from app.handlers.conversation import build_conversation_handlers
-from app.handlers.couple import build_couple_handlers
-from app.handlers.csv_import import build_csv_import_handlers
-from app.handlers.nudge import build_nudge_handler
-from app.handlers.quiz import (
+from apps.bot.handlers.book_test import build_book_test_handlers
+from apps.bot.handlers.capture import build_capture_handlers
+from apps.bot.handlers.correction import build_correction_handler
+from apps.bot.handlers.conversation import build_conversation_handlers
+from apps.bot.handlers.couple import build_couple_handlers
+from apps.bot.handlers.csv_import import build_csv_import_handlers
+from apps.bot.handlers.nudge import build_nudge_handler
+from apps.bot.handlers.quiz import (
     build_present_handlers,
     build_quiz_handlers,
     open_quiz_awaits_gap_answer,
 )
-from app.handlers.reading import build_reading_handler
-from app.handlers.settings import (
+from apps.bot.handlers.reading import build_reading_handler
+from apps.bot.handlers.settings import (
     MENU,
     build_settings_editor_handler,
     build_settings_handlers,
     build_settings_orphan_handler,
 )
-from app.handlers.voice import build_voice_handler
-from app.services.alerts import on_error
-from app.services.sessions import (
+from apps.bot.handlers.voice import build_voice_handler
+from core.services.alerts import on_error
+from core.services.sessions import (
     has_diary_session_on,
     has_reading_session_on,
     has_session_on,
@@ -70,8 +70,8 @@ from app.services.sessions import (
     save_voice_exchange,
     utc_now_iso,
 )
-from app.services.users import save_onboarding
-from app.services.couple import insert_challenge_if_absent, couple_local_today
+from core.services.users import save_onboarding
+from apps.bot.services.couple import insert_challenge_if_absent, couple_local_today
 from datetime import timedelta
 FAKE_TELEGRAM_ID_BASE = 9_470_000_000
 SAMPLE_TEXT = "her english is not so much good"
@@ -178,14 +178,14 @@ async def _build_app(
     if conversation_spy is None:
         conversation_spy = AsyncMock()
     with (
-        patch("app.handlers.quiz.on_quiz_text", quiz_spy),
-        patch("app.handlers.correction.correct_text", correction_spy),
-        patch("app.handlers.conversation.on_conversation_text", conversation_spy),
-        patch("app.handlers.capture.on_forwarded_capture", capture_spy),
-        patch("app.handlers.capture.on_capture_command", capture_spy),
-        patch("app.handlers.couple.on_couple_answer", couple_spy),
-        patch("app.handlers.csv_import.on_csv_document", csv_spy),
-        patch("app.handlers.csv_import.on_non_csv_document", non_csv_spy),
+        patch("apps.bot.handlers.quiz.on_quiz_text", quiz_spy),
+        patch("apps.bot.handlers.correction.correct_text", correction_spy),
+        patch("apps.bot.handlers.conversation.on_conversation_text", conversation_spy),
+        patch("apps.bot.handlers.capture.on_forwarded_capture", capture_spy),
+        patch("apps.bot.handlers.capture.on_capture_command", capture_spy),
+        patch("apps.bot.handlers.couple.on_couple_answer", couple_spy),
+        patch("apps.bot.handlers.csv_import.on_csv_document", csv_spy),
+        patch("apps.bot.handlers.csv_import.on_non_csv_document", non_csv_spy),
     ):
         quiz_text, quiz_choice = build_quiz_handlers()
         present_ack, present_orphan = build_present_handlers()
@@ -858,7 +858,7 @@ def test_dispatch_book_other_owns_text(cleanup_user: int) -> None:
             update._bot = app.bot
             update.message._bot = app.bot
             with patch(
-                "app.handlers.book.is_registered", return_value=True
+                "apps.bot.handlers.book.is_registered", return_value=True
             ), patch.object(
                 Message, "reply_text", new=AsyncMock()
             ):
@@ -1040,7 +1040,7 @@ def test_second_book_after_done_starts_clean(cleanup_user: int) -> None:
         start_update.effective_user = MagicMock(id=tid)
         start_update.message = MagicMock()
         start_update.message.reply_text = AsyncMock()
-        with patch("app.handlers.book.is_registered", return_value=True):
+        with patch("apps.bot.handlers.book.is_registered", return_value=True):
             state = await start(start_update, context)
         assert state == ASK_BOOK
         assert context.user_data["book"]["pages"] == []
@@ -1136,12 +1136,12 @@ def test_dispatch_claimable_shadow_reaches_shadow_not_diary_or_m3(
             update.message._bot = app.bot
             with (
                 patch(
-                    "app.handlers.voice.load_settings",
+                    "apps.bot.handlers.voice.load_settings",
                     return_value=_voice_settings(),
                 ),
-                patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
-                patch("app.handlers.diary.handle_diary_voice", diary_spy),
-                patch("app.handlers.voice._handle_voice_locked", m3_spy),
+                patch("apps.bot.handlers.shadow.handle_shadow_voice", shadow_spy),
+                patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
+                patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
             ):
                 await app.process_update(update)
             shadow_spy.assert_awaited_once()
@@ -1176,12 +1176,12 @@ def test_dispatch_open_diary_reaches_diary_not_m3(cleanup_user: int) -> None:
             update.message._bot = app.bot
             with (
                 patch(
-                    "app.handlers.voice.load_settings",
+                    "apps.bot.handlers.voice.load_settings",
                     return_value=_voice_settings(),
                 ),
-                patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
-                patch("app.handlers.diary.handle_diary_voice", diary_spy),
-                patch("app.handlers.voice._handle_voice_locked", m3_spy),
+                patch("apps.bot.handlers.shadow.handle_shadow_voice", shadow_spy),
+                patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
+                patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
             ):
                 await app.process_update(update)
             diary_spy.assert_awaited_once()
@@ -1212,12 +1212,12 @@ def test_dispatch_no_diary_reaches_m3_not_diary(cleanup_user: int) -> None:
             update.message._bot = app.bot
             with (
                 patch(
-                    "app.handlers.voice.load_settings",
+                    "apps.bot.handlers.voice.load_settings",
                     return_value=_voice_settings(),
                 ),
-                patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
-                patch("app.handlers.diary.handle_diary_voice", diary_spy),
-                patch("app.handlers.voice._handle_voice_locked", m3_spy),
+                patch("apps.bot.handlers.shadow.handle_shadow_voice", shadow_spy),
+                patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
+                patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
             ):
                 await app.process_update(update)
             m3_spy.assert_awaited_once()
@@ -1264,12 +1264,12 @@ def test_dispatch_live_m3_beats_open_diary(cleanup_user: int) -> None:
             update.message._bot = app.bot
             with (
                 patch(
-                    "app.handlers.voice.load_settings",
+                    "apps.bot.handlers.voice.load_settings",
                     return_value=_voice_settings(),
                 ),
-                patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
-                patch("app.handlers.diary.handle_diary_voice", diary_spy),
-                patch("app.handlers.voice._handle_voice_locked", m3_spy),
+                patch("apps.bot.handlers.shadow.handle_shadow_voice", shadow_spy),
+                patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
+                patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
             ):
                 await app.process_update(update)
             m3_spy.assert_awaited_once()
@@ -1542,7 +1542,7 @@ def test_dispatch_group_open_challenge_reaches_couple(
             update._bot = app.bot
             update.message._bot = app.bot
             with patch(
-                "app.handlers.couple.load_settings",
+                "apps.bot.handlers.couple.load_settings",
                 return_value=_couple_settings(),
             ):
                 await app.process_update(update)
@@ -1587,7 +1587,7 @@ def test_dispatch_group_no_open_challenge_reaches_nothing(
             update._bot = app.bot
             update.message._bot = app.bot
             with patch(
-                "app.handlers.couple.load_settings",
+                "apps.bot.handlers.couple.load_settings",
                 return_value=_couple_settings(),
             ):
                 await app.process_update(update)
@@ -1628,7 +1628,7 @@ def test_dispatch_group_unregistered_reaches_nothing(
             update._bot = app.bot
             update.message._bot = app.bot
             with patch(
-                "app.handlers.couple.load_settings",
+                "apps.bot.handlers.couple.load_settings",
                 return_value=_couple_settings(),
             ):
                 await app.process_update(update)
@@ -1766,7 +1766,7 @@ def test_dispatch_stale_conversation_falls_through_to_correction(
     cleanup_user: int,
 ) -> None:
     """Filter-time staleness — no scheduler. Injected last_activity + frozen now."""
-    from app.services.sessions import get_open_conversation_session
+    from core.services.sessions import get_open_conversation_session
 
     tid = cleanup_user
     _onboard(tid)
@@ -1802,7 +1802,7 @@ def test_dispatch_stale_conversation_falls_through_to_correction(
         )
         try:
             with patch(
-                "app.handlers.conversation.open_conversation_awaits_text",
+                "apps.bot.handlers.conversation.open_conversation_awaits_text",
                 side_effect=_awaits,
             ):
                 update = _text_update(tid, SAMPLE_TEXT)
@@ -1819,7 +1819,7 @@ def test_dispatch_stale_conversation_falls_through_to_correction(
 
 def test_dispatch_stale_via_get_open_returns_none(cleanup_user: int) -> None:
     """Staleness evaluated in get_open_conversation_session with injected now."""
-    from app.services.sessions import get_open_conversation_session
+    from core.services.sessions import get_open_conversation_session
 
     tid = cleanup_user
     _onboard(tid)
@@ -1849,7 +1849,7 @@ def test_dispatch_stale_via_get_open_returns_none(cleanup_user: int) -> None:
 def test_dispatch_awaiting_topic_stale_after_two_minutes(
     cleanup_user: int,
 ) -> None:
-    from app.services.sessions import get_open_conversation_session
+    from core.services.sessions import get_open_conversation_session
 
     tid = cleanup_user
     _onboard(tid)

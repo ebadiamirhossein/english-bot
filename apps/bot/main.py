@@ -10,51 +10,51 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 
-from app import texts
-from app.config import ConfigError, load_settings
-from app.handlers.access import build_access_handler
-from app.handlers.access_request import build_access_request_handlers
-from app.handlers.admin import build_admin_handler, build_admin_orphan_handler
-from app.handlers.book import build_book_handler, init_book_prompt
-from app.handlers.book_test import (
+from apps.bot import texts
+from core.config import ConfigError, load_settings
+from apps.bot.handlers.access import build_access_handler
+from apps.bot.handlers.access_request import build_access_request_handlers
+from apps.bot.handlers.admin import build_admin_handler, build_admin_orphan_handler
+from apps.bot.handlers.book import build_book_handler, init_book_prompt
+from apps.bot.handlers.book_test import (
     build_book_test_handlers,
     init_book_test_prompt,
 )
-from app.handlers.capture import build_capture_handlers, init_capture_prompt
-from app.handlers.prep import build_prep_handler, init_prep_prompt
-from app.handlers.conversation import (
+from apps.bot.handlers.capture import build_capture_handlers, init_capture_prompt
+from apps.bot.handlers.prep import build_prep_handler, init_prep_prompt
+from apps.bot.handlers.conversation import (
     build_conversation_handlers,
     init_conversation_prompt,
 )
-from app.handlers.correction import build_correction_handler, init_correction_prompt
-from app.handlers.couple import build_couple_handlers, init_couple_prompt
-from app.handlers.diary import build_diary_handlers, init_diary_prompt
-from app.handlers.shadow import build_shadow_handlers
-from app.handlers.help import build_help_handler
-from app.services.vocab_import import init_vocab_prompt
-from app.handlers.guide import build_guide_handler, build_guide_orphan_handler
-from app.handlers.interests import build_interests_handler
-from app.handlers.nudge import build_nudge_handler
-from app.handlers.onboarding import build_onboarding_handler
-from app.handlers.quiz import (
+from apps.bot.handlers.correction import build_correction_handler, init_correction_prompt
+from apps.bot.handlers.couple import build_couple_handlers, init_couple_prompt
+from apps.bot.handlers.diary import build_diary_handlers, init_diary_prompt
+from apps.bot.handlers.shadow import build_shadow_handlers
+from apps.bot.handlers.help import build_help_handler
+from core.services.vocab_import import init_vocab_prompt
+from apps.bot.handlers.guide import build_guide_handler, build_guide_orphan_handler
+from apps.bot.handlers.interests import build_interests_handler
+from apps.bot.handlers.nudge import build_nudge_handler
+from apps.bot.handlers.onboarding import build_onboarding_handler
+from apps.bot.handlers.quiz import (
     build_present_handlers,
     build_quiz_handlers,
     init_quiz_prompt,
 )
-from app.handlers.reading import build_reading_handler, init_reading_prompt
-from app.handlers.settings import (
+from apps.bot.handlers.reading import build_reading_handler, init_reading_prompt
+from apps.bot.handlers.settings import (
     build_settings_editor_handler,
     build_settings_handlers,
     build_settings_orphan_handler,
 )
-from app.handlers.voice import build_voice_handler, init_voice_prompt
-from app.instance_lock import InstanceLock, InstanceLockError
-from app.scheduler import start_scheduler, stop_scheduler
-from app.services.alerts import on_error
-from app.services.anki import handle_anki_command
-from app.handlers.csv_import import build_csv_import_handlers
-from app.handlers.import_cmd import handle_import_command
-from app.services.commands import register_bot_commands
+from apps.bot.handlers.voice import build_voice_handler, init_voice_prompt
+from core.instance_lock import InstanceLock, InstanceLockError
+from apps.bot.scheduler import start_scheduler, stop_scheduler
+from core.services.alerts import on_error
+from core.services.anki import handle_anki_command
+from apps.bot.handlers.csv_import import build_csv_import_handlers
+from apps.bot.handlers.import_cmd import handle_import_command
+from apps.bot.commands import register_bot_commands
 
 logger = logging.getLogger(__name__)
 

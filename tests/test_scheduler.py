@@ -8,14 +8,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.db import close_pool, connection
-from app.scheduler import (
+from core.db import close_pool, connection
+from apps.bot.scheduler import (
     EligibleUser,
     is_user_due_for_morning,
     users_due_for_morning,
 )
-from app.services.sessions import insert_session, local_today
-from app.services.users import save_onboarding
+from core.services.sessions import insert_session, local_today
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_320_000_000
 

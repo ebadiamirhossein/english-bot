@@ -9,17 +9,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.db import close_pool, connection
-from app.handlers import correction as correction_handler
-from app.handlers.correction import (
+from core.db import close_pool, connection
+from apps.bot.handlers import correction as correction_handler
+from apps.bot.handlers.correction import (
     ABSTRACT_ERROR_TYPES,
     build_system_prompt,
     init_correction_prompt,
     murphy_lookup,
 )
-from app.services.errors import record_errors
-from app.services.users import get_user, save_onboarding
-from app import texts
+from core.services.errors import record_errors
+from core.services.users import get_user, save_onboarding
+from apps.bot import texts
 
 
 FAKE_TELEGRAM_ID_BASE = 9_100_000_000
@@ -186,7 +186,7 @@ def test_has_errors_false_writes_zero_rows(cleanup_user: int) -> None:
         "corrections": [],
         "did_well": "Natural word order.",
     }
-    with patch("app.handlers.correction.chat", return_value=payload):
+    with patch("apps.bot.handlers.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
     assert _count_errors(tid) == 0
     update.message.reply_text.assert_awaited_with("👍 Natural word order.")
@@ -203,7 +203,7 @@ def test_is_english_false_writes_zero_rows(cleanup_user: int) -> None:
         "corrections": [],
         "did_well": "",
     }
-    with patch("app.handlers.correction.chat", return_value=payload):
+    with patch("apps.bot.handlers.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
     assert _count_errors(tid) == 0
     update.message.reply_text.assert_awaited_with(texts.NOT_ENGLISH)
@@ -235,7 +235,7 @@ def test_rendered_message_matches_prd_shape(cleanup_user: int) -> None:
         ],
         "did_well": "Clean word order in the whole sentence.",
     }
-    with patch("app.handlers.correction.chat", return_value=payload):
+    with patch("apps.bot.handlers.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
 
     assert _count_errors(tid) == 2
@@ -317,7 +317,7 @@ def test_short_single_error_includes_nonempty_did_well(cleanup_user: int) -> Non
         ],
         "did_well": "Short and clear.",
     }
-    with patch("app.handlers.correction.chat", return_value=payload):
+    with patch("apps.bot.handlers.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
 
     assert _count_errors(tid) == 1

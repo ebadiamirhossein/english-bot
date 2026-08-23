@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CLI heartbeat check — alert path for optional external cron (S18).
 
-Logic lives in app.services.heartbeat. In-process JobQueue also calls that
+Logic lives in core.services.heartbeat. In-process JobQueue also calls that
 module; this script is for a future Hetzner cron that can detect process death.
 """
 
@@ -16,8 +16,8 @@ repo_root = Path(__file__).resolve().parents[1]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
-from app.config import ConfigError, load_settings  # noqa: E402
-from app.services.heartbeat import (  # noqa: E402
+from core.config import ConfigError, load_settings  # noqa: E402
+from core.services.heartbeat import (  # noqa: E402
     MAX_AGE_HOURS,
     check_heartbeat,
 )

@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram.ext import ConversationHandler
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers.book import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers.book import (
     COLLECT_PAGES,
     after_batch_choice,
     all_book_button_labels,
@@ -26,8 +26,8 @@ from app.handlers.book import (
     process_pages,
     summary_keyboard,
 )
-from app.llm import LLMError
-from app.services.books import (
+from core.llm import LLMError
+from core.services.books import (
     MAX_PAGES_PER_BATCH,
     MergedUnit,
     PageFailure,
@@ -42,7 +42,7 @@ from app.services.books import (
     union_target_items,
     upsert_unit,
 )
-from app.services.users import save_onboarding
+from core.services.users import save_onboarding
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKE_TELEGRAM_ID_BASE = 9_460_000_000
@@ -435,9 +435,9 @@ def test_album_debounce_one_job_one_process() -> None:
         context.job = jobs[0]
 
         with (
-            patch("app.handlers.book.ocr_one_page", side_effect=fake_ocr),
+            patch("apps.bot.handlers.book.ocr_one_page", side_effect=fake_ocr),
             patch(
-                "app.handlers.book.persist_units", return_value=10
+                "apps.bot.handlers.book.persist_units", return_value=10
             ) as persist,
         ):
             await process_pages(context)
@@ -487,7 +487,7 @@ def test_reentrancy_no_duplicate_rows(cleanup_user: int) -> None:
         context.bot.get_file = AsyncMock(side_effect=fake_get_file)
 
         with patch(
-            "app.handlers.book.ocr_one_page",
+            "apps.bot.handlers.book.ocr_one_page",
             return_value={
                 "unit_number": "12A",
                 "unit_title": "Modals",
@@ -546,7 +546,7 @@ def test_partial_batch_names_page_six(
 
         fake_ocr.n = 0  # type: ignore[attr-defined]
 
-        with patch("app.handlers.book.ocr_one_page", side_effect=fake_ocr):
+        with patch("apps.bot.handlers.book.ocr_one_page", side_effect=fake_ocr):
             await process_pages(context)
 
         assert count_units_for_user(tid, "murphy", "1") == 1
@@ -595,7 +595,7 @@ def test_prose_vision_response_soft_skips_page(
 
         with (
             patch(
-                "app.handlers.book.ocr_one_page",
+                "apps.bot.handlers.book.ocr_one_page",
                 side_effect=LLMError(
                     "Response was not valid JSON: Expecting value: "
                     "line 1 column 1 (char 0); "
@@ -705,28 +705,36 @@ def test_button_labels_max_20_chars() -> None:
 
 
 def test_no_provider_sdk_outside_wrappers() -> None:
-    app_dir = REPO_ROOT / "app"
+    core_dir = REPO_ROOT / "packages" / "core"
+    bot_dir = REPO_ROOT / "apps"
     forbidden = re.compile(
         r"^\s*(import anthropic|from anthropic|import openai|from openai)\b"
     )
     allowed = {
-        app_dir / "llm.py",
-        app_dir / "speech.py",
+        core_dir / "llm.py",
+        core_dir / "speech.py",
     }
     offenders: list[str] = []
-    for path in app_dir.rglob("*.py"):
-        if path in allowed:
-            continue
-        text = path.read_text(encoding="utf-8")
-        for i, line in enumerate(text.splitlines(), 1):
-            if forbidden.search(line):
-                offenders.append(f"{path.relative_to(REPO_ROOT)}:{i}:{line.strip()}")
+    for root in (core_dir, bot_dir):
+        for path in root.rglob("*.py"):
+            if path in allowed:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for i, line in enumerate(text.splitlines(), 1):
+                if forbidden.search(line):
+                    offenders.append(
+                        f"{path.relative_to(REPO_ROOT)}:{i}:{line.strip()}"
+                    )
     assert offenders == []
 
 
 def test_book_handler_never_writes_photo_bytes_to_disk() -> None:
-    book_py = (REPO_ROOT / "app" / "handlers" / "book.py").read_text(encoding="utf-8")
-    books_py = (REPO_ROOT / "app" / "services" / "books.py").read_text(encoding="utf-8")
+    book_py = (
+        REPO_ROOT / "apps" / "bot" / "handlers" / "book.py"
+    ).read_text(encoding="utf-8")
+    books_py = (
+        REPO_ROOT / "packages" / "core" / "services" / "books.py"
+    ).read_text(encoding="utf-8")
     combined = book_py + "\n" + books_py
     assert "download_as_bytearray" in book_py
     assert "write_bytes" not in combined

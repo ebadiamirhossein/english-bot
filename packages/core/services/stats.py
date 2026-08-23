@@ -5,21 +5,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from app import texts
-from app.db import connection
-from app.services.errors import resolved_types
-from app.services.motivation import (
+from core import copy
+from core.db import connection
+from core.services.errors import resolved_types
+from core.services.motivation import (
     ACTIVE_LOOKBACK_DAYS,
     WEEKLY_SUCCESS_DAYS,
     format_active_days_line,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     count_active_days,
     local_today,
     open_fossil_sweep_for_user,
 )
-from app.services.streaks import get_streak
-from app.services.users import get_user
+from core.services.streaks import get_streak
+from core.services.users import get_user
 
 
 @dataclass(frozen=True)
@@ -72,7 +72,7 @@ def _due_count(user_id: int) -> int:
 
 def _chunk_counts(user_id: int, *, now: date) -> tuple[int, int, int]:
     # S25: due uses the shared presented-and-due predicate (chunks.py).
-    from app.services.chunks import CHUNK_PRESENTED_AND_DUE_SQL
+    from core.services.chunks import CHUNK_PRESENTED_AND_DUE_SQL
 
     with connection() as conn:
         row = conn.execute(
@@ -203,40 +203,40 @@ def collect_stats(
 def format_stats_message(stats: UserStats, *, include_sweep: bool) -> str:
     """Learner-facing body. Sweep lines only when include_sweep is True."""
     lines = [
-        texts.STATS_HEADER,
-        texts.STATS_LEVEL.format(level=stats.cefr_level),
-        texts.STATS_STREAK.format(
+        copy.STATS_HEADER,
+        copy.STATS_LEVEL.format(level=stats.cefr_level),
+        copy.STATS_STREAK.format(
             streak=stats.current_streak, freezes=stats.freeze_tokens
         ),
-        texts.STATS_ACTIVE.format(active_line=stats.active_line),
-        texts.STATS_DUE.format(n=stats.due_count),
+        copy.STATS_ACTIVE.format(active_line=stats.active_line),
+        copy.STATS_DUE.format(n=stats.due_count),
     ]
     if stats.resolved_labels:
         labels = ", ".join(stats.resolved_labels)
-        lines.append(texts.STATS_RESOLVED.format(labels=labels))
+        lines.append(copy.STATS_RESOLVED.format(labels=labels))
     else:
-        lines.append(texts.STATS_RESOLVED_NONE)
+        lines.append(copy.STATS_RESOLVED_NONE)
     lines.append(
-        texts.STATS_CHUNKS.format(
+        copy.STATS_CHUNKS.format(
             total=stats.chunk_total,
             due=stats.chunk_due,
             unexported=stats.chunk_unexported,
         )
     )
-    lines.append(texts.STATS_BOOKS.format(n=stats.book_units))
+    lines.append(copy.STATS_BOOKS.format(n=stats.book_units))
     if stats.accuracy_30 is not None:
         pct = f"{stats.accuracy_30 * 100:.0f}%"
         change = stats.last_level_change or "none"
         lines.append(
-            texts.STATS_CALIBRATION.format(accuracy=pct, change=change)
+            copy.STATS_CALIBRATION.format(accuracy=pct, change=change)
         )
     else:
-        lines.append(texts.STATS_CALIBRATION_NONE)
+        lines.append(copy.STATS_CALIBRATION_NONE)
     if include_sweep:
         pending = stats.sweep_pending if stats.sweep_pending is not None else 0
         done = stats.sweep_done if stats.sweep_done is not None else 0
         lines.append(
-            texts.STATS_OPERATOR_SWEEP.format(pending=pending, done=done)
+            copy.STATS_OPERATOR_SWEEP.format(pending=pending, done=done)
         )
     return "\n".join(lines)
 

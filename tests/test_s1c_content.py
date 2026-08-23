@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from app import texts
-from app.handlers import onboarding as ob
-from app.handlers.onboarding import self_assess_to_cefr
+from apps.bot import texts
+from apps.bot.handlers import onboarding as ob
+from apps.bot.handlers.onboarding import self_assess_to_cefr
 
 
 def test_self_assess_maps_to_cefr_and_efset_stays_null() -> None:

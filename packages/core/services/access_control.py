@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 
-from app.db import connection
+from core.db import connection
 
 logger = logging.getLogger(__name__)
 
@@ -276,10 +276,10 @@ def delivery_lister_ids() -> dict[str, Callable[[], set[int]]]:
     Every bot-initiated eligible-user list must appear here. A new list that
     forgets the view will not be in this dict — add it when you add the list.
     """
-    from app.scheduler import list_candidate_users
-    from app.services import (
+    from apps.bot.scheduler import list_candidate_users
+    from apps.bot.services import couple
+    from core.services import (
         calibration,
-        couple,
         errors,
         motivation,
         shared_content,

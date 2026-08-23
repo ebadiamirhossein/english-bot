@@ -20,14 +20,14 @@ from telegram.ext import (
     ContextTypes,
 )
 
-from app import texts
-from app.config import load_settings
-from app.handlers.voice import (
+from apps.bot import texts
+from core.config import load_settings
+from apps.bot.handlers.voice import (
     _delete_status,
     _edit_status,
     _repeat_record_voice,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     complete_session,
     get_open_shadow_session,
     get_session_by_id,
@@ -35,15 +35,15 @@ from app.services.sessions import (
     local_today,
     update_session_payload,
 )
-from app.services.shadow import (
+from core.services.shadow import (
     abandon_open_shadow_sessions,
     diff_words,
     format_shadow_feedback,
     select_shadow_sentence,
     utc_now_iso,
 )
-from app.services.users import is_registered
-from app.speech import SpeechError, synthesize, transcribe
+from core.services.users import is_registered
+from core.speech import SpeechError, synthesize, transcribe
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ def build_shadow_handlers() -> tuple[CommandHandler, CallbackQueryHandler]:
 
 
 def _user_timezone(user_id: int) -> str:
-    from app.db import connection
+    from core.db import connection
 
     with connection() as conn:
         row = conn.execute(

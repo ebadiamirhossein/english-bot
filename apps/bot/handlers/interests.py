@@ -23,10 +23,10 @@ from telegram.ext import (
     filters,
 )
 
-from app import texts
-from app.handlers.onboarding import layout_buttons
-from app.services.interests import list_interests, replace_interests
-from app.services.users import is_registered
+from apps.bot import texts
+from apps.bot.handlers.onboarding import layout_buttons
+from core.services.interests import list_interests, replace_interests
+from core.services.users import is_registered
 
 logger = logging.getLogger(__name__)
 

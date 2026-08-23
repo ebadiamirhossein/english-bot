@@ -13,10 +13,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram import CallbackQuery, Message, Update, User
 
-from app import texts
-from app.config import Settings
-from app.db import close_pool, connection, migrate
-from app.handlers.conversation import (
+from apps.bot import texts
+from core.config import Settings
+from core.db import close_pool, connection, migrate
+from apps.bot.handlers.conversation import (
     build_conversation_close_messages,
     build_conversation_close_prompt,
     build_conversation_system_prompt,
@@ -34,20 +34,22 @@ from app.handlers.conversation import (
     _close_out,
     _safe_exc_msg,
 )
-from app.handlers.correction import init_correction_prompt
-from app.handlers.quiz import open_quiz_awaits_gap_answer
-from app.llm import LLMError, _to_anthropic_messages, chat
-from app.services.sessions import (
+from apps.bot.handlers.correction import init_correction_prompt
+from apps.bot.handlers.quiz import open_quiz_awaits_gap_answer
+from core.llm import LLMError, _to_anthropic_messages, chat
+from core.services.sessions import (
     get_open_conversation_session,
     insert_session,
     update_session_payload,
     utc_now_iso,
 )
-from app.services.users import get_user, save_onboarding, set_paused_until
+from core.services.users import get_user, save_onboarding, set_paused_until
 
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
 _FROZEN = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
-_PROMPT_DIR = Path(__file__).resolve().parents[1] / "app" / "prompts"
+_PROMPT_DIR = (
+    Path(__file__).resolve().parents[1] / "packages" / "core" / "prompts"
+)
 
 
 @pytest.fixture
@@ -321,7 +323,7 @@ def test_talk_works_while_paused(cleanup_user: int) -> None:
         context = MagicMock()
         context.args = ["weekend", "plans"]
         with patch(
-            "app.handlers.conversation.datetime"
+            "apps.bot.handlers.conversation.datetime"
         ) as mock_dt:
             mock_dt.now = MagicMock(return_value=_FROZEN)
             await on_talk_command(update, context)
@@ -357,13 +359,13 @@ def test_turn_llm_failure_keeps_session_open_no_turn_count(
         update, message = _make_update(tid, "I go to the shop yesterday")
         context = MagicMock()
         with (
-            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch("apps.bot.handlers.conversation.datetime") as mock_dt,
             patch(
-                "app.handlers.conversation.load_settings",
+                "apps.bot.handlers.conversation.load_settings",
                 return_value=_settings_mock(),
             ),
             patch(
-                "app.handlers.conversation.asyncio.to_thread",
+                "apps.bot.handlers.conversation.asyncio.to_thread",
                 side_effect=_to_thread,
             ),
         ):
@@ -404,13 +406,13 @@ def test_successful_turn_uses_to_thread_no_errors(cleanup_user: int) -> None:
         update, message = _make_update(tid, "I go there yesterday")
         context = MagicMock()
         with (
-            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch("apps.bot.handlers.conversation.datetime") as mock_dt,
             patch(
-                "app.handlers.conversation.load_settings",
+                "apps.bot.handlers.conversation.load_settings",
                 return_value=_settings_mock(),
             ),
             patch(
-                "app.handlers.conversation.asyncio.to_thread",
+                "apps.bot.handlers.conversation.asyncio.to_thread",
                 side_effect=_to_thread,
             ),
         ):
@@ -455,13 +457,13 @@ def test_turn_cap_warns_then_closes(cleanup_user: int) -> None:
         update, message = _make_update(tid, "turn eleven")
         context = MagicMock()
         with (
-            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch("apps.bot.handlers.conversation.datetime") as mock_dt,
             patch(
-                "app.handlers.conversation.load_settings",
+                "apps.bot.handlers.conversation.load_settings",
                 return_value=_settings_mock(),
             ),
             patch(
-                "app.handlers.conversation.asyncio.to_thread",
+                "apps.bot.handlers.conversation.asyncio.to_thread",
                 side_effect=_thread_turn,
             ),
         ):
@@ -534,7 +536,7 @@ def test_failed_close_send_writes_zero_errors(cleanup_user: int) -> None:
         user = get_user(tid)
         assert user is not None
         with patch(
-            "app.handlers.conversation.asyncio.to_thread",
+            "apps.bot.handlers.conversation.asyncio.to_thread",
             side_effect=_thread,
         ):
             await _close_out(
@@ -599,7 +601,7 @@ def test_successful_close_writes_at_most_three_errors(
         user = get_user(tid)
         assert user is not None
         with patch(
-            "app.handlers.conversation.asyncio.to_thread",
+            "apps.bot.handlers.conversation.asyncio.to_thread",
             side_effect=_thread,
         ):
             await _close_out(
@@ -660,7 +662,8 @@ def test_grep_no_mid_conversation_record_errors() -> None:
     """Handler must not call record_errors except inside _close_out."""
     src = (
         Path(__file__).resolve().parents[1]
-        / "app"
+        / "apps"
+        / "bot"
         / "handlers"
         / "conversation.py"
     ).read_text(encoding="utf-8")
@@ -792,7 +795,7 @@ def test_close_request_constructs_from_realistic_payload(
     close_json = (
         '{"errors":[],"did_well":"You kept the chat going with concrete detail."}'
     )
-    with patch("app.llm.anthropic.Anthropic") as mock_cls:
+    with patch("core.llm.anthropic.Anthropic") as mock_cls:
         client = mock_cls.return_value
         client.messages.create.return_value = _mock_llm_response(close_json)
         result = chat(
@@ -828,7 +831,7 @@ def test_turn_request_constructs_from_realistic_payload(
     assert messages[-1]["content"] == "We play chess mostly"
     _to_anthropic_messages(messages)
 
-    with patch("app.llm.anthropic.Anthropic") as mock_cls:
+    with patch("core.llm.anthropic.Anthropic") as mock_cls:
         client = mock_cls.return_value
         client.messages.create.return_value = _mock_llm_response(
             "Chess is great — rated or just for fun?"
@@ -867,14 +870,14 @@ def test_failed_close_generation_completes_session_zero_errors(
         assert user is not None
         with (
             patch(
-                "app.handlers.conversation.asyncio.to_thread",
+                "apps.bot.handlers.conversation.asyncio.to_thread",
                 side_effect=LLMError(
                     "Anthropic API error 400: conversation must end "
                     "with a user message"
                 ),
             ),
             caplog.at_level(
-                logging.WARNING, logger="app.handlers.conversation"
+                logging.WARNING, logger="apps.bot.handlers.conversation"
             ),
         ):
             await _close_out(
@@ -947,12 +950,12 @@ def test_close_truncation_retries_then_fallback_zero_errors(
         user = get_user(tid)
         assert user is not None
         with (
-            patch("app.handlers.conversation.chat", side_effect=_fake_chat),
+            patch("apps.bot.handlers.conversation.chat", side_effect=_fake_chat),
             patch(
-                "app.handlers.conversation.asyncio.to_thread",
+                "apps.bot.handlers.conversation.asyncio.to_thread",
                 side_effect=_to_thread,
             ),
-            caplog.at_level(logging.INFO, logger="app.llm"),
+            caplog.at_level(logging.INFO, logger="core.llm"),
         ):
             await _close_out(
                 message,
@@ -987,8 +990,8 @@ def test_close_stop_reason_logged_on_llm_call(
     system = build_conversation_close_prompt(user)
     close_json = '{"errors":[],"did_well":"Concrete detail."}'
     with (
-        patch("app.llm.anthropic.Anthropic") as mock_cls,
-        caplog.at_level(logging.INFO, logger="app.llm"),
+        patch("core.llm.anthropic.Anthropic") as mock_cls,
+        caplog.at_level(logging.INFO, logger="core.llm"),
     ):
         client = mock_cls.return_value
         client.messages.create.return_value = _mock_llm_response(
@@ -1026,13 +1029,13 @@ def test_truncated_turn_never_sent_warm_failure_no_turn_count(
         update, message = _make_update(tid, "we stayed three days")
         context = MagicMock()
         with (
-            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch("apps.bot.handlers.conversation.datetime") as mock_dt,
             patch(
-                "app.handlers.conversation.load_settings",
+                "apps.bot.handlers.conversation.load_settings",
                 return_value=_settings_mock(),
             ),
             patch(
-                "app.handlers.conversation.asyncio.to_thread",
+                "apps.bot.handlers.conversation.asyncio.to_thread",
                 side_effect=_to_thread,
             ),
         ):
@@ -1092,13 +1095,13 @@ def test_end_chat_answers_before_llm_second_tap_noop(cleanup_user: int) -> None:
         update.effective_user = query.from_user
         context = MagicMock()
         with (
-            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch("apps.bot.handlers.conversation.datetime") as mock_dt,
             patch(
-                "app.handlers.conversation.load_settings",
+                "apps.bot.handlers.conversation.load_settings",
                 return_value=_settings_mock(),
             ),
             patch(
-                "app.handlers.conversation.asyncio.to_thread",
+                "apps.bot.handlers.conversation.asyncio.to_thread",
                 side_effect=_to_thread,
             ),
         ):
@@ -1152,13 +1155,13 @@ def test_one_live_end_keyboard_after_turn_reply(cleanup_user: int) -> None:
         context = MagicMock()
         bot = message.get_bot()
         with (
-            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch("apps.bot.handlers.conversation.datetime") as mock_dt,
             patch(
-                "app.handlers.conversation.load_settings",
+                "apps.bot.handlers.conversation.load_settings",
                 return_value=_settings_mock(),
             ),
             patch(
-                "app.handlers.conversation.asyncio.to_thread",
+                "apps.bot.handlers.conversation.asyncio.to_thread",
                 side_effect=_to_thread,
             ),
         ):
@@ -1185,7 +1188,7 @@ def test_one_live_end_keyboard_after_turn_reply(cleanup_user: int) -> None:
 def test_chunk_topic_label_english_only_ignores_persian_meaning() -> None:
     from datetime import datetime as dt
 
-    from app.services.chunks import Chunk
+    from core.services.chunks import Chunk
 
     chunk = Chunk(
         id=1,
@@ -1238,7 +1241,7 @@ def test_picking_topic_not_claimed_by_conversation_filter(
 def test_topic_picker_persists_offered_and_rotates(cleanup_user: int) -> None:
     tid = cleanup_user
     _onboard(tid)
-    from app.services.interests import replace_interests
+    from core.services.interests import replace_interests
 
     replace_interests(
         tid,
@@ -1256,7 +1259,7 @@ def test_topic_picker_persists_offered_and_rotates(cleanup_user: int) -> None:
         update, message = _make_update(tid, "/talk")
         context = MagicMock()
         context.args = []
-        with patch("app.handlers.conversation.datetime") as mock_dt:
+        with patch("apps.bot.handlers.conversation.datetime") as mock_dt:
             mock_dt.now = MagicMock(return_value=_FROZEN)
             await on_talk_command(update, context)
         picking = get_picking_conversation_session(tid)
@@ -1267,7 +1270,7 @@ def test_topic_picker_persists_offered_and_rotates(cleanup_user: int) -> None:
 
         # Second /talk without tapping — must rotate away from the same set.
         update2, message2 = _make_update(tid, "/talk")
-        with patch("app.handlers.conversation.datetime") as mock_dt:
+        with patch("apps.bot.handlers.conversation.datetime") as mock_dt:
             mock_dt.now = MagicMock(return_value=_FROZEN)
             await on_talk_command(update2, context)
         picking2 = get_picking_conversation_session(tid)
@@ -1285,7 +1288,7 @@ def test_topic_pool_defaults_only_when_all_empty(cleanup_user: int) -> None:
     tid = cleanup_user
     _onboard(tid)
     assert build_topic_pool(tid) == list(texts.TALK_DEFAULT_TOPICS)
-    from app.services.interests import replace_interests
+    from core.services.interests import replace_interests
 
     replace_interests(
         tid, [("travel", "life"), ("cooking", "life")]
@@ -1307,7 +1310,7 @@ def test_rotate_topics_prefers_unoffered() -> None:
 def test_reject_truncation_raises_on_max_tokens_stop(
     cleanup_user: int,
 ) -> None:
-    with patch("app.llm.anthropic.Anthropic") as mock_cls:
+    with patch("core.llm.anthropic.Anthropic") as mock_cls:
         client = mock_cls.return_value
         client.messages.create.return_value = _mock_llm_response(
             "partial sentence that got cut",
@@ -1352,13 +1355,13 @@ def test_reaction_occasional_not_every_turn(cleanup_user: int) -> None:
         update, message = _make_update(tid, f"turn body {turn_count}")
         context = MagicMock()
         with (
-            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch("apps.bot.handlers.conversation.datetime") as mock_dt,
             patch(
-                "app.handlers.conversation.load_settings",
+                "apps.bot.handlers.conversation.load_settings",
                 return_value=_settings_mock(),
             ),
             patch(
-                "app.handlers.conversation.asyncio.to_thread",
+                "apps.bot.handlers.conversation.asyncio.to_thread",
                 side_effect=_to_thread,
             ),
         ):
@@ -1397,13 +1400,13 @@ def test_reaction_failure_does_not_break_turn(cleanup_user: int) -> None:
             side_effect=RuntimeError("reactions disabled")
         )
         with (
-            patch("app.handlers.conversation.datetime") as mock_dt,
+            patch("apps.bot.handlers.conversation.datetime") as mock_dt,
             patch(
-                "app.handlers.conversation.load_settings",
+                "apps.bot.handlers.conversation.load_settings",
                 return_value=_settings_mock(),
             ),
             patch(
-                "app.handlers.conversation.asyncio.to_thread",
+                "apps.bot.handlers.conversation.asyncio.to_thread",
                 side_effect=_to_thread,
             ),
         ):

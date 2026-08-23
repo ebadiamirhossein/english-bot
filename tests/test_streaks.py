@@ -8,21 +8,21 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.db import close_pool, connection
-from app.handlers.quiz import format_completion_message
-from app.services.sessions import (
+from core.db import close_pool, connection
+from apps.bot.handlers.quiz import format_completion_message
+from core.services.sessions import (
     complete_open_free_practice,
     complete_session,
     insert_session,
 )
-from app.services.streaks import (
+from core.services.streaks import (
     evaluate_pending,
     get_streak,
     is_in_rescue,
     reset_monthly_freezes,
     roll_over_day,
 )
-from app.services.users import save_onboarding
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_340_000_000
 

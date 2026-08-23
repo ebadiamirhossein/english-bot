@@ -12,19 +12,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram import User
 
-from app import texts
-from app.db import close_pool, connection, migrate
-from app.handlers import quiz as quiz_handler
-from app.handlers.book_test import handle_test_command
-from app.handlers.quiz import (
+from apps.bot import texts
+from core.db import close_pool, connection, migrate
+from apps.bot.handlers import quiz as quiz_handler
+from apps.bot.handlers.book_test import handle_test_command
+from apps.bot.handlers.quiz import (
     on_present_ack_callback,
     on_present_orphan_callback,
     open_quiz_awaits_gap_answer,
     presentation_pending,
     s25_present_button_labels,
 )
-from app.services.anki import fetch_unexported_chunks
-from app.services.chunks import (
+from core.services.anki import fetch_unexported_chunks
+from core.services.chunks import (
     CHUNK_PRESENTED_AND_DUE_SQL,
     chunk_due_predicate_sites,
     count_due_chunks,
@@ -33,15 +33,15 @@ from app.services.chunks import (
     mark_presented,
     unpresented_chunks,
 )
-from app.services.errors import record_errors
-from app.services.sessions import (
+from core.services.errors import record_errors
+from core.services.sessions import (
     get_open_quiz_session,
     insert_session,
     update_session_payload,
 )
-from app.services.shared_content import record_and_fanout_chunks
-from app.services.stats import collect_stats
-from app.services.users import save_onboarding
+from core.services.shared_content import record_and_fanout_chunks
+from core.services.stats import collect_stats
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_520_000_000
 FIXED_TODAY = date(2026, 8, 14)
@@ -267,7 +267,7 @@ def test_fanout_insert_leaves_presented_null(cleanup_user: int) -> None:
     tid = cleanup_user
     _onboard(tid)
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[tid]
     ):
         record_and_fanout_chunks(
             [
@@ -657,7 +657,7 @@ def test_present_ack_sets_presented_and_advances(cleanup_user: int) -> None:
     context.bot.edit_message_text = AsyncMock()
     update = _callback_update(tid, f"present:ack:{cid}")
     with patch(
-        "app.handlers.quiz.local_today", return_value=FIXED_TODAY
+        "apps.bot.handlers.quiz.local_today", return_value=FIXED_TODAY
     ):
         asyncio.run(on_present_ack_callback(update, context))
 
@@ -682,7 +682,7 @@ def test_present_ack_repeated_is_noop(cleanup_user: int) -> None:
     context.bot.edit_message_text = AsyncMock()
     update = _callback_update(tid, f"present:ack:{cid}")
     with patch(
-        "app.handlers.quiz.local_today", return_value=FIXED_TODAY
+        "apps.bot.handlers.quiz.local_today", return_value=FIXED_TODAY
     ):
         asyncio.run(on_present_ack_callback(update, context))
         edits_after_first = context.bot.edit_message_text.await_count
@@ -714,7 +714,7 @@ def test_present_ack_out_of_order_is_noop(cleanup_user: int) -> None:
     context = MagicMock()
     context.bot.edit_message_text = AsyncMock()
     with patch(
-        "app.handlers.quiz.local_today", return_value=FIXED_TODAY
+        "apps.bot.handlers.quiz.local_today", return_value=FIXED_TODAY
     ):
         asyncio.run(
             on_present_ack_callback(
@@ -745,7 +745,7 @@ def test_present_ack_does_not_affect_score_or_early_limit(
     context = MagicMock()
     context.bot.edit_message_text = AsyncMock()
     with patch(
-        "app.handlers.quiz.local_today", return_value=FIXED_TODAY
+        "apps.bot.handlers.quiz.local_today", return_value=FIXED_TODAY
     ):
         asyncio.run(
             on_present_ack_callback(

@@ -21,11 +21,11 @@ from telegram.ext import (
     filters,
 )
 
-from app import texts
-from app.config import Settings, load_settings
-from app.handlers.quiz import grade_answer
-from app.llm import LLMError, chat
-from app.services.couple import (
+from apps.bot import texts
+from core.config import Settings, load_settings
+from apps.bot.handlers.quiz import grade_answer
+from core.llm import LLMError, chat
+from apps.bot.services.couple import (
     SCHEDULED_MAX_CHARS,
     add_point,
     claim_sunday_leaderboard,
@@ -42,8 +42,8 @@ from app.services.couple import (
     scores_for_week,
     week_start,
 )
-from app.services.errors import Error
-from app.services.users import get_user, is_registered
+from core.services.errors import Error
+from core.services.users import get_user, is_registered
 
 logger = logging.getLogger(__name__)
 

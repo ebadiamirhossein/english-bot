@@ -17,12 +17,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from app import texts
-from app.db import connection
-from app.llm import LLMError, chat
-from app.services.chunks import count_due_chunks, insert_chunks
-from app.services.reading import normalize_for_match
-from app.services.watch_import import (
+from core import copy
+from core.db import connection
+from core.llm import LLMError, chat
+from core.services.chunks import count_due_chunks, insert_chunks
+from core.services.reading import normalize_for_match
+from core.services.watch_import import (
     existing_chunk_norms,
     parse_vocabulary_seed_items,
 )
@@ -344,7 +344,7 @@ class VocabImportCounts:
 
 def format_vocab_import_reply(counts: VocabImportCounts) -> str:
     """User-facing import result; names skipped words (capped)."""
-    base = texts.IMPORT_DOC_RESULT.format(
+    base = copy.IMPORT_DOC_RESULT.format(
         imported=counts.imported,
         duplicates=counts.duplicates,
         invalid=counts.invalid,
@@ -357,8 +357,8 @@ def format_vocab_import_reply(counts: VocabImportCounts) -> str:
     lines = [f"• {word} — {reason}" for word, reason in shown]
     more = len(skips) - len(shown)
     if more > 0:
-        lines.append(texts.IMPORT_DOC_VOCAB_SKIPS_MORE.format(n=more))
-    skip_block = texts.IMPORT_DOC_VOCAB_SKIPS.format(lines="\n".join(lines))
+        lines.append(copy.IMPORT_DOC_VOCAB_SKIPS_MORE.format(n=more))
+    skip_block = copy.IMPORT_DOC_VOCAB_SKIPS.format(lines="\n".join(lines))
     # Insert skip block before the due line.
     parts = base.rsplit("\n", 1)
     if len(parts) == 2:

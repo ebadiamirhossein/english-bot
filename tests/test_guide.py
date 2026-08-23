@@ -17,9 +17,9 @@ from telegram.ext import (
     MessageHandler,
 )
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers.guide import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers.guide import (
     MENU,
     SECTION,
     build_guide_handler,
@@ -33,9 +33,9 @@ from app.handlers.guide import (
     section_callback,
     section_keys,
 )
-from app.main import register_handlers
-from app.services.commands import menu_command_names
-from app.services.users import save_onboarding
+from apps.bot.main import register_handlers
+from apps.bot.commands import menu_command_names
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_510_000_000
 

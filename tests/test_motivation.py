@@ -11,17 +11,17 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers.nudge import on_nudge_callback
-from app.handlers.quiz import quiz_effective_total
-from app.scheduler import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers.nudge import on_nudge_callback
+from apps.bot.handlers.quiz import quiz_effective_total
+from apps.bot.scheduler import (
     ANKI_FIRST_SECONDS,
     NUDGE_FIRST_SECONDS,
     SUNDAY_REPORT_FIRST_SECONDS,
 )
-from app.services.errors import mark_result, resolved_types, top_error_types
-from app.services.motivation import (
+from core.services.errors import mark_result, resolved_types, top_error_types
+from core.services.motivation import (
     EARLY_LIMIT,
     MotivationUser,
     assemble_sunday_report,
@@ -36,7 +36,7 @@ from app.services.motivation import (
     sessions_due_for_nudge,
     task_still_open,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     bot_initiated_count,
     complete_session,
     daily_nudges_sent,
@@ -48,7 +48,7 @@ from app.services.sessions import (
     local_today,
     set_session_delivered_at,
 )
-from app.services.users import save_onboarding
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_510_000_000
 
@@ -361,7 +361,7 @@ def test_second_nudge_copy_differs_and_offers_smaller(
     _onboard(tid)
     day = local_today("Europe/Vilnius", _MON_MORNING)
     sid = _open_quiz(tid, day, delivered_at=_MON_MORNING)
-    from app.services.sessions import list_open_nudgeable_sessions
+    from core.services.sessions import list_open_nudgeable_sessions
 
     sessions = list_open_nudgeable_sessions(tid)
     assert sessions
@@ -495,7 +495,7 @@ def test_anki_not_due_on_sunday_evening(cleanup_user: int) -> None:
     """S11: Anki moved to Saturday — Sunday evening must not write anki_export."""
     tid = cleanup_user
     _onboard(tid)
-    from app.scheduler import EligibleUser, is_user_due_for_anki
+    from apps.bot.scheduler import EligibleUser, is_user_due_for_anki
 
     anki_user = EligibleUser(
         telegram_user_id=tid,

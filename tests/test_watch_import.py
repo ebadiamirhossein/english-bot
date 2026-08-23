@@ -13,11 +13,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.db import close_pool, connection
-from app.services.anki import export_and_send, fetch_unexported_chunks
-from app.services.paths import PathSafetyError, assert_path_outside_repo, repo_root
-from app.services.users import save_onboarding
-from app.services.watch_import import (
+from core.db import close_pool, connection
+from core.services.anki import export_and_send, fetch_unexported_chunks
+from core.services.paths import PathSafetyError, assert_path_outside_repo, repo_root
+from core.services.users import save_onboarding
+from core.services.watch_import import (
     IMPORT_STABLE_AFTER,
     clear_orphan_warnings,
     collect_root_orphans,
@@ -134,7 +134,7 @@ def test_source_marker() -> None:
 
 
 def test_detect_tool_from_headers() -> None:
-    from app.services.watch_import import (
+    from core.services.watch_import import (
         classify_csv_format,
         detect_tool_from_headers,
     )
@@ -185,11 +185,11 @@ def watch_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "watch"
     root.mkdir()
     monkeypatch.setattr(
-        "app.services.watch_import.load_settings",
+        "core.services.watch_import.load_settings",
         lambda: MagicMock(watch_dir=str(root)),
     )
     monkeypatch.setattr(
-        "app.services.watch_import.assert_path_outside_repo",
+        "core.services.watch_import.assert_path_outside_repo",
         lambda path, label="WATCH_DIR": Path(path).resolve(),
     )
     return root
@@ -497,7 +497,7 @@ def test_anki_outbox_write_and_failure_tolerant(
         raise OSError("disk full")
 
     monkeypatch.setattr(
-        "app.services.watch_import.write_anki_outbox",
+        "core.services.watch_import.write_anki_outbox",
         _boom,
     )
     n2 = asyncio.run(
@@ -518,7 +518,7 @@ def test_anki_outbox_write_and_failure_tolerant(
 
 def test_scan_noop_when_watch_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "app.services.watch_import.load_settings",
+        "core.services.watch_import.load_settings",
         lambda: MagicMock(watch_dir=""),
     )
     assert watch_dir_configured() == ""

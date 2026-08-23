@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Sequence
 
-from app.db import connection
-from app.services.errors import spacing_step
+from core.db import connection
+from core.services.errors import spacing_step
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ def due_chunks(
     if limit <= 0:
         return []
     # Lazy import — anki → reading → chunks would cycle at module load.
-    from app.services.anki import make_sentence_with_gap
+    from core.services.anki import make_sentence_with_gap
 
     # Over-fetch so ungapable rows can be replaced without a second round-trip
     # pattern that races; still bounded.
@@ -308,7 +308,7 @@ def chunk_due_predicate_sites() -> dict[str, Callable[..., Any]]:
     Every consumer of presented-and-due chunk counts must appear here and must
     reference ``CHUNK_PRESENTED_AND_DUE_SQL`` in its source.
     """
-    from app.services import stats
+    from core.services import stats
 
     return {
         "due_chunks": due_chunks,

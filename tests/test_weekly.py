@@ -11,27 +11,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.db import close_pool, connection
-from app.handlers import quiz as quiz_handler
-from app.handlers.quiz import (
+from core.db import close_pool, connection
+from apps.bot.handlers import quiz as quiz_handler
+from apps.bot.handlers.quiz import (
     _MAX_BUTTON_LABEL_CHARS,
     format_murphy_recommendation,
     quiz_effective_total,
 )
-from app.scheduler import ANKI_WEEKDAY, EligibleUser, is_user_due_for_anki
-from app.services.books import MergedUnit, upsert_unit
-from app.services.errors import (
+from apps.bot.scheduler import ANKI_WEEKDAY, EligibleUser, is_user_due_for_anki
+from core.services.books import MergedUnit, upsert_unit
+from core.services.errors import (
     expand_murphy_units,
     mark_result,
     select_weekly_test_errors,
     top_error_types,
 )
-from app.services.motivation import (
+from core.services.motivation import (
     MotivationUser,
     deliver_sunday_report,
     is_user_due_for_sunday_report,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     bot_initiated_count,
     get_session_by_id,
     has_anki_session_on,
@@ -39,7 +39,7 @@ from app.services.sessions import (
     local_today,
     update_session_payload,
 )
-from app.services.users import save_onboarding
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_490_000_000
 

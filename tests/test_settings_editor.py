@@ -11,9 +11,9 @@ import pytest
 from telegram.error import BadRequest
 from telegram.ext import ConversationHandler, MessageHandler
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers.settings import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers.settings import (
     MENU,
     WEIGHTS,
     _WEIGHT_PRESETS,
@@ -25,7 +25,7 @@ from app.handlers.settings import (
     parse_settings_time_callback,
     s18a_button_labels,
 )
-from app.services.users import (
+from core.services.users import (
     get_user,
     save_onboarding,
     update_cefr_level,
@@ -408,7 +408,7 @@ def test_s18a_button_labels_max_20() -> None:
 
 
 def test_morning_evening_presets_match_onboarding() -> None:
-    from app.handlers.settings import _EVENING_TIMES, _MORNING_TIMES
+    from apps.bot.handlers.settings import _EVENING_TIMES, _MORNING_TIMES
 
     assert _MORNING_TIMES == ("07:00", "08:00", "09:00")
     assert _EVENING_TIMES == ("19:00", "20:00", "21:00")

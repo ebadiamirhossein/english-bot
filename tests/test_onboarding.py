@@ -6,8 +6,8 @@ import uuid
 
 import pytest
 
-from app.db import close_pool, connection
-from app.services.users import efset_to_cefr, get_user, save_onboarding
+from core.db import close_pool, connection
+from core.services.users import efset_to_cefr, get_user, save_onboarding
 
 
 FAKE_TELEGRAM_ID_BASE = 9_000_000_000

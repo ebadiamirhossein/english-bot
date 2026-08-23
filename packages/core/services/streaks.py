@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Literal
 
-from app.db import connection
-from app.services.sessions import local_time_hhmm, local_today
+from core.db import connection
+from core.services.sessions import local_time_hhmm, local_today
 
 logger = logging.getLogger(__name__)
 

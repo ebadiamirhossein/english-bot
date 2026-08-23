@@ -17,8 +17,8 @@ from typing import Any
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app import texts
-from app.config import load_settings
+from core import copy
+from core.config import load_settings
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +204,7 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     if chat is not None:
         try:
             await context.bot.send_message(
-                chat_id=chat.id, text=texts.SOFT_UNHANDLED
+                chat_id=chat.id, text=copy.SOFT_UNHANDLED
             )
         except Exception:
             logger.exception(

@@ -23,31 +23,32 @@ from telegram.constants import ChatAction
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes, MessageHandler, filters
 
-from app import texts
-from app.config import load_settings
-from app.handlers.correction import (
+from apps.bot import texts
+from core import PROMPTS_DIR
+from core.config import load_settings
+from apps.bot.handlers.correction import (
     ABSTRACT_ERROR_TYPES,
     error_type_list_text,
     render_correction_message,
 )
-from app.llm import LLMError, chat
-from app.services.errors import record_errors
-from app.services.sessions import (
+from core.llm import LLMError, chat
+from core.services.errors import record_errors
+from core.services.sessions import (
     get_claimable_shadow_session,
     get_continuable_voice_session,
     get_open_diary_session,
     local_today,
     save_voice_exchange,
 )
-from app.services.users import User, get_user, is_registered
-from app.speech import SpeechError, synthesize, transcribe
+from core.services.users import User, get_user, is_registered
+from core.speech import SpeechError, synthesize, transcribe
 
 logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "voice"
 _CHAT_ACTION_INTERVAL_SECONDS = 4.0
 
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "voice.txt"
+_PROMPT_PATH = PROMPTS_DIR / "voice.txt"
 _user_locks: dict[int, asyncio.Lock] = {}
 
 _prompt_template: str | None = None
@@ -158,11 +159,11 @@ async def handle_voice(
 
     async with _lock_for(user_id):
         if route_shadow:
-            from app.handlers.shadow import handle_shadow_voice
+            from apps.bot.handlers.shadow import handle_shadow_voice
 
             await handle_shadow_voice(update, context, settings)
         elif route_diary:
-            from app.handlers.diary import handle_diary_voice
+            from apps.bot.handlers.diary import handle_diary_voice
 
             await handle_diary_voice(update, context, settings)
         else:
@@ -390,7 +391,7 @@ async def _handle_voice_locked(
 
 
 def _user_timezone(user_id: int) -> str:
-    from app.db import connection
+    from core.db import connection
 
     with connection() as conn:
         row = conn.execute(

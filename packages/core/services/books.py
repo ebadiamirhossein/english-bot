@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Callable  # Any used by upsert_unit_shared conn
 
-from app.db import connection
-from app.llm import LLMError, chat
+from core.db import connection
+from core.llm import LLMError, chat
 
 logger = logging.getLogger(__name__)
 

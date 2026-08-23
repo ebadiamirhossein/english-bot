@@ -11,22 +11,22 @@ import pytest
 from telegram import CallbackQuery, Chat, Message, Update, User
 from telegram.ext import ApplicationBuilder
 
-from app import texts
-from app.db import close_pool, connection
-from app.handlers.csv_import import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.handlers.csv_import import (
     on_share_orphan_callback,
     on_share_slang_callback,
     s24_share_button_labels,
 )
-from app.services.access_control import (
+from core.services.access_control import (
     approve_access,
     delivery_lister_ids,
     revoke_access,
 )
-from app.services.books import MergedUnit, upsert_unit
-from app.services.chunks import due_chunks, insert_chunks
-from app.services.reading import normalize_for_match
-from app.services.shared_content import (
+from core.services.books import MergedUnit, upsert_unit
+from core.services.chunks import due_chunks, insert_chunks
+from core.services.reading import normalize_for_match
+from core.services.shared_content import (
     OUTCOME_DELIVERED,
     OUTCOME_SKIPPED_OWNED,
     backfill_shared_library,
@@ -36,8 +36,8 @@ from app.services.shared_content import (
     record_and_fanout_chunks,
     try_backfill_soft,
 )
-from app.services.users import save_onboarding
-from app.services.watch_import import (
+from core.services.users import save_onboarding
+from core.services.watch_import import (
     classify_csv_format,
     format_meaning,
     map_headers,
@@ -215,7 +215,7 @@ def test_fanout_n_users_n_copies(two_users: tuple[int, int]) -> None:
     _onboard(b, name="B")
     items = _slang_items()
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a, b]
     ):
         stats = record_and_fanout_chunks(
             items, created_by=a, source="slang", rejected=0
@@ -235,7 +235,7 @@ def test_reimport_zero_new_rows(two_users: tuple[int, int]) -> None:
     _onboard(b)
     items = _slang_items()
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a, b]
     ):
         record_and_fanout_chunks(items, created_by=a, source="slang")
         stats = record_and_fanout_chunks(items, created_by=a, source="slang")
@@ -251,7 +251,7 @@ def test_sender_exactly_one_copy_on_share(cleanup_user: int) -> None:
     _onboard(tid)
     items = _slang_items()
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[tid]
     ):
         stats = record_and_fanout_chunks(
             items, created_by=tid, source="slang", rejected=1
@@ -307,7 +307,7 @@ def test_per_user_dedupe_writes_skipped_owned(
             )
     items = _slang_items()
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a, b]
     ):
         record_and_fanout_chunks(items, created_by=a, source="slang")
     assert _count_chunks(b, source="capture") == 1
@@ -333,7 +333,7 @@ def test_revoked_user_receives_nothing(two_users: tuple[int, int]) -> None:
     assert b not in list_recipients()
     items = _slang_items()
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[a]
+        "core.services.shared_content.list_recipients", return_value=[a]
     ):
         record_and_fanout_chunks(items, created_by=a, source="slang")
     assert _count_chunks(a, source="slang") == 2
@@ -358,7 +358,7 @@ def test_backfill_at_onboarding(two_users: tuple[int, int]) -> None:
     _onboard(a)
     items = _slang_items()
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[a]
+        "core.services.shared_content.list_recipients", return_value=[a]
     ):
         record_and_fanout_chunks(items, created_by=a, source="slang")
     _onboard(b)
@@ -373,7 +373,7 @@ def test_backfill_idempotent_redo_onboarding(cleanup_user: int) -> None:
     _onboard(tid)
     items = _slang_items()
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[tid]
     ):
         record_and_fanout_chunks(items, created_by=tid, source="slang")
     before = _count_chunks(tid, source="slang")
@@ -390,7 +390,7 @@ def test_backfill_idempotent_revoke_reapprove(
     _onboard(b)
     items = _slang_items()
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a, b]
     ):
         record_and_fanout_chunks(items, created_by=a, source="slang")
     before = _count_chunks(b, source="slang")
@@ -405,7 +405,7 @@ def test_import_then_new_user_same_day(two_users: tuple[int, int]) -> None:
     _onboard(a)
     items = _slang_items()
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[a]
+        "core.services.shared_content.list_recipients", return_value=[a]
     ):
         record_and_fanout_chunks(items, created_by=a, source="slang")
     _onboard(b)
@@ -414,7 +414,7 @@ def test_import_then_new_user_same_day(two_users: tuple[int, int]) -> None:
     assert _has_chunk(b, "no cap")
     before = _count_chunks(b, source="slang")
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a, b]
     ):
         stats = record_and_fanout_chunks(items, created_by=a, source="slang")
     assert stats.users_reached == 0
@@ -428,7 +428,7 @@ def test_shared_chunks_enter_ladder_and_cap(
     _onboard(tid)
     items = _slang_items()
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[tid]
     ):
         record_and_fanout_chunks(items, created_by=tid, source="slang")
     # S25: fan-out rows are unpresented — present before graded due selection.
@@ -467,7 +467,7 @@ def test_chunk_first_write_wins(cleanup_user: int) -> None:
         }
     ]
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[tid]
     ):
         record_and_fanout_chunks(first, created_by=tid, source="slang")
         record_and_fanout_chunks(second, created_by=tid, source="slang")
@@ -503,7 +503,7 @@ def test_book_ledger_key_round_trip(cleanup_user: int) -> None:
     assert "\x00" not in key
     assert key == book_content_key("murphy", "12")
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[tid]
     ):
         record_and_fanout_book_units("murphy", [unit], created_by=tid)
     with connection() as conn:
@@ -528,7 +528,7 @@ def test_book_refresh_preserves_studied_at(
     _onboard(b)
     unit = MergedUnit("5", "Past simple", ["went", "saw"])
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a, b]
     ):
         record_and_fanout_book_units("murphy", [unit], created_by=a)
     fixed = date(2026, 7, 1)
@@ -542,7 +542,7 @@ def test_book_refresh_preserves_studied_at(
         )
     refreshed = MergedUnit("5", "Past simple (revised)", ["went", "saw", "did"])
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a, b]
     ):
         record_and_fanout_book_units("murphy", [refreshed], created_by=a)
     with connection() as conn:
@@ -606,7 +606,7 @@ def test_zero_errors_on_fanout(cleanup_user: int) -> None:
     _onboard(tid)
     before = _count_errors(tid)
     with patch(
-        "app.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[tid]
     ):
         record_and_fanout_chunks(_slang_items(), created_by=tid, source="slang")
     assert _count_errors(tid) == before == 0

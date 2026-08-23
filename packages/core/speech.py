@@ -13,7 +13,7 @@ from typing import Any
 
 import openai
 
-from app.config import Settings, load_settings
+from core.config import Settings, load_settings
 
 logger = logging.getLogger(__name__)
 

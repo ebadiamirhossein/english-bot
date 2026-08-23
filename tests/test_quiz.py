@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.db import close_pool, connection
-from app.handlers import quiz as quiz_handler
-from app.handlers.quiz import grade_answer, normalize_answer
-from app.services.errors import mark_result
-from app.services.users import save_onboarding
+from core.db import close_pool, connection
+from apps.bot.handlers import quiz as quiz_handler
+from apps.bot.handlers.quiz import grade_answer, normalize_answer
+from core.services.errors import mark_result
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_310_000_000
 
@@ -228,7 +228,7 @@ def test_zero_due_errors_free_practice_once(cleanup_user: int) -> None:
     assert len(_sessions(tid)) == 1
 
     # And eligibility must exclude the user
-    from app.scheduler import users_due_for_morning
+    from apps.bot.scheduler import users_due_for_morning
 
     due_ids = [u.telegram_user_id for u in users_due_for_morning(now + timedelta(minutes=5))]
     assert tid not in due_ids

@@ -8,16 +8,16 @@ from typing import Any
 from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
-from app import texts
-from app.handlers import quiz as quiz_handler
-from app.handlers import reading as reading_handler
-from app.services.motivation import EARLY_LIMIT
-from app.services.sessions import (
+from apps.bot import texts
+from apps.bot.handlers import quiz as quiz_handler
+from apps.bot.handlers import reading as reading_handler
+from core.services.motivation import EARLY_LIMIT
+from core.services.sessions import (
     complete_session,
     get_session_by_id,
     update_session_payload,
 )
-from app.services.streaks import get_streak
+from core.services.streaks import get_streak
 
 logger = logging.getLogger(__name__)
 

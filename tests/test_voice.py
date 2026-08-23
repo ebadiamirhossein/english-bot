@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app import texts
-from app.config import Settings
-from app.db import close_pool, connection
-from app.handlers.correction import init_correction_prompt
-from app.handlers.voice import handle_voice, init_voice_prompt
-from app.scheduler import EligibleUser, is_user_due_for_morning
-from app.services.sessions import (
+from apps.bot import texts
+from core.config import Settings
+from core.db import close_pool, connection
+from apps.bot.handlers.correction import init_correction_prompt
+from apps.bot.handlers.voice import handle_voice, init_voice_prompt
+from apps.bot.scheduler import EligibleUser, is_user_due_for_morning
+from core.services.sessions import (
     bot_initiated_count,
     get_continuable_voice_session,
     get_open_quiz_session,
@@ -24,8 +24,8 @@ from app.services.sessions import (
     local_today,
     save_voice_exchange,
 )
-from app.services.users import save_onboarding
-from app.speech import SpeechError
+from core.services.users import save_onboarding
+from core.speech import SpeechError
 from telegram.error import BadRequest
 
 FAKE_TELEGRAM_ID_BASE = 9_350_000_000
@@ -238,12 +238,12 @@ def test_voice_while_open_quiz_does_not_consume_answers(cleanup_user: int) -> No
     llm_result = _llm_payload(errors=[])
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.transcribe", return_value="I went to the shop"),
-        patch("app.handlers.voice.chat", return_value=llm_result) as mock_chat,
-        patch("app.handlers.voice.synthesize", return_value=b"opus"),
-        patch("app.handlers.quiz.grade_answer") as mock_grade,
-        patch("app.handlers.quiz.on_quiz_text") as mock_quiz_text,
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.transcribe", return_value="I went to the shop"),
+        patch("apps.bot.handlers.voice.chat", return_value=llm_result) as mock_chat,
+        patch("apps.bot.handlers.voice.synthesize", return_value=b"opus"),
+        patch("apps.bot.handlers.quiz.grade_answer") as mock_grade,
+        patch("apps.bot.handlers.quiz.on_quiz_text") as mock_quiz_text,
     ):
         asyncio.run(handle_voice(update, context))
         mock_chat.assert_called()
@@ -270,16 +270,16 @@ def test_voice_exchange_does_not_increment_bot_message_counts(
 
     with (
         patch(
-            "app.handlers.voice.load_settings",
+            "apps.bot.handlers.voice.load_settings",
             return_value=_settings(),
         ),
         patch(
-            "app.handlers.voice.local_today",
+            "apps.bot.handlers.voice.local_today",
             return_value=day,
         ),
-        patch("app.handlers.voice.transcribe", return_value="Hello friend"),
-        patch("app.handlers.voice.chat", return_value=_llm_payload(errors=[])),
-        patch("app.handlers.voice.synthesize", return_value=b"opus"),
+        patch("apps.bot.handlers.voice.transcribe", return_value="Hello friend"),
+        patch("apps.bot.handlers.voice.chat", return_value=_llm_payload(errors=[])),
+        patch("apps.bot.handlers.voice.synthesize", return_value=b"opus"),
     ):
         asyncio.run(handle_voice(update, context))
 
@@ -362,11 +362,11 @@ def test_turn_10_final_then_next_opens_new_session(cleanup_user: int) -> None:
         return _llm_payload(errors=[])
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.voice.transcribe", return_value="Last turn here"),
-        patch("app.handlers.voice.chat", side_effect=_chat),
-        patch("app.handlers.voice.synthesize", return_value=b"opus"),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.voice.transcribe", return_value="Last turn here"),
+        patch("apps.bot.handlers.voice.chat", side_effect=_chat),
+        patch("apps.bot.handlers.voice.synthesize", return_value=b"opus"),
     ):
         asyncio.run(handle_voice(update, context))
 
@@ -381,11 +381,11 @@ def test_turn_10_final_then_next_opens_new_session(cleanup_user: int) -> None:
     )
     # Next exchange creates a new session id.
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.voice.transcribe", return_value="Fresh start"),
-        patch("app.handlers.voice.chat", return_value=_llm_payload(errors=[])),
-        patch("app.handlers.voice.synthesize", return_value=b"opus"),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.voice.transcribe", return_value="Fresh start"),
+        patch("apps.bot.handlers.voice.chat", return_value=_llm_payload(errors=[])),
+        patch("apps.bot.handlers.voice.synthesize", return_value=b"opus"),
     ):
         asyncio.run(handle_voice(update, context))
 
@@ -420,14 +420,14 @@ def test_errors_written_with_source_voice_capped_at_3(cleanup_user: int) -> None
     ]
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.voice.transcribe", return_value="I go yesterday shop"),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.voice.transcribe", return_value="I go yesterday shop"),
         patch(
-            "app.handlers.voice.chat",
+            "apps.bot.handlers.voice.chat",
             return_value=_llm_payload(errors=errors),
         ),
-        patch("app.handlers.voice.synthesize", return_value=b"opus"),
+        patch("apps.bot.handlers.voice.synthesize", return_value=b"opus"),
     ):
         asyncio.run(handle_voice(update, context))
 
@@ -449,8 +449,8 @@ def test_over_length_voice_declined_without_transcribe(cleanup_user: int) -> Non
     context = _make_context()
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.transcribe") as mock_stt,
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.transcribe") as mock_stt,
     ):
         asyncio.run(handle_voice(update, context))
         mock_stt.assert_not_called()
@@ -473,15 +473,15 @@ def test_tts_failure_delivers_text_and_records_errors(cleanup_user: int) -> None
     }
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.voice.transcribe", return_value="I go to park"),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.voice.transcribe", return_value="I go to park"),
         patch(
-            "app.handlers.voice.chat",
+            "apps.bot.handlers.voice.chat",
             return_value=_llm_payload(reply="What did you see?", errors=[err]),
         ),
         patch(
-            "app.handlers.voice.synthesize",
+            "apps.bot.handlers.voice.synthesize",
             side_effect=SpeechError("tts down"),
         ),
     ):
@@ -535,11 +535,11 @@ def test_s5a_happy_path_status_order(cleanup_user: int) -> None:
     context.bot.delete_message = AsyncMock(side_effect=_delete)
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.voice.transcribe", return_value="Hello there friend"),
-        patch("app.handlers.voice.chat", return_value=_llm_payload(errors=[])),
-        patch("app.handlers.voice.synthesize", return_value=b"opus"),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.voice.transcribe", return_value="Hello there friend"),
+        patch("apps.bot.handlers.voice.chat", return_value=_llm_payload(errors=[])),
+        patch("apps.bot.handlers.voice.synthesize", return_value=b"opus"),
     ):
         asyncio.run(handle_voice(update, context))
 
@@ -559,8 +559,8 @@ def test_s5a_empty_transcript_edits_status(cleanup_user: int) -> None:
     context = _make_context()
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.transcribe", return_value=" "),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.transcribe", return_value=" "),
     ):
         asyncio.run(handle_voice(update, context))
 
@@ -587,14 +587,14 @@ def test_s5a_llm_failure_ends_as_failure_text(cleanup_user: int) -> None:
     update = _make_voice_update(tid)
     context = _make_context()
 
-    from app.llm import LLMError
+    from core.llm import LLMError
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.voice.transcribe", return_value="Hello there friend"),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.voice.transcribe", return_value="Hello there friend"),
         patch(
-            "app.handlers.voice.chat",
+            "apps.bot.handlers.voice.chat",
             side_effect=LLMError("down"),
         ),
     ):
@@ -634,10 +634,10 @@ def test_s5a_exception_clears_status_and_cancels_action(
         return task
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.asyncio.create_task", side_effect=_tracking_create),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.asyncio.create_task", side_effect=_tracking_create),
         patch(
-            "app.handlers.voice.transcribe",
+            "apps.bot.handlers.voice.transcribe",
             side_effect=RuntimeError("boom"),
         ),
     ):
@@ -657,8 +657,8 @@ def test_s5a_over_length_no_status_no_chat_action(cleanup_user: int) -> None:
     context = _make_context()
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.transcribe") as mock_stt,
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.transcribe") as mock_stt,
     ):
         asyncio.run(handle_voice(update, context))
         mock_stt.assert_not_called()
@@ -679,11 +679,11 @@ def test_s5a_status_does_not_increment_bot_message_counts(
     context = _make_context()
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.voice.transcribe", return_value="Hello there friend"),
-        patch("app.handlers.voice.chat", return_value=_llm_payload(errors=[])),
-        patch("app.handlers.voice.synthesize", return_value=b"opus"),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.voice.transcribe", return_value="Hello there friend"),
+        patch("apps.bot.handlers.voice.chat", return_value=_llm_payload(errors=[])),
+        patch("apps.bot.handlers.voice.synthesize", return_value=b"opus"),
     ):
         asyncio.run(handle_voice(update, context))
 
@@ -701,11 +701,11 @@ def test_s5a_failed_delete_still_sends_voice(cleanup_user: int) -> None:
     )
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.voice.local_today", return_value=day),
-        patch("app.handlers.voice.transcribe", return_value="Hello there friend"),
-        patch("app.handlers.voice.chat", return_value=_llm_payload(errors=[])),
-        patch("app.handlers.voice.synthesize", return_value=b"opus"),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.local_today", return_value=day),
+        patch("apps.bot.handlers.voice.transcribe", return_value="Hello there friend"),
+        patch("apps.bot.handlers.voice.chat", return_value=_llm_payload(errors=[])),
+        patch("apps.bot.handlers.voice.synthesize", return_value=b"opus"),
     ):
         asyncio.run(handle_voice(update, context))
 

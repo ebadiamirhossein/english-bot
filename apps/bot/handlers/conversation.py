@@ -33,21 +33,22 @@ from telegram.ext import (
     filters,
 )
 
-from app import texts
-from app.config import load_settings
-from app.db import connection
-from app.handlers.correction import (
+from apps.bot import texts
+from core import PROMPTS_DIR
+from core.config import load_settings
+from core.db import connection
+from apps.bot.handlers.correction import (
     ABSTRACT_ERROR_TYPES,
     error_type_list_text,
     render_correction_message,
 )
-from app.handlers.quiz import open_quiz_awaits_gap_answer
-from app.llm import LLMError, chat
-from app.services.books import list_units_for_user
-from app.services.chunks import Chunk, sample_chunks_for_conversation
-from app.services.errors import record_errors, top_error_types
-from app.services.interests import list_interests
-from app.services.sessions import (
+from apps.bot.handlers.quiz import open_quiz_awaits_gap_answer
+from core.llm import LLMError, chat
+from core.services.books import list_units_for_user
+from core.services.chunks import Chunk, sample_chunks_for_conversation
+from core.services.errors import record_errors, top_error_types
+from core.services.interests import list_interests
+from core.services.sessions import (
     SessionRow,
     complete_session,
     get_open_conversation_session,
@@ -56,7 +57,7 @@ from app.services.sessions import (
     update_session_payload,
     utc_now_iso,
 )
-from app.services.users import User, get_user, is_registered
+from core.services.users import User, get_user, is_registered
 
 logger = logging.getLogger(__name__)
 
@@ -90,9 +91,9 @@ _CLOSE_REVIEW_CUE_TWO = (
     "Prefer fewer."
 )
 
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "conversation.txt"
+_PROMPT_PATH = PROMPTS_DIR / "conversation.txt"
 _CLOSE_PROMPT_PATH = (
-    Path(__file__).resolve().parent.parent / "prompts" / "conversation_close.txt"
+    PROMPTS_DIR / "conversation_close.txt"
 )
 
 _prompt_template: str | None = None

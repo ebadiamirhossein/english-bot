@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.handlers.onboarding import build_why_sentence
+from apps.bot.handlers.onboarding import build_why_sentence
 
 
 def test_why_one_selection() -> None:

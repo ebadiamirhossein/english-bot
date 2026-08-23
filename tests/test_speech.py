@@ -1,4 +1,4 @@
-"""Unit tests for app.speech — provider mocked; no real API / no disk I/O."""
+"""Unit tests for core.speech — provider mocked; no real API / no disk I/O."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 import openai
 import pytest
 
-from app.config import Settings
-from app.speech import SpeechError, synthesize, transcribe
+from core.config import Settings
+from core.speech import SpeechError, synthesize, transcribe
 
 
 def _settings() -> Settings:
@@ -38,8 +38,8 @@ def _status_error(status_code: int) -> openai.APIStatusError:
     )
 
 
-@patch("app.speech.time.sleep", return_value=None)
-@patch("app.speech.openai.OpenAI")
+@patch("core.speech.time.sleep", return_value=None)
+@patch("core.speech.openai.OpenAI")
 def test_transcribe_passes_named_in_memory_file(
     mock_openai_cls: MagicMock, _mock_sleep: MagicMock
 ) -> None:
@@ -64,8 +64,8 @@ def test_transcribe_passes_named_in_memory_file(
 @patch("tempfile.NamedTemporaryFile")
 @patch("tempfile.mkstemp")
 @patch("tempfile.TemporaryFile")
-@patch("app.speech.time.sleep", return_value=None)
-@patch("app.speech.openai.OpenAI")
+@patch("core.speech.time.sleep", return_value=None)
+@patch("core.speech.openai.OpenAI")
 def test_neither_function_touches_filesystem(
     mock_openai_cls: MagicMock,
     _mock_sleep: MagicMock,
@@ -91,8 +91,8 @@ def test_neither_function_touches_filesystem(
     mock_named.assert_not_called()
 
 
-@patch("app.speech.time.sleep", return_value=None)
-@patch("app.speech.openai.OpenAI")
+@patch("core.speech.time.sleep", return_value=None)
+@patch("core.speech.openai.OpenAI")
 def test_transcribe_retries_three_times_then_raises(
     mock_openai_cls: MagicMock, mock_sleep: MagicMock
 ) -> None:
@@ -106,8 +106,8 @@ def test_transcribe_retries_three_times_then_raises(
     assert mock_sleep.call_count == 2
 
 
-@patch("app.speech.time.sleep", return_value=None)
-@patch("app.speech.openai.OpenAI")
+@patch("core.speech.time.sleep", return_value=None)
+@patch("core.speech.openai.OpenAI")
 def test_synthesize_retries_three_times_then_raises(
     mock_openai_cls: MagicMock, mock_sleep: MagicMock
 ) -> None:

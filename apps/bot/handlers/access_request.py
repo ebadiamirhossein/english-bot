@@ -11,16 +11,16 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
-from app import texts
-from app.config import load_settings
-from app.services.access_control import (
+from apps.bot import texts
+from core.config import load_settings
+from core.services.access_control import (
     approve_access,
     decline_access,
     get_access_request,
     request_access,
 )
-from app.services.alerts import notify_operator
-from app.services.shared_content import try_backfill_soft
+from core.services.alerts import notify_operator
+from core.services.shared_content import try_backfill_soft
 
 logger = logging.getLogger(__name__)
 

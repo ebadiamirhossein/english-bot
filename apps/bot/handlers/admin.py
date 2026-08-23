@@ -21,27 +21,27 @@ from telegram.ext import (
     ConversationHandler,
 )
 
-from app import texts
-from app.config import load_settings
-from app.handlers.onboarding import layout_buttons
-from app.handlers.settings import PAUSE_DURATIONS, _BTN_BY_DAYS
-from app.services.access_control import (
+from apps.bot import texts
+from core.config import load_settings
+from apps.bot.handlers.onboarding import layout_buttons
+from apps.bot.handlers.settings import PAUSE_DURATIONS, _BTN_BY_DAYS
+from core.services.access_control import (
     approve_access,
     decline_access,
     list_pending_requests,
     revoke_access,
 )
-from app.services.alerts import notify_operator
-from app.services.admin_panel import (
+from core.services.alerts import notify_operator
+from core.services.admin_panel import (
     admin_user_label,
     format_admin_home,
     format_pending_list,
     list_admin_users,
 )
-from app.services.motivation import WEEKLY_SUCCESS_DAYS
-from app.services.sessions import local_today
-from app.services.shared_content import try_backfill_soft
-from app.services.users import set_paused_until
+from core.services.motivation import WEEKLY_SUCCESS_DAYS
+from core.services.sessions import local_today
+from core.services.shared_content import try_backfill_soft
+from core.services.users import set_paused_until
 
 logger = logging.getLogger(__name__)
 
@@ -541,6 +541,6 @@ def s18d_admin_button_labels() -> list[str]:
 
 
 def s18d_button_labels() -> list[str]:
-    from app.handlers.access_request import s18d_access_button_labels
+    from apps.bot.handlers.access_request import s18d_access_button_labels
 
     return list(dict.fromkeys(s18d_access_button_labels() + s18d_admin_button_labels()))

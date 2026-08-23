@@ -7,9 +7,9 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.db import close_pool, connection
-from app.services.errors import due_errors, mark_result, record_errors
-from app.services.users import save_onboarding
+from core.db import close_pool, connection
+from core.services.errors import due_errors, mark_result, record_errors
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_300_000_000
 

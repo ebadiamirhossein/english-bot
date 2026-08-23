@@ -13,18 +13,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram import InlineKeyboardMarkup
 
-from app import texts
-from app.config import Settings
-from app.db import close_pool, connection
-from app.handlers import shadow as shadow_handler
-from app.handlers.voice import handle_voice
-from app.services.calibration import (
+from apps.bot import texts
+from core.config import Settings
+from core.db import close_pool, connection
+from apps.bot.handlers import shadow as shadow_handler
+from apps.bot.handlers.voice import handle_voice
+from core.services.calibration import (
     CALIBRATION_TASK_TYPES,
     compute_accuracy_window,
     maybe_calibrate,
 )
-from app.services.chunks import insert_chunks
-from app.services.sessions import (
+from core.services.chunks import insert_chunks
+from core.services.sessions import (
     SHADOW_VOICE_CLAIM_MINUTES,
     complete_session,
     get_claimable_shadow_session,
@@ -35,16 +35,16 @@ from app.services.sessions import (
     save_voice_exchange,
     update_session_payload,
 )
-from app.services.shadow import (
+from core.services.shadow import (
     SHADOW_EXCLUDE_RECENT_K,
     abandon_open_shadow_sessions,
     diff_words,
     select_shadow_sentence,
     words_for_compare,
 )
-from app.services.streaks import get_streak, roll_over_day
-from app.services.users import save_onboarding
-from app.speech import SpeechError
+from core.services.streaks import get_streak, roll_over_day
+from core.services.users import save_onboarding
+from core.speech import SpeechError
 
 FAKE_TELEGRAM_ID_BASE = 9_510_000_000
 PERSONAL_FIXTURE = "ZX9SHADOWPRIVATE transcript must never land in DB or logs"
@@ -310,9 +310,9 @@ def test_shadow_command_with_chunks_creates_session(cleanup_user: int) -> None:
     update = _make_command_update(tid)
     context = _make_context()
     with (
-        patch("app.handlers.shadow.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.shadow.load_settings", return_value=_settings()),
         patch(
-            "app.handlers.shadow.synthesize", return_value=b"ogg-bytes"
+            "apps.bot.handlers.shadow.synthesize", return_value=b"ogg-bytes"
         ) as synth,
     ):
         asyncio.run(shadow_handler.on_shadow_command(update, context))
@@ -331,8 +331,8 @@ def test_shadow_empty_pool_no_tts_no_session(cleanup_user: int) -> None:
     update = _make_command_update(tid)
     context = _make_context()
     with (
-        patch("app.handlers.shadow.load_settings", return_value=_settings()),
-        patch("app.handlers.shadow.synthesize") as synth,
+        patch("apps.bot.handlers.shadow.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.shadow.synthesize") as synth,
     ):
         asyncio.run(shadow_handler.on_shadow_command(update, context))
     synth.assert_not_called()
@@ -350,9 +350,9 @@ def test_shadow_tts_failure_warm_degrade(
     context = _make_context()
     with (
         caplog.at_level(logging.WARNING),
-        patch("app.handlers.shadow.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.shadow.load_settings", return_value=_settings()),
         patch(
-            "app.handlers.shadow.synthesize",
+            "apps.bot.handlers.shadow.synthesize",
             side_effect=SpeechError("tts down"),
         ),
     ):
@@ -388,10 +388,10 @@ def test_claimable_shadow_routes_to_shadow_not_m3(cleanup_user: int) -> None:
     diary_spy = AsyncMock()
     m3_spy = AsyncMock()
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
-        patch("app.handlers.diary.handle_diary_voice", diary_spy),
-        patch("app.handlers.voice._handle_voice_locked", m3_spy),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.shadow.handle_shadow_voice", shadow_spy),
+        patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
+        patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
     ):
         asyncio.run(handle_voice(update, context))
     shadow_spy.assert_awaited_once()
@@ -438,10 +438,10 @@ def test_stale_shadow_defers_to_live_m3(cleanup_user: int) -> None:
     diary_spy = AsyncMock()
     m3_spy = AsyncMock()
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
-        patch("app.handlers.diary.handle_diary_voice", diary_spy),
-        patch("app.handlers.voice._handle_voice_locked", m3_spy),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.shadow.handle_shadow_voice", shadow_spy),
+        patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
+        patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
     ):
         asyncio.run(handle_voice(update, context))
     m3_spy.assert_awaited_once()
@@ -490,10 +490,10 @@ def test_claimable_shadow_beats_live_m3_and_diary(cleanup_user: int) -> None:
     diary_spy = AsyncMock()
     m3_spy = AsyncMock()
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
-        patch("app.handlers.shadow.handle_shadow_voice", shadow_spy),
-        patch("app.handlers.diary.handle_diary_voice", diary_spy),
-        patch("app.handlers.voice._handle_voice_locked", m3_spy),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.shadow.handle_shadow_voice", shadow_spy),
+        patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
+        patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
     ):
         asyncio.run(handle_voice(update, context))
     shadow_spy.assert_awaited_once()
@@ -525,9 +525,9 @@ def test_attempt_offers_retry_then_completes(cleanup_user: int) -> None:
     context = _make_context()
 
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
         patch(
-            "app.handlers.shadow.transcribe",
+            "apps.bot.handlers.shadow.transcribe",
             return_value="the quiet brown fox jumps",
         ),
     ):
@@ -549,9 +549,9 @@ def test_attempt_offers_retry_then_completes(cleanup_user: int) -> None:
     update2 = _make_voice_update(tid, message_id=51)
     context2 = _make_context()
     with (
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
         patch(
-            "app.handlers.shadow.transcribe",
+            "apps.bot.handlers.shadow.transcribe",
             return_value="totally different words here",
         ),
     ):
@@ -598,9 +598,9 @@ def test_retry_rearms_clip_sent_at(cleanup_user: int) -> None:
     context = _make_context()
     before = datetime.now(timezone.utc)
     with (
-        patch("app.handlers.shadow.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.shadow.load_settings", return_value=_settings()),
         patch(
-            "app.handlers.shadow.synthesize", return_value=b"ogg"
+            "apps.bot.handlers.shadow.synthesize", return_value=b"ogg"
         ) as synth,
     ):
         asyncio.run(shadow_handler.on_shadow_retry(update, context))
@@ -636,9 +636,9 @@ def test_stt_failure_warm_degrade(
     context = _make_context()
     with (
         caplog.at_level(logging.WARNING),
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
         patch(
-            "app.handlers.shadow.transcribe",
+            "apps.bot.handlers.shadow.transcribe",
             side_effect=SpeechError("stt down"),
         ),
     ):
@@ -670,9 +670,9 @@ def test_transcript_not_in_payload_or_logs(
     context = _make_context()
     with (
         caplog.at_level(logging.DEBUG),
-        patch("app.handlers.voice.load_settings", return_value=_settings()),
+        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
         patch(
-            "app.handlers.shadow.transcribe",
+            "apps.bot.handlers.shadow.transcribe",
             return_value=PERSONAL_FIXTURE,
         ),
     ):

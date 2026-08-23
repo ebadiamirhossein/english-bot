@@ -14,9 +14,9 @@ from typing import Any, Awaitable, Callable
 
 from psycopg.types.json import Jsonb
 
-from app.db import connection
-from app.services.chunks import insert_chunks
-from app.services.interests import mark_last_used
+from core.db import connection
+from core.services.chunks import insert_chunks
+from core.services.interests import mark_last_used
 
 logger = logging.getLogger(__name__)
 

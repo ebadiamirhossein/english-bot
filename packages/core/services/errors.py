@@ -14,8 +14,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from app.db import connection
-from app.services.sessions import (
+from core.db import connection
+from core.services.sessions import (
     create_fossil_sweep_session,
     get_fossil_sweep_session,
     local_today,

@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
 
-from app import texts
-from app.db import connection
-from app.services.reading import normalize_for_match
+from core import copy
+from core.db import connection
+from core.services.reading import normalize_for_match
 
 SHADOW_EXCLUDE_RECENT_K = 10
 
@@ -97,7 +97,7 @@ def format_shadow_feedback(
 ) -> str:
     """Fixed visual shape; ASR-intelligibility framing, never guilt."""
     tip = _tip_for(result)
-    return texts.format_shadow_feedback(
+    return copy.format_shadow_feedback(
         target_sentence.strip(),
         attempt_transcript.strip(),
         tip,
@@ -111,7 +111,7 @@ def _tip_for(result: WordDiffResult) -> str:
         and not result.altered
         and result.matched == len(result.target_words)
     ):
-        return texts.SHADOW_TIP_CLEAR
+        return copy.SHADOW_TIP_CLEAR
 
     parts: list[str] = []
     for tgt, att in result.altered[:3]:
@@ -121,9 +121,9 @@ def _tip_for(result: WordDiffResult) -> str:
     for w in result.added[:2]:
         parts.append(f"extra: {w}")
     if not parts:
-        return texts.SHADOW_TIP_AGAIN
+        return copy.SHADOW_TIP_AGAIN
     detail = "; ".join(parts)
-    return texts.SHADOW_TIP_PART.format(detail=detail)
+    return copy.SHADOW_TIP_PART.format(detail=detail)
 
 
 def recent_shadowed_chunk_ids(

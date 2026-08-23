@@ -19,12 +19,13 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
-from app import texts
-from app.handlers.onboarding import layout_buttons
-from app.llm import LLMError, chat
-from app.services.calibration import deliver_raise_notice, maybe_calibrate
-from app.services.interests import adjust_weight_for_rating, select_topic
-from app.services.reading import (
+from apps.bot import texts
+from apps.bot.handlers.onboarding import layout_buttons
+from core import PROMPTS_DIR
+from core.llm import LLMError, chat
+from core.services.calibration import deliver_raise_notice, maybe_calibrate
+from core.services.interests import adjust_weight_for_rating, select_topic
+from core.services.reading import (
     ReadingMcq,
     ReadingValidationError,
     complete_reading,
@@ -33,7 +34,7 @@ from app.services.reading import (
     persist_and_send,
     validate_reading_payload,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     complete_session,
     get_reading_session_by_message,
     has_reading_session_on,
@@ -42,12 +43,12 @@ from app.services.sessions import (
     under_message_ceiling,
     update_session_payload,
 )
-from app.services.users import get_user
+from core.services.users import get_user
 
 logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "reading"
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "reading.txt"
+_PROMPT_PATH = PROMPTS_DIR / "reading.txt"
 _prompt_template: str | None = None
 
 _MAX_BUTTON_LABEL_CHARS = 20
@@ -105,7 +106,7 @@ def _generate(
 
 
 def _user_timezone(user_id: int) -> str:
-    from app.db import connection
+    from core.db import connection
 
     with connection() as conn:
         row = conn.execute(

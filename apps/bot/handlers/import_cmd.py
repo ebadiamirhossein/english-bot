@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 
 from telegram.ext import ContextTypes
 
-from app import texts
-from app.services.users import is_registered
-from app.services.watch_import import (
+from apps.bot import texts
+from core.services.users import is_registered
+from core.services.watch_import import (
     WatchConfigError,
     paths_for_user_display,
     resolve_watch_root,

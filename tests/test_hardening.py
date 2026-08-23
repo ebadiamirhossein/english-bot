@@ -14,44 +14,44 @@ import pytest
 from telegram import Chat, Message, Update, User
 from telegram.ext import ContextTypes
 
-from app.db import close_pool, connection
-from app.handlers.settings import (
+from core.db import close_pool, connection
+from apps.bot.handlers.settings import (
     on_pause_callback,
     on_pause_command,
     s18_button_labels,
     s18_user_facing_strings,
 )
-from app.instance_lock import InstanceLock, InstanceLockError
-from app.scheduler import (
+from core.instance_lock import InstanceLock, InstanceLockError
+from apps.bot.scheduler import (
     EligibleUser,
     is_user_due_for_anki,
     is_user_due_for_evening,
     is_user_due_for_morning,
     run_heartbeat_check,
 )
-from app.services.alerts import (
+from core.services.alerts import (
     ALERT_COOLDOWN,
     format_alert,
     notify_operator,
     on_error,
     should_send_alert,
 )
-from app.services.heartbeat import check_heartbeat, touch_job_fire
-from app.services.motivation import (
+from core.services.heartbeat import check_heartbeat, touch_job_fire
+from core.services.motivation import (
     MotivationUser,
     is_user_due_for_sunday_report,
     sessions_due_for_nudge,
 )
-from app.services.sessions import insert_session, local_today
-from app.services.stats import collect_stats, format_stats_message
-from app.services.streaks import get_streak, roll_over_day
-from app.services.users import (
+from core.services.sessions import insert_session, local_today
+from core.services.stats import collect_stats, format_stats_message
+from core.services.streaks import get_streak, roll_over_day
+from core.services.users import (
     get_paused_until,
     save_onboarding,
     set_paused_until,
 )
-from app.services.errors import run_monthly_fossil_sweep
-from app.services.sessions import create_fossil_sweep_session
+from core.services.errors import run_monthly_fossil_sweep
+from core.services.sessions import create_fossil_sweep_session
 
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
 
@@ -202,10 +202,10 @@ def test_on_error_soft_user_and_operator_alert(
     runtime_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPERATOR_TELEGRAM_ID", "999001")
-    from app import config as config_mod
+    from core import config as config_mod
 
     settings = config_mod.load_settings()
-    monkeypatch.setattr("app.services.alerts.load_settings", lambda: settings)
+    monkeypatch.setattr("core.services.alerts.load_settings", lambda: settings)
 
     def fake_handler(*_a, **_k):
         return None
@@ -269,14 +269,14 @@ def test_heartbeat_check_alerts_when_stale(
     runtime_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPERATOR_TELEGRAM_ID", "999002")
-    from app import config as config_mod
+    from core import config as config_mod
 
     settings = config_mod.load_settings()
     monkeypatch.setattr(
-        "app.scheduler.load_settings", lambda: settings
+        "apps.bot.scheduler.load_settings", lambda: settings
     )
     monkeypatch.setattr(
-        "app.services.alerts.load_settings", lambda: settings
+        "core.services.alerts.load_settings", lambda: settings
     )
     app = MagicMock()
     app.bot.send_message = AsyncMock()
@@ -299,8 +299,8 @@ def test_touch_only_on_success_path(runtime_dir: Path) -> None:
 
 
 def test_log_file_no_message_bodies(runtime_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.main import _configure_logging
-    from app import config as config_mod
+    from apps.bot.main import _configure_logging
+    from core import config as config_mod
 
     settings = config_mod.load_settings()
     _configure_logging(settings)
@@ -365,7 +365,7 @@ def test_six_senders_skip_paused(cleanup_user: int) -> None:
         now=datetime(2026, 8, 1, 0, 10, tzinfo=timezone.utc)
     )
     # May be 0 for this user; assert no fossil session created while paused.
-    from app.services.sessions import open_fossil_sweep_for_user
+    from core.services.sessions import open_fossil_sweep_for_user
 
     assert open_fossil_sweep_for_user(tid) is None
     assert isinstance(n, int)
@@ -386,7 +386,7 @@ def test_pause_while_paused_offers_resume_not_stack(
     update.effective_user = MagicMock(id=tid)
 
     with patch(
-        "app.handlers.settings.datetime"
+        "apps.bot.handlers.settings.datetime"
     ) as mock_dt:
         mock_dt.now = MagicMock(return_value=_MON_MORNING)
         asyncio.run(on_pause_command(update, MagicMock()))
@@ -416,7 +416,7 @@ def test_pause_callback_sets_duration(cleanup_user: int) -> None:
     update.callback_query = cq
     update.effective_user = MagicMock(id=tid)
 
-    with patch("app.handlers.settings.datetime") as mock_dt:
+    with patch("apps.bot.handlers.settings.datetime") as mock_dt:
         mock_dt.now = MagicMock(return_value=_MON_MORNING)
         asyncio.run(on_pause_callback(update, MagicMock()))
 
@@ -558,7 +558,7 @@ def test_no_guilt_in_s18_copy() -> None:
         assert banned.search(s) is None, s
     # Soft unhandled may say "broke on my side" — that's operator self-blame, OK.
     # Explicitly allow SOFT_UNHANDLED separately:
-    from app import texts
+    from apps.bot import texts
 
     assert "broke your" not in texts.SOFT_UNHANDLED.lower()
 

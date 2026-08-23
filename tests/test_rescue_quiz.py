@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.db import close_pool, connection
-from app.handlers import quiz as quiz_handler
-from app.services.errors import due_errors
-from app.services.streaks import get_streak
-from app.services.users import save_onboarding
+from core.db import close_pool, connection
+from apps.bot.handlers import quiz as quiz_handler
+from core.services.errors import due_errors
+from core.services.streaks import get_streak
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_341_000_000
 

@@ -20,20 +20,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-from app import texts
-from app.config import load_settings
-from app.db import connection
-from app.handlers import couple as couple_handler
-from app.handlers import diary as diary_handler
-from app.handlers import quiz as quiz_handler
-from app.handlers import reading as reading_handler
-from app.services import anki as anki_service
-from app.services import motivation as motivation_service
-from app.services.alerts import notify_operator
-from app.services import backup_freshness as backup_freshness_service
-from app.services.errors import run_monthly_fossil_sweep
-from app.services import heartbeat as heartbeat_service
-from app.services.sessions import (
+from apps.bot import texts
+from core.config import load_settings
+from core.db import connection
+from apps.bot.handlers import couple as couple_handler
+from apps.bot.handlers import diary as diary_handler
+from apps.bot.handlers import quiz as quiz_handler
+from apps.bot.handlers import reading as reading_handler
+from core.services import anki as anki_service
+from core.services import motivation as motivation_service
+from core.services.alerts import notify_operator
+from core.services import backup_freshness as backup_freshness_service
+from core.services.errors import run_monthly_fossil_sweep
+from core.services import heartbeat as heartbeat_service
+from core.services.sessions import (
     has_anki_session_on,
     has_diary_session_on,
     has_reading_session_on,
@@ -43,13 +43,13 @@ from app.services.sessions import (
     local_today,
     under_message_ceiling,
 )
-from app.services.streaks import (
+from core.services.streaks import (
     USERS_PER_POLL_TICK,
     evaluate_pending,
     list_onboarded_streak_users,
     reset_monthly_freezes,
 )
-from app.services.watch_import import (
+from core.services.watch_import import (
     WatchConfigError,
     collect_root_orphans,
     ensure_all_user_layouts,

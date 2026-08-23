@@ -12,10 +12,10 @@ import pytest
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app import texts
-from app.db import close_pool, connection
-from app.scheduler import EligibleUser, is_user_due_for_anki
-from app.services.anki import (
+from apps.bot import texts
+from core.db import close_pool, connection
+from apps.bot.scheduler import EligibleUser, is_user_due_for_anki
+from core.services.anki import (
     build_tsv,
     deliver_weekly,
     export_and_send,
@@ -25,13 +25,13 @@ from app.services.anki import (
     row_fields,
     sanitize_tsv_field,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     bot_initiated_count,
     has_anki_session_on,
     increment_bot_messages,
     local_today,
 )
-from app.services.users import save_onboarding
+from core.services.users import save_onboarding
 
 FAKE_TELEGRAM_ID_BASE = 9_470_000_000
 
@@ -236,7 +236,7 @@ def test_gap_curly_apostrophe() -> None:
 def test_gap_not_found_falls_back(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from app.services.anki import ChunkExportRow, row_fields
+    from core.services.anki import ChunkExportRow, row_fields
 
     row = ChunkExportRow(
         id=42,
@@ -257,7 +257,7 @@ def test_gap_not_found_falls_back(
 def test_null_fields_become_empty_strings(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from app.services.anki import ChunkExportRow
+    from core.services.anki import ChunkExportRow
 
     row = ChunkExportRow(
         id=7,

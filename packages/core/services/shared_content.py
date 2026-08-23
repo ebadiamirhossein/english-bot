@@ -14,10 +14,10 @@ from typing import Any, Sequence
 
 from psycopg.types.json import Jsonb
 
-from app.db import connection
-from app.services.books import MergedUnit, upsert_unit_shared
-from app.services.chunks import insert_chunks
-from app.services.reading import normalize_for_match
+from core.db import connection
+from core.services.books import MergedUnit, upsert_unit_shared
+from core.services.chunks import insert_chunks
+from core.services.reading import normalize_for_match
 
 logger = logging.getLogger(__name__)
 

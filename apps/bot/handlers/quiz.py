@@ -23,22 +23,23 @@ from telegram.ext import (
     filters,
 )
 
-from app import texts
-from app.db import connection
-from app.handlers.correction import error_type_list_text
-from app.handlers.onboarding import layout_buttons
-from app.llm import LLMError, chat
-from app.services.anki import make_sentence_with_gap
-from app.services.books import select_topup_items, studied_murphy_unit_numbers
-from app.services.calibration import deliver_raise_notice, maybe_calibrate
-from app.services.chunks import (
+from apps.bot import texts
+from core import PROMPTS_DIR
+from core.db import connection
+from apps.bot.handlers.correction import error_type_list_text
+from apps.bot.handlers.onboarding import layout_buttons
+from core.llm import LLMError, chat
+from core.services.anki import make_sentence_with_gap
+from core.services.books import select_topup_items, studied_murphy_unit_numbers
+from core.services.calibration import deliver_raise_notice, maybe_calibrate
+from core.services.chunks import (
     Chunk,
     due_chunks,
     mark_chunk_result,
     mark_presented,
     unpresented_chunks,
 )
-from app.services.errors import (
+from core.services.errors import (
     Error,
     due_errors,
     expand_murphy_units,
@@ -49,7 +50,7 @@ from app.services.errors import (
     select_weekly_test_errors,
     top_error_types,
 )
-from app.services.sessions import (
+from core.services.sessions import (
     complete_session,
     get_open_quiz_session,
     get_session_by_id,
@@ -62,17 +63,17 @@ from app.services.sessions import (
     under_message_ceiling,
     update_session_payload,
 )
-from app.services.streaks import (
+from core.services.streaks import (
     consume_freeze_notice,
     get_streak,
     is_in_rescue,
 )
-from app.services.users import get_user
+from core.services.users import get_user
 
 logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "quiz"
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "quiz.txt"
+_PROMPT_PATH = PROMPTS_DIR / "quiz.txt"
 _prompt_template: str | None = None
 _error_labels: dict[str, str] = {}
 
