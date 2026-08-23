@@ -8,6 +8,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from telegram.ext import ApplicationBuilder
+
+from apps.bot import scheduler
 from core.db import close_pool, connection
 from apps.bot.scheduler import (
     EligibleUser,
@@ -202,3 +205,72 @@ def test_tokyo_vilnius_24h_five_minute_polls() -> None:
     finally:
         _delete_user(tid_vil)
         _delete_user(tid_tok)
+
+
+# --- job registration (W0 known issue #54) ------------------------------------
+#
+# Until W1 these five modules asserted only that the *predicates* answer
+# correctly. All five would have gone on passing against a process that
+# registered no jobs at all — which is exactly what the API/worker split
+# risks. This asserts the wiring itself: every job present, by name, with its
+# trigger and interval.
+
+
+_EXPECTED_JOBS = {
+    "morning_poll": scheduler.POLL_SECONDS,
+    "evening_poll": scheduler.POLL_SECONDS,
+    "diary_poll": scheduler.POLL_SECONDS,
+    "sunday_report_poll": scheduler.POLL_SECONDS,
+    "anki_poll": scheduler.POLL_SECONDS,
+    "nudge_poll": scheduler.POLL_SECONDS,
+    "couple_poll": scheduler.POLL_SECONDS,
+    "streak_rollover": scheduler.STREAK_POLL_SECONDS,
+    "monthly_freeze_reset": scheduler.STREAK_POLL_SECONDS,
+    "heartbeat": scheduler.HEARTBEAT_POLL_SECONDS,
+    "backup_freshness": scheduler.HEARTBEAT_POLL_SECONDS,
+    "watch_poll": scheduler.POLL_SECONDS,
+}
+
+
+@pytest.fixture
+def scheduled_app():
+    app = ApplicationBuilder().token("1:FAKE-W1-SCHEDULER").build()
+    scheduler.start_scheduler(app)
+    yield app
+    scheduler.stop_scheduler(app)
+
+
+def test_start_scheduler_registers_every_job_by_name(scheduled_app) -> None:
+    registered = {job.name for job in scheduled_app.job_queue.jobs()}
+    assert registered == set(_EXPECTED_JOBS), (
+        f"missing={set(_EXPECTED_JOBS) - registered} "
+        f"unexpected={registered - set(_EXPECTED_JOBS)}"
+    )
+
+
+def test_start_scheduler_uses_interval_triggers(scheduled_app) -> None:
+    for job in scheduled_app.job_queue.jobs():
+        trigger = job.job.trigger
+        assert type(trigger).__name__ == "IntervalTrigger", (
+            f"{job.name} is scheduled with {type(trigger).__name__}"
+        )
+        assert (
+            trigger.interval.total_seconds() == _EXPECTED_JOBS[job.name]
+        ), f"{job.name} interval={trigger.interval}"
+
+
+def test_start_scheduler_is_idempotent(scheduled_app) -> None:
+    """A second call must not double-register — restarts happen."""
+    scheduler.start_scheduler(scheduled_app)
+    names = [job.name for job in scheduled_app.job_queue.jobs()]
+    assert sorted(names) == sorted(_EXPECTED_JOBS)
+
+
+def test_stop_scheduler_removes_every_job(scheduled_app) -> None:
+    scheduler.stop_scheduler(scheduled_app)
+    remaining = {
+        job.name
+        for job in scheduled_app.job_queue.jobs()
+        if job.name in _EXPECTED_JOBS and not job.removed
+    }
+    assert remaining == set()
