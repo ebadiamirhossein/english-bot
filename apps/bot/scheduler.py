@@ -27,8 +27,9 @@ from apps.bot.handlers import couple as couple_handler
 from apps.bot.handlers import diary as diary_handler
 from apps.bot.handlers import quiz as quiz_handler
 from apps.bot.handlers import reading as reading_handler
-from core.services import anki as anki_service
-from core.services import motivation as motivation_service
+from apps.bot import anki_delivery as anki_service
+from apps.bot import motivation_delivery as motivation_service
+from apps.bot.alerts import operator_send
 from core.services.alerts import notify_operator
 from core.services import backup_freshness as backup_freshness_service
 from core.services.errors import run_monthly_fossil_sweep
@@ -510,7 +511,7 @@ async def run_heartbeat_check(
         last = heartbeat_service.read_last_fire(settings.heartbeat_file)
         last_s = last.isoformat() if last is not None else "never"
         await notify_operator(
-            application,
+            operator_send(application.bot),
             key="heartbeat",
             text=(
                 f"Heartbeat STALE: no successful scheduled job in "
@@ -560,7 +561,7 @@ async def run_backup_freshness_check(
                 f"{size_s} age_h={age_h:.1f}"
             )
         await notify_operator(
-            application,
+            operator_send(application.bot),
             key="backup_offsite",
             text=(
                 f"Off-site backup STALE: dir={directory} "
@@ -591,7 +592,7 @@ async def run_watch_poll(
     except WatchConfigError as exc:
         logger.error("WATCH_DIR unusable: %s", exc)
         await notify_operator(
-            application,
+            operator_send(application.bot),
             key="watch_dir",
             text=f"WATCH_DIR unusable: {exc}",
             now=instant,
@@ -603,7 +604,7 @@ async def run_watch_poll(
     newly = warn_root_orphans(orphans)
     if newly:
         await notify_operator(
-            application,
+            operator_send(application.bot),
             key="watch_orphan",
             text=(
                 "Subtitle CSV in inbox/ root (not attributed). "
@@ -618,7 +619,7 @@ async def run_watch_poll(
         for f in result.files:
             if f.status == "failed_headers":
                 await notify_operator(
-                    application,
+                    operator_send(application.bot),
                     key=f"watch_headers:{user_id}:{f.filename}",
                     text=(
                         f"watch import failed_headers user_id={user_id} "

@@ -36,27 +36,6 @@ ADMIN_PAUSED_NO = "active"
 
 ADMIN_REVOKED_TAG = "revoked"
 
-# --- Operator alerts (S18) — core.services.alerts ------------------------------
-
-SOFT_UNHANDLED = "Something broke on my side — try that again in a moment."
-
-# --- Anki export (S7 / M6) — core.services.anki --------------------------------
-
-ANKI_WEEKLY = (
-    "Your Anki pack for the week — {count} new card(s). "
-    "Import the TSV into Anki when you're ready."
-)
-
-ANKI_MANUAL = (
-    "Here's your Anki export — {count} new card(s). "
-    "Import the TSV when you're ready."
-)
-
-ANKI_EMPTY = "Nothing new to export yet — keep reading and they'll show up here."
-
-ANKI_SEND_FAILED = (
-    "Something broke on my side sending the file — try /anki again in a moment."
-)
 
 # --- Level raise (S6) — core.services.calibration ------------------------------
 

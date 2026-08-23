@@ -19,6 +19,7 @@ from core.services.access_control import (
     get_access_request,
     request_access,
 )
+from apps.bot.alerts import operator_send
 from core.services.alerts import notify_operator
 from core.services.shared_content import try_backfill_soft
 
@@ -31,7 +32,7 @@ async def _soft_backfill_after_approve(
     """Convergent backfill; no-op without users row. Soft-fail + operator alert."""
     if not try_backfill_soft(target_id):
         await notify_operator(
-            context.application,
+            operator_send(context.bot),
             key=f"shared_backfill:{target_id}",
             text=f"shared backfill failed after approve user_id={target_id}",
         )

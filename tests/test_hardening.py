@@ -29,11 +29,11 @@ from apps.bot.scheduler import (
     is_user_due_for_morning,
     run_heartbeat_check,
 )
+from apps.bot.alerts import on_error, operator_send
 from core.services.alerts import (
     ALERT_COOLDOWN,
     format_alert,
     notify_operator,
-    on_error,
     should_send_alert,
 )
 from core.services.heartbeat import check_heartbeat, touch_job_fire
@@ -187,7 +187,7 @@ def test_notify_operator_unset_id_no_crash(
     app.bot.send_message = AsyncMock()
     sent = asyncio.run(
         notify_operator(
-            app,
+            operator_send(app.bot),
             key="k",
             text="hello",
             now=datetime(2026, 8, 8, 12, 0, tzinfo=timezone.utc),

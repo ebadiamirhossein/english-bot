@@ -31,6 +31,7 @@ from core.services.access_control import (
     list_pending_requests,
     revoke_access,
 )
+from apps.bot.alerts import operator_send
 from core.services.alerts import notify_operator
 from core.services.admin_panel import (
     admin_user_label,
@@ -55,7 +56,7 @@ async def _soft_backfill_after_approve(
 ) -> None:
     if not try_backfill_soft(target_id):
         await notify_operator(
-            context.application,
+            operator_send(context.bot),
             key=f"shared_backfill:{target_id}",
             text=f"shared backfill failed after approve user_id={target_id}",
         )

@@ -24,7 +24,10 @@ from core.config import ConfigError, Settings, load_settings
 
 logger = logging.getLogger(__name__)
 
-MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
+# packages/core/db.py → packages/core → packages → repo root. Migrations
+# are repo-level, not core-level: apps/api and apps/worker run the same
+# numbered files against the same schema_version row.
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 MIGRATION_FILENAME = re.compile(r"^(\d{3})_[a-z0-9_]+\.sql$")
 # Arbitrary lock key unique to this project — not a Postgres OID.
 ADVISORY_LOCK_KEY = 0x454E474C  # 'ENGL'

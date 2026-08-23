@@ -26,9 +26,9 @@ from core.services.errors import (
     select_weekly_test_errors,
     top_error_types,
 )
+from apps.bot.motivation_delivery import deliver_sunday_report
 from core.services.motivation import (
     MotivationUser,
-    deliver_sunday_report,
     is_user_due_for_sunday_report,
 )
 from core.services.sessions import (

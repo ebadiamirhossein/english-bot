@@ -15,7 +15,9 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-_REQUIRED_KEYS = ("DATABASE_URL", "TELEGRAM_BOT_TOKEN", "ANTHROPIC_API_KEY")
+# TELEGRAM_BOT_TOKEN is deliberately absent: apps/api and apps/worker must
+# boot without a bot token. apps/bot requires it at startup instead.
+_REQUIRED_KEYS = ("DATABASE_URL", "ANTHROPIC_API_KEY")
 _PG_SCHEMES = ("postgresql", "postgres")
 _KNOWN_STT_PROVIDERS = frozenset({"openai"})
 _KNOWN_TTS_PROVIDERS = frozenset({"openai"})
@@ -31,6 +33,7 @@ class ConfigError(Exception):
 @dataclass(frozen=True)
 class Settings:
     database_url: str
+    # Empty unless the process is apps/bot, which validates it itself.
     telegram_bot_token: str
     llm_api_key: str
     llm_provider: str = ""

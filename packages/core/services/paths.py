@@ -17,8 +17,15 @@ class PathSafetyError(ValueError):
 
 
 def repo_root() -> Path:
-    """Return the repository root (parent of ``app/``)."""
-    return Path(__file__).resolve().parents[2]
+    """Return the repository root.
+
+    packages/core/services/paths.py → services → core → packages → root.
+    Left at parents[2] after the W1 move this returned ``packages/`` and
+    every path under the repo but outside ``packages/`` would have been
+    accepted as a WATCH_DIR. The existing test derives its "inside" path
+    from this same function, so it could not have caught that.
+    """
+    return Path(__file__).resolve().parents[3]
 
 
 def assert_path_outside_repo(path: Path | str, *, label: str) -> Path:

@@ -21,12 +21,15 @@ from apps.bot.scheduler import (
     SUNDAY_REPORT_FIRST_SECONDS,
 )
 from core.services.errors import mark_result, resolved_types, top_error_types
+from apps.bot.motivation_delivery import (
+    deliver_nudges_for_user,
+    deliver_sunday_report,
+    nudge_keyboard,
+)
 from core.services.motivation import (
     EARLY_LIMIT,
     MotivationUser,
     assemble_sunday_report,
-    deliver_nudges_for_user,
-    deliver_sunday_report,
     format_active_days_line,
     format_nudge_message,
     is_user_due_for_sunday_report,
@@ -366,20 +369,22 @@ def test_second_nudge_copy_differs_and_offers_smaller(
     sessions = list_open_nudgeable_sessions(tid)
     assert sessions
     s0 = sessions[0]
-    first_body, first_kb = format_nudge_message(s0)
+    first_body, first_action = format_nudge_message(s0)
     with connection() as conn:
         conn.execute(
             "UPDATE sessions SET nudges_sent = 1 WHERE id = %s", (sid,)
         )
     s1 = list_open_nudgeable_sessions(tid)[0]
-    second_body, second_kb = format_nudge_message(s1)
+    second_body, second_action = format_nudge_message(s1)
     assert first_body != second_body
-    assert first_kb is None
-    assert second_kb is not None
+    assert first_action is None
+    assert second_action == {"action": "short_session", "session_id": sid}
     assert "2" in second_body or "two" in second_body.lower()
-    button = second_kb.inline_keyboard[0][0]
+    # apps/bot renders the action; core never names the widget (W1).
+    button = nudge_keyboard(second_action).inline_keyboard[0][0]
     assert button.text == texts.BTN_NUDGE_JUST_2
     assert f"nudge:short:{sid}" == button.callback_data
+    assert nudge_keyboard(first_action) is None
 
 
 def test_completed_before_3h_no_nudge(cleanup_user: int) -> None:

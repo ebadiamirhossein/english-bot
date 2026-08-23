@@ -22,6 +22,7 @@ from telegram.ext import (
 
 from apps.bot import texts
 from core.services.access_control import is_approved
+from apps.bot.alerts import operator_send
 from core.services.alerts import notify_operator
 from core.services.shared_content import try_backfill_soft
 from core.services.users import User, efset_to_cefr, get_user, save_onboarding
@@ -886,7 +887,7 @@ async def wizard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         uid = update.effective_user.id
         if not try_backfill_soft(uid):
             await notify_operator(
-                context.application,
+                operator_send(context.bot),
                 key=f"shared_backfill:{uid}",
                 text=f"shared backfill failed after onboarding save user_id={uid}",
             )

@@ -1,8 +1,8 @@
 """Anki TSV export from un-exported chunks (S7 / M6).
 
-Weekly Sunday delivery claims a ``sessions`` row with
-``task_type='anki_export'``. Manual ``/anki`` does not claim a session and
-does not increment the bot-initiated message ceiling.
+Channel-neutral: building the TSV and marking rows exported lives here;
+the weekly delivery and the ``/anki`` command live in
+``apps/bot/anki_delivery.py`` until the worker takes them.
 
 Rows are marked ``exported_to_anki`` only inside a transaction held across
 ``send_document`` — a failed send rolls back so cards are never lost.
@@ -13,24 +13,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
-from io import BytesIO
+from datetime import date
 from typing import Any, Awaitable, Callable, Sequence
 
 from psycopg.types.json import Jsonb
-from telegram import InputFile
-from telegram.ext import ContextTypes
 
-from core import copy
 from core.db import connection
 from core.services.reading import normalize_for_match
-from core.services.sessions import (
-    has_anki_session_on,
-    increment_bot_messages,
-    local_today,
-    under_message_ceiling,
-)
-from core.services.users import is_registered
 
 logger = logging.getLogger(__name__)
 
@@ -166,19 +155,6 @@ def fetch_unexported_chunks(conn: Any, user_id: int) -> list[ChunkExportRow]:
     ]
 
 
-def _user_timezone(user_id: int) -> str:
-    with connection() as conn:
-        row = conn.execute(
-            """
-            SELECT timezone FROM users WHERE telegram_user_id = %s
-            """,
-            (user_id,),
-        ).fetchone()
-    if row is None or not row["timezone"]:
-        return "Europe/Vilnius"
-    return str(row["timezone"])
-
-
 async def export_and_send(
     *,
     user_id: int,
@@ -253,122 +229,3 @@ async def export_and_send(
             )
 
     return len(ids)
-
-
-async def deliver_weekly(
-    app: Any,
-    user_id: int,
-    *,
-    now: datetime,
-) -> str:
-    """Sunday Anki export for one user. Returns action taken."""
-    bot = app.bot
-    tz = _user_timezone(user_id)
-    day = local_today(tz, now)
-
-    if has_anki_session_on(user_id, day):
-        return "skipped_existing"
-
-    if not under_message_ceiling(user_id, day):
-        logger.warning(
-            "anki skip user_id=%s reason=ceiling_reached day=%s",
-            user_id,
-            day,
-        )
-        return "skipped_ceiling"
-
-    with connection() as conn:
-        pending = fetch_unexported_chunks(conn, user_id)
-    if not pending:
-        logger.info(
-            "anki weekly empty user_id=%s day=%s — nothing to export",
-            user_id,
-            day,
-        )
-        return "skipped_empty"
-
-    count = len(pending)
-    caption = copy.ANKI_WEEKLY.format(count=count)
-
-    async def _send(tsv_bytes: bytes, filename: str, cap: str) -> None:
-        await bot.send_document(
-            chat_id=user_id,
-            document=InputFile(BytesIO(tsv_bytes), filename=filename),
-            caption=cap,
-        )
-
-    try:
-        exported = await export_and_send(
-            user_id=user_id,
-            local_date=day,
-            send_document=_send,
-            claim_session=True,
-            caption=caption,
-        )
-    except Exception:
-        logger.exception(
-            "anki weekly send/persist failed user_id=%s — rolled back",
-            user_id,
-        )
-        return "skipped_send_failed"
-
-    if exported == 0:
-        logger.info(
-            "anki weekly empty user_id=%s day=%s — nothing to export",
-            user_id,
-            day,
-        )
-        return "skipped_empty"
-
-    increment_bot_messages(user_id, day)
-    return "anki_export"
-
-
-async def handle_anki_command(
-    update: Any,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-    """Manual ``/anki`` — user-initiated; no ceiling increment, no session."""
-    message = update.message
-    user = update.effective_user
-    if message is None or user is None:
-        return
-    user_id = int(user.id)
-    if not is_registered(user_id):
-        return
-
-    tz = _user_timezone(user_id)
-    day = local_today(tz, datetime.now(timezone.utc))
-
-    with connection() as conn:
-        pending = fetch_unexported_chunks(conn, user_id)
-    if not pending:
-        await message.reply_text(copy.ANKI_EMPTY)
-        return
-
-    count = len(pending)
-    caption = copy.ANKI_MANUAL.format(count=count)
-    bot = context.bot
-
-    async def _send(tsv_bytes: bytes, filename: str, cap: str) -> None:
-        await bot.send_document(
-            chat_id=user_id,
-            document=InputFile(BytesIO(tsv_bytes), filename=filename),
-            caption=cap,
-        )
-
-    try:
-        exported = await export_and_send(
-            user_id=user_id,
-            local_date=day,
-            send_document=_send,
-            claim_session=False,
-            caption=caption,
-        )
-    except Exception:
-        logger.exception("anki /anki send failed user_id=%s", user_id)
-        await message.reply_text(copy.ANKI_SEND_FAILED)
-        return
-
-    if exported == 0:
-        await message.reply_text(copy.ANKI_EMPTY)

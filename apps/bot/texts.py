@@ -18,10 +18,6 @@ from core.copy import (  # noqa: F401
     ADMIN_REVOKED_TAG,
     ADMIN_TITLE,
     ADMIN_USER_LINE,
-    ANKI_EMPTY,
-    ANKI_MANUAL,
-    ANKI_SEND_FAILED,
-    ANKI_WEEKLY,
     BTN_NUDGE_JUST_2,
     IMPORT_DOC_RESULT,
     IMPORT_DOC_VOCAB_SKIPS,
@@ -41,7 +37,6 @@ from core.copy import (  # noqa: F401
     SHADOW_TIP_AGAIN,
     SHADOW_TIP_CLEAR,
     SHADOW_TIP_PART,
-    SOFT_UNHANDLED,
     STATS_ACTIVE,
     STATS_BOOKS,
     STATS_CALIBRATION,
@@ -1396,4 +1391,24 @@ BTN_ADMIN_REVOKE = "Revoke"
 BTN_ADMIN_REAPPROVE = "Re-approve"
 BTN_ADMIN_BACK = "← Back"
 
+# --- Operator alerts (S18) — apps/bot/alerts.py --------------------------
 
+SOFT_UNHANDLED = "Something broke on my side — try that again in a moment."
+
+# --- Anki delivery (S7 / M6) — apps/bot/anki_delivery.py ----------------
+
+ANKI_WEEKLY = (
+    "Your Anki pack for the week — {count} new card(s). "
+    "Import the TSV into Anki when you're ready."
+)
+
+ANKI_MANUAL = (
+    "Here's your Anki export — {count} new card(s). "
+    "Import the TSV when you're ready."
+)
+
+ANKI_EMPTY = "Nothing new to export yet — keep reading and they'll show up here."
+
+ANKI_SEND_FAILED = (
+    "Something broke on my side sending the file — try /anki again in a moment."
+)

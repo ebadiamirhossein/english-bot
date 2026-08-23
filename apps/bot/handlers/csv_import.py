@@ -29,6 +29,7 @@ from telegram.ext import (
 
 from apps.bot import texts
 from core.db import connection
+from apps.bot.alerts import operator_send
 from core.services.alerts import notify_operator
 from core.services.chunks import count_due_chunks, insert_chunks
 from core.services.reading import normalize_for_match
@@ -108,7 +109,7 @@ async def _alert_failed_headers(
     )
     logger.warning("%s", log_line)
     await notify_operator(
-        context.application,
+        operator_send(context.bot),
         key=f"csv_headers:{user_id}:{filename}",
         text=texts.OPERATOR_CSV_FAILED_HEADERS.format(
             user_id=user_id,
@@ -246,7 +247,7 @@ async def on_csv_document(
                 HANDLER_NAME,
             )
             await notify_operator(
-                context.application,
+                operator_send(context.bot),
                 key=f"csv_vocab_llm:{user_id}:{filename}",
                 text=texts.OPERATOR_CSV_VOCAB_LLM_FAILED.format(
                     user_id=user_id,

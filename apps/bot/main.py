@@ -50,8 +50,8 @@ from apps.bot.handlers.settings import (
 from apps.bot.handlers.voice import build_voice_handler, init_voice_prompt
 from core.instance_lock import InstanceLock, InstanceLockError
 from apps.bot.scheduler import start_scheduler, stop_scheduler
-from core.services.alerts import on_error
-from core.services.anki import handle_anki_command
+from apps.bot.alerts import on_error
+from apps.bot.anki_delivery import handle_anki_command
 from apps.bot.handlers.csv_import import build_csv_import_handlers
 from apps.bot.handlers.import_cmd import handle_import_command
 from apps.bot.commands import register_bot_commands
@@ -177,6 +177,16 @@ def main() -> int:
         settings = load_settings()
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
+        return 1
+
+    # core.config no longer requires TELEGRAM_BOT_TOKEN — apps/api and
+    # apps/worker must boot without one. This process cannot.
+    if not settings.telegram_bot_token:
+        print(
+            "Config error: missing required environment variable(s): "
+            "TELEGRAM_BOT_TOKEN",
+            file=sys.stderr,
+        )
         return 1
 
     try:

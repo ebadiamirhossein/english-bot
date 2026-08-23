@@ -60,7 +60,7 @@ from apps.bot.handlers.settings import (
     build_settings_orphan_handler,
 )
 from apps.bot.handlers.voice import build_voice_handler
-from core.services.alerts import on_error
+from apps.bot.alerts import on_error
 from core.services.sessions import (
     has_diary_session_on,
     has_reading_session_on,

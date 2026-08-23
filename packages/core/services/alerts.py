@@ -1,4 +1,7 @@
-"""Operator alerts + global PTB error handler (S18).
+"""Operator alerts (S18).
+
+Channel-neutral: the caller supplies ``send``. The PTB error handler that
+used to live here is now ``apps/bot/alerts.py::on_error``.
 
 Throttling is file-backed under RUNTIME_DIR so restarts during a sticky
 outage do not re-flood the shared operator/learner chat. Alerts never
@@ -9,15 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
-import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Awaitable, Callable
 
-from telegram import Update
-from telegram.ext import ContextTypes
-
-from core import copy
 from core.config import load_settings
 
 logger = logging.getLogger(__name__)
@@ -124,17 +122,21 @@ def format_alert(
 
 
 async def notify_operator(
-    app: Any,
+    send: Callable[[str], Awaitable[None]],
     *,
     key: str,
     text: str,
     now: datetime | None = None,
     path: Path | None = None,
 ) -> bool:
-    """Send a throttled alert to OPERATOR_TELEGRAM_ID. Never touches message ceiling.
+    """Send a throttled alert to the operator. Never touches message ceiling.
 
-    Returns True if a Telegram message was sent. Appends suppressed=N when
-    prior duplicates were held during the cooldown.
+    ``send`` delivers one already-formatted string on whatever channel the
+    caller owns. OPERATOR_TELEGRAM_ID still gates whether an alert is raised
+    at all, so an unconfigured operator stays a logged no-op.
+
+    Returns True if an alert was delivered. Appends suppressed=N when prior
+    duplicates were held during the cooldown.
     """
     instant = now or datetime.now(timezone.utc)
     settings = load_settings()
@@ -147,8 +149,9 @@ async def notify_operator(
         )
         return False
 
-    send, suppressed = should_send_alert(key, now=instant, path=path)
-    if not send:
+    # Not `send` — that name is the caller's delivery callable now.
+    may_send, suppressed = should_send_alert(key, now=instant, path=path)
+    if not may_send:
         logger.warning(
             "Operator alert throttled key=%s suppressed=%s", key, suppressed
         )
@@ -161,68 +164,8 @@ async def notify_operator(
         body = body[: TELEGRAM_MAX_MESSAGE - 3] + "..."
 
     try:
-        await app.bot.send_message(chat_id=operator_id, text=body)
+        await send(body)
     except Exception:
         logger.exception("Failed to send operator alert key=%s", key)
         return False
     return True
-
-
-def _handler_name(context: ContextTypes.DEFAULT_TYPE) -> str:
-    handler = getattr(context, "handler", None)
-    if handler is None:
-        return "unknown"
-    callback = getattr(handler, "callback", None)
-    if callback is not None:
-        name = getattr(callback, "__name__", None)
-        if name:
-            return str(name)
-        return type(callback).__name__
-    return type(handler).__name__
-
-
-async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Global PTB error handler: soft to user, throttled alert to operator."""
-    exc = context.error
-    if exc is None:
-        return
-    handler = _handler_name(context)
-    user_id: int | None = None
-    chat = None
-    if isinstance(update, Update):
-        if update.effective_user is not None:
-            user_id = update.effective_user.id
-        chat = update.effective_chat
-
-    logger.exception(
-        "Unhandled exception handler=%s user_id=%s",
-        handler,
-        user_id,
-        exc_info=exc,
-    )
-
-    if chat is not None:
-        try:
-            await context.bot.send_message(
-                chat_id=chat.id, text=copy.SOFT_UNHANDLED
-            )
-        except Exception:
-            logger.exception(
-                "Failed soft reply after unhandled error user_id=%s", user_id
-            )
-
-    tb = "".join(
-        traceback.format_exception(type(exc), exc, exc.__traceback__)
-    )
-    # Peek prior suppressed for the alert body, then notify_operator applies
-    # the same throttle key. To avoid double-counting, format without
-    # suppressed and let notify_operator append it.
-    key = f"{type(exc).__name__}|{handler}"
-    alert = format_alert(
-        handler=handler,
-        user_id=user_id,
-        exc=exc,
-        tb=tb,
-        suppressed=0,
-    )
-    await notify_operator(context.application, key=key, text=alert)

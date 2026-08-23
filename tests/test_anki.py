@@ -15,12 +15,11 @@ from telegram.ext import ContextTypes
 from apps.bot import texts
 from core.db import close_pool, connection
 from apps.bot.scheduler import EligibleUser, is_user_due_for_anki
+from apps.bot.anki_delivery import deliver_weekly, handle_anki_command
 from core.services.anki import (
     build_tsv,
-    deliver_weekly,
     export_and_send,
     fetch_unexported_chunks,
-    handle_anki_command,
     make_sentence_with_gap,
     row_fields,
     sanitize_tsv_field,
