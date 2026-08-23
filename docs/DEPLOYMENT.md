@@ -10,8 +10,8 @@ Operational runbook for the production host. Deployed 2026-08-11.
 | OS | Ubuntu 24.04.4 LTS, Python 3.12.3 |
 | Bot code | `/home/bot/english-bot` (user `bot`) |
 | Bot process | `english-bot.service` (systemd) |
-| API process | `english-api.service` — unit in `deploy/systemd/`, installed at W1c |
-| Worker process | `english-worker.service` — unit written, **deliberately not installed**; see [The worker unit is blocked](#the-worker-unit-is-blocked) |
+| API process | `english-api.service` — unit written in `deploy/systemd/`, **not installed**; arrives at W2 |
+| Worker process | `english-worker.service` — unit written, **not installed**; blocked by a job-table overlap, see [The worker unit is blocked](#the-worker-unit-is-blocked) |
 | Web app | Vercel, not this host (ARCHITECTURE-v3 §9) |
 | Database | PostgreSQL 16 on `127.0.0.1:5432`, DB `english_bot`, owner `bot` |
 | Backups (local) | `/home/bot/english-bot-backups` via `bot` crontab |
@@ -45,9 +45,21 @@ sudo systemctl enable --now postgresql
 
 sudo -u postgres createuser --pwprompt bot
 sudo -u postgres createdb -O bot english_bot
+
+# Required for the R2 restore drill (see "Restoring from R2" below).
+sudo -u postgres psql -c 'ALTER ROLE bot CREATEDB;'
 ```
 
 Confirm listen on **5432** (default on this host; Mac uses 5433).
+
+**`ALTER ROLE bot CREATEDB` is not optional.** `bot` owns `english_bot`, but
+ownership does not let a role create a *new* database, and
+`scripts/restore_from_r2.sh` creates and drops a scratch one every time it
+runs. Without it the drill fails at step 2/5. `CREATEDB` lets a role create and
+drop its own databases and nothing else: it is not superuser, and it grants no
+access to any database that already exists. The alternative — running the drill
+as `postgres` — would demand superuser for a routine verification, which is
+strictly worse. Added on production 2026-08-23 for exactly this reason.
 
 ### 2. Service user
 
@@ -98,7 +110,7 @@ Every key from `.env.example` applies. Values that **differ from development**:
 | `OPERATOR_TELEGRAM_ID` | Set (required for alerts + S18d operator bootstrap) |
 | `WATCH_DIR` | **Leave unset** — no Drive client on the server; S15a dormant; CSV via Telegram (S15b) only |
 | `BACKUP_OFFSITE_DIR` | **Leave unset** — R2 is the off-site copy now; this key is the older synced-folder path and there is no Drive client on the server |
-| `R2_ACCOUNT_ID` / `R2_BUCKET` / `R2_ENDPOINT` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | All five set. Account API token, Object Read & Write, scoped to `english-bot-backups`. `.env` stays mode 600 |
+| `R2_ACCOUNT_ID` / `R2_BUCKET` / `R2_ENDPOINT` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | All five set. Account API token, Object Read & Write, scoped to `english-bot-backups`. `.env` stays mode 600. **`R2_ENDPOINT` must match the bucket's jurisdiction** — this bucket is EU, so `https://<account_id>.eu.r2.cloudflarestorage.com`; a mismatch presents as `AccessDenied` on every call, not as an endpoint error |
 | `BACKUP_R2_REQUIRED` | **Leave unset** (= required). Only a machine that is not meant to hold backups sets `0` |
 | `BACKUP_R2_MAX_AGE_HOURS` | Leave at the default `26` |
 | `TELEGRAM_BOT_TOKEN` | Same bot token as development (only one process may poll — see below) |
@@ -121,10 +133,23 @@ cd /home/bot/english-bot
 CLI. It is a shell tool for a shell concern — the backup runs from cron without
 the venv, so a Python client would have meant giving it one.
 
+**Not from `apt`.** Ubuntu 24.04 has no `awscli` package in the default
+repositories, and the version available elsewhere is v1. Use the official
+installer:
+
 ```bash
-sudo apt install -y awscli   # Ubuntu 24.04 ships v2
-aws --version                # expect aws-cli/2.x
+sudo apt install -y unzip curl
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+sudo /tmp/aws/install
+rm -rf /tmp/awscliv2.zip /tmp/aws
+
+aws --version   # observed 2026-08-23: aws-cli/2.36.29
 ```
+
+It lands at `/usr/local/bin/aws`, which is on `bot`'s PATH — confirmed on this
+host 2026-08-23. Both scripts and the freshness check shell out to that one
+binary.
 
 No `aws configure`: the scripts pass the R2 credentials in the child process's
 environment, so there is no `~/.aws/credentials` on this host to leak or to
@@ -162,6 +187,15 @@ sudo systemctl enable --now english-bot
 sudo systemctl status english-bot
 ```
 
+> **A pre-W1 unit file will not start.** W1 renamed the entrypoint module from
+> the old `app` package to `apps.bot`. A unit whose `ExecStart` still names the
+> old module fails with `status=1/FAILURE` and restarts in a loop —
+> **this is exactly what happened on the W1c deploy, 2026-08-23.** Correct the
+> line to `python -m apps.bot.main`, `sudo systemctl daemon-reload`, then
+> restart. After that the service came up `active (running)`, loaded all twelve
+> prompt templates from `core.PROMPTS_DIR`, registered its scheduler jobs, and
+> began polling.
+
 ### 7. Backup crontab
 
 As `bot` (`crontab -e`):
@@ -195,8 +229,9 @@ aws s3 ls s3://english-bot-backups/english_bot/ --recursive \
 ## Deploying an update
 
 **The sequence is: backup → pull → `pip install -e packages/core` → migrate → restart.**
-Settled at W1; not to be re-argued. The backup comes first because it is the
-only step that cannot be redone after the migration has run. The editable
+Settled at W1, run as written on the W1c deploy of 2026-08-23, not to be
+re-argued. The backup comes first because it is the only step that cannot be
+redone after the migration has run. The editable
 install comes before `migrate` because `core.db` cannot be imported without
 it.
 
@@ -213,9 +248,17 @@ git pull                                    # 2. pull
 .venv/bin/python -m core.db migrate         # 4. migrate
 .venv/bin/python -m core.db status          #    confirm the new schema_version
 sudo systemctl restart english-bot          # 5. restart
-sudo systemctl restart english-api          #    …and the API
-# english-worker is not installed — see "The worker unit is blocked" below.
+# english-api and english-worker are not installed yet — they arrive at W2.
+# See "The API and the worker" below.
 ```
+
+Check `ExecStart` before the first restart after a W1-or-later pull: it must
+name `apps.bot.main`, not the old pre-W1 module (see the warning under
+**6. systemd unit**).
+
+`core.db status` on this host reported **`Applied: 001–008, Pending: (none)`**
+on 2026-08-23 — migrations 007 and 008 were already applied; only the S26c
+*code* had been undeployed.
 
 Step 1 now produces two copies: the local dump in `/home/bot/english-bot-backups`
 and the R2 object. The local one is on the same disk as the database it came
@@ -226,8 +269,8 @@ Verify:
 
 ```bash
 journalctl -u english-bot -n 50 --no-pager
-journalctl -u english-api -n 50 --no-pager
-curl -s localhost:8000/health               # {"ok": true, "schema_version": N}
+# journalctl -u english-api … and curl localhost:8000/health apply from W2,
+# when the API unit is installed.
 # In Telegram: /ping  → pong
 # /ping is on the S18d access allowlist — it proves process liveness, not approval.
 # Use /help (or any gated command) to confirm access.
@@ -294,6 +337,17 @@ Restores into a **scratch** database unless you pass the live name **and** `--fo
 
 ## The API and the worker
 
+**Neither unit is installed on this host. Both arrive at W2.** The files are
+written and reviewed in `deploy/systemd/`; nothing under
+`/etc/systemd/system/` refers to them, and `systemctl status english-api` and
+`systemctl status english-worker` both correctly report `not-found` today.
+
+* **`english-api`** would install cleanly, but it serves no domain routes until
+  W2 — an idle service on a shared production host buys nothing today, so it
+  was deliberately left off at W1c.
+* **`english-worker`** is blocked outright by the job-table overlap below
+  (known issue #69), which the W1c deploy confirmed live.
+
 Both need the same `.env`, the same venv, and `pip install -e packages/core`.
 Neither needs `TELEGRAM_BOT_TOKEN`: `core.config` stopped requiring it at W1
 precisely so these two can boot without one.
@@ -301,7 +355,7 @@ precisely so these two can boot without one.
 The unit files live in the repo at `deploy/systemd/`, so the unit that runs is
 the unit that was reviewed rather than something retyped out of this document.
 
-### english-api
+### english-api — at W2, not before
 
 ```bash
 sudo cp /home/bot/english-bot/deploy/systemd/english-api.service /etc/systemd/system/
@@ -408,49 +462,53 @@ A restored count *lower* than live is expected: the dump is from 04:00 UTC and
 the learners have written since. A restored count *higher* than live is not
 explainable that way, and the script exits non-zero on it.
 
-### The recorded run
+### The recorded run — 2026-08-23, production
 
-**Not yet performed.** This section is where the real numbers go — the actual
-commands, the actual row counts, the date, and how long it took — and it stays
-empty rather than carrying a plausible-looking template, because a template
-here would read exactly like evidence.
+**This is what closes known issue #6.** Run on the Hetzner host against the
+real bucket and the real production database. The drill downloaded an actual
+object from R2, created a scratch database, restored into it, and compared row
+counts against live:
 
-The drill could not run inside the W1c slice: it needs the R2 credentials and a
-production database, both of which live on the server, and the slice was built
-on the Mac with no access to either. Known issue #6 therefore **stays open**
-until this section has real numbers in it.
-
-To fill it in, run the drill on the server and paste the output here verbatim,
-with the date and the elapsed seconds the script prints.
-
-**What *was* proved, on the Mac, 2026-08-23.** The drill was run once against
-the Mac development database with a stub standing in for the R2 transport only
-— the download step copied a local `pg_dump` file, and every step after it was
-real: `createdb`, `pg_restore`, the row-count comparison and `dropdb`.
+| table | restored | live | result |
+|---|---|---|---|
+| `errors` | 27 | 27 | match |
+| `chunks` | 29 | 29 | match |
+| `users` | 3 | 3 | match |
+| `sessions` | 43 | 44 | behind live — the dump predates today's writes |
 
 ```
-1/5 downloading…
-    340251 bytes
-2/5 createdb english_bot_restore_test…
-3/5 pg_restore…
-4/5 row counts (restored vs live)…
-    table            restored         live
-    errors                  0            0   match
-    chunks                  2            2   match
-    users                   1            1   match
-    sessions                1            1   match
-5/5 cleanup…
-    dropped english_bot_restore_test
-
 DRILL PASSED in 2s
 ```
 
-Read that for exactly what it is. It shows the restore machinery works — a
-custom-format dump goes in, a usable database comes out, and the comparison
-reports honestly. It shows **nothing** about whether an object can be written
-to or read from Cloudflare R2, and the row counts are a near-empty development
-database, not the production error journal. Known issue #6 closes on the
-server, with real numbers, or not at all.
+Scratch database dropped at the end of the run, as designed.
+
+**`sessions` lagging by one is the correct result, not a defect.** A dump
+*should* trail the live database by exactly the writes that happened after it
+was taken. An exact match on every table would have been the suspicious
+outcome — it would suggest the drill was comparing the live database to itself
+rather than to a restored copy.
+
+The backup that produced the object was itself observed the same day:
+`scripts/backup.sh` at **16:23 UTC**, `size=56176 bytes`, key
+`english_bot/2026/08/english_bot_2026-08-23_1623.dump`, byte count verified on
+both the local and the R2 side.
+
+**Retention was verified on the same day**, across two consecutive backups: one
+upload at 16:20 and another at 16:21, after which `list-objects-v2` returned
+**both** objects. Nothing is deleted inside the 14-day window.
+
+Re-run this drill after any change to `scripts/backup.sh` or
+`scripts/restore_from_r2.sh`, and at least once a quarter otherwise. Paste the
+new numbers here when you do.
+
+**Earlier, and superseded: what was proved on the Mac, 2026-08-23.** Before the
+deploy, the drill was run once against the Mac development database with a stub
+standing in for the R2 transport only — the download step copied a local
+`pg_dump` file, and `createdb`, `pg_restore`, the row-count comparison and
+`dropdb` were all real. It showed the restore machinery worked and **nothing**
+about Cloudflare R2; its row counts were a near-empty development database
+(`errors` 0, `chunks` 2, `users` 1, `sessions` 1). Kept here only so the
+distinction between that run and the production one above stays visible.
 
 ### Freshness alarm
 
@@ -476,6 +534,40 @@ aws s3 rm s3://english-bot-backups/<newest-key> --endpoint-url "$R2_ENDPOINT"
 # …expect a Telegram alert within the hour, then put a copy back:
 ./scripts/backup.sh
 ```
+
+**Proved in both directions on 2026-08-23**, which is the only way an alarm is
+worth anything — one that always fires is as useless as one that never does:
+
+```
+# with the english_bot/ prefix deleted
+R2Health(status='empty', should_alert=True, …)
+
+# after a fresh backup
+R2Health(status='ok', should_alert=False,
+         detail='Newest object … is 0.0h old (56176 bytes).')
+```
+
+**One caveat, now a known issue: R2 list-after-write lag.** On this same day an
+object uploaded at 16:14 was successfully *downloaded* by the restore drill at
+16:15, yet did not appear in `list-objects-v2` several minutes later — the
+freshness check reported `status='empty'` for a bucket that provably held it,
+and a later listing showed the object had been there all along. The object was
+never lost, and retention was never at fault (an intermediate diagnosis that
+retention was deleting live objects was **wrong**; it is recorded here so it is
+not re-derived). The check has no tolerance for listing lag, so **running it
+shortly after an upload can raise a false alarm.** Harmless at the 04:00 UTC
+cron, which has hours of slack. If you are testing the alarm by hand and it
+says `empty` right after a `backup.sh`, list the bucket again before believing
+it.
+
+**R2_ENDPOINT must carry the jurisdiction segment.** This bucket is under the
+EU jurisdiction, so the endpoint is
+`https://<account_id>.eu.r2.cloudflarestorage.com`. A token scoped to an EU
+bucket signing against the *default* endpoint returns `AccessDenied` on every
+operation — `PutObject`, `ListObjectsV2` and `ListBuckets` alike — and nothing
+in the error names jurisdiction as the cause. It looks exactly like a token
+permission problem and was misdiagnosed as one for several cycles on
+2026-08-23.
 
 The same check also runs in `english-worker`, where it only reaches the journal
 — that process has no operator channel (known issue #65). While the worker unit
