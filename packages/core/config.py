@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
@@ -69,9 +69,26 @@ class Settings:
     instance_lock_file: str = ""
     heartbeat_file: str = ""
     alert_throttle_file: str = ""
-    # S4c — empty means freshness check is a silent no-op.
+    # S4c — empty means the folder-copy freshness check is a silent no-op.
     backup_offsite_dir: str = ""
     backup_offsite_max_age_hours: float = 48.0
+    # W1c — Cloudflare R2, the real off-site copy. All five or none; a partly
+    # set group is a configuration mistake and the freshness check says so.
+    r2_account_id: str = ""
+    r2_bucket: str = ""
+    r2_endpoint: str = ""
+    r2_access_key_id: str = ""
+    # repr=False: this value must never reach a log line, and `logger.info("%s",
+    # settings)` is one keystroke away in any file that holds a Settings
+    # (CLAUDE.md §5 — logs carry user ids and route names, nothing else).
+    r2_secret_access_key: str = field(default="", repr=False)
+    # 24-hour backup cycle plus slack for a late cron.
+    r2_max_age_hours: float = 26.0
+    # Whether an unconfigured R2 is an alarm. Default true, and that direction
+    # is the point: forgetting it in production keeps the alarm, forgetting it
+    # on a dev machine costs one extra alert. Silence is never the default
+    # (known issue #31). Dev machines set BACKUP_R2_REQUIRED=0.
+    r2_required: bool = True
     # S15a — empty means watch poll / /import / Anki outbox are silent no-ops.
     watch_dir: str = ""
     # S24 — comma-separated book slugs the operator shares (empty = none).
@@ -223,6 +240,27 @@ def load_settings() -> Settings:
         os.environ.get("BACKUP_OFFSITE_MAX_AGE_HOURS", "48"),
         errors,
     )
+    r2_account_id = os.environ.get("R2_ACCOUNT_ID", "").strip()
+    r2_bucket = os.environ.get("R2_BUCKET", "").strip()
+    r2_endpoint = os.environ.get("R2_ENDPOINT", "").strip()
+    r2_access_key_id = os.environ.get("R2_ACCESS_KEY_ID", "").strip()
+    r2_secret_access_key = os.environ.get("R2_SECRET_ACCESS_KEY", "").strip()
+    r2_max_age_hours = _parse_float(
+        "BACKUP_R2_MAX_AGE_HOURS",
+        os.environ.get("BACKUP_R2_MAX_AGE_HOURS", "26"),
+        errors,
+    )
+    r2_required = _parse_bool(
+        "BACKUP_R2_REQUIRED",
+        os.environ.get("BACKUP_R2_REQUIRED", ""),
+        default=True,
+        errors=errors,
+    )
+    if r2_endpoint and not r2_endpoint.startswith(("http://", "https://")):
+        errors.append(
+            "R2_ENDPOINT must be a scheme-qualified URL "
+            f"(got {r2_endpoint!r})"
+        )
     watch_dir = os.environ.get("WATCH_DIR", "").strip()
     shared_book_slugs = tuple(
         part.strip()
@@ -270,6 +308,10 @@ def load_settings() -> Settings:
             "BACKUP_OFFSITE_MAX_AGE_HOURS must be > 0 "
             f"(got {backup_offsite_max_age_hours})"
         )
+    if r2_max_age_hours is not None and r2_max_age_hours <= 0:
+        errors.append(
+            f"BACKUP_R2_MAX_AGE_HOURS must be > 0 (got {r2_max_age_hours})"
+        )
     if (
         conversation_timeout_minutes is not None
         and conversation_timeout_minutes < 1
@@ -315,6 +357,8 @@ def load_settings() -> Settings:
     assert log_max_bytes is not None
     assert log_backup_count is not None
     assert backup_offsite_max_age_hours is not None
+    assert r2_max_age_hours is not None
+    assert r2_required is not None
     settings = Settings(
         database_url=database_url,
         telegram_bot_token=telegram_bot_token,
@@ -349,6 +393,13 @@ def load_settings() -> Settings:
         alert_throttle_file=alert_throttle_file,
         backup_offsite_dir=backup_offsite_dir,
         backup_offsite_max_age_hours=backup_offsite_max_age_hours,
+        r2_account_id=r2_account_id,
+        r2_bucket=r2_bucket,
+        r2_endpoint=r2_endpoint,
+        r2_access_key_id=r2_access_key_id,
+        r2_secret_access_key=r2_secret_access_key,
+        r2_max_age_hours=r2_max_age_hours,
+        r2_required=r2_required,
         watch_dir=watch_dir,
         shared_book_slugs=shared_book_slugs,
         couple_chat_id=couple_chat_id,
@@ -373,6 +424,28 @@ def _parse_float(name: str, raw: str, errors: list[str]) -> float | None:
     except ValueError:
         errors.append(f"{name} must be a number (got {raw!r})")
         return None
+
+
+_TRUE_WORDS = frozenset({"1", "true", "yes", "on"})
+_FALSE_WORDS = frozenset({"0", "false", "no", "off"})
+
+
+def _parse_bool(
+    name: str, raw: str, *, default: bool, errors: list[str]
+) -> bool | None:
+    """Parse an optional boolean; empty string means unset (use *default*)."""
+    stripped = raw.strip().lower()
+    if not stripped:
+        return default
+    if stripped in _TRUE_WORDS:
+        return True
+    if stripped in _FALSE_WORDS:
+        return False
+    errors.append(
+        f"{name} must be one of "
+        f"{sorted(_TRUE_WORDS | _FALSE_WORDS)} (got {raw!r})"
+    )
+    return None
 
 
 def _parse_optional_int(

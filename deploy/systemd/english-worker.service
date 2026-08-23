@@ -1,0 +1,41 @@
+# W1c — WRITTEN, NOT INSTALLED. Read this before enabling it.
+#
+# apps/worker/jobs.py and apps/bot/scheduler.py currently register the SAME
+# job names:
+#
+#     streak_rollover   monthly_freeze_reset   heartbeat   backup_freshness
+#
+# Both would run against one database. Two processes doing streak_rollover is
+# a data-integrity problem, not an untidiness one, so this unit stays off the
+# server until one side gives those jobs up (W20 is where the bot's scheduler
+# retires). tests/test_backup_r2.py::test_bot_and_worker_job_tables_still_overlap
+# records the overlap and fails when it changes.
+#
+# When it is disjoint:
+#
+#   sudo cp deploy/systemd/english-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now english-worker
+#   journalctl -u english-worker -n 50 --no-pager   # expect "Scheduler built jobs=…"
+
+[Unit]
+Description=English Learning scheduler (APScheduler)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/english-bot
+ExecStart=/home/bot/english-bot/.venv/bin/python -m apps.worker.main
+Restart=always
+RestartSec=10
+# One worker, always. It takes RUNTIME_DIR/worker.lock at boot — its own file,
+# not the bot's bot.lock — and a second start exits non-zero. That guard only
+# covers two processes on the same machine.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

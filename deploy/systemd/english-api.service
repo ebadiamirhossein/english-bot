@@ -1,0 +1,33 @@
+# W1c — install to /etc/systemd/system/english-api.service
+#
+#   sudo cp deploy/systemd/english-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now english-api
+#   curl -s localhost:8000/health
+#
+# Kept in the repo rather than pasted out of a markdown file so the unit that
+# runs is the unit that was reviewed.
+
+[Unit]
+Description=English Learning API (FastAPI)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/english-bot
+# 127.0.0.1 only, never 0.0.0.0. Caddy already holds 80/443 on this shared
+# host and is the one thing that should face the internet; W2 gives it the
+# api.foundgrant.com route. Nothing new opens at the firewall.
+ExecStart=/home/bot/english-bot/.venv/bin/uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=always
+RestartSec=10
+# --workers 2 is safe here precisely because the API holds no schedule. The
+# worker must never be scaled the same way (see english-worker.service).
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

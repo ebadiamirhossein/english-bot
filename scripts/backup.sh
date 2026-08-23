@@ -14,13 +14,38 @@ LIVE_DB_NAME="english_bot"
 
 # Track which backup keys the real environment already provided (even if empty).
 # Real env wins over .env; unset → fall through to .env → defaults.
+#
+# Known issue #26: BACKUP_DIR and BACKUP_OFFSITE_DIR used to be read from the
+# process environment only, so configuring them in .env — the only way they are
+# really configured — looked "unset" and the copy silently skipped. Every key
+# below, including the five R2 ones, goes through env_file_get for that reason
+# (CLAUDE.md §3 rule 3).
 _ENV_HAS_BACKUP_DIR="${BACKUP_DIR+y}"
 _ENV_HAS_BACKUP_OFFSITE_DIR="${BACKUP_OFFSITE_DIR+y}"
 _ENV_HAS_BACKUP_OFFSITE_KEEP="${BACKUP_OFFSITE_KEEP+y}"
+_ENV_HAS_R2_ACCOUNT_ID="${R2_ACCOUNT_ID+y}"
+_ENV_HAS_R2_BUCKET="${R2_BUCKET+y}"
+_ENV_HAS_R2_ENDPOINT="${R2_ENDPOINT+y}"
+_ENV_HAS_R2_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID+y}"
+_ENV_HAS_R2_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY+y}"
 BACKUP_DIR="${BACKUP_DIR:-}"
 # S4c — empty means skip off-site (INFO line, not silent).
 BACKUP_OFFSITE_DIR="${BACKUP_OFFSITE_DIR:-}"
 BACKUP_OFFSITE_KEEP="${BACKUP_OFFSITE_KEEP:-}"
+# W1c — Cloudflare R2. All five empty means skip the R2 copy (INFO line).
+# Any other combination is a configuration mistake and dies loudly.
+R2_ACCOUNT_ID="${R2_ACCOUNT_ID:-}"
+R2_BUCKET="${R2_BUCKET:-}"
+R2_ENDPOINT="${R2_ENDPOINT:-}"
+R2_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID:-}"
+R2_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY:-}"
+# Object key layout: english_bot/<YYYY>/<MM>/english_bot_<date>_<HHMM>.dump
+# Not configurable: the freshness check in packages/core reads the same prefix,
+# and two places that must agree should not be two variables to keep in step.
+R2_PREFIX="english_bot"
+# The five key names, in one place, so the "all set / none set / some set"
+# check and the .env loader cannot drift apart.
+R2_KEYS="R2_ACCOUNT_ID R2_BUCKET R2_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY"
 
 log() {
   local msg="$*"
@@ -164,6 +189,17 @@ env_file_get() {
   return 0
 }
 
+# Set variable $1 from ENV_FILE unless the real environment already had it ($2
+# is "y" when it did). printf -v rather than `declare -g` — the latter is bash
+# 4.2+ and this script also has to run under macOS's /bin/bash 3.2.
+_dotenv_fill() {
+  local name="$1" had="$2" v
+  [[ -z "${had}" ]] || return 0
+  v="$(env_file_get "${name}")" || return 0
+  [[ -n "${v}" ]] || return 0
+  printf -v "${name}" '%s' "${v}"
+}
+
 # Fill BACKUP_DIR / BACKUP_OFFSITE_* from .env when not set in the real environment.
 # Precedence: real env → .env → defaults. Call before any use of BACKUP_DIR.
 apply_dotenv_backup_vars() {
@@ -183,6 +219,11 @@ apply_dotenv_backup_vars() {
       BACKUP_OFFSITE_KEEP="${v}"
     fi
   fi
+  _dotenv_fill R2_ACCOUNT_ID "${_ENV_HAS_R2_ACCOUNT_ID}"
+  _dotenv_fill R2_BUCKET "${_ENV_HAS_R2_BUCKET}"
+  _dotenv_fill R2_ENDPOINT "${_ENV_HAS_R2_ENDPOINT}"
+  _dotenv_fill R2_ACCESS_KEY_ID "${_ENV_HAS_R2_ACCESS_KEY_ID}"
+  _dotenv_fill R2_SECRET_ACCESS_KEY "${_ENV_HAS_R2_SECRET_ACCESS_KEY}"
   BACKUP_DIR="${BACKUP_DIR:-${HOME}/english-bot-backups}"
   BACKUP_OFFSITE_DIR="${BACKUP_OFFSITE_DIR:-}"
   BACKUP_OFFSITE_KEEP="${BACKUP_OFFSITE_KEEP:-14}"
@@ -353,6 +394,185 @@ offsite_copy() {
   prune_offsite_dumps
 }
 
+# ---------------------------------------------------------------------------
+# CLOUDFLARE R2 (W1c) — the real off-site copy. Closes known issue #6.
+#
+# Tool: AWS CLI v2 with --endpoint-url. R2 speaks S3, the CLI is a shell tool
+# for a shell concern, and it adds nothing to requirements.txt — this script
+# runs from cron without the venv, so a boto3 import would have meant giving it
+# one. Install: `apt install awscli` on Ubuntu 24.04 (2.x) or the official
+# installer; `brew install awscli` on the Mac.
+#
+# R2_SECRET_ACCESS_KEY is passed to `aws` in that command's own environment and
+# is never echoed, logged, or named in an error message (CLAUDE.md §5).
+# ---------------------------------------------------------------------------
+
+# How many of the five keys are set. 0 = skip; 5 = go; anything between is a
+# configuration mistake that must never be allowed to look like "skip".
+r2_set_count() {
+  local name count=0
+  for name in ${R2_KEYS}; do
+    [[ -n "${!name}" ]] && count=$((count + 1))
+  done
+  echo "${count}"
+}
+
+# Names of the unset keys, space separated. Names only — never values.
+r2_missing_keys() {
+  local name out=""
+  for name in ${R2_KEYS}; do
+    [[ -n "${!name}" ]] || out="${out}${name} "
+  done
+  printf '%s' "${out% }"
+}
+
+# Run `aws` against R2. Credentials exist only in this command's environment.
+# AWS_*_CHECKSUM_*=when_required: aws-cli v2.23+ adds full-object checksums by
+# default, which R2 rejects on some upload paths; "when_required" is the
+# setting Cloudflare documents for S3-compatible clients.
+r2_aws() {
+  env -u AWS_SESSION_TOKEN -u AWS_PROFILE \
+    AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" \
+    AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" \
+    AWS_DEFAULT_REGION="auto" \
+    AWS_EC2_METADATA_DISABLED="true" \
+    AWS_REQUEST_CHECKSUM_CALCULATION="when_required" \
+    AWS_RESPONSE_CHECKSUM_VALIDATION="when_required" \
+    aws --endpoint-url "${R2_ENDPOINT}" "$@"
+}
+
+# english_bot_2026-08-23_0400.dump → english_bot/2026/08/english_bot_2026-08-23_0400.dump
+# Dated prefixes so a human browsing the bucket can find one day without
+# listing everything.
+r2_object_key() {
+  local base="$1" day year month
+  day="$(echo "${base}" | sed -n 's/^english_bot_\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)_[0-9][0-9][0-9][0-9]\.dump$/\1/p')"
+  [[ -n "${day}" ]] || return 1
+  year="${day%%-*}"
+  month="${day#*-}"
+  month="${month%%-*}"
+  printf '%s/%s/%s/%s' "${R2_PREFIX}" "${year}" "${month}" "${base}"
+}
+
+# Date embedded in a canonical object key, or non-zero if the key is not one
+# this script wrote. Retention reads the dump's own date, not LastModified:
+# the date is what the retention policy is about, and it is testable offline.
+r2_key_date() {
+  local key="$1" base day
+  case "${key}" in
+    "${R2_PREFIX}"/[0-9][0-9][0-9][0-9]/[0-9][0-9]/english_bot_*.dump) ;;
+    *) return 1 ;;
+  esac
+  base="${key##*/}"
+  day="$(echo "${base}" | sed -n 's/^english_bot_\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)_[0-9][0-9][0-9][0-9]\.dump$/\1/p')"
+  [[ -n "${day}" ]] || return 1
+  printf '%s' "${day}"
+}
+
+# Read object keys on stdin, one per line; print the keys to delete.
+#
+# Pure: no network, no filesystem, no clock. Two rules, both deliberate:
+#   * only keys matching the canonical layout are ever candidates — an object
+#     this script did not write is never deleted by it;
+#   * the newest key always survives, whatever its age. If uploads have been
+#     broken for a month, the one surviving dump must not be deleted by its
+#     own retention rule.
+r2_prune_plan() {
+  local cutoff="$1"
+  local line day key sorted first=1
+  local -a entries=()
+  # `|| [[ -n "${line}" ]]` so a final line with no trailing newline is not
+  # silently dropped — a listing that ends without one is not a shorter listing.
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    [[ -n "${line}" ]] || continue
+    day="$(r2_key_date "${line}")" || continue
+    entries+=("${day}|${line}")
+  done
+  [[ "${#entries[@]}" -gt 0 ]] || return 0
+  # Descending: the dump date leads each entry, and same-day dumps then order
+  # by the HHMM inside the key.
+  sorted="$(printf '%s\n' "${entries[@]}" | LC_ALL=C sort -r)"
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    day="${line%%|*}"
+    key="${line#*|}"
+    if [[ "${first}" == "1" ]]; then
+      first=0
+      continue
+    fi
+    if [[ "${day}" < "${cutoff}" ]]; then
+      printf '%s\n' "${key}"
+    fi
+  done <<< "${sorted}"
+}
+
+r2_list_keys() {
+  r2_aws s3api list-objects-v2 \
+    --bucket "${R2_BUCKET}" \
+    --prefix "${R2_PREFIX}/" \
+    --query 'Contents[].Key' \
+    --output text | tr '\t' '\n'
+}
+
+# Only ever called after a verified upload. Never before, never on failure:
+# pruning on a failed run is how you end up with neither an old copy nor a new
+# one.
+r2_prune() {
+  local cutoff keys plan key deleted=0
+  cutoff="$(date -v-"${KEEP_DAYS}"d '+%Y-%m-%d' 2>/dev/null || date -d "${KEEP_DAYS} days ago" '+%Y-%m-%d')"
+  log "R2 retention: removing objects dated before ${cutoff} (keep ${KEEP_DAYS} days; newest always survives)"
+  keys="$(r2_list_keys)" || die "R2 list-objects-v2 failed — retention not applied"
+  plan="$(printf '%s\n' "${keys}" | r2_prune_plan "${cutoff}")"
+  while IFS= read -r key; do
+    [[ -n "${key}" ]] || continue
+    log "R2 retention: deleting ${key}"
+    r2_aws s3api delete-object --bucket "${R2_BUCKET}" --key "${key}" >/dev/null \
+      || die "R2 delete-object failed for ${key}"
+    deleted=$((deleted + 1))
+  done <<< "${plan}"
+  log "R2 retention: ${deleted} object(s) deleted"
+}
+
+# Upload the dump the local step just produced. A second copy, never a
+# replacement: the local dump stays where it is whatever happens here.
+r2_upload() {
+  local dump_path="$1"
+  local set_count base key local_size remote_size
+
+  set_count="$(r2_set_count)"
+  if [[ "${set_count}" == "0" ]]; then
+    log "R2 copy skipped (R2_* not configured) — local dump kept at ${dump_path}"
+    return 0
+  fi
+  if [[ "${set_count}" != "5" ]]; then
+    die "R2 partially configured — missing: $(r2_missing_keys). All five keys or none; a half-set R2 is exactly the silent skip known issue #26 was written about."
+  fi
+  require_cmd aws
+
+  base="$(basename "${dump_path}")"
+  key="$(r2_object_key "${base}")" \
+    || die "dump name is not english_bot_YYYY-MM-DD_HHMM.dump: ${base}"
+
+  log "R2 upload → s3://${R2_BUCKET}/${key}"
+  if ! r2_aws s3 cp "${dump_path}" "s3://${R2_BUCKET}/${key}" --only-show-errors; then
+    die "R2 upload failed for ${key} — local dump kept at ${dump_path}"
+  fi
+
+  # Read the object back. An unverified copy is a hypothesis — the same reason
+  # the S4c folder copy is checksummed rather than trusted.
+  local_size="$(wc -c < "${dump_path}" | tr -d ' ')"
+  remote_size="$(r2_aws s3api head-object --bucket "${R2_BUCKET}" --key "${key}" \
+    --query 'ContentLength' --output text)" \
+    || die "R2 head-object failed for ${key} — upload not verified"
+  remote_size="$(echo "${remote_size}" | tr -d '[:space:]')"
+  if [[ "${remote_size}" != "${local_size}" ]]; then
+    die "R2 size mismatch for ${key} (local=${local_size} remote=${remote_size}) — refusing"
+  fi
+  log "R2 SUCCESS bucket=${R2_BUCKET} key=${key} size=${local_size} bytes"
+  r2_prune
+}
+
 prune_old_dumps() {
   # Only called after a successful dump. Never prune on failure.
   local cutoff
@@ -406,6 +626,7 @@ main() {
   log "SUCCESS dump=${outfile} size=${size} bytes"
   prune_old_dumps
   offsite_copy "${outfile}"
+  r2_upload "${outfile}"
   echo "${outfile}"
 }
 

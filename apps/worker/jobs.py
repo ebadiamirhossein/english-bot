@@ -99,10 +99,20 @@ def heartbeat() -> None:
 
 
 def backup_freshness() -> None:
-    """Alert when the newest off-site dump is too old. Silent while unset.
+    """Report on both off-site destinations: the S4c folder and R2.
 
-    ``BACKUP_OFFSITE_DIR`` is unset in production (known issues #6 / #31), so
-    this logs 'skipped' today. W1c is what makes it say something.
+    The folder half is unchanged and stays silent when ``BACKUP_OFFSITE_DIR``
+    is unset — a synced folder was always optional.
+
+    The R2 half (W1c) is not silent when unset. That was known issue #31: an
+    unconfigured backup and a healthy one produced the same output, which is
+    the one case where saying nothing is a lie.
+
+    Delivery, honestly: this process has no operator channel, so both halves
+    land in the journal at ERROR and nowhere else (known issue #65, the same
+    limitation ``apps/api/main.py::send_operator_alert`` carries). The bot's
+    copy of this check does reach Telegram. Nobody sees the lines below
+    without ``journalctl -u english-worker``.
     """
     settings = load_settings()
     now = datetime.now(timezone.utc)
@@ -113,8 +123,7 @@ def backup_freshness() -> None:
     )
     if status == "skipped":
         logger.info("Off-site backup freshness skipped (BACKUP_OFFSITE_DIR unset)")
-        return
-    if status == "stale":
+    elif status == "stale":
         newest = backup_freshness_service.newest_offsite(
             Path(settings.backup_offsite_dir)
         )
@@ -123,8 +132,21 @@ def backup_freshness() -> None:
             age_hours = (now - newest.mtime).total_seconds() / 3600.0
             detail = f"newest={newest.path.name} age={age_hours:.1f}h"
         logger.error("Off-site backup STALE: %s", detail)
-        return
-    logger.info("Off-site backup fresh")
+    else:
+        logger.info("Off-site backup fresh")
+
+    health = backup_freshness_service.check_r2_freshness(
+        backup_freshness_service.r2_config_from_settings(settings),
+        now=now,
+        max_age_hours=settings.r2_max_age_hours,
+        required=settings.r2_required,
+    )
+    if health.should_alert:
+        logger.error(
+            "Off-site backup R2 %s: %s", health.status.upper(), health.detail
+        )
+    else:
+        logger.info("Off-site backup R2 %s: %s", health.status, health.detail)
 
 
 JOBS: tuple[Job, ...] = (

@@ -14,7 +14,7 @@ S8: couple challenge poll (18:00 Vilnius; chat-level).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,7 +28,7 @@ from apps.bot.handlers import reading as reading_handler
 from apps.bot import anki_delivery as anki_service
 from apps.bot import motivation_delivery as motivation_service
 from apps.bot.alerts import operator_send
-from core.services.alerts import notify_operator
+from core.services.alerts import notify_operator, should_send_alert
 from core.services import backup_freshness as backup_freshness_service
 # Re-exported for the bot's own callers and tests, which still import the
 # predicates from here. W1b moves the jobs; the predicates already live
@@ -96,6 +96,10 @@ _STREAK_JOB = "streak_rollover"
 _FREEZE_JOB = "monthly_freeze_reset"
 _HEARTBEAT_JOB = "heartbeat"
 _BACKUP_FRESHNESS_JOB = "backup_freshness"
+# W1c — a broken backup is a once-a-day fact, not a once-every-fifteen-
+# minutes one. The default 15-minute cooldown belongs to the error handler.
+BACKUP_ALERT_COOLDOWN = timedelta(hours=24)
+_BACKUP_R2_ALERT_KEY = "backup_r2"
 _WATCH_JOB = "watch_poll"
 
 
@@ -417,8 +421,82 @@ async def run_backup_freshness_check(
     return status
 
 
+async def _send_backup_alert(
+    application: Application,
+    *,
+    key: str,
+    text: str,
+    now: datetime,
+) -> bool:
+    """Operator alert on the 24-hour backup cooldown. Returns True if sent.
+
+    Not ``notify_operator``: that helper fixes the cooldown at fifteen minutes,
+    which is right for a burst of exceptions and wrong for "the backup did not
+    run" — the operator would get four of those an hour until they fixed it and
+    would learn to ignore them. Widening ``notify_operator`` means editing
+    ``packages/core/services/alerts.py``, which W1c is scoped out of, so the
+    throttle is composed here from its public ``should_send_alert``.
+    """
+    settings = load_settings()
+    if settings.operator_telegram_id is None:
+        logger.error(
+            "OPERATOR_TELEGRAM_ID unset — backup alert suppressed key=%s: %s",
+            key,
+            text,
+        )
+        return False
+    may_send, suppressed = should_send_alert(
+        key, now=now, cooldown=BACKUP_ALERT_COOLDOWN
+    )
+    if not may_send:
+        logger.warning(
+            "Backup alert throttled key=%s suppressed=%s", key, suppressed
+        )
+        return False
+    body = f"{text}\nsuppressed={suppressed}" if suppressed else text
+    try:
+        await operator_send(application.bot)(body)
+    except Exception:
+        logger.exception("Failed to send backup alert key=%s", key)
+        return False
+    return True
+
+
+async def run_r2_freshness_check(
+    application: Application,
+    *,
+    now: datetime | None = None,
+) -> str:
+    """Check the newest object in R2; alert when it is old, empty or unset.
+
+    W1c, closing known issue #31. Unlike the S4c folder check above, an
+    unconfigured R2 is not silence — that state is what "no off-site backup at
+    all" looks like, and it looked identical to a healthy one for the whole of
+    v2. ``BACKUP_R2_REQUIRED=0`` is how a dev machine opts out.
+    """
+    instant = now or datetime.now(timezone.utc)
+    settings = load_settings()
+    config = backup_freshness_service.r2_config_from_settings(settings)
+    health = backup_freshness_service.check_r2_freshness(
+        config,
+        now=instant,
+        max_age_hours=settings.r2_max_age_hours,
+        required=settings.r2_required,
+    )
+    if not health.should_alert:
+        logger.info("Off-site backup R2 %s: %s", health.status, health.detail)
+        return health.status
+    message = f"Off-site backup R2 {health.status.upper()}: {health.detail}"
+    logger.error("%s", message)
+    await _send_backup_alert(
+        application, key=_BACKUP_R2_ALERT_KEY, text=message, now=instant
+    )
+    return health.status
+
+
 async def _backup_freshness_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await run_backup_freshness_check(context.application)
+    await run_r2_freshness_check(context.application)
 
 
 async def run_watch_poll(

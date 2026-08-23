@@ -184,16 +184,44 @@ def test_heartbeat_job_logs_stale_when_nothing_has_fired(
     assert any("STALE" in r.getMessage() for r in caplog.records)
 
 
-def test_backup_freshness_job_is_silent_while_unset(
+def test_backup_freshness_folder_half_is_silent_while_unset(
     runtime_dir: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Known issues #6 / #31: unset means skipped, never a nagging alert."""
+    """An unset BACKUP_OFFSITE_DIR skips quietly — a synced folder was always
+    optional. The R2 half, checked below, is the one that must not be quiet."""
     monkeypatch.setenv("BACKUP_OFFSITE_DIR", "")
+    monkeypatch.setenv("BACKUP_R2_REQUIRED", "0")
     with caplog.at_level(logging.INFO, logger="apps.worker.jobs"):
         worker_jobs.backup_freshness()
     messages = [r.getMessage() for r in caplog.records]
     assert any("skipped" in m for m in messages)
     assert not any(r.levelno >= logging.ERROR for r in caplog.records)
+
+
+def test_backup_freshness_r2_half_is_loud_while_unset(
+    runtime_dir: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """W1c closes known issue #31, and this is the assertion that changed.
+
+    Until W1c an unconfigured backup and a healthy one produced the same
+    output, which made the check worthless on the one machine where nothing
+    was being backed up. Unset R2 is now an ERROR unless the machine has
+    explicitly opted out.
+    """
+    monkeypatch.setenv("BACKUP_OFFSITE_DIR", "")
+    monkeypatch.delenv("BACKUP_R2_REQUIRED", raising=False)
+    for key in (
+        "R2_ACCOUNT_ID",
+        "R2_BUCKET",
+        "R2_ENDPOINT",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    with caplog.at_level(logging.INFO, logger="apps.worker.jobs"):
+        worker_jobs.backup_freshness()
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any("R2 UNCONFIGURED" in r.getMessage() for r in errors)
 
 
 def test_backup_freshness_job_reports_a_stale_directory(
