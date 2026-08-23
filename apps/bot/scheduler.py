@@ -14,11 +14,9 @@ S8: couple challenge poll (18:00 Vilnius; chat-level).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
-from zoneinfo import ZoneInfo
 
 from apps.bot import texts
 from core.config import load_settings
@@ -32,23 +30,28 @@ from apps.bot import motivation_delivery as motivation_service
 from apps.bot.alerts import operator_send
 from core.services.alerts import notify_operator
 from core.services import backup_freshness as backup_freshness_service
-from core.services.errors import run_monthly_fossil_sweep
+# Re-exported for the bot's own callers and tests, which still import the
+# predicates from here. W1b moves the jobs; the predicates already live
+# in core.
+from core.scheduling import (
+    ANKI_WEEKDAY,
+    DIARY_WEEKDAYS,
+    READING_WEEKDAYS,
+    EligibleUser,
+    is_user_due_for_anki,
+    is_user_due_for_diary,
+    is_user_due_for_evening,
+    is_user_due_for_morning,
+    list_candidate_users,
+    run_monthly_freeze_reset,
+    run_monthly_reset,
+    run_streak_rollover,
+)
 from core.services import heartbeat as heartbeat_service
 from core.services.sessions import (
-    has_anki_session_on,
-    has_diary_session_on,
-    has_reading_session_on,
-    has_session_on,
     increment_bot_messages,
-    local_time_hhmm,
     local_today,
     under_message_ceiling,
-)
-from core.services.streaks import (
-    USERS_PER_POLL_TICK,
-    evaluate_pending,
-    list_onboarded_streak_users,
-    reset_monthly_freezes,
 )
 from core.services.watch_import import (
     WatchConfigError,
@@ -82,12 +85,6 @@ SUNDAY_REPORT_FIRST_SECONDS = EVENING_FIRST_SECONDS + 15
 ANKI_FIRST_SECONDS = EVENING_FIRST_SECONDS + 30
 NUDGE_FIRST_SECONDS = EVENING_FIRST_SECONDS + 45
 COUPLE_FIRST_SECONDS = EVENING_FIRST_SECONDS + 55
-# Monday=0, Wednesday=2, Friday=4 in the user's local timezone.
-READING_WEEKDAYS = frozenset({0, 2, 4})
-# Tuesday=1, Thursday=3 — remaining evenings without reading/Anki/report (S13).
-DIARY_WEEKDAYS = frozenset({1, 3})
-# Saturday=5 — moved off Sunday so weekly test + report fit under the ceiling (S11).
-ANKI_WEEKDAY = 5
 _MORNING_JOB = "morning_poll"
 _EVENING_JOB = "evening_poll"
 _DIARY_JOB = "diary_poll"
@@ -108,116 +105,6 @@ def _touch_job_fire_success() -> None:
     heartbeat_service.touch_job_fire(
         settings.heartbeat_file, now=datetime.now(timezone.utc)
     )
-
-
-@dataclass(frozen=True)
-class EligibleUser:
-    telegram_user_id: int
-    timezone: str
-    morning_time: time
-    paused_until: date | None
-    evening_time: time = time(21, 0)
-
-
-def _time_reached(local_hhmm: tuple[int, int], slot: time) -> bool:
-    """True when local hour:minute is at or past slot (minute precision)."""
-    hour, minute = local_hhmm
-    return (hour, minute) >= (slot.hour, slot.minute)
-
-
-def list_candidate_users() -> list[EligibleUser]:
-    """Approved onboarded users (pause filtered per local date in eligibility)."""
-    with connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT telegram_user_id, timezone, morning_time, evening_time,
-                   paused_until
-              FROM approved_onboarded_users
-            """
-        ).fetchall()
-    return [
-        EligibleUser(
-            telegram_user_id=int(row["telegram_user_id"]),
-            timezone=str(row["timezone"] or "Europe/Vilnius"),
-            morning_time=row["morning_time"],
-            paused_until=row["paused_until"],
-            evening_time=row["evening_time"] or time(21, 0),
-        )
-        for row in rows
-    ]
-
-
-def is_user_due_for_morning(user: EligibleUser, now: datetime) -> bool:
-    """Whether this user should receive a morning delivery at ``now``."""
-    if now.tzinfo is None:
-        raise ValueError("now must be timezone-aware")
-    day = local_today(user.timezone, now)
-    if user.paused_until is not None and user.paused_until >= day:
-        return False
-    if not _time_reached(local_time_hhmm(user.timezone, now), user.morning_time):
-        return False
-    if has_session_on(user.telegram_user_id, day):
-        return False
-    if not under_message_ceiling(user.telegram_user_id, day):
-        return False
-    return True
-
-
-def is_user_due_for_evening(user: EligibleUser, now: datetime) -> bool:
-    """Whether this user should receive a reading delivery at ``now``."""
-    if now.tzinfo is None:
-        raise ValueError("now must be timezone-aware")
-    day = local_today(user.timezone, now)
-    local_dt = now.astimezone(ZoneInfo(user.timezone))
-    if local_dt.weekday() not in READING_WEEKDAYS:
-        return False
-    if user.paused_until is not None and user.paused_until >= day:
-        return False
-    if not _time_reached(local_time_hhmm(user.timezone, now), user.evening_time):
-        return False
-    if has_reading_session_on(user.telegram_user_id, day):
-        return False
-    if not under_message_ceiling(user.telegram_user_id, day):
-        return False
-    return True
-
-
-def is_user_due_for_diary(user: EligibleUser, now: datetime) -> bool:
-    """Whether this user should receive a diary prompt at ``now`` (Tue/Thu)."""
-    if now.tzinfo is None:
-        raise ValueError("now must be timezone-aware")
-    day = local_today(user.timezone, now)
-    local_dt = now.astimezone(ZoneInfo(user.timezone))
-    if local_dt.weekday() not in DIARY_WEEKDAYS:
-        return False
-    if user.paused_until is not None and user.paused_until >= day:
-        return False
-    if not _time_reached(local_time_hhmm(user.timezone, now), user.evening_time):
-        return False
-    if has_diary_session_on(user.telegram_user_id, day):
-        return False
-    if not under_message_ceiling(user.telegram_user_id, day):
-        return False
-    return True
-
-
-def is_user_due_for_anki(user: EligibleUser, now: datetime) -> bool:
-    """Whether this user should receive a Saturday Anki export at ``now``."""
-    if now.tzinfo is None:
-        raise ValueError("now must be timezone-aware")
-    day = local_today(user.timezone, now)
-    local_dt = now.astimezone(ZoneInfo(user.timezone))
-    if local_dt.weekday() != ANKI_WEEKDAY:
-        return False
-    if user.paused_until is not None and user.paused_until >= day:
-        return False
-    if not _time_reached(local_time_hhmm(user.timezone, now), user.evening_time):
-        return False
-    if has_anki_session_on(user.telegram_user_id, day):
-        return False
-    if not under_message_ceiling(user.telegram_user_id, day):
-        return False
-    return True
 
 
 def users_due_for_morning(now: datetime) -> list[EligibleUser]:
@@ -405,50 +292,6 @@ async def run_couple_poll(
     actions = await couple_handler.run_couple_poll(application, now=instant)
     logger.info("Couple poll: actions=%s", actions)
     return actions
-
-
-def run_streak_rollover(
-    now: datetime | None = None,
-    *,
-    max_users: int = USERS_PER_POLL_TICK,
-) -> list[tuple[int, int]]:
-    """Evaluate pending streak days. Returns (user_id, days_evaluated) list."""
-    instant = now or datetime.now(timezone.utc)
-    users = list_onboarded_streak_users()[:max_users]
-    logger.info("Streak rollover poll: %s user(s)", len(users))
-    results: list[tuple[int, int]] = []
-    for user_id, tz in users:
-        try:
-            outcomes = evaluate_pending(user_id, timezone=tz, now=instant)
-            results.append((user_id, len(outcomes)))
-            if outcomes:
-                logger.info(
-                    "Streak rollover user_id=%s days=%s",
-                    user_id,
-                    len(outcomes),
-                )
-        except Exception:
-            logger.exception("Streak rollover failed user_id=%s", user_id)
-    return results
-
-
-def run_monthly_freeze_reset(now: datetime | None = None) -> int:
-    """Reset freeze tokens for users whose local date is the 1st."""
-    instant = now or datetime.now(timezone.utc)
-    updated = reset_monthly_freezes(now=instant)
-    if updated:
-        logger.info("Monthly freeze reset: %s user(s)", updated)
-    return updated
-
-
-def run_monthly_reset(now: datetime | None = None) -> tuple[int, int]:
-    """Freeze token reset + M13 fossil sweep (ARCHITECTURE monthly_reset)."""
-    instant = now or datetime.now(timezone.utc)
-    freezes = run_monthly_freeze_reset(now=instant)
-    sweeps = run_monthly_fossil_sweep(now=instant)
-    if sweeps:
-        logger.info("Monthly fossil sweep: %s user(s)", sweeps)
-    return freezes, sweeps
 
 
 async def _morning_job(context: ContextTypes.DEFAULT_TYPE) -> None:

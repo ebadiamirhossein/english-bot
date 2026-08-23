@@ -11,7 +11,6 @@ import asyncio
 import html
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update

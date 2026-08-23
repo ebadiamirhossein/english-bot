@@ -299,11 +299,11 @@ def test_touch_only_on_success_path(runtime_dir: Path) -> None:
 
 
 def test_log_file_no_message_bodies(runtime_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from apps.bot.main import _configure_logging
+    from core.logging import configure_logging
     from core import config as config_mod
 
     settings = config_mod.load_settings()
-    _configure_logging(settings)
+    configure_logging(settings)
     secret = "her english is not so much good SECRET_BODY_991"
     logging.getLogger("test.hardening").info(
         "handler=%s user_id=%s", "correct_text", 123

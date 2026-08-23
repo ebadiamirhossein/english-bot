@@ -15,7 +15,6 @@ import asyncio
 import io
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable, Awaitable
 
 from telegram import InputFile, Update

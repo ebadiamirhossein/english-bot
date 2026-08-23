@@ -7,7 +7,6 @@ users are not registered yet, so ConversationHandler owns their text.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from telegram import Update
 from telegram.constants import ChatAction

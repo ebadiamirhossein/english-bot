@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import logging
 import sys
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 
 from apps.bot import texts
+from core.logging import configure_logging
 from core.config import ConfigError, load_settings
 from apps.bot.handlers.access import build_access_handler
 from apps.bot.handlers.access_request import build_access_request_handlers
@@ -144,33 +143,6 @@ async def _post_shutdown(application) -> None:
         _instance_lock = None
 
 
-def _configure_logging(settings) -> None:
-    level = getattr(logging, settings.log_level.upper(), logging.INFO)
-    fmt = logging.Formatter("%(levelname)s %(name)s: %(message)s")
-    root = logging.getLogger()
-    root.handlers.clear()
-    root.setLevel(level)
-
-    console = logging.StreamHandler()
-    console.setFormatter(fmt)
-    root.addHandler(console)
-
-    log_path = Path(settings.log_file)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    file_handler = RotatingFileHandler(
-        log_path,
-        maxBytes=settings.log_max_bytes,
-        backupCount=settings.log_backup_count,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(fmt)
-    root.addHandler(file_handler)
-
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("apscheduler").setLevel(logging.WARNING)
-
-
 def main() -> int:
     global _instance_lock
     try:
@@ -196,7 +168,7 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
-    _configure_logging(settings)
+    configure_logging(settings)
 
     init_correction_prompt()
     init_quiz_prompt()

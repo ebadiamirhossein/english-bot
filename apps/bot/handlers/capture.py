@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 
 from telegram import Update
 from telegram.constants import ChatAction
