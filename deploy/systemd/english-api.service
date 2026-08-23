@@ -21,11 +21,21 @@ WorkingDirectory=/home/bot/english-bot
 # 127.0.0.1 only, never 0.0.0.0. Caddy already holds 80/443 on this shared
 # host and is the one thing that should face the internet; W2 gives it the
 # api.foundgrant.com route. Nothing new opens at the firewall.
-ExecStart=/home/bot/english-bot/.venv/bin/uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --workers 2
+# --proxy-headers with an explicit trusted hop is NOT optional from W2. Without
+# it every request behind Caddy reports client.host == 127.0.0.1, the per-client
+# half of the auth rate limit collapses into one shared bucket, and one visitor
+# can lock both learners out of signing in. It fails looking exactly like it
+# works, which is why it is spelled out here (known issue #76).
+ExecStart=/home/bot/english-bot/.venv/bin/uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=always
 RestartSec=10
 # --workers 2 is safe here precisely because the API holds no schedule. The
 # worker must never be scaled the same way (see english-worker.service).
+#
+# It is also why nothing in the auth path may live in process memory: begin and
+# finish land on different processes, so WebAuthn challenges, sessions and
+# rate-limit counters are all rows in Postgres. A module-level dict would work
+# perfectly on one laptop and fail about half of all real ceremonies here.
 StandardOutput=journal
 StandardError=journal
 

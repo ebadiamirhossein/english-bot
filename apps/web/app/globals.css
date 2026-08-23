@@ -3,14 +3,19 @@
 @import "shadcn/tailwind.css";
 
 /*
- * Dark mode is driven by the operating system, not by a toggle, and
- * deliberately so: a toggle has to remember its setting, and the only places
- * to remember it in a browser are localStorage or a cookie. CLAUDE.md's data
- * rules keep this app out of both — so `prefers-color-scheme` it is. On a
- * phone that is also the behaviour people expect: the app follows the system
- * at dusk without being asked.
+ * Dark mode is driven by a class on <html>, not by the media query directly.
+ *
+ * W1b had this as `@media (prefers-color-scheme: dark)` because the app kept
+ * nothing in the browser and a toggle has to remember its setting. W1c narrowed
+ * that ban to permit exactly one key — the theme — so the toggle can exist.
+ *
+ * The class is the single source of truth, and the blocking inline script in
+ * app/layout.tsx is what maps the three states onto it: "light" and "dark" are
+ * explicit, "system" is resolved through matchMedia at that moment. Leaving the
+ * media query in as well is what produces a toggle that visibly does nothing,
+ * because the system preference would keep overriding the choice.
  */
-@custom-variant dark (@media (prefers-color-scheme: dark));
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
   --color-background: var(--background);
@@ -104,9 +109,13 @@
 }
 
 /* Dark: the same palette after dusk — deep teal-slate, never pure black,
-   so an OLED phone does not smear the edges of every card. */
-@media (prefers-color-scheme: dark) {
-  :root {
+   so an OLED phone does not smear the edges of every card.
+
+   Keyed off `.dark` rather than the media query. The script in app/layout.tsx
+   sets that class before first paint, so "follow the system" still works and
+   there is no flash — but an explicit choice can now win, which is the point of
+   having a toggle at all. */
+:root.dark {
     --background: oklch(0.19 0.018 205);
     --foreground: oklch(0.95 0.008 180);
     --card: oklch(0.235 0.02 205);
@@ -140,7 +149,6 @@
     --sidebar-accent-foreground: oklch(0.93 0.02 180);
     --sidebar-border: oklch(1 0 0 / 12%);
     --sidebar-ring: oklch(0.62 0.07 185);
-  }
 }
 
 @layer base {

@@ -9,6 +9,8 @@ backwards.
 from __future__ import annotations
 
 import ast
+import re
+import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +28,13 @@ FORBIDDEN_IN_CORE = frozenset(
 # providers is one environment variable.
 PROVIDER_SDKS = frozenset({"anthropic", "openai", "elevenlabs"})
 WRAPPERS = frozenset({CORE / "llm.py", CORE / "speech.py"})
+
+# W2. Not a "provider" in the LLM sense, but the same rule for the same reason:
+# one door, so the library's types stay out of the services and the routes and
+# swapping it is one file. `cbor2` and `cryptography` are its dependencies and
+# are covered by the same check.
+WEBAUTHN_LIBS = frozenset({"webauthn", "cbor2"})
+WEBAUTHN_WRAPPER = CORE / "passkeys.py"
 
 SQL_KEYWORDS = ("SELECT ", "INSERT INTO ", "UPDATE ", "DELETE FROM ")
 
@@ -97,6 +106,86 @@ def test_no_provider_sdk_outside_wrapper() -> None:
     assert offenders == [], (
         "Only core/llm.py and core/speech.py may import a provider SDK "
         "(CLAUDE.md §2): " + "; ".join(offenders)
+    )
+
+
+def test_only_the_passkeys_wrapper_imports_webauthn() -> None:
+    """W2: one door for the WebAuthn library.
+
+    A route or a service that imported ``webauthn`` directly would put the
+    library's structs into the layer above it, and the verification code — the
+    most security-critical code in this project — would stop having a single
+    place to review.
+    """
+    offenders: list[str] = []
+    for root in (CORE, APPS):
+        for path in _python_files(root):
+            if path == WEBAUTHN_WRAPPER:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            hit = _imported_roots(tree) & WEBAUTHN_LIBS
+            if hit:
+                rel = path.relative_to(REPO_ROOT)
+                offenders.append(f"{rel}: {', '.join(sorted(hit))}")
+    assert offenders == [], (
+        "only packages/core/passkeys.py may import the WebAuthn library: "
+        + "; ".join(offenders)
+    )
+
+
+# requirements.txt is organised by which app needs a line: "# apps/bot",
+# "# packages/core", "# apps/api (W1b)", "# tests — ...".
+_SECTION_HEADER = re.compile(r"^#\s*(apps/|packages/|tests\b)")
+
+
+def _dependency_names(specifiers: list[str]) -> set[str]:
+    """Bare distribution names out of a list of requirement specifiers."""
+    names: set[str] = set()
+    for raw in specifiers:
+        spec = raw.split("#", 1)[0].strip()
+        if not spec:
+            continue
+        name = re.split(r"[<>=!~\[; ]", spec, maxsplit=1)[0].strip()
+        if name:
+            names.add(name.lower())
+    return names
+
+
+def test_requirements_mirror_core_dependencies() -> None:
+    """``packages/core/pyproject.toml`` is the authority; the mirror must agree.
+
+    ``requirements.txt`` carries a ``# packages/core`` block that repeats
+    core's dependencies for the server venv. Two unchecked declarations of one
+    dependency drift, and that is how a version pin quietly becomes advisory —
+    so the mirror is asserted rather than trusted.
+
+    The authority matters in the other direction too: anything ``core`` imports
+    must be declared in its own ``pyproject.toml``, or ``pip install -e
+    packages/core`` produces a package that cannot import itself.
+    """
+    pyproject = tomllib.loads(
+        (CORE / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    declared = _dependency_names(pyproject["project"]["dependencies"])
+
+    lines = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    mirrored: list[str] = []
+    in_block = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            # Only a section header moves the cursor. A note inside a section
+            # is still a comment, and treating every `#` line as a boundary
+            # would silently empty the block the moment someone explains it.
+            if _SECTION_HEADER.match(stripped):
+                in_block = stripped.lower().startswith("# packages/core")
+            continue
+        if in_block and stripped:
+            mirrored.append(stripped)
+
+    assert _dependency_names(mirrored) == declared, (
+        "requirements.txt's '# packages/core' block and "
+        "packages/core/pyproject.toml declare different dependencies"
     )
 
 

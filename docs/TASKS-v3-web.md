@@ -82,7 +82,7 @@ Every prompt ends with a `BUILD_PROGRESS.md` update block. Slice row goes to �
 
 | # | Slice | Tables / changes |
 |---|---|---|
-| 009 | W2 | `users` auth columns (`auth_user_id`, `auth_email`, `l1_pronunciation_seed`) + `CREATE OR REPLACE VIEW approved_onboarded_users` **in the same file** |
+| 009 | W2 | `users` auth columns (`auth_user_id`, `auth_email`, `l1_pronunciation_seed`) + `CREATE OR REPLACE VIEW approved_onboarded_users` **in the same file** + the auth tables `auth_credentials`, `auth_sessions`, `auth_claim_tokens`, `auth_challenges`, `auth_rate_limits` (all `auth_`-prefixed — `sessions` is already taken by learning sessions) |
 | 010 | W4 | `lexemes`, `user_lexemes` |
 | 011 | W5 | `items`, `item_attempts`, `register` on `items`, **`errors.source` CHECK widened once for the full v3 set** (`shadow`, `retell`, `answer`, `item`, `placement`, `video`), `users.track_weights` default → `{"life":50,"curiosity":30,"work":20}` (existing rows untouched) |
 | 012 | W7 | `cards`, `card_reviews`, `register` on `cards`, `cards.source_chunk_id` FK |
@@ -95,6 +95,12 @@ Every prompt ends with a `BUILD_PROGRESS.md` update block. Slice row goes to �
 
 **Rule: every `ALTER TABLE users` is paired with a view recreate in the same `.sql` file** (known issue #48).
 **Rule: `pg_dump` before every migration against production**, until W1c's off-site backup is verified.
+
+**009 was widened on 2026-08-23**, when W2's auth backend changed from Better
+Auth — which would have created its own tables — to WebAuthn in FastAPI, which
+needs ours. The row above is the authority and the migration file matches it;
+splitting into 009 + 010 would have renumbered nine downstream rows that had
+only just been reconciled, for no benefit, since both files ship in one slice.
 
 **This table is authoritative.** The per-slice **Build** columns above were reconciled against it on 2026-08-23; before that date they still carried the pre-W0 numbering (W4 read 009, W5 010, W7 011, W8 012, W12 013, W13a 013a, W18 014) and a slice reading only its own row would have written the wrong number. W10 and W14 gained the migration numbers they had been missing entirely (known issue #53, TASKS half). **Known issue #49 closes here** — `013a` is now `016`, a plain integer, which is all `db.py::_discover_migrations` can parse. If a Build column and this table ever disagree again, the table wins and the Build column is the bug.
 

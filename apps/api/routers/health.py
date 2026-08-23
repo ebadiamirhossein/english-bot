@@ -13,8 +13,9 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from apps.api.deps import get_current_user
-from apps.api.schemas import Health
+from apps.api.schemas import Health, Session
 from core.db import current_schema_version
+from core.services.auth import AuthenticatedUser
 
 logger = logging.getLogger(__name__)
 
@@ -43,15 +44,25 @@ def health() -> Health | JSONResponse:
     return Health(ok=True, schema_version=version)
 
 
-@router.get("/health/auth")
+@router.get("/health/auth", response_model=Session | None)
 def health_auth(
-    user: dict[str, object] | None = Depends(get_current_user),
-) -> dict[str, object] | None:
+    user: AuthenticatedUser | None = Depends(get_current_user),
+) -> Session | None:
     """Return the resolved session, or explicit ``null``.
 
-    Untyped until W2 gives a session a shape. Its whole reason to exist is
-    that "am I signed in, as far as the API is concerned" must be answerable
-    with one curl, rather than by hunting through a browser console (W0 risk
-    R4).
+    **200 with ``null`` for an anonymous caller, never 401.** "Am I signed in,
+    as far as the API is concerned" must be answerable with one curl rather than
+    by hunting through a browser console (W0 risk R4), and this is also the
+    route ``apps/web``'s client guard polls — it needs the two cases to differ
+    in the body, not in the status.
+
+    There is deliberately no second ``GET /auth/me``: one route with this job
+    means one place for session logic to live.
     """
-    return user
+    if user is None:
+        return None
+    return Session(
+        telegram_user_id=user.telegram_user_id,
+        name=user.name,
+        expires_at=user.expires_at,
+    )

@@ -31,7 +31,7 @@
 | Backend host | **Hetzner CPX32** (existing box), behind **Caddy** | DB is already there; Caddy does TLS with one line |
 | DB | **PostgreSQL 16, existing instance** | The journal must not move |
 | Driver / migrations | `psycopg[binary,pool]`, numbered `.sql` + `schema_version` | Unchanged from v2. No ORM. |
-| Auth | **Better Auth** (self-hosted, Postgres-backed) — email magic link + passkey | No vendor lock, no per-MAU pricing later. Clerk is the fallback if it costs more than a day. |
+| Auth | **WebAuthn passkeys in FastAPI** (`py_webauthn`), Postgres-backed — magic link deferred to its own slice | Better Auth is TypeScript and needs a direct Postgres connection; `apps/web` is on Vercel and PostgreSQL binds `127.0.0.1`. The three bridges were all worse: exposing the journal's database to the internet, adding a Node process against CLAUDE.md §2's microservice ban, or taking Clerk — the vendor Better Auth was chosen to avoid. Implementing it in FastAPI adds no process, no vendor and no exposed port. **Changed at W2; see BUILD_PROGRESS.** |
 | Scheduling | APScheduler in a **separate worker process** | Never in the API process |
 | SRS | **`py-fsrs`** (FSRS-5) | Modern, actively maintained |
 | LLM | existing `llm.py` wrapper (Anthropic primary, OpenAI fallback) | Unchanged. **Never call a provider SDK anywhere else.** |
@@ -139,7 +139,16 @@ Existing 15 tables are untouched. New:
 ## 6. API surface (first cut)
 
 ```
-POST /auth/*                       Better Auth
+POST /auth/register/begin          passkey creation options (claim-token gated)
+POST /auth/register/finish         first enrolment; sets the session cookie
+POST /auth/login/begin             request options (discoverable, no identifier)
+POST /auth/login/finish            assertion → session cookie
+POST /auth/logout                  revokes the session server-side, clears cookie
+GET  /auth/passkeys                the caller's credentials (no secrets)
+POST /auth/passkeys/begin          add a passkey to an authenticated account
+POST /auth/passkeys/finish
+DELETE /auth/passkeys/{id}         409 on the last credential, 404 if not yours
+GET  /health/auth                  the resolved session, or literal null
 GET  /session/today                → the 5 blocks, fully hydrated
 POST /session/{id}/block/{n}/complete
 GET  /review/queue?limit=          → FSRS due cards

@@ -208,16 +208,17 @@ def test_backup_freshness_r2_half_is_loud_while_unset(
     was being backed up. Unset R2 is now an ERROR unless the machine has
     explicitly opted out.
     """
+    from core import config as config_mod
+    from tests.test_backup_r2 import forget_r2_env, write_dotenv
+
     monkeypatch.setenv("BACKUP_OFFSITE_DIR", "")
-    monkeypatch.delenv("BACKUP_R2_REQUIRED", raising=False)
-    for key in (
-        "R2_ACCOUNT_ID",
-        "R2_BUCKET",
-        "R2_ENDPOINT",
-        "R2_ACCESS_KEY_ID",
-        "R2_SECRET_ACCESS_KEY",
-    ):
-        monkeypatch.delenv(key, raising=False)
+    forget_r2_env(monkeypatch)
+
+    # The job calls load_settings() itself, so the `.env` it reads has to be
+    # pinned here or the repo's own file answers instead — which is how this
+    # test came to pass on the server and fail on the Mac (#64).
+    settings = config_mod.load_settings(dotenv_path=write_dotenv(runtime_dir))
+    monkeypatch.setattr("apps.worker.jobs.load_settings", lambda: settings)
     with caplog.at_level(logging.INFO, logger="apps.worker.jobs"):
         worker_jobs.backup_freshness()
     errors = [r for r in caplog.records if r.levelno >= logging.ERROR]

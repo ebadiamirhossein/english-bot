@@ -248,9 +248,14 @@ git pull                                    # 2. pull
 .venv/bin/python -m core.db migrate         # 4. migrate
 .venv/bin/python -m core.db status          #    confirm the new schema_version
 sudo systemctl restart english-bot          # 5. restart
-# english-api and english-worker are not installed yet — they arrive at W2.
-# See "The API and the worker" below.
+sudo systemctl restart english-api          #    once W2's unit is installed
+# english-worker is still not installed — see "The worker unit is blocked".
 ```
+
+**For the W2 deploy itself, follow "W2 — the auth deploy, in order" below
+instead of this section.** It is the first migration ever run against the live
+error journal and it adds DNS, TLS and a public surface, so it carries a
+rehearsal and an ordering this general sequence does not.
 
 Check `ExecStart` before the first restart after a W1-or-later pull: it must
 name `apps.bot.main`, not the old pre-W1 module (see the warning under
@@ -335,12 +340,307 @@ Restores into a **scratch** database unless you pass the live name **and** `--fo
 
 ---
 
+## W2 — the auth deploy, in order
+
+**Nothing in this section has been run.** W2 shipped the code, the migration,
+the tests and this runbook; applying it is the operator's, in exactly this
+order. Read the whole section before starting the first command.
+
+### 0. Rehearse migration 009 against a copy of production
+
+The cheapest guard in the slice, and it changes nothing live. `--keep` already
+exists on the W1c script, and the script refuses to run when the scratch name
+equals `english_bot`, so this cannot be pointed at the real database by mistake.
+
+```bash
+sudo -u bot -i
+cd /home/bot/english-bot
+
+# Newest R2 object → createdb → pg_restore → row counts vs live → KEPT.
+./scripts/restore_from_r2.sh --keep
+#   expect: DRILL PASSED … kept english_bot_restore_test (--keep)
+
+# Apply 009 to the copy. EXPORT the DSN — a scratch .env is silently ignored
+# because load_dotenv resolves relative to packages/core/config.py (issue #64).
+export DATABASE_URL="postgresql://bot@127.0.0.1/english_bot_restore_test"
+.venv/bin/python -m core.db migrate     # expect: Applied: 009
+.venv/bin/python -m core.db status      # expect: Applied 001–009, Pending (none)
+```
+
+Then prove the view kept up with the table — this is W2's acceptance criterion
+and the reason known issue #48 exists:
+
+```bash
+psql -d english_bot_restore_test -c "
+SELECT column_name, data_type, ordinal_position
+  FROM information_schema.columns
+ WHERE table_schema='public'
+   AND table_name IN ('users','approved_onboarded_users')
+ ORDER BY table_name, ordinal_position;"
+```
+
+The two blocks must agree column for column, in order. Then clean up — and
+**unset the DSN before reusing that shell**, because an exported value outlives
+the command that needed it and wins over `.env`:
+
+```bash
+unset DATABASE_URL
+dropdb english_bot_restore_test
+```
+
+### 1. Back up production BY HAND, and confirm the object
+
+**Do not rely on the 04:00 UTC cron.** It has never yet run unattended, and this
+is the first migration ever applied to the live error journal.
+
+```bash
+cd /home/bot/english-bot
+./scripts/backup.sh          # prints the R2 key and verifies size with head-object
+```
+
+Confirm the object exists, **by key first**:
+
+```bash
+aws --endpoint-url "$R2_ENDPOINT" s3api head-object \
+    --bucket "$R2_BUCKET" --key "english_bot/2026/08/english_bot_<stamp>.dump"
+```
+
+Then, and only as a secondary check, the listing:
+
+```bash
+aws --endpoint-url "$R2_ENDPOINT" s3api list-objects-v2 \
+    --bucket "$R2_BUCKET" --prefix "english_bot/$(date -u +%Y/%m)/"
+```
+
+> **The #73 trap.** R2's `list-objects-v2` is eventually consistent. On
+> 2026-08-23 an object uploaded at 16:14 and successfully *downloaded* at 16:15
+> did not appear in a listing several minutes later, and a later listing showed
+> it had been there all along. **An empty or short first listing is not a failed
+> upload.** Wait 60 seconds and list again. `head-object` is a read by exact key
+> and is strongly consistent — it succeeding is sufficient to proceed. Do **not**
+> re-run `backup.sh` on an empty listing, and never migrate on the assumption
+> that the backup "probably worked".
+
+### 2. Pull, install, migrate
+
+The settled sequence, unchanged. No new step: `webauthn` is declared in
+`packages/core/pyproject.toml`, so step 3 installs it.
+
+```bash
+git pull
+.venv/bin/pip install -e packages/core
+.venv/bin/pip show webauthn | head -2      # record the version in BUILD_PROGRESS
+.venv/bin/python -m core.db migrate        # expect: Applied: 009
+.venv/bin/python -m core.db status         # expect: Applied 001–009, Pending (none)
+```
+
+### 3. Bind the two accounts — by hand, from psql
+
+The addresses appear nowhere in the repo, in any test fixture, or in any
+command below. `auth_email` is stored lowercase; a capital letter is refused by
+a CHECK constraint rather than silently creating an account nobody can sign in
+to.
+
+```sql
+UPDATE users SET auth_email = lower('...') WHERE telegram_user_id = <ID_1>;
+UPDATE users SET auth_email = lower('...') WHERE telegram_user_id = <ID_2>;
+
+-- Confirm. auth_user_id stays NULL until each learner enrols.
+SELECT telegram_user_id, auth_email IS NOT NULL AS has_email, auth_user_id
+  FROM users;
+```
+
+### 4. `.env`, then install the API unit
+
+Add the W2 block from `.env.example` — `WEB_ORIGIN`, `WEBAUTHN_RP_ID`,
+`WEBAUTHN_ORIGIN`, `WEBAUTHN_RP_NAME`, `AUTH_SESSION_DAYS`,
+`AUTH_CLAIM_TOKEN_HOURS`, `AUTH_RATE_LIMIT_SALT`. **`WEBAUTHN_RP_ID` is
+`foundgrant.com`, not `app.foundgrant.com`** — a browser scopes a credential to
+its RP ID permanently, and changing it later costs every learner a full
+re-enrolment. The API refuses to start if it is not a suffix of
+`WEBAUTHN_ORIGIN`'s host.
+
+```bash
+sudo systemctl restart english-bot
+sudo cp /home/bot/english-bot/deploy/systemd/english-api.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now english-api
+curl -s localhost:8000/health          # {"ok":true,"schema_version":9}
+curl -s localhost:8000/health/auth     # null
+```
+
+### 5. DNS — two records, and three things not to touch
+
+On Cloudflare, both **DNS only (grey cloud)**:
+
+| Type | Name | Content | Proxy |
+|---|---|---|---|
+| `A` | `api` | `78.46.240.136` | DNS only |
+| `CNAME` | `app` | the target Vercel prints | DNS only |
+
+`api.` is grey because Caddy obtains and renews its own certificate over
+HTTP-01. Orange would mean Cloudflare terminates TLS and intercepts port 80, so
+validation fails and Caddy would need an Origin certificate and Full (strict) —
+a second TLS hop and a second certificate lifecycle for no benefit.
+
+**Do not delete, reorder or edit the imported Namecheap email-forwarding MX
+records. Do not touch the SPF TXT record. Do not enable Cloudflare Email
+Routing** (it rewrites the MX set as a side effect). There is no email sender in
+this slice, so nothing here could justify touching any of them.
+
+Verify from **off the box** before going near Caddy:
+
+```bash
+dig +short api.foundgrant.com     # the Hetzner IP
+dig +short app.foundgrant.com     # the Vercel target
+dig +short MX  foundgrant.com     # unchanged
+dig +short TXT foundgrant.com     # SPF unchanged
+```
+
+### 6. Caddy — one new site block, on a host running someone else's service
+
+Caddy is shared with `fonderis-worker` and already holds 80/443. The change is
+**additive**: a new site block, no edit to the existing one. If the Caddyfile
+has an `import /etc/caddy/conf.d/*.caddy` line, drop this in as a new file
+there instead of editing the shared file at all.
+
+```
+api.foundgrant.com {
+	encode zstd gzip
+	# Caddy v2 adds no HSTS of its own, and a __Host- Secure cookie still
+	# leaves the first navigation downgradeable without it. Short on purpose
+	# for the first days so a certificate or DNS mistake stays recoverable;
+	# raise to 15552000 after a week. No `preload` and no `includeSubDomains`
+	# — this domain carries email forwarding, and preload is permanent.
+	header Strict-Transport-Security "max-age=3600"
+	reverse_proxy 127.0.0.1:8000
+}
+```
+
+**No CORS headers in Caddy.** FastAPI already emits them; a `header` directive
+here produces two `Access-Control-Allow-Origin` values on one response, which
+browsers reject outright — and the symptom is a blank screen on a phone.
+
+```bash
+sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak-$(date -u +%F-%H%M)
+# edit, then:
+sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo systemctl reload caddy        # reload, NOT restart
+sudo journalctl -u caddy -f        # expect "certificate obtained successfully"
+
+curl -sI https://api.foundgrant.com/health          # 200, and an HSTS header
+curl -sI https://<the fonderis-worker hostname>/    # the neighbour is still up
+```
+
+`reload` re-reads the config without dropping listeners, and a config that
+fails `validate` is refused while the running one keeps serving. **Rollback:**
+restore the `.bak` (or delete the `conf.d` file) and `systemctl reload caddy`.
+
+If certificate issuance fails, read the log and fix the cause — **do not
+reload-loop.** Let's Encrypt allows five failed validations per hour.
+
+### 7. Vercel, then enrol
+
+Set `NEXT_PUBLIC_API_URL=https://api.foundgrant.com` and **redeploy** — the
+value is inlined at build time, so a restart is not enough. It must be `https://`;
+an `http://` value is mixed content and Safari blocks it outright.
+
+Then issue one claim token per learner, hand it over **in person**, and have
+each enrol:
+
+```bash
+cd /home/bot/english-bot
+.venv/bin/python -m core.claim issue --telegram-user-id <ID_1>
+.venv/bin/python -m core.claim list      # never prints a token or an address
+```
+
+**Enrol a second passkey for each learner the same day** (phone *and* laptop).
+That is the standing mitigation for lockout, and with it the recovery procedure
+below is almost never needed.
+
+> **iPhone only:** an installed home-screen app has its own cookie store, so
+> signing in in Safari does not sign you in inside the installed app. Install
+> first, then enrol inside the installed app. The passkey is shared through
+> iCloud Keychain, so a second sign-in is one Face ID prompt. On Android the
+> installed app shares Chrome's cookies and is already signed in.
+
+---
+
+## Passkey recovery — lockout, and how to get back in
+
+Passkey-only means a lost device is a lockout, and **this slice has no email
+reset**. Read this before it is needed.
+
+### Case A — one of several devices lost, the learner can still sign in
+
+No operator involvement. Sign in on a device that works, open the menu →
+**Add this device** for the replacement, and delete the lost one from the
+passkey list. The last remaining credential cannot be deleted; the app answers
+409 rather than letting someone lock themselves out.
+
+### Case B — every credential lost. Operator only.
+
+```sql
+-- 1. Break the binding, remove the credentials, kill the live sessions.
+BEGIN;
+UPDATE users SET auth_user_id = NULL WHERE telegram_user_id = <ID>;
+DELETE FROM auth_credentials WHERE user_id = <ID>;
+UPDATE auth_sessions SET revoked_at = NOW()
+ WHERE user_id = <ID> AND revoked_at IS NULL;
+COMMIT;
+-- auth_email is deliberately left in place: it is the identifier, not the
+-- credential, and clearing it would mean re-typing an address for no reason.
+```
+
+```bash
+# 2. Issue a fresh claim token and hand it over in person.
+cd /home/bot/english-bot
+.venv/bin/python -m core.claim issue --telegram-user-id <ID>
+
+# 3. The learner opens https://app.foundgrant.com/enrol and enrols again.
+# 4. Confirm:
+psql -d english_bot -c \
+  "SELECT auth_user_id IS NOT NULL AS enrolled FROM users WHERE telegram_user_id = <ID>;"
+```
+
+---
+
+## Rolling migration 009 back
+
+The runner has no down-migrations by design, so this is a hand-run script.
+**It destroys every enrolled passkey** — recovery is Case B above for both
+learners.
+
+Note the ordering trap: `CREATE OR REPLACE VIEW` can *add* trailing columns but
+cannot remove them, and `DROP COLUMN` fails while a view depends on the column.
+The view must therefore be dropped and recreated, not replaced.
+
+```sql
+BEGIN;
+DROP TABLE IF EXISTS auth_rate_limits, auth_challenges, auth_claim_tokens,
+                     auth_sessions, auth_credentials;
+DROP VIEW approved_onboarded_users;
+ALTER TABLE users
+    DROP COLUMN l1_pronunciation_seed,
+    DROP COLUMN auth_email,
+    DROP COLUMN auth_user_id;
+CREATE VIEW approved_onboarded_users AS
+SELECT u.* FROM users u
+  INNER JOIN access_requests ar ON ar.telegram_user_id = u.telegram_user_id
+ WHERE u.onboarded = TRUE AND ar.status = 'approved';
+DELETE FROM schema_version WHERE version = 9;
+COMMIT;
+```
+
+---
+
 ## The API and the worker
 
-**Neither unit is installed on this host. Both arrive at W2.** The files are
-written and reviewed in `deploy/systemd/`; nothing under
-`/etc/systemd/system/` refers to them, and `systemctl status english-api` and
-`systemctl status english-worker` both correctly report `not-found` today.
+**Neither unit is installed on this host. `english-api` is installed by the W2
+deploy above; `english-worker` stays off.** The files are written and reviewed
+in `deploy/systemd/`; nothing under `/etc/systemd/system/` refers to them yet,
+and `systemctl status english-api` and `systemctl status english-worker` both
+correctly report `not-found` today.
 
 * **`english-api`** would install cleanly, but it serves no domain routes until
   W2 — an idle service on a shared production host buys nothing today, so it

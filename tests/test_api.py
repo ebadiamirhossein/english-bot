@@ -159,14 +159,29 @@ def test_health_auth_returns_explicit_null(app: FastAPI) -> None:
 def test_health_auth_renders_whatever_the_dependency_resolves(
     app: FastAPI,
 ) -> None:
-    """A W2 auth failure has to be visible here, so the route must read the dep."""
-    app.dependency_overrides[get_current_user] = lambda: {"user_id": 7222549221}
+    """A W2 auth failure has to be visible here, so the route must read the dep.
+
+    W2 gave the session a shape, so the override now returns the dataclass
+    ``get_current_user`` really returns. The W1b version of this test handed
+    back a bare dict, which was right while the dependency was a stub and is
+    wrong now — the route serialises a typed body and a dict would 500.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from core.services.auth import AuthenticatedUser
+
+    expires = datetime.now(timezone.utc) + timedelta(days=30)
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(
+        telegram_user_id=7222549221, name="Test", expires_at=expires
+    )
     try:
         response = _request(app, "GET", "/health/auth")
     finally:
         app.dependency_overrides.clear()
     assert response.status_code == 200
-    assert response.json() == {"user_id": 7222549221}
+    body = response.json()
+    assert body["telegram_user_id"] == 7222549221
+    assert body["name"] == "Test"
 
 
 # --- CORS ---------------------------------------------------------------------
@@ -245,6 +260,66 @@ def test_cors_refuses_an_unknown_origin(app: FastAPI) -> None:
         app, "GET", "/health", headers={"Origin": "https://evil.example"}
     )
     assert response.headers.get("access-control-allow-origin") is None
+
+
+def test_cors_tells_the_browser_credentials_are_allowed(app: FastAPI) -> None:
+    """W2 puts a session cookie on this API.
+
+    ``credentials: "include"`` in the browser is only honoured when the response
+    carries ``Access-Control-Allow-Credentials: true`` *and* a concrete origin.
+    Without this header the cookie is silently dropped and every request after
+    sign-in is anonymous — a failure invisible on localhost, because the phone
+    is where the two origins are really different.
+    """
+    response = _request(
+        app, "GET", "/health", headers={"Origin": LOCAL_WEB_ORIGIN}
+    )
+    assert response.headers.get("access-control-allow-origin") == LOCAL_WEB_ORIGIN
+    assert response.headers.get("access-control-allow-credentials") == "true"
+
+
+def test_cors_refuses_credentials_to_an_unknown_origin(app: FastAPI) -> None:
+    """The other half: a site that is not ours gets no usable grant.
+
+    Note what is asserted and what is not. Starlette emits
+    ``Access-Control-Allow-Credentials: true`` on *every* CORS response, allowed
+    origin or not — it withholds only ``Access-Control-Allow-Origin``. That is
+    safe, because a browser requires **both** before it will expose a
+    credentialed response, so the missing origin header is the whole refusal.
+
+    Asserting the absence of the credentials header instead would fail against
+    correct code and invite someone to "fix" the middleware. The origin header
+    is the one that decides.
+    """
+    response = _request(
+        app, "GET", "/health", headers={"Origin": "https://evil.example"}
+    )
+    assert response.headers.get("access-control-allow-origin") is None
+
+
+def test_cors_preflight_allows_a_json_post_from_the_web_origin(
+    app: FastAPI,
+) -> None:
+    """Every auth route is a JSON POST, which is never a simple request.
+
+    That preflight, answered only for the two allowed origins, is what actually
+    stops CSRF here — not ``SameSite=Lax``, which treats any subdomain of the
+    site as same-site. If a route ever accepted a form encoding it would become
+    a simple request and lose this, which is why no auth route does.
+    """
+    response = _request(
+        app,
+        "OPTIONS",
+        "/auth/login/begin",
+        headers={
+            "Origin": LOCAL_WEB_ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.headers.get("access-control-allow-origin") == LOCAL_WEB_ORIGIN
+    assert response.headers.get("access-control-allow-credentials") == "true"
+    assert "POST" in (response.headers.get("access-control-allow-methods") or "")
 
 
 def test_cors_preflight_from_an_unknown_origin_is_not_allowed(

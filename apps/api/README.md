@@ -50,6 +50,45 @@ from W2, and a credentialed wildcard hands that cookie to any origin that
 asks. `WEB_ORIGIN` is empty until the domain is chosen; the phone check in
 W2 is what proves it was set.
 
+## The session cookie, and what actually stops CSRF
+
+The cookie is `__Host-ee_session`: `Secure`, `HttpOnly`, `Path=/`,
+`SameSite=Lax`, and **no `Domain`**. Host-only is deliberate — the cookie
+belongs to `api.foundgrant.com` and never reaches Vercel or any sibling
+subdomain. The `__Host-` prefix is a browser-enforced guarantee of exactly that.
+
+`SameSite=Lax` works across the two origins because `app.foundgrant.com` and
+`api.foundgrant.com` are different **origins** but the same **site**, and
+SameSite is decided by site. `None` would be needed only across registrable
+domains, and would additionally expose the cookie to unrelated sites.
+
+**`SameSite` is not the CSRF defence, and should not be mistaken for one.** Any
+subdomain of `foundgrant.com` would be same-site. What actually holds is that
+**every state-changing route is a JSON `POST`**, which is never a
+[simple request](https://developer.mozilla.org/docs/Web/HTTP/CORS#simple_requests)
+and therefore always triggers a CORS preflight — and the preflight is answered
+only for the two origins in `allowed_origins()`.
+
+Two consequences bind every route added from here:
+
+* **No auth or state-changing route may accept `application/x-www-form-urlencoded`
+  or `multipart/form-data`.** Doing so makes it a simple request, removes the
+  preflight, and removes the defence.
+* `allow_headers` must keep requiring `Content-Type`.
+
+This is adequate at two learners with no other subdomains. It becomes
+load-bearing at W3, when `POST /correct` — the first route that writes to the
+error journal — arrives. If a third subdomain is ever added, revisit it; a
+double-submit token is the next step.
+
+## Rate limiting
+
+Two Postgres-backed buckets per request — one keyed by a salted hash of the
+client address, one global — in `deps.py::rate_limit`. Counters are rows, not
+memory, because the API runs `--workers 2`. **The per-client half only works
+when uvicorn runs with `--proxy-headers --forwarded-allow-ips 127.0.0.1`**
+(known issue #76); the unit file carries the flags and says why.
+
 ## Errors
 
 One handler, `handle_unexpected_error`. It logs the route name and the user

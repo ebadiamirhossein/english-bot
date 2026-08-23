@@ -18,8 +18,20 @@ export type Health = {
   schema_version: number | null;
 };
 
-/** The resolved session. Untyped until W2 gives a session a shape. */
-export type AuthHealth = Record<string, unknown> | null;
+/**
+ * The resolved session, or null when nobody is signed in.
+ *
+ * `GET /health/auth` answers 200 with `null` rather than 401 on purpose: the
+ * guard needs the two cases to differ in the body, and "am I signed in" stays
+ * one curl away.
+ */
+export type Session = {
+  telegram_user_id: number;
+  name: string;
+  expires_at: string;
+};
+
+export type AuthHealth = Session | null;
 
 export class ApiError extends Error {
   constructor(

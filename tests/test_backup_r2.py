@@ -70,6 +70,73 @@ R2_ENV_KEYS = (
     "R2_SECRET_ACCESS_KEY",
 )
 
+# Enough for load_settings() to succeed when the temp .env below is the only
+# file it reads. Real process variables still win (override=False), so these are
+# a floor, never an override.
+_MINIMUM_ENV = {
+    "DATABASE_URL": "postgresql://tests@127.0.0.1/hermetic",
+    "ANTHROPIC_API_KEY": "test-dummy-anthropic-key",
+}
+
+
+def settings_from_dotenv(tmp_path: Path, **lines: str):
+    """Load Settings from a `.env` holding exactly *lines*, and leave no trace.
+
+    The restore matters as much as the load. ``load_dotenv`` writes straight
+    into ``os.environ``, and ``monkeypatch`` only reverses changes *it* made —
+    so without this, values from one test's temp `.env` survive into every test
+    that runs after it. That is not hypothetical: it made a later test read a
+    fake R2 endpoint and attempt a real network call.
+    """
+    path = write_dotenv(tmp_path, **lines)
+    from core import config as config_mod
+
+    before = os.environ.copy()
+    try:
+        return config_mod.load_settings(dotenv_path=path)
+    finally:
+        os.environ.clear()
+        os.environ.update(before)
+
+
+def write_dotenv(tmp_path: Path, **lines: str) -> Path:
+    """Write a `.env` holding exactly *lines*, and return its path.
+
+    **Why these tests write a file instead of only setting variables.**
+    ``load_dotenv()`` searches upward from ``packages/core/config.py``, so it
+    finds the repo-root `.env` regardless of the caller (known issue #64). A
+    test that does ``monkeypatch.delenv("BACKUP_R2_REQUIRED")`` and then calls
+    ``load_settings()`` therefore has the value put straight back from the
+    developer's own `.env` — the default it means to exercise is never
+    exercised, and the suite passes or fails depending on whose machine it runs
+    on. That is exactly what happened once #72's ``BACKUP_R2_REQUIRED=0`` line
+    was added to the Mac's `.env`: five tests turned red on one machine and
+    stayed green on the server.
+
+    Naming the file makes the answer hermetic *and* keeps CLAUDE.md §3 rule 3
+    satisfied for the right reason: configuration is exercised through the only
+    path it is really set by, a `.env` file, rather than through a process
+    variable no operator uses.
+    """
+    path = tmp_path / ".env"
+    path.write_text(
+        "\n".join(f"{key}={value}" for key, value in {**_MINIMUM_ENV, **lines}.items())
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def forget_r2_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drop every R2 variable from the process environment.
+
+    Paired with :func:`write_dotenv`: process variables win over the file, so
+    both halves are needed before a default can be observed at all.
+    """
+    for key in R2_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("BACKUP_R2_REQUIRED", raising=False)
+
 
 # --- helpers ------------------------------------------------------------------
 
@@ -577,17 +644,58 @@ def test_r2_config_repr_hides_the_secret() -> None:
 
 
 def test_r2_required_defaults_to_true_and_opts_out_explicitly(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Silence is never the default; a dev machine has to ask for it."""
+    """Silence is never the default; a dev machine has to ask for it.
+
+    Both halves are read from a `.env` file, because that is the only way this
+    variable is ever really set — on the server by its absence, on the Mac by
+    #72's explicit ``BACKUP_R2_REQUIRED=0``. Asserting the default through a
+    deleted process variable proved nothing: the repo `.env` put it back (#64).
+    """
     from core import config as config_mod
 
-    monkeypatch.delenv("BACKUP_R2_REQUIRED", raising=False)
-    assert config_mod.load_settings().r2_required is True
-    monkeypatch.setenv("BACKUP_R2_REQUIRED", "0")
-    assert config_mod.load_settings().r2_required is False
-    monkeypatch.setenv("BACKUP_R2_REQUIRED", "false")
-    assert config_mod.load_settings().r2_required is False
+    forget_r2_env(monkeypatch)
+
+    # An operator who never wrote the line: the alarm is on.
+    assert settings_from_dotenv(tmp_path).r2_required is True
+
+    # A machine that opted out, spelled both ways operators actually write.
+    for value in ("0", "false"):
+        assert settings_from_dotenv(tmp_path, BACKUP_R2_REQUIRED=value).r2_required is False
+
+
+def test_a_process_variable_still_beats_the_dotenv_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The precedence systemd and CI depend on, asserted rather than assumed.
+
+    `load_dotenv(override=False)` is what lets a unit file override the checked-in
+    file without editing it. It is also the half that made the five failures
+    above possible, so it is worth having stated in one place.
+    """
+    from core import config as config_mod
+
+    forget_r2_env(monkeypatch)
+    assert settings_from_dotenv(tmp_path, BACKUP_R2_REQUIRED="0").r2_required is False
+
+    monkeypatch.setenv("BACKUP_R2_REQUIRED", "1")
+    assert settings_from_dotenv(tmp_path, BACKUP_R2_REQUIRED="0").r2_required is True
+
+
+def test_the_default_dotenv_search_is_unchanged() -> None:
+    """`dotenv_path=None` must still mean "find the repo-root .env".
+
+    Every process in production relies on that search; the parameter was added
+    for tests and must not have moved the default (known issue #64 documents
+    the behaviour, it does not remove it).
+    """
+    import inspect
+
+    from core import config as config_mod
+
+    signature = inspect.signature(config_mod.load_settings)
+    assert signature.parameters["dotenv_path"].default is None
 
 
 def test_r2_max_age_default_is_26_hours(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -781,20 +889,23 @@ def test_config_is_built_from_settings_field_names(
 
 
 def _settings_with(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **env: str):
+    """Settings for an R2 alarm test, read from a `.env` this test owns.
+
+    The `.env` is explicit rather than ambient so that "R2 is unconfigured"
+    means the same thing on every machine. Before this, the repo `.env` was
+    reloaded underneath the deletions and the answer depended on whose laptop
+    was running (#64).
+    """
     runtime = tmp_path / "runtime"
     runtime.mkdir(exist_ok=True)
     monkeypatch.setenv("RUNTIME_DIR", str(runtime))
     monkeypatch.setenv("ALERT_THROTTLE_FILE", str(runtime / "throttle.json"))
     monkeypatch.setenv("BACKUP_OFFSITE_DIR", "")
-    for key in R2_ENV_KEYS:
-        monkeypatch.delenv(key, raising=False)
-    monkeypatch.delenv("BACKUP_R2_REQUIRED", raising=False)
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
+    forget_r2_env(monkeypatch)
 
     from core import config as config_mod
 
-    settings = config_mod.load_settings()
+    settings = settings_from_dotenv(tmp_path, **env)
     monkeypatch.setattr("apps.bot.scheduler.load_settings", lambda: settings)
     monkeypatch.setattr("core.services.alerts.load_settings", lambda: settings)
     return settings
@@ -943,13 +1054,13 @@ def test_worker_job_reports_unconfigured_r2_at_error(
     runtime.mkdir()
     monkeypatch.setenv("RUNTIME_DIR", str(runtime))
     monkeypatch.setenv("BACKUP_OFFSITE_DIR", "")
-    for key in R2_ENV_KEYS:
-        monkeypatch.delenv(key, raising=False)
-    monkeypatch.delenv("BACKUP_R2_REQUIRED", raising=False)
+    forget_r2_env(monkeypatch)
 
     from core import config as config_mod
 
-    settings = config_mod.load_settings()
+    # An explicit `.env` with no R2 keys, so "unconfigured" means the same
+    # thing here as it does on the server (#64).
+    settings = settings_from_dotenv(tmp_path)
     monkeypatch.setattr("apps.worker.jobs.load_settings", lambda: settings)
     with caplog.at_level("INFO"):
         worker_jobs.backup_freshness()

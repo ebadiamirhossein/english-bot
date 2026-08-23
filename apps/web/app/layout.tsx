@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 
 import "./globals.css";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 
 // Geist for everything you read at speed; Fraunces for headings, because a
 // language app that looks like a dashboard reads like homework. One display
@@ -54,7 +55,19 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${display.variable}`}
+      // The theme script writes `class="dark"` onto this element before paint,
+      // so the class React rendered and the class in the DOM differ by design.
+      suppressHydrationWarning
     >
+      <head>
+        {/*
+          Blocking, inline, and first: anything that waits for React paints the
+          light palette and then flips, which is the flash every theme toggle is
+          judged by. The script is defined next to the storage key it reads
+          (lib/theme.ts) so the two cannot drift apart.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="antialiased">{children}</body>
     </html>
   );

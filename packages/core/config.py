@@ -98,19 +98,57 @@ class Settings:
     # W1b — the one browser origin apps/api trusts. Empty until the domain is
     # chosen (W2); the API then allows localhost:3000 only.
     web_origin: str = ""
+    # W2 — passkey auth.
+    #
+    # WEBAUTHN_RP_ID must be `foundgrant.com`, NOT `app.foundgrant.com`: a
+    # credential is scoped by the browser to its RP ID permanently, so scoping
+    # it to the subdomain means a second subdomain can never use it and changing
+    # it later costs every learner a full re-enrolment. It must be a
+    # registrable-domain suffix of WEBAUTHN_ORIGIN's host — a mismatch is a
+    # browser-side SecurityError with NO server-side symptom at all, which is
+    # why it is validated here rather than discovered on a phone.
+    webauthn_rp_id: str = ""
+    webauthn_rp_name: str = "Everyday English"
+    webauthn_origin: str = ""
+    auth_session_days: int = 30
+    auth_claim_token_hours: int = 24
+    # repr=False for the same reason as the R2 secret: one `logger.info("%s",
+    # settings)` would put it in a log file for good.
+    auth_rate_limit_salt: str = field(default="", repr=False)
+    # Local development only: http://localhost cannot carry a Secure cookie
+    # consistently across browsers. Default false, and that direction is the
+    # point — forgetting it in production keeps the secure cookie.
+    auth_cookie_insecure: bool = False
 
     def database_url_for_logs(self) -> str:
         """Return DATABASE_URL with the password stripped for safe logging."""
         return _strip_password(self.database_url)
 
 
-def load_settings() -> Settings:
+def load_settings(dotenv_path: str | Path | None = None) -> Settings:
     """Load Settings from the environment.
 
     Real environment variables win over values from a `.env` file so systemd
     and CI can override without editing the file.
+
+    ``dotenv_path`` names the `.env` file to read. **The default is unchanged**:
+    ``None`` means ``python-dotenv`` searches upward from
+    ``packages/core/config.py``, which is how every process in production finds
+    the repo-root `.env` no matter which directory it starts in.
+
+    The parameter exists because that search is also a trap (known issue #64):
+    it ignores a `.env` in the working directory and silently loads the repo's
+    instead — and, more sharply, it defeats ``monkeypatch.delenv`` in a test.
+    A test that deletes a variable to exercise a default gets the value put
+    straight back from whatever the developer's `.env` happens to say, so the
+    suite becomes machine-dependent: green where the line is absent, red where
+    it is present. That is CLAUDE.md §3 rule 3 arriving from the other
+    direction — the same failure #26 was written from.
+
+    Passing an explicit path lets a test set configuration the way it is really
+    set — a `.env` file — and get a hermetic answer.
     """
-    load_dotenv(override=False)
+    load_dotenv(dotenv_path=dotenv_path, override=False)
 
     missing = [key for key in _REQUIRED_KEYS if not os.environ.get(key, "").strip()]
     errors: list[str] = []
@@ -284,6 +322,62 @@ def load_settings() -> Settings:
             f"literally (got {web_origin!r})"
         )
 
+    # --- W2 passkey auth -------------------------------------------------
+    webauthn_rp_id = os.environ.get("WEBAUTHN_RP_ID", "").strip().lower()
+    webauthn_rp_name = (
+        os.environ.get("WEBAUTHN_RP_NAME", "").strip() or "Everyday English"
+    )
+    webauthn_origin = os.environ.get("WEBAUTHN_ORIGIN", "").strip()
+    if webauthn_origin and not webauthn_origin.startswith(("http://", "https://")):
+        errors.append(
+            "WEBAUTHN_ORIGIN must be a scheme-qualified origin "
+            f"(got {webauthn_origin!r})"
+        )
+    if webauthn_origin.endswith("/"):
+        errors.append(
+            "WEBAUTHN_ORIGIN must not end with '/' — WebAuthn compares "
+            f"origins literally (got {webauthn_origin!r})"
+        )
+    if webauthn_rp_id and webauthn_origin and not _rp_id_covers(
+        webauthn_rp_id, webauthn_origin
+    ):
+        # The failure this prevents: the browser throws SecurityError before
+        # any request is made, so the server sees nothing at all and the phone
+        # shows "something went wrong".
+        errors.append(
+            f"WEBAUTHN_RP_ID {webauthn_rp_id!r} is not a registrable-domain "
+            f"suffix of WEBAUTHN_ORIGIN {webauthn_origin!r} — the browser will "
+            "refuse every ceremony with SecurityError and the server will see "
+            "no request at all"
+        )
+    if bool(webauthn_rp_id) != bool(webauthn_origin):
+        errors.append(
+            "WEBAUTHN_RP_ID and WEBAUTHN_ORIGIN must be set together "
+            "(auth is off when both are empty)"
+        )
+
+    auth_session_days = _parse_int(
+        "AUTH_SESSION_DAYS", os.environ.get("AUTH_SESSION_DAYS", "30"), errors
+    )
+    auth_claim_token_hours = _parse_int(
+        "AUTH_CLAIM_TOKEN_HOURS",
+        os.environ.get("AUTH_CLAIM_TOKEN_HOURS", "24"),
+        errors,
+    )
+    auth_rate_limit_salt = os.environ.get("AUTH_RATE_LIMIT_SALT", "").strip()
+    auth_cookie_insecure = _parse_bool(
+        "AUTH_COOKIE_INSECURE",
+        os.environ.get("AUTH_COOKIE_INSECURE", ""),
+        default=False,
+        errors=errors,
+    )
+    if auth_session_days is not None and auth_session_days < 1:
+        errors.append(f"AUTH_SESSION_DAYS must be >= 1 (got {auth_session_days})")
+    if auth_claim_token_hours is not None and auth_claim_token_hours < 1:
+        errors.append(
+            f"AUTH_CLAIM_TOKEN_HOURS must be >= 1 (got {auth_claim_token_hours})"
+        )
+
     if db_pool_min is not None and db_pool_min < 1:
         errors.append(f"DB_POOL_MIN must be >= 1 (got {db_pool_min})")
     if (
@@ -359,6 +453,9 @@ def load_settings() -> Settings:
     assert backup_offsite_max_age_hours is not None
     assert r2_max_age_hours is not None
     assert r2_required is not None
+    assert auth_session_days is not None
+    assert auth_claim_token_hours is not None
+    assert auth_cookie_insecure is not None
     settings = Settings(
         database_url=database_url,
         telegram_bot_token=telegram_bot_token,
@@ -404,6 +501,13 @@ def load_settings() -> Settings:
         shared_book_slugs=shared_book_slugs,
         couple_chat_id=couple_chat_id,
         web_origin=web_origin,
+        webauthn_rp_id=webauthn_rp_id,
+        webauthn_rp_name=webauthn_rp_name,
+        webauthn_origin=webauthn_origin,
+        auth_session_days=auth_session_days,
+        auth_claim_token_hours=auth_claim_token_hours,
+        auth_rate_limit_salt=auth_rate_limit_salt,
+        auth_cookie_insecure=auth_cookie_insecure,
     )
 
     _warn_if_transaction_pooler(settings.database_url)
@@ -460,6 +564,25 @@ def _parse_optional_int(
     except ValueError:
         errors.append(f"{name} must be an integer (got {raw!r})")
         return None
+
+
+def _rp_id_covers(rp_id: str, origin: str) -> bool:
+    """True when *rp_id* is a valid Relying Party ID for pages on *origin*.
+
+    The WebAuthn rule: the RP ID must equal the origin's effective domain or be
+    a registrable-domain suffix of it. So `foundgrant.com` is valid for
+    `https://app.foundgrant.com` (and is what we use, so a credential keeps
+    working if a second subdomain ever appears), while `app.foundgrant.com`
+    would not be valid for `https://other.foundgrant.com`.
+
+    Deliberately does no public-suffix lookup: this is a two-domain project and
+    a PSL dependency to catch `rp_id="com"` — which nobody can register anyway —
+    would be more machinery than the check is worth.
+    """
+    host = (urlparse(origin).hostname or "").lower()
+    if not host or not rp_id:
+        return False
+    return host == rp_id or host.endswith("." + rp_id)
 
 
 def _is_postgres_dsn(url: str) -> bool:

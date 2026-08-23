@@ -12,6 +12,12 @@ dependencies = [
     "python-dotenv>=1.0",
     "anthropic>=0.40",
     "openai>=1.40",
+    # W2. core/passkeys.py imports it, so this file is its authority: `pip
+    # install -e packages/core` — already step 3 of the deploy sequence —
+    # installs it, and the sequence gains no new step. Declaring it only in
+    # requirements.txt would leave `core` importing something it does not
+    # declare. tests/test_core_boundary.py asserts the mirror agrees.
+    "webauthn>=2.5,<3",
 ]
 
 # `core` is this directory itself, so the package root maps to ".".
