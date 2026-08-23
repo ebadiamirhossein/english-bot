@@ -3,7 +3,7 @@
 > **Cursor: you must update this file at the end of every slice, before finishing your turn.**
 > **Human: upload this file to a new Claude chat to restore full context.**
 
-**Project:** English Learning System — Telegram bot, 2 users, B1 → B2 in 6 months
+**Project:** English Learning System — web app (PWA), 2 users, B1 → B2 in 6 months. Telegram is a notification channel, not the product.
 **Repo:** `english-bot`
 **Last updated:** 2026-08-23
 **Current slice:** W1
@@ -74,7 +74,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | S17, S19 | Phase 4 depth | ⬜ not started | | |
 | S20–S23 | Phase 5 commercial | ⬜ not started | | |
 | — | **V2 CLOSED — rebuild as web app begins (`docs/TASKS-v3-web.md`)** | ⬜ | | v2 slices above are historical record; v3 slices below |
-| W0 | Audit + migration plan | 🟡 plan produced | 2026-08-23 | Plan output only, no code |
+| W0 | Audit + migration plan | ✅ plan approved | 2026-08-23 | Plan output only, no code |
 | W1 | Python restructure | 🟡 code-complete | 2026-08-23 | `git mv` + core package + boundary tests; 721 green (+1 pre-existing failure); nothing deleted |
 
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
