@@ -1,0 +1,169 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/*
+ * Dark mode is driven by the operating system, not by a toggle, and
+ * deliberately so: a toggle has to remember its setting, and the only places
+ * to remember it in a browser are localStorage or a cookie. CLAUDE.md's data
+ * rules keep this app out of both — so `prefers-color-scheme` it is. On a
+ * phone that is also the behaviour people expect: the app follows the system
+ * at dusk without being asked.
+ */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  /* Not `--font-sans: var(--font-sans)`: a token that refers to itself
+     resolves to nothing and every page falls back to Times. */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-fraunces);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * Light: warm paper, ink text, one deep-teal accent. Nothing is red anywhere
+ * in this palette — "never guilt" (CLAUDE.md §4) is easier to keep when the
+ * colour for failure does not exist. `destructive` stays only because shadcn
+ * components reference the token; it is a muted clay, not an alarm.
+ */
+:root {
+  --background: oklch(0.985 0.006 95);
+  --foreground: oklch(0.24 0.02 205);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.24 0.02 205);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.02 205);
+  --primary: oklch(0.48 0.075 187);
+  --primary-foreground: oklch(0.985 0.008 180);
+  --secondary: oklch(0.955 0.012 170);
+  --secondary-foreground: oklch(0.32 0.03 195);
+  --muted: oklch(0.955 0.008 120);
+  --muted-foreground: oklch(0.52 0.02 200);
+  --accent: oklch(0.94 0.03 175);
+  --accent-foreground: oklch(0.32 0.05 190);
+  --destructive: oklch(0.58 0.09 40);
+  --border: oklch(0.9 0.012 180);
+  --input: oklch(0.9 0.012 180);
+  --ring: oklch(0.68 0.08 180);
+  --brand: oklch(0.48 0.075 187);
+  --brand-foreground: oklch(0.985 0.008 180);
+  --chart-1: oklch(0.6 0.09 185);
+  --chart-2: oklch(0.7 0.08 150);
+  --chart-3: oklch(0.75 0.09 95);
+  --chart-4: oklch(0.65 0.07 250);
+  --chart-5: oklch(0.55 0.06 300);
+  --radius: 0.875rem;
+  --sidebar: oklch(0.985 0.006 95);
+  --sidebar-foreground: oklch(0.24 0.02 205);
+  --sidebar-primary: oklch(0.48 0.075 187);
+  --sidebar-primary-foreground: oklch(0.985 0.008 180);
+  --sidebar-accent: oklch(0.94 0.03 175);
+  --sidebar-accent-foreground: oklch(0.32 0.05 190);
+  --sidebar-border: oklch(0.9 0.012 180);
+  --sidebar-ring: oklch(0.68 0.08 180);
+}
+
+/* Dark: the same palette after dusk — deep teal-slate, never pure black,
+   so an OLED phone does not smear the edges of every card. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.19 0.018 205);
+    --foreground: oklch(0.95 0.008 180);
+    --card: oklch(0.235 0.02 205);
+    --card-foreground: oklch(0.95 0.008 180);
+    --popover: oklch(0.235 0.02 205);
+    --popover-foreground: oklch(0.95 0.008 180);
+    --primary: oklch(0.75 0.1 178);
+    --primary-foreground: oklch(0.2 0.03 195);
+    --secondary: oklch(0.29 0.022 200);
+    --secondary-foreground: oklch(0.95 0.008 180);
+    --muted: oklch(0.28 0.018 200);
+    --muted-foreground: oklch(0.72 0.02 190);
+    --accent: oklch(0.32 0.035 185);
+    --accent-foreground: oklch(0.93 0.02 180);
+    --destructive: oklch(0.68 0.08 45);
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 16%);
+    --ring: oklch(0.62 0.07 185);
+    --brand: oklch(0.75 0.1 178);
+    --brand-foreground: oklch(0.2 0.03 195);
+    --chart-1: oklch(0.75 0.1 178);
+    --chart-2: oklch(0.78 0.09 150);
+    --chart-3: oklch(0.8 0.09 95);
+    --chart-4: oklch(0.72 0.08 250);
+    --chart-5: oklch(0.66 0.07 300);
+    --sidebar: oklch(0.19 0.018 205);
+    --sidebar-foreground: oklch(0.95 0.008 180);
+    --sidebar-primary: oklch(0.75 0.1 178);
+    --sidebar-primary-foreground: oklch(0.2 0.03 195);
+    --sidebar-accent: oklch(0.32 0.035 185);
+    --sidebar-accent-foreground: oklch(0.93 0.02 180);
+    --sidebar-border: oklch(1 0 0 / 12%);
+    --sidebar-ring: oklch(0.62 0.07 185);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Installed to a home screen there is no browser chrome to pull, and a
+       rubber-band scroll under a fixed bottom bar looks broken. */
+    overscroll-behavior-y: none;
+  }
+  html {
+    @apply font-sans;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-heading tracking-tight;
+  }
+}
+
+@utility safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+}

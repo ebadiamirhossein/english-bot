@@ -690,8 +690,14 @@ def test_vocabulary_due_and_anki(cleanup_user: int) -> None:
             user_id=tid, chunks=chunks, send=AsyncMock()
         )
     )
-    # next_review = tomorrow → due when we ask with tomorrow.
-    due = due_chunks(tid, limit=10, now=date(2026, 8, 15))
+    # insert_chunks writes next_review = CURRENT_DATE + 1 server-side, so the
+    # due query must ask the same server the same question. A hardcoded date
+    # here made the test pass only until the calendar moved past it (#61,
+    # CLAUDE.md §3 rule 6). Read after the insert: if the clock crossed
+    # midnight in between, next_review is the earlier day and stays due.
+    with connection() as conn:
+        tomorrow = conn.execute("SELECT CURRENT_DATE + 1 AS d").fetchone()["d"]
+    due = due_chunks(tid, limit=10, now=tomorrow)
     assert {c.chunk for c in due} >= {"tier", "notch"}
     with connection() as conn:
         export_rows = fetch_unexported_chunks(conn, tid)

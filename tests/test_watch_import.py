@@ -15,7 +15,7 @@ import pytest
 
 from core.db import close_pool, connection
 from core.services.anki import export_and_send, fetch_unexported_chunks
-from core.services.paths import PathSafetyError, assert_path_outside_repo, repo_root
+from core.services.paths import PathSafetyError, assert_path_outside_repo
 from core.services.users import save_onboarding
 from core.services.watch_import import (
     IMPORT_STABLE_AFTER,
@@ -174,10 +174,67 @@ def test_detect_tool_from_headers() -> None:
     ) != "trancy"
 
 
-def test_assert_path_outside_repo_refuses_inside() -> None:
-    inside = repo_root() / "should-not-use-as-watch"
+# The repo root, derived independently of core.services.paths.repo_root().
+# tests/ sits directly under it, so parents[1] is the root by the layout of
+# the checkout rather than by the arithmetic the guard itself uses. The old
+# version of this test called repo_root() for its fixture, so when the W1
+# move left that function one directory too shallow the guard was broken and
+# the test stayed green anyway (#63, CLAUDE.md §3 rule 5).
+_REPO_ROOT_FOR_TEST = Path(__file__).resolve().parents[1]
+
+
+def test_assert_path_outside_repo_refuses_path_under_packages() -> None:
+    """The deepest case: under packages/, which a parents[2] root still catches."""
     with pytest.raises(PathSafetyError):
-        assert_path_outside_repo(inside, label="WATCH_DIR")
+        assert_path_outside_repo(
+            _REPO_ROOT_FOR_TEST / "packages" / "core" / "x.sql",
+            label="WATCH_DIR",
+        )
+
+
+def test_assert_path_outside_repo_refuses_sibling_of_packages() -> None:
+    """A real directory under the repo root but outside packages/.
+
+    This is the case that a repo_root() of parents[2] — i.e. packages/ —
+    would have accepted, because scripts/ is not under packages/. It is the
+    exact shape of the W1 regression.
+    """
+    with pytest.raises(PathSafetyError):
+        assert_path_outside_repo(
+            _REPO_ROOT_FOR_TEST / "scripts" / "x.sql", label="WATCH_DIR"
+        )
+
+
+def test_assert_path_outside_repo_refuses_direct_child_of_root() -> None:
+    """A path directly under the repo root, in no subpackage at all."""
+    with pytest.raises(PathSafetyError):
+        assert_path_outside_repo(
+            _REPO_ROOT_FOR_TEST / "should-not-use-as-watch", label="WATCH_DIR"
+        )
+
+
+def test_assert_path_outside_repo_refuses_the_root_itself() -> None:
+    with pytest.raises(PathSafetyError):
+        assert_path_outside_repo(_REPO_ROOT_FOR_TEST, label="WATCH_DIR")
+
+
+def test_assert_path_outside_repo_accepts_outside() -> None:
+    """/tmp is outside any checkout; it must come back resolved, not raise."""
+    accepted = assert_path_outside_repo("/tmp/x.sql", label="WATCH_DIR")
+    assert accepted.name == "x.sql"
+    assert not accepted.is_relative_to(_REPO_ROOT_FOR_TEST)
+
+
+def test_assert_path_outside_repo_accepts_sibling_with_shared_prefix(
+    tmp_path: Path,
+) -> None:
+    """``<root>-extra`` is not under ``<root>`` — the trailing-slash rule."""
+    sibling = _REPO_ROOT_FOR_TEST.parent / (
+        _REPO_ROOT_FOR_TEST.name + "-not-the-repo"
+    )
+    # Parent must exist; the path itself need not.
+    accepted = assert_path_outside_repo(sibling, label="WATCH_DIR")
+    assert accepted == sibling
 
 
 @pytest.fixture

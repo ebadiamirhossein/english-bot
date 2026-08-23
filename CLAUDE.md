@@ -103,8 +103,10 @@ HTTP route  →  service function  →  SQL
 Acceptance checks must not start a process that talks to a live external service on the learners' behalf. Specifically:
 
 - **Never run `python -m apps.bot.main`, or any Telegram polling loop, with the real `TELEGRAM_BOT_TOKEN`.** PTB polls with `drop_pending_updates=True`; a few seconds of running silently discards anything a learner sent in that window, and they get no reply and no error.
-- To verify a bot or worker entrypoint boots, use a dummy token from a temp `.env`, or stub the polling call. Verify the *instance lock*, the handler registration and the config load — never the network loop.
 - The same applies to any acceptance check that would send a real message, push, email, or API call billed to a live account.
+
+- To verify a bot or worker entrypoint boots, **export dummy values in the shell** (`export TELEGRAM_BOT_TOKEN=dummy DATABASE_URL=...`), or stub the polling call. Verify the *instance lock*, the handler registration and the config load — never the network loop.
+- **A scratch `.env` file does not work and must not be relied on.** `load_dotenv()` resolves relative to `packages/core/config.py`, so it finds the repo-root `.env` no matter which directory the process starts in — a temp `.env` elsewhere is silently ignored and the real configuration loads instead (known issue #64). This is how a W1b acceptance run reached the dev database for 13 minutes. Exported variables win over `.env`, which is why exporting is the only reliable method.
 
 If an acceptance criterion appears to require a live run, it is written wrong. Say so and stop rather than running it.
 

@@ -78,6 +78,9 @@ class Settings:
     shared_book_slugs: tuple[str, ...] = ()
     # S8 couple challenge — empty means the whole feature is inert.
     couple_chat_id: int | None = None
+    # W1b — the one browser origin apps/api trusts. Empty until the domain is
+    # chosen (W2); the API then allows localhost:3000 only.
+    web_origin: str = ""
 
     def database_url_for_logs(self) -> str:
         """Return DATABASE_URL with the password stripped for safe logging."""
@@ -231,6 +234,17 @@ def load_settings() -> Settings:
         os.environ.get("COUPLE_CHAT_ID", ""),
         errors,
     )
+    web_origin = os.environ.get("WEB_ORIGIN", "").strip()
+    if web_origin and not web_origin.startswith(("http://", "https://")):
+        errors.append(
+            "WEB_ORIGIN must be a scheme-qualified origin "
+            f"(got {web_origin!r})"
+        )
+    if web_origin.endswith("/"):
+        errors.append(
+            "WEB_ORIGIN must not end with '/' — CORS compares origins "
+            f"literally (got {web_origin!r})"
+        )
 
     if db_pool_min is not None and db_pool_min < 1:
         errors.append(f"DB_POOL_MIN must be >= 1 (got {db_pool_min})")
@@ -338,6 +352,7 @@ def load_settings() -> Settings:
         watch_dir=watch_dir,
         shared_book_slugs=shared_book_slugs,
         couple_chat_id=couple_chat_id,
+        web_origin=web_origin,
     )
 
     _warn_if_transaction_pooler(settings.database_url)

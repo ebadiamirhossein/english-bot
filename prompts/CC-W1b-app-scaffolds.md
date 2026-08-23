@@ -120,6 +120,10 @@ Worker: start it, confirm it holds the lock and registers its jobs; start a seco
 - No prompt edits
 - No changes to any file under `packages/core/services/`
 - No production deploy
+- **Do not fix known issue #59** (raw SQL in `core/scheduling.py::list_candidate_users`). Its text points at W1b, but that is wrong and is being corrected in this slice's update block: the query serves the **delivery** jobs — morning, evening, nudge, Sunday, Anki — which stay in `apps/bot` until W20. This slice's worker registers only `streak_rollover`, `monthly_freeze_reset`, `monthly_reset`, `heartbeat` and `backup_freshness`, none of which touch it. Moving it now means moving a query for a caller that has not arrived.
+- **Do not fix known issue #60** (`core.services.access_control.delivery_lister_ids` importing from `apps.bot`, inverting the dependency direction). It is real and it stays open. Closing it means editing a file under `packages/core/services/` and widening the boundary test to ban `apps.*` from core — a deliberate change that belongs to its own slice, not to a scaffolding slice. If you widen the boundary test here it will fail on pre-existing code and the temptation will be to weaken the test.
+
+Both of the above are deliberate. Widening a slice's scope to fix an issue you noticed in passing is how a slice stops being verifiable — the acceptance criteria stop describing what actually changed.
 
 If something here looks like it needs a migration or a core service change, stop and say so.
 
@@ -129,8 +133,14 @@ If something here looks like it needs a migration or a core service change, stop
 
 - **Slice row:** `| W1b | App scaffolds | 🟡 code-complete | <date> | api + worker + web shells; suite green with zero failures |`
 - **Decisions log:** every decision with its reason, especially anything the prompt left open and any place the frontend design direction was chosen.
-- **Known issues:** new ones with severity and slice. **Close #63** if the `assert_path_outside_repo` test repair lands. Carry forward every other open issue — #6 (still the top risk, and W1c is its fix), #20, #27, #28, #29, #31, #32, #44, #45, #46–#62.
+- **Known issues:** new ones with severity and slice. **Close both test-repair issues: #61** (the wall-clock dependency in `test_vocabulary_due_and_anki`) **and #63** (the `assert_path_outside_repo` test that derives its fixture from the function under test). Both close only if the repair actually lands — if either Part 1 repair is not completed, say so and leave the issue open rather than closing it optimistically. **Retarget #59** (raw SQL in `core/scheduling.py::list_candidate_users`) **from W1b to W20**, with the reason: the query serves the delivery jobs, which stay in `apps/bot` until W20, so W1b's worker never takes it. **Leave #60 open and untouched.** #49 is already closed by the separate `docs/TASKS-v3-web.md` numbering reconciliation — do not reopen it. Carry forward every other open issue: #6 (still the top risk, and W1c is its fix), #20, #27, #28, #29, #31, #32, #44, #45, #46, #47, #48, #50–#60, #62.
 - **File inventory:** every new file under `apps/api`, `apps/worker`, `apps/web`, plus the changed `docs/DEPLOYMENT.md`.
-- **Next action:** W1b's human checks — open the web shell on a phone and install it to the home screen; `curl` both health routes; confirm the worker refuses a second start — **plus every earlier unrun check carried forward**, including the whole v2 desk-check list and the outstanding deploy backlog (S26c, migrations 007+008, S25 pre-flight counts, #44 evening-reading confirmation).
+- **Next action:** W1b's human checks — open the web shell on a phone and install it to the home screen; `curl` both health routes; confirm the worker refuses a second start (dummy token) — **plus every earlier check still unrun, carried forward explicitly.**
+
+  The W1 deploy is scheduled to happen **before** this slice runs, so do not assume the state of its checks either way. Read the current `BUILD_PROGRESS.md` Next action and carry forward exactly what is still open there. Specifically:
+
+  - **W1's four deploy checks** (bot starts on Hetzner with the new `ExecStart` and `pip install -e packages/core`; instance lock refuses a second start on the server; `python -m core.db status` reports the expected version; one message and one `/stats` produce no import errors in `bot.log`) — carry forward any that the human has not marked run.
+  - **The deploy backlog** — S26c, migrations 007+008, the S25 pre-flight counts, and #44's evening-reading confirmation. The W1 deploy carries S26c and 007+008; if it lands, those come off the list and the S25 counts should be fillable. **Do not delete them on the assumption that it went well** — leave them until the human says so, and note that #44 stays open until a real Mon/Wed/Fri delivery lands, which no deploy alone can prove.
+  - **The whole v2 desk-check list**, unchanged. W1b is scaffolding; it exercises no user path and clears none of them.
 
 Then stop. Do not begin W1c.

@@ -134,6 +134,24 @@ def _applied_versions(conn: psycopg.Connection) -> set[int]:
     return {int(row[0]) for row in rows}
 
 
+def current_schema_version() -> int:
+    """Highest applied migration version, or 0 before the first migration.
+
+    Read-only and pooled, unlike ``status()`` which opens its own connection
+    and creates ``schema_version`` if missing. ``/health`` calls this on every
+    request: a health check must not run DDL, and it must fail loudly when the
+    pool cannot reach the database (that is the point of the route).
+    """
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT MAX(version) AS version FROM schema_version"
+        ).fetchone()
+    if row is None:
+        return 0
+    value = row["version"] if isinstance(row, dict) else row[0]
+    return int(value or 0)
+
+
 def migrate(settings: Settings | None = None) -> list[int]:
     """Apply pending migrations. Returns the list of newly applied versions."""
     cfg = settings or load_settings()

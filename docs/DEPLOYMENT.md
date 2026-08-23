@@ -10,6 +10,9 @@ Operational runbook for the production host. Deployed 2026-08-11.
 | OS | Ubuntu 24.04.4 LTS, Python 3.12.3 |
 | Bot code | `/home/bot/english-bot` (user `bot`) |
 | Bot process | `english-bot.service` (systemd) |
+| API process | `english-api.service` — **not installed until W1c**; unit written below |
+| Worker process | `english-worker.service` — **not installed until W1c**; unit written below |
+| Web app | Vercel, not this host (ARCHITECTURE-v3 §9) |
 | Database | PostgreSQL 16 on `127.0.0.1:5432`, DB `english_bot`, owner `bot` |
 | Backups (local) | `/home/bot/english-bot-backups` via `bot` crontab |
 | Runtime files | `/home/bot/english-bot-runtime` |
@@ -22,7 +25,7 @@ Operational runbook for the production host. Deployed 2026-08-11.
 | Redis | 6379 |
 | Caddy | 80 / 443 |
 
-The bot **must not** assume exclusive use of the host. It needs **no inbound port** — it long-polls Telegram outbound. Nothing was opened in the firewall for the bot; nothing conflicts with the Node app.
+The bot **must not** assume exclusive use of the host. It needs **no inbound port** — it long-polls Telegram outbound. Nothing was opened in the firewall for the bot; nothing conflicts with the Node app. When the API arrives at W1c it binds `127.0.0.1:8000` behind Caddy — still nothing new open at the firewall.
 
 Mac PostgreSQL (port 5433) is **development only**. Its data was not migrated; production started empty.
 
@@ -155,18 +158,29 @@ With `BACKUP_OFFSITE_DIR` unset, the script still dumps locally and logs `off-si
 
 ## Deploying an update
 
+**The sequence is: backup → pull → `pip install -e packages/core` → migrate → restart.**
+Settled at W1; not to be re-argued. The backup comes first because it is the
+only step that cannot be redone after the migration has run. The editable
+install comes before `migrate` because `core.db` cannot be imported without
+it.
+
 Stop any laptop/`python -m apps.bot.main` instance first (see **Two instances** below).
 
 ```bash
 sudo -u bot -i
 cd /home/bot/english-bot
-git pull
-.venv/bin/pip install -r requirements.txt   # when requirements.txt changed
-.venv/bin/pip install -e packages/core      # W1: required once, and after any
-                                            # packages/core/pyproject.toml change
-.venv/bin/python -m core.db migrate
-sudo systemctl restart english-bot
+./scripts/backup.sh                         # 1. backup — before anything else
+git pull                                    # 2. pull
+.venv/bin/pip install -r requirements.txt   #    when requirements.txt changed
+.venv/bin/pip install -e packages/core      # 3. required once, and after any
+                                            #    packages/core/pyproject.toml change
+.venv/bin/python -m core.db migrate         # 4. migrate
+sudo systemctl restart english-bot          # 5. restart
 ```
+
+Until W1c's off-site backup is verified, step 1 is the **only** copy of the
+database that predates the migration, and it lives on the same disk (known
+issue #6).
 
 Verify:
 
@@ -233,6 +247,103 @@ Restores into a **scratch** database unless you pass the live name **and** `--fo
 ```
 
 `--force` is required for `english_bot`. Prefer scratch + inspect before touching production.
+
+---
+
+## The API and the worker (W1b — documented, not yet installed)
+
+`apps/api` and `apps/worker` exist in the repo as of W1b and are **deployed at
+W1c**, not before. The units below are written down now so the W1c deploy is
+a copy-paste rather than an invention.
+
+Both need the same `.env`, the same venv, and `pip install -e packages/core`.
+Neither needs `TELEGRAM_BOT_TOKEN`: `core.config` stopped requiring it at W1
+precisely so these two can boot without one.
+
+`.env` gains one key for the API:
+
+```bash
+# The browser origin the API trusts, alongside http://localhost:3000.
+# Scheme included, no trailing slash, no wildcard. Empty until W2 picks the
+# domain — the API then allows localhost only.
+WEB_ORIGIN=https://app.example.com
+```
+
+`/etc/systemd/system/english-api.service`:
+
+```ini
+[Unit]
+Description=English Learning API (FastAPI)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/english-bot
+ExecStart=/home/bot/english-bot/.venv/bin/uvicorn apps.api.main:app \
+          --host 127.0.0.1 --port 8000 --workers 2
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Bind to `127.0.0.1`, never `0.0.0.0`: Caddy already terminates TLS on this box
+and is the only thing that should face the internet.
+
+`/etc/systemd/system/english-worker.service`:
+
+```ini
+[Unit]
+Description=English Learning scheduler (APScheduler)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/english-bot
+ExecStart=/home/bot/english-bot/.venv/bin/python -m apps.worker.main
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**One worker, always.** `--workers 2` on the API is fine because the API holds
+no schedule; the worker must never be scaled the same way, or every job fires
+once per process. It takes `RUNTIME_DIR/worker.lock` at boot and a second
+start exits non-zero — but that guard, like the bot's, only covers two
+processes on the *same* machine.
+
+Runtime files, all under `RUNTIME_DIR`:
+
+| File | Written by |
+|---|---|
+| `bot.lock`, `bot.log` | `english-bot` |
+| `worker.lock`, `worker.log` | `english-worker` |
+| `last_job_fire` | `english-bot` only — the worker reads it and never writes it, so a dead bot still goes stale |
+
+The API logs to the journal rather than to a file; `journalctl -u english-api`
+is where its errors are, and an unhandled exception there is logged with the
+route name and the user id and answered with a generic body.
+
+Deploying the two units at W1c is: write both files, `daemon-reload`,
+`enable --now` each, then `curl -s localhost:8000/health` (expect
+`{"ok": true, "schema_version": N}`) and confirm the worker's journal shows
+`Scheduler built jobs=...`.
+
+`apps/web` does not deploy to this box at all — it is a Next.js app on Vercel
+(ARCHITECTURE-v3 §9), and `WEB_ORIGIN` is what lets it call this API.
 
 ---
 

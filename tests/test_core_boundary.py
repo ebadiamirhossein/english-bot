@@ -146,6 +146,72 @@ def test_no_sql_outside_services() -> None:
     )
 
 
+# W1b. The API runs several uvicorn workers and each one is a whole process.
+# A scheduler imported there runs every job once per worker: the streak
+# rollover fires four times, the monthly reset fires four times (W0 risk R3).
+# The worker process is the only place APScheduler belongs.
+FORBIDDEN_IN_API = frozenset({"apscheduler", "telegram"})
+# Neither new app may reach sideways into another app. `core` is the only
+# shared code. (Known issue #60 is the same rule pointing the other way —
+# core → apps — and stays open; widening this test to cover it would fail on
+# pre-existing code, which is a decision for its own slice.)
+SIBLING_APPS = {
+    APPS / "api": ("apps.worker", "apps.bot"),
+    APPS / "worker": ("apps.api", "apps.bot"),
+}
+
+
+def _imported_modules(tree: ast.AST) -> set[str]:
+    """Full dotted module name of every import, not just its root."""
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                modules.add(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module:
+                modules.add(node.module)
+    return modules
+
+
+def test_api_imports_no_scheduler() -> None:
+    offenders: list[str] = []
+    for path in _python_files(APPS / "api"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hit = _imported_roots(tree) & FORBIDDEN_IN_API
+        if hit:
+            rel = path.relative_to(REPO_ROOT)
+            offenders.append(f"{rel}: {', '.join(sorted(hit))}")
+    assert offenders == [], (
+        "apps/api must not import a scheduler or Telegram — one scheduler "
+        "per uvicorn worker means every job fires N times: " + "; ".join(offenders)
+    )
+
+
+def test_api_does_not_import_the_worker_job_table() -> None:
+    """Importing the job table is how registration leaks into the web process."""
+    offenders: list[str] = []
+    for root, banned in SIBLING_APPS.items():
+        if not root.is_dir():
+            continue
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            modules = _imported_modules(tree)
+            hit = {
+                module
+                for module in modules
+                for prefix in banned
+                if module == prefix or module.startswith(prefix + ".")
+            }
+            if hit:
+                rel = path.relative_to(REPO_ROOT)
+                offenders.append(f"{rel}: {', '.join(sorted(hit))}")
+    assert offenders == [], (
+        "apps/api, apps/worker and apps/bot share code through packages/core "
+        "and nowhere else: " + "; ".join(offenders)
+    )
+
+
 def test_migrations_dir_is_repo_root() -> None:
     """core.db must find the numbered migrations after the W1 move."""
     from core.db import MIGRATIONS_DIR
