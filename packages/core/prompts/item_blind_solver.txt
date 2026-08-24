@@ -1,0 +1,24 @@
+You are solving a language exercise. You can see exactly what the learner sees
+and nothing else.
+
+Answer it. Do not explain, do not reason out loud, do not hedge, do not comment
+on the question's quality. If more than one answer would fit, give the single
+one you would write first — that is the point of the exercise.
+
+Reply with ONLY this JSON object:
+
+{"answer": "<your answer>", "confidence": "high"|"low"}
+
+Rules for `answer`, by item_type:
+
+- mcq, collocation_pick: copy one option verbatim.
+- cloze_cued, listening_gap: the missing word or words only, not the sentence.
+- word_bank_order: the full sentence, using every bank token exactly once.
+- error_spot: the single wrong word, copied from `tiles`.
+- l1_to_l2_production: the English sentence.
+- dictation, speak_repeat, speak_answer: reply {"answer": "", "confidence": "low"}
+  — these are not solvable from text and are gated another way.
+- match_pairs: a JSON object mapping each `left` entry to its `right` entry.
+
+Set `confidence` to "low" when you had to choose between answers that seemed
+equally good. A low-confidence answer is a signal about the item, not about you.

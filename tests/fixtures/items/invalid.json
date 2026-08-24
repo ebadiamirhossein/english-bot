@@ -1,0 +1,138 @@
+[
+  {"name": "mcq_three_options", "expect": ["option_count"], "item": {
+    "item_type": "mcq", "track": "life", "lexeme": "go",
+    "prompt_text": "I ___ to the shops yesterday.", "answer": "went",
+    "options": ["went", "goed", "gone"]}},
+
+  {"name": "mcq_answer_not_offered", "expect": ["answer_not_an_option"], "item": {
+    "item_type": "mcq", "track": "life", "lexeme": "go",
+    "prompt_text": "I ___ to the shops yesterday.", "answer": "went",
+    "options": ["goed", "gone", "going", "goes"]}},
+
+  {"name": "mcq_duplicate_options",
+   "_note": "both codes: two options that fold to one string are ALSO two accepted answers",
+   "expect": ["duplicate_options", "multiple_correct_options"], "item": {
+    "item_type": "mcq", "track": "life", "lexeme": "go",
+    "prompt_text": "I ___ to the shops yesterday.", "answer": "went",
+    "options": ["went", "Went", "gone", "going"]}},
+
+  {"name": "cloze_two_gaps", "expect": ["gap_count"], "item": {
+    "item_type": "cloze_cued", "track": "life", "lexeme": "go",
+    "prompt_text": "I ___ to the ___ yesterday.", "answer": "went"}},
+
+  {"name": "cloze_proper_noun", "expect": ["proper_noun_gap"], "item": {
+    "item_type": "cloze_cued", "track": "life", "unit_number": 3,
+    "prompt_text": "I met ___ at the station.", "answer": "Bahar"}},
+
+  {"name": "cloze_numeric_gap", "expect": ["numeric_gap"], "item": {
+    "item_type": "cloze_cued", "track": "life", "unit_number": 3,
+    "prompt_text": "The bus leaves at ___ o'clock.", "answer": "7"}},
+
+  {"name": "cloze_answer_visible", "expect": ["answer_visible_in_stem"], "item": {
+    "item_type": "cloze_cued", "track": "life", "lexeme": "go",
+    "prompt_text": "I went home and then I ___ out.", "answer": "went"}},
+
+  {"name": "cloze_misses_target", "expect": ["gap_misses_target"], "item": {
+    "item_type": "cloze_cued", "track": "life", "lexeme": "go",
+    "prompt_text": "I went to ___ shops yesterday.", "answer": "the"}},
+
+  {"name": "cloze_no_target", "expect": ["no_target"], "item": {
+    "item_type": "cloze_cued", "track": "life",
+    "prompt_text": "I ___ to the shops yesterday.", "answer": "went"}},
+
+  {"name": "word_bank_missing_token", "expect": ["bank_not_a_permutation"], "item": {
+    "item_type": "word_bank_order", "track": "life", "unit_number": 3,
+    "prompt_text": "Put these in order.", "answer": "I went to the shops",
+    "bank": ["shops", "went", "I", "the"]}},
+
+  {"name": "word_bank_already_ordered", "expect": ["bank_already_ordered"], "item": {
+    "item_type": "word_bank_order", "track": "life", "unit_number": 3,
+    "prompt_text": "Put these in order.", "answer": "I went to the shops",
+    "bank": ["I", "went", "to", "the", "shops"]}},
+
+  {"name": "error_spot_no_op_correction", "expect": ["correction_is_a_no_op"], "item": {
+    "item_type": "error_spot", "track": "life", "unit_number": 3,
+    "prompt_text": "Tap the word that is wrong.", "answer": "goed",
+    "tiles": ["I", "goed", "to", "the", "shops"],
+    "wrong_index": 1, "correction": "Goed"}},
+
+  {"name": "error_spot_too_few_tiles", "expect": ["tile_count"], "item": {
+    "item_type": "error_spot", "track": "life", "unit_number": 3,
+    "prompt_text": "Tap the word that is wrong.", "answer": "goed",
+    "tiles": ["I", "goed", "home"], "wrong_index": 1, "correction": "went"}},
+
+  {"name": "l1_latin_script", "expect": ["l1_wrong_script"], "item": {
+    "item_type": "l1_to_l2_production", "track": "life", "lexeme": "go",
+    "prompt_text": "man diruz be maghaze raftam", "answer": "I went to the shops",
+    "accepted_variants": ["i went to the shops", "i went to the shop"]}},
+
+  {"name": "l1_one_variant", "expect": ["too_few_variants"], "item": {
+    "item_type": "l1_to_l2_production", "track": "life", "lexeme": "go",
+    "prompt_text": "من دیروز به مغازه رفتم", "answer": "I went to the shops",
+    "accepted_variants": ["i went to the shops"]}},
+
+  {"name": "dictation_with_digits", "expect": ["digits_in_dictation"], "item": {
+    "item_type": "dictation", "track": "life", "unit_number": 2,
+    "prompt_text": "Type what you hear.",
+    "answer": "I got home at 7 and made dinner"}},
+
+  {"name": "dictation_too_short", "expect": ["dictation_length"], "item": {
+    "item_type": "dictation", "track": "life", "unit_number": 2,
+    "prompt_text": "Type what you hear.", "answer": "I went home"}},
+
+  {"name": "listening_gap_unhearable", "expect": ["unhearable_gap"], "item": {
+    "item_type": "listening_gap", "track": "life", "unit_number": 4,
+    "prompt_text": "I forgot ___ keys this morning", "answer": "the",
+    "transcript": "I forgot the keys this morning"}},
+
+  {"name": "listening_gap_stem_mismatch",
+   "expect": ["answer_not_in_transcript", "stem_transcript_mismatch"], "item": {
+    "item_type": "listening_gap", "track": "life", "lexeme": "key",
+    "prompt_text": "I forgot my ___ this morning", "answer": "keys",
+    "transcript": "I lost my wallet this morning"}},
+
+  {"name": "speak_repeat_with_gap",
+   "expect": ["gap_in_repeat", "repeat_answer_differs"], "item": {
+    "item_type": "speak_repeat", "track": "life", "unit_number": 5,
+    "prompt_text": "I'll ___ you back in a minute",
+    "answer": "I'll call you back in a minute"}},
+
+  {"name": "speak_answer_not_a_question", "expect": ["not_answerable"], "item": {
+    "item_type": "speak_answer", "track": "life", "lexeme": "weekend",
+    "prompt_text": "The weekend was long.",
+    "rubric": "talk about your weekend using past simple"}},
+
+  {"name": "speak_answer_rubric_misses_target",
+   "expect": ["rubric_misses_target"], "item": {
+    "item_type": "speak_answer", "track": "life", "lexeme": "weekend",
+    "prompt_text": "What did you do last weekend?",
+    "rubric": "use the past simple"}},
+
+  {"name": "match_pairs_columns_overlap", "expect": ["columns_overlap"], "item": {
+    "item_type": "match_pairs", "track": "life", "unit_number": 6,
+    "prompt_text": "Match each word to its meaning.",
+    "pairs": [["tired", "tired"], ["skint", "having no money"],
+              ["gutted", "very disappointed"]]}},
+
+  {"name": "match_pairs_too_few", "expect": ["pair_count"], "item": {
+    "item_type": "match_pairs", "track": "life", "unit_number": 6,
+    "prompt_text": "Match each word to its meaning.",
+    "pairs": [["skint", "having no money"], ["gutted", "very disappointed"]]}},
+
+  {"name": "collocation_answer_in_frame",
+   "expect": ["answer_visible_in_stem"], "item": {
+    "item_type": "collocation_pick", "track": "life", "lexeme": "make",
+    "prompt_text": "I make coffee and ___ a decision.", "answer": "make",
+    "options": ["make", "do", "take"]}},
+
+  {"name": "sentence_too_long", "expect": ["sentence_too_long"], "item": {
+    "item_type": "cloze_cued", "track": "life", "lexeme": "go",
+    "prompt_text": "I ___ to the shops yesterday and then walked home slowly in the rain.",
+    "answer": "went"}},
+
+  {"name": "answer_presence_violation", "expect": ["answer_presence"], "item": {
+    "item_type": "match_pairs", "track": "life", "unit_number": 6,
+    "prompt_text": "Match each word to its meaning.", "answer": "knackered",
+    "pairs": [["knackered", "very tired"], ["skint", "having no money"],
+              ["gutted", "very disappointed"]]}}
+]

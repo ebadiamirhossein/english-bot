@@ -282,6 +282,32 @@ def test_the_apostrophe_fold_agrees_with_the_one_the_services_use() -> None:
         assert normalize.fold_apostrophes(raw).casefold() == normalize_for_match(raw)
 
 
+def test_the_items_fold_agrees_with_both_of_them() -> None:
+    """W5's third fold, pinned to the same pair rather than imported across.
+
+    `core/items/grading.fold` cannot import `normalize_for_match` either -- it
+    lives in a module full of SQL and `core.items` is pure, the same boundary
+    `core.lexicon` respects. So the same assertion covers it: three modules, one
+    notion of "same string".
+
+    This matters more here than anywhere else in the tree. `grading.fold` is
+    what the blind-solver gate and the grader BOTH use, and if it drifted from
+    what the rest of the system considers one word, an item would pass the
+    uniqueness gate and then be ungradable -- the learner types the identical
+    string and is marked wrong.
+    """
+    from core.items.grading import fold
+
+    for character in ("\u2019", "\u2018", "\u0060", "\u00b4",
+                      "\u201c", "\u201d", "\u00ab", "\u00bb"):
+        raw = f"it{character}s"
+        assert fold(raw) == normalize_for_match(raw)
+        assert fold(raw) == normalize.fold_apostrophes(raw).casefold()
+
+    # Whitespace collapse, which `normalize_for_match` also does.
+    assert fold("  Hello   World  ") == normalize_for_match("  Hello   World  ")
+
+
 def test_the_lexicon_folds_two_apostrophes_the_services_never_meet() -> None:
     """A superset, deliberately: transcripts carry U+02BC and U+2032.
 

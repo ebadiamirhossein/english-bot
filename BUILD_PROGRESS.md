@@ -88,6 +88,8 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 
 | W4b | Identity without Telegram | 🟡 code-complete, **deployed and verified on production** | 2026-08-24 | **Migration 011 is live. A person can now exist in this database without a Telegram account.** `users.id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`; `telegram_user_id` nullable + `UNIQUE`; all **17** user foreign keys repointed to `users(id)` with each one's original `ON DELETE` preserved — sixteen CASCADE, `couple_challenges.winner_user_id` still NO ACTION. **The migration deletes nothing**: no `DELETE`, no `DROP TABLE`, no `DROP COLUMN`, so the cascade on sixteen keys is never armed while they are in flight. Two findings the plan did not have: **`access_requests.telegram_user_id` was that table's primary key**, so it could not be made nullable in place and needed its own ordered re-key; and **`is_approved` has two callers with no `users` row at all** (`gate_unapproved`, `/start`), so one signature could not serve both. Identity translates in exactly two modules, enforced by `tests/test_identity_boundary.py`. **Five operator comparisons** against `OPERATOR_TELEGRAM_ID` re-pointed at the Telegram id — one of them inlined rather than routed through `_is_operator`, which would have silently removed the operator's own `/stats` fossil-sweep line. Web sign-up ships as `identity.create_web_user` + `python -m core.claim create` — no route, no screen. Suite **1068 → 1103 passing / 0 failing**, baseline held exactly at every step. **Evidenced in the record:** the rehearsal against a real restore (`english_bot/2026/08/english_bot_2026-08-24_1425.dump`, 272,751 bytes, drill passed in 3s, errors/chunks/users/sessions all matching live), **011 against that scratch copy in 0.330s** — against the plan's ~30s ceiling and the 34s the quadratic version took before it was fixed; the pre-deploy backup (272,751 bytes to R2, `english_bot_2026-08-24_1429.dump`, 14:29:48 UTC); `Applied: 011` then `Applied: 001–011, Pending: (none)`; both services back `active` with **total downtime under one minute**; and the post-migration counts run **independently of the migration's own assertions** (CLAUDE.md §3 rule 5) returning identically on the scratch copy and on production — **ids 1 / 2 / 3 (Navid, Morkyte, Amirhossein) with every Telegram id preserved, errors 0 + 26 + 7 = 33, and 2000 + 2006 + 2069 = 6,075 `user_lexemes` rows**, both totals identical to the pre-migration database. **On the human's report:** the already-signed-in phone opening with **no re-enrolment prompt** (criterion 11 on a real device, not only by the join in a test), `/correct` answering in Telegram for an existing learner, `/admin` still recognising the operator, and **`/write` on the phone — carried unrun since W3 and now run**. **#92 closes here.** Stays 🟡 until the human marks it. |
 
+| W5 | Item schema + validator | 🟡 code-complete | 2026-08-24 | **Migration 012** (`items`, `item_attempts`, `register` on `items`, `errors.source` widened once for the full v3 set, `users.track_weights` default → 50/30/20 with the paired view recreate). **The eleven item types as pydantic models — and PRD names them and stops**, giving no field shapes and no per-type descriptions, so W5 *defines* them rather than transcribing them. `core/items/` is pure (schema, projection, deterministic checks, naturalness, grading, cue ladder); `core/items/gates.py` is the only module reaching a provider; `core/services/items.py` holds every query. **#59 stays the only boundary exemption** and two new parse tests were proven non-inert. **The blind-solver gate** with repair-before-reject over PRD's five cues and a hard cap of two repairs / three solver calls, carried as a CHECK on `items.repair_count` so the cap survives someone loosening the loop. Dictation and listening are gated by a **`synthesize` → `transcribe` round-trip** instead. Suite **1103 → 1250 passing / 0 failing**. **The #57 gate ran first and returned ⬜ UNMEASURED** — see the decisions log. **Local only — not deployed**; 012 is applied to the Mac dev database only, and the production migration plus the `--live` verification are explicit commands for the human in Next action. Stays 🟡 until the human marks it. |
+
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
 
 ---
@@ -148,6 +150,19 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-24 | **W5: the #57 gate ran before any code and returned ⬜ UNMEASURED. The `< 10%` branch was considered and DECLINED.** Production, via `scripts/w5_57.sql` (committed `ec3ce8d`): `quiz_prompt` n=96, 7.3% work terms, 95% CI **2.1–12.5%**; `chunk_sentence` n=29, 13.8%; `reading_body` **n=1**; ALL SOURCES n=126, **9.5%**. `JARGON` therefore ships as PRD's five plus four unambiguous additions (`sprint`, `standup`, `KPI`, `deliverable`), with its provenance recorded as unmeasured **in the comment at the head of the list**, not only here. #57 stays **open**, retargeted to re-measure once the v3 corpus is large enough. | Two independent failures of the minimum-n rule: no source reaches n≥150, and the interval straddles the 10% boundary regardless. **The declining is the part worth recording.** The all-sources point estimate is 9.5% — below the line — and the `< 10%` branch would have said keep the list narrow. The branch rules were written *before* the numbers precisely so a near-miss point estimate could not pull the action afterwards, and taking it would have been the post-hoc tuning the gate exists to prevent. The asymmetry that makes UNMEASURED *widen* where `< 10%` would *narrow* is deliberate and is written into `naturalness.py`: measured-low is **evidence** the sentences are clean, so widening only adds false rejections; unmeasured is **absence** of evidence, where a false reject costs one regenerated item overnight and a false accept ships a Slack-sounding sentence to a learner. |
+| 2026-08-24 | **W5: the work bias is in the SCENARIO LABELS, not in the sentences — filed as #99 off the back of the gate.** Of the 16 surviving quiz scenarios, roughly **nine carry work framing**: *"Mina and Pooya texting after a late-night deploy"*, *"Omid and Bahar texting during a Saturday deploy while watching a football match"*, *"Nima and Leila texting through a rainy weekend about a stuck deploy"*, *"Yasmin off sick while Kaveh covers a client deploy"*. | This is a **census, not a sample** — those sixteen are every surviving quiz session, so counting them describes what the generator actually produced rather than inferring about a population, and the small n does not weaken it the way it weakens A1's percentage. It also corroborates the `< 10%` story exactly as the plan predicted: sentences measuring 7.3% while the *framing* is work-saturated points at scenario labels, `{work_domain}` injected into 8 of 13 prompts, and the Work-40 schema default (#56) — **not** at the jargon list. W5's generator prompt and W10's session mix are where this is fixed; the jargon gate is not. |
+| 2026-08-24 | **W5: `items` is per-learner fan-out, not a shared library with per-user delivery rows.** | An item is **not shareable by construction**. PRD §3: the content inside a unit is generated against your error profile, your interests and your known-word ledger. An item built from `errors.id 47` means nothing to the other learner, and the coverage gate is per-learner, which makes **validity itself user-scoped** — the same sentence can sit inside one learner's comprehensible band and outside the other's. A shared row would need a per-user validation record, which is the delivery table with extra steps, and the shared row would then hold nothing but a string. S24's lesson lands directly: every consumer (W7's FSRS, W10's builder, W11's re-queue) reads "this learner's items", and a shared table gives each of them a join they can forget. `content_hash` exists from day one because it is the key a future de-dup into a shared library would need. **PRODUCT-PRINCIPLES §3 flag:** the genuine cheap-now/expensive-later note points the *other* way — a fixed authored bank does not go in this table; W18's `placement_bank` (019) is that shape, and PRD §6 requires the instrument not to change. |
+| 2026-08-24 | **W5: one `payload JSONB` plus typed columns, validated on write by a pydantic discriminated union — and `register` had to be aliased to `register_tag` in Python.** | Eleven tables is disqualified by W6 and W10 alone (an 11-way UNION to render one session); thirty typed columns is ~70% NULL and the word bank and the pair mapping are JSON either way. The alias is the interesting part: `BaseModel`'s metaclass is an `ABCMeta`, which already carries a `register` method, so a field of that name **parses without error and then reads back as a bound method**. It was caught in a smoke test, not by a type checker. The wire name and the column stay `register`; only Python attribute access differs, and the reason is written at the field so nobody "fixes" it back. |
+| 2026-08-24 | **W5: `item_attempts` ships six columns with no reader — `latency_ms`, `cue_shown`, `chosen_option`, `grade`, `graded_by`, `audio_seconds`.** | Adding a column at 013 or 015 is one line; the months of history in between are gone permanently, and that history is exactly what seeds FSRS. `cue_shown` is the sharpest case: `items.cue_type` is the item's *current* state, and W7's leech rule rewrites an item "with an easier cue" — the moment that happens, every past attempt silently re-reads as if it had carried the new cue. `graded_by` is the second: typed items grade by string match, `speak_answer` needs a rubric, and a learner may self-mark, so without it an accuracy number mixes three instruments and W19's progress line stops being comparable — the same argument PRD §6 makes for keeping the placement instrument fixed. **The audio itself is never stored** (CLAUDE.md §5); only its duration. |
+| 2026-08-24 | **W5: all six new `errors.source` values are classified against W4's harvest allow-list in this slice, and `item` is deliberately NOT harvested.** `answer` and `retell` are harvested (keyboard-authored, `text`'s class); `shadow`, `video`, `placement` and `item` are not. | W4's axis is: did the learner **type** it, or did a recogniser **guess** it? `item` is the one that needed a decision rather than a lookup, because it covers typed *and* ASR-graded responses under a single value — harvesting it would let a `speak_answer` mishearing promote a word to `known`, which is permanent damage where a missing harvest is recoverable. W5 ships `core.items.RESPONSE_MODE` (tap / typed / spoken) so W6 and W7 can split them honestly instead of widening the allow-list and hoping. `placement` is excluded for a different reason: PRD §6 requires the instrument not to change, and harvesting from it feeds the measurement back into the thing measured. The classification is machine-checked — `HARVESTED_SOURCES` / `NOT_HARVESTED_SOURCES` in `states.py` must partition the CHECK exactly, so a seventh value cannot be added without a decision. |
+| 2026-08-24 | **W5: `llm.py` and `speech.py` are UNCHANGED, so CLAUDE.md §3 rule 2 does not fire — and the one human-run verification is proposed anyway.** | Rule 2 is scoped to *"any change to `llm.py` or `speech.py` request construction"*. W5 uses `system` + `json_mode` + `max_tokens` + `reject_truncation`, all already exercised by five shipped features, and the audio gate is a new **composition** of two unmodified calls rather than a new request shape. Test-suite calls are **zero structurally**, not by discipline: `netguard` is autouse and session-scoped, so a test reaching a provider raises rather than spends. `python -m core.items.verify` defaults to `--dry-run` and prints the exact request without sending it; `--live` and `--live-audio` are three calls total, human-run, and are in Next action rather than in acceptance. **What a `--live` pass licenses is written into the module**: the request shape is accepted, the projection is well-formed, and the gate *can* reject an ambiguous item — one sample of a stochastic system, no claim about the gate's rate. A fail is decisive; a pass is not proof. |
+| 2026-08-24 | **W5: the PRD's own broken item passes every deterministic check and is caught only by the blind solver — and an early version got that wrong.** `looks_proper_noun` flagged `I'll` as a name, so the item was rejected for the wrong reason. | The item was rejected either way, so nothing user-visible changed. **What changed is the reason recorded in `items.validation`**, and a wrong reason there sends the next person to tune the wrong half of the generator prompt. PRD §4.3 makes the same point about the same item: "this is not a prompt-tuning problem; it is a missing validation layer." A contraction is capitalised, carries an apostrophe and cannot be resolved by the lemma table, so it tripped all three heuristics at once; the fix is to exclude contractions explicitly, and there is now a named test asserting the item survives the deterministic pass. |
+| 2026-08-24 | **W5: cue material (`definition`, `l1_gloss`) is authored by the generator in the same call that writes the item, and the word bank is built from the SOLVER'S OWN WRONG ANSWERS.** | PRD's repair ladder must be deterministic — a model-chosen cue is a billed call per repair and would make the acceptance fixtures repair differently on each run. But two of the five cues need *content* that cannot be derived from the item, so the generator supplies them up front at no extra cost and unused rungs are never rendered. The word bank falls out for free and is better than anything authored in advance: PRD's own example bank is `I'll · I'd · I'm`, which is exactly what a solver produces when it fails. **The gate's failure output becomes the repair's input**, so the item ends up cued against the ambiguity actually observed rather than one imagined. |
+| 2026-08-24 | **W5: `items.track` is `NOT NULL`, and the existing corpus is the argument.** | PRD §4.6 rule 2 bans jargon *unless the item's track is Work*, so the rule is conditional on this column and a NULL track would silently skip the gate — the slice's own acceptance criterion would stop being enforceable. This is not hypothetical: **24 of the 29 surviving production `chunks` carry a NULL `track`**, so 83% of them would have skipped it. A nullable column with a conditional rule attached is a rule that does not run. |
+| 2026-08-24 | **W5: rejected items are never written, and there is no `status` column.** | `status IN ('ready','rejected')` would put a filter in every consumer's WHERE clause, and a filter everyone must remember is a filter someone forgets — which here means a rejected item reaching a learner. The validator returns a `ValidationReport` and acceptance asserts on the return value, never on a log line. "No item reaches a learner without a validation record" is held up by three layers instead: `validation JSONB NOT NULL` with no default plus a `? 'deterministic'` CHECK, `insert_item` refusing a report that is not `ok`, and a parse test asserting **exactly one** `INSERT INTO items` in the tree. The third is the only one that survives a refactor. |
+| 2026-08-24 | **W5: `core/items/grading.fold` is a third fold, pinned by assertion rather than by an import.** | `normalize_for_match` lives in `core/services/reading.py`, a module full of SQL, and `core/lexicon/normalize.py` already records the decision not to import across that boundary — the two are pinned by a test instead. `normalize_for_match` has ~25 call sites, so moving it is a slice of its own and W5 does not widen into it. The existing pin gained one assertion covering the items fold. **This matters more here than anywhere else in the tree**: `fold` is what the blind-solver gate and the grader both use, and if it drifted, an item would pass the uniqueness gate and then be ungradable — the learner types the identical string and is marked wrong. |
+| 2026-08-24 | **W5: pydantic becomes a direct dependency of `core`, and `core.lexicon` was missing from the packaging list since W4.** | The validator's core job is parsing an eleven-variant JSON payload from a model, which a discriminated union does in ~120 lines against ~400 of hand-rolled dispatch whose failure mode is a silently-ignored key. It already arrives in every venv transitively (via `anthropic`; `apps/api` imports it directly), so declaring it turns an undeclared transitive dependency into a declared one and the deploy sequence gains no step. Separately: `[tool.setuptools] packages` read `["core", "core.services"]` and **had never listed `core.lexicon`** — the editable install resolves it by path so nothing ever failed, but a wheel build would have dropped the entire W4 lexicon package. Both it and `core.items` are declared now. |
 | 2026-08-24 | **W4b deployed. Migration 011 is live on production, verified independently of its own assertions.** Rehearsal: `restore_from_r2.sh --keep` on `english_bot/2026/08/english_bot_2026-08-24_1425.dump` (272,751 bytes), drill passed in 3s with errors/chunks/users/sessions matching live; **011 against that scratch copy in 0.330s**. Deploy: backup 272,751 bytes to R2 (`…_1429.dump`, 14:29:48 UTC) → `systemctl stop english-bot english-api` → `Applied: 011` → `Applied: 001–011, Pending: (none)` → both services `active`. **Downtime under one minute.** Post-migration, on both the scratch copy and production: **ids 1 / 2 / 3 with every Telegram id preserved, errors 0 + 26 + 7 = 33, `user_lexemes` 2000 + 2006 + 2069 = 6,075** — both totals identical to before. | The independent `psql` check is the part worth recording, not the counts. The migration asserts its own row counts and aborts on a mismatch, which is the right place for that guard — but a migration reporting on its own success is asserting a claim. A query written separately against the same tables is a result. Same distinction W4a's repair was held to, and the same reason: #91 existed because something that looked right in 1,050 tests was wrong in the only place that mattered. **0.330s against a ~30s ceiling** is also worth keeping: the number the plan set was never approached, so the stop-and-re-plan branch was never needed. |
 | 2026-08-24 | **W4b: `systemctl stop english-bot english-api` before `migrate` was a slice-specific step, NOT a change to the settled deployment sequence.** The sequence remains backup → pull → `pip install -e packages/core` → migrate → restart, and it is not re-argued. | 011 holds `ACCESS EXCLUSIVE` on `users` and `access_requests` for its entire transaction. Requests would not have errored, they would have **blocked** — and the sharper hazard is the lock *queue*: one bot handler holding an open transaction makes the `ALTER` wait, and every reader arriving afterwards queues behind the waiting `ALTER`, turning a sub-second migration into a stall for everything. Stopping first removed that entirely and made the window a bounded, deliberate outage rather than a hang that looks like a bug. The cost was already being paid — `apps/bot/main.py:196` is `run_polling(drop_pending_updates=True)`, so the ordinary restart at step 5 already discards anything sent while the bot is down. **This applied to W4b only. A future slice wanting it must justify it again.** |
 | 2026-08-24 | **W4b: the first rehearsal attempt did not run — a pasted command carried a placeholder DSN and failed with `failed to resolve host`.** It was caught, production was confirmed at `Applied: 001–010, Pending: 011` with both services `active`, and the rehearsal was then run properly. **Nothing reached production out of order.** | Recorded because the near-miss is the interesting part, not the typo. The placeholder failed *loudly* here only because the next step checked schema state before proceeding — had the DSN resolved to something real instead of nothing, the failure would have been silent and in the wrong database. This is the same shape as #64 (a scratch `.env` being silently ignored while the real configuration loads) and the same reason CLAUDE.md §5b insists on exported variables: the reliable protection is not careful pasting, it is a check between the step and the thing it affects. |
@@ -690,6 +705,8 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | # | Issue | Severity | Slice | Status |
 |---|---|---|---|---|
+| 100 | **`docs/TASKS-v3-web.md`'s Build columns for W7, W8 and W10 are stale by one migration number.** W7 reads "Migration 012", which is now W5's; W8 reads 013 and W10 reads 014. The authoritative table at `docs/TASKS-v3-web.md:89` has them at 013 / 014 / 015 and line 124 already rules that the table wins and the Build column is the bug. Only W5's Build column was corrected when W4b renumbered. Identified during W5 planning; **not edited, because a `docs/` rewrite is outside the slice**. | medium | W4b → W7 | ⬜ open — correct the three Build columns before W7 |
+| 99 | **The v2 work bias lives in the quiz SCENARIO LABELS, not in the sentences.** Of the 16 surviving quiz scenarios on production, roughly **nine carry work framing** — *"Mina and Pooya texting after a late-night deploy"*, *"Omid and Bahar texting during a Saturday deploy while watching a football match"*, *"Nima and Leila texting through a rainy weekend about a stuck deploy"*, *"Yasmin off sick while Kaveh covers a client deploy"* — in a system where Work is meant to be 20% of the mix. This is a **census, not a sample**: those sixteen are every surviving quiz session, so the small n does not weaken it the way it weakens #57's percentage. It corroborates the sentence-level reading (7.3% work terms) precisely: the sentences are mostly clean while the *framing* is work-saturated, which points at scenario labels, `{work_domain}` injected into 8 of 13 prompts, and the Work-40 schema default (#56). **W5's generator prompt and W10's session mix are where this is fixed. The jargon gate is not.** | medium | W5 → #56 / W10 | ⬜ open — W10 owns the session mix |
 | 98 | **An unquoted `.env` value containing a space breaks any shell that sources the file.** `.env` line 28 was `WEBAUTHN_RP_NAME=Everyday English`. Python's `dotenv` parses it correctly, so the application never noticed; a shell sourcing the same file truncates at the space and then tries to **execute `English`**. Observed twice during the W4b deploy. Quoted on production 2026-08-24 — no restart needed, since dotenv strips the quotes. **The fix is not the issue.** Nothing prevents the next unquoted value: `.env.example` does not carry the convention, and no check enforces it. Two readers with different parsing rules share one file, and only one of them complains. | low | W4b | ⬜ open — `.env.example` should carry the quoting convention |
 | 97 | **A web-only learner cannot be approved, declined or revoked by the operator.** `access_control.approve_access` / `decline_access` / `revoke_access` are keyed on `telegram_user_id`, which a web-originated learner does not have. Worse than a missing feature: `revoke_access` is an `INSERT … ON CONFLICT (telegram_user_id) DO UPDATE`, and with a NULL telegram id the conflict target never matches, so it would **insert a second `access_requests` row** (many NULLs are allowed by the unique constraint) rather than revoking the learner — leaving them approved and the operator believing otherwise. Not reachable today because `create_web_user` is operator-only and there is no web sign-up route, but it becomes reachable the moment one exists. Wants `user_id`-keyed variants alongside the Telegram-keyed ones, the same split `is_approved` got at W4b. | medium | W4b → before any web sign-up route | ⬜ open |
 | 96 | **`watch_import` inbox directories are named after the old user ids.** `inbox_path(root, user_id)` builds `inbox/<user_id>/`, so after 011 the code looks for `inbox/1/` while the existing folder on disk is `inbox/7222549221/`. **Production is unaffected — `WATCH_DIR` is unset there and S15a is dormant** (`docs/DEPLOYMENT.md`: "no Drive client on the server; CSV via Telegram only"), so this is a Mac-only orphan and no deploy step is needed. Filed rather than fixed because it must not be rediscovered as a mystery when S15a is turned on. Separately noticed and worth its own look: the Mac's watch folder holds **~900 stray directories** created by the test suite against a real Google Drive path. | low | W4b | ⬜ open — rename or re-create when S15a is enabled |
@@ -820,6 +837,30 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 
 | Path | Purpose | Status |
 |---|---|---|
+| **W5 — new** | | |
+| `migrations/012_items.sql` | `items` + `item_attempts`; `errors.source` widened once for the full v3 set; `users.track_weights` default → 50/30/20 **with the paired `CREATE OR REPLACE VIEW` (#48)**. | 🟡 applied to the Mac dev DB only |
+| `packages/core/items/__init__.py` | `ITEM_TYPES` (11), `CUE_TYPES` (5), `TRACKS`, `RESPONSE_MODE` (tap/typed/spoken — **defined by W5, PRD has no such concept**), `VALIDATOR_VERSION`. | 🟡 |
+| `packages/core/items/schema.py` | The eleven types as a pydantic discriminated union; `payload_of`, `payload_keys`, `hash_contribution`, `content_hash`. | 🟡 |
+| `packages/core/items/grading.py` | `fold` / `fold_answer` / `normalise_variants` / `matches` / `grade_text` — **one comparison shared by the gate and the grader**. | 🟡 |
+| `packages/core/items/checks.py` | Every deterministic check, per type. Pure: no DB, no model, no network. | 🟡 |
+| `packages/core/items/naturalness.py` | PRD §4.6 rules 2/3/4, mechanical. `JARGON` carries its **unmeasured provenance** and #57's reasoning at the head of the list. | 🟡 |
+| `packages/core/items/projection.py` | `visible_projection` — the single learner-visible serialiser. **W6 must use this and nothing else.** | 🟡 |
+| `packages/core/items/repair.py` | PRD §4.3's five-cue ladder, deterministic. Word bank built from the solver's own wrong answers. | 🟡 |
+| `packages/core/items/gates.py` | Blind solver, batched naturalness judge, audio round-trip, and `validate` orchestration. **The only module here that imports `core.llm` / `core.speech`.** | 🟡 |
+| `packages/core/items/verify.py` | The human-run verification. `--dry-run` by default; `--live` / `--live-audio` are three calls total. | 🟡 — human runs `--live` |
+| `packages/core/services/items.py` | Every query against `items` / `item_attempts`. `insert_item` refuses a report that is not `ok`. | 🟡 |
+| `packages/core/prompts/item_generate.txt` | Generator prompt. Everyday English first, contractions by default, recoverability rule, cue material required. | 🟡 |
+| `packages/core/prompts/item_blind_solver.txt` | Sees the projection only. Forbids reasoning; 200-token ceiling. | 🟡 |
+| `packages/core/prompts/item_naturalness.txt` | PRD §4.6 rule 1, batched up to 20 sentences. | 🟡 |
+| `scripts/w5_57.sql` | The #57 measurement queries, read-only. Committed at `ec3ce8d` as the recoverable provenance of every figure in the gate. | ✅ run on production |
+| `tests/fixtures/items/valid.json` | One passing fixture per type, all eleven. | 🟡 |
+| `tests/fixtures/items/invalid.json` | 27 failing fixtures with **hardcoded** expected codes (rule 5). | 🟡 |
+| `tests/test_items_validator.py` | Fixture set, the PRD broken item by name, the retry cap, zero-call jargon rejection. | 🟡 |
+| `tests/test_items_projection.py` | The leak test — per type, the answer appears nowhere in the projection. | 🟡 |
+| `tests/test_items_naturalness.py` | PRD's five terms × Life/Curiosity rejected **and the Work-track inverse accepted**. | 🟡 |
+| `tests/test_items_sources.py` | The harvest classification partitions the `errors.source` CHECK exactly. | 🟡 |
+| `tests/test_items_service.py` | DB round-trip; the refusal; fan-out; a **web-only learner with no `telegram_user_id`** owning items. | 🟡 |
+| `tests/test_migration_012.py` | Shape read from `pg_constraint`; FK targets and `ON DELETE` semantics; CHECK ↔ constant. | 🟡 |
 | **W4b — new** | | |
 | `migrations/011_identity.sql` | The identity re-key. Snapshot per (table, user) → add `users.id` → drop 17 FKs → rewrite child values → move the `users` key → re-key `access_requests` → re-add 17 FKs with original `ON DELETE` semantics → `CREATE OR REPLACE VIEW approved_onboarded_users` (#48) → assert. **No `DELETE`, no `DROP TABLE`, no `DROP COLUMN`** | 🟡 applied to the **Mac dev database only** (`schema_version: 11`); **not applied to production** |
 | `scripts/rollback_011.sql` | Reverses both primary-key moves in one transaction. Guard refuses once a Telegram-less user **or** a web-originated access request exists. Proven by a forward/back round-trip producing byte-identical schema and data | 🟡 rehearsed on a scratch copy; never run on production |
@@ -1390,29 +1431,63 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-**Identity is decoupled from Telegram on production.** Migration 011 is live —
-`Applied: 001–011, Pending: (none)` — `users.telegram_user_id` is nullable and
-UNIQUE, identity is `users.id`, and **a person can now exist in this database
-without a Telegram account**. `PRODUCT-PRINCIPLES.md` §2 is satisfied by the
-schema for the first time. **#92 is closed.**
+**W5 is code-complete and local only.** Migration 012 is applied to the Mac dev
+database and **nowhere else**. Suite **1250 passing / 0 failing** against a
+baseline of 1103.
 
-The lexicon is seeded and the ledger is repaired (W4, W4a). Both learners came
-through the re-key intact: ids **1 / 2 / 3** with every Telegram id preserved,
-**errors 0 + 26 + 7 = 33**, **`user_lexemes` 6,075** — verified by a query run
-separately from the migration's own assertions, and identical on the rehearsal
-copy and on production. Suite **1103 passing / 0 failing**.
+**The #57 gate ran first and is closed as a gate, not as an issue.** It returned
+⬜ UNMEASURED — no source clears n≥150 (`quiz_prompt` 96, `chunk_sentence` 29,
+`reading_body` **1**) and the interval straddles the boundary regardless
+(7.3% ± 5.2 → 2.1–12.5%). The `< 10%` branch was **considered and declined**;
+the reasoning is in the decisions log and in `naturalness.py`. #57 stays open,
+retargeted. The queries are committed at `ec3ce8d` so every figure is
+recoverable.
 
-**The next slice is W5 — item schema + validator, and it is now migration 012**,
-not 011. W4b took 011 and every unwritten slice below it shifted by one in
-`docs/TASKS-v3-web.md`'s authoritative table. A slice reading only its own Build
-column would write the wrong number; the table wins.
+### The human's deploy steps for W5 — Claude Code has no SSH to this host
+
+Backup → pull → `pip install -e packages/core` → migrate → restart. The sequence
+is settled and is not re-argued. **012 takes no lock like 011's** — it creates
+two new tables and alters one column default — so no `systemctl stop` step is
+owed this time.
+
+1. `bash scripts/backup.sh` and confirm the byte count went to R2.
+2. Pull to the W5 commit, then `pip install -e packages/core` — **pydantic is a
+   new declared dependency**, so this step is not optional this time even though
+   it is already in the venv transitively.
+3. `python -m core.db migrate` → expect `Applied: 012`, then
+   `python -m core.db status` → `Applied: 001–012, Pending: (none)`.
+4. `systemctl restart english-bot english-api` and confirm both `active`.
+5. **Nothing else changes for a learner.** W5 writes no items; the table is
+   empty by design until W10's `assign_daily`. If a learner notices anything at
+   all after this deploy, something is wrong.
+
+### W5's own checks — the human, and only the human
+
+1. **`python -m core.items.verify --live`.** ONE blind-solver call against PRD's
+   own broken item. **The pass condition is inverted**: the gate is working when
+   the solver returns something *other* than `I'll`. **One sample of a
+   stochastic system** — it licenses no claim about the gate's rate. A fail is
+   decisive; a pass is not proof. Record the answer it gave in the decisions log.
+2. **`python -m core.items.verify --live-audio`.** ONE `synthesize` + ONE
+   `transcribe`. Verifies the round-trip *composition*, not request construction.
+3. **The 20-item Life sample — and it cannot be automated.** A test asserting
+   "reads as spoken English" would be decoration (CLAUDE.md §3 rule 4), and
+   weakening it to something testable would lower the bar (rule 7). Generate 20
+   Life-track items and read them. **Do they sound like a person talking to a
+   friend, or like a Slack message?** This is the acceptance criterion TASKS
+   actually states and the only instrument for it is a person.
+4. **Read three or four scenario labels from #99 and confirm the diagnosis.**
+   The bias is in the framing, not the sentences. If the W5 generator prompt has
+   not moved it, W10 inherits the problem.
 
 ### Still unrun, carried forward — every one of these, named, never silently
 
-**Nothing below was cleared by W4b.** It is a schema change and a data model; it
-exercises no learner path. The one item it did clear — the phone `/write` check,
-carried unrun since W3 — **has been removed from this list because it ran on
-2026-08-24**, not because it got old.
+**Nothing below was cleared by W4b or by W5.** Both are schema changes and data
+models; between them they exercise **no learner path at all**. W5 in particular
+writes no items and shows nothing to anybody — the table is empty by design until
+W10. The one item W4b cleared — the phone `/write` check, carried unrun since W3
+— **was removed because it ran on 2026-08-24**, not because it got old. Nothing
+else has been removed, and nothing drops off this list for being old.
 
 1. **The hand-checked coverage number. Unrun, and it is the one that matters.**
    Take a paragraph of English the human has actually read, run it through
@@ -1432,8 +1507,12 @@ carried unrun since W3 — **has been removed from this list because it ran on
    stay_null slang / become_presented; confirm `non_slang_delivered = 0`.
 5. **#44 — evening reading**, until a real Mon/Wed/Fri delivery lands. No deploy
    proves it.
-6. **#57 — before W5.** The §6b work-vocabulary SQL and the quiz-scenario
-   frequency query, run on Hetzner. W5 rewrites the prompts against that number.
+6. **#57 — RUN on 2026-08-24, and it is no longer a blocker.** The queries
+   (`scripts/w5_57.sql`, committed `ec3ce8d`) returned ⬜ UNMEASURED: the corpus
+   is too small to answer, not clean. The issue **stays open**, retargeted to
+   re-measure once the v3 corpus is large enough to clear n≥150 — which will not
+   be true until items and sessions have been accumulating for some weeks. It
+   blocks nothing now.
 7. **S8** — create the shared group, add the bot, run `/here`, set
    `COUPLE_CHAT_ID`, restart, then the seven group checks.
 8. **The entire v2 desk-check list, unchanged.** W1c, W2, W2a, W3, W4, W4a and
@@ -1489,7 +1568,7 @@ to two modules — and **not** a second exemption. It was proven not inert:
 introducing one violation on each side makes each half fail, and reverting makes
 it pass.
 
-**W4, W4a and W4b are 🟡, awaiting the human's mark. Do not start W5.**
+**W4, W4a, W4b and W5 are all 🟡, awaiting the human's mark. Do not start W6.**
 
 ### Human — carried forward, explicitly and not silently
 
@@ -1500,7 +1579,7 @@ it pass.
 
 **The entire v2 desk-check list, unchanged.** W1c, W2, W2a and W3 are backup, auth, infrastructure and one ported feature; between them they exercise **one** learner path and clear none of these. The full list is in the Verification checklist above and in the block below.
 
-**#57 — run on Hetzner before W5:** the §6b work-vocabulary SQL and the quiz-scenario frequency query. W5 rewrites the prompts against that number.
+**#57 — done as a gate, still open as a measurement.** Run on Hetzner 2026-08-24; returned UNMEASURED (n=96 against a floor of 150). `naturalness.py`'s `JARGON` list carries that provenance in a comment at its head, so nobody mistakes it for a measured list. Re-measure when the v3 corpus is big enough.
 
 **S8 — the shared group.** Create it, add the bot, run `/here`, set `COUPLE_CHAT_ID`, restart; then the seven S8 group checks.
 
@@ -1533,7 +1612,7 @@ verified intact by a query run separately from the migration's own assertions,
 the already-signed-in phone opening with no re-enrolment prompt. #92 is closed,
 and identity no longer depends on Telegram.** **All three stay 🟡
 until the human marks them; that column is the human's (`PRODUCT-PRINCIPLES.md`
-§5). Do not start W5.**
+§5).** **W5 joins them at 🟡 and is not deployed at all yet. Do not start W6.**
 
 **One check left this list rather than being carried:** the phone `/write`
 check, unrun since W3, ran on 2026-08-24. Nothing else was removed.

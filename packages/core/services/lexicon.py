@@ -25,6 +25,7 @@ from core.lexicon.normalize import lemmatize, lexeme_rows, tokenize
 from core.lexicon.states import (
     AUTHORITATIVE_SOURCES,
     COVERED_STATES,
+    HARVESTED_SOURCES,
     MAY_LOWER,
     SOURCE_RANK,
     STATE_RANK,
@@ -42,7 +43,11 @@ from core.services.books import is_word_bank_item
 # `capture` is someone else's English by definition and is barred from the
 # journal outright; a `capture` row appearing in `errors` is a data defect, and
 # `harvest_v2` counts them so the slice can report it rather than swallow it.
-PRODUCED_ERROR_SOURCES: tuple[str, ...] = ("quiz", "text", "reading", "conversation")
+# W5 moved the membership decision to `core.lexicon.states.HARVESTED_SOURCES`
+# so the six values migration 012 added are classified in one place and asserted
+# against the CHECK. The tuple is derived, not maintained: two hand-kept copies
+# of an allow-list is how one of them quietly stops matching the schema.
+PRODUCED_ERROR_SOURCES: tuple[str, ...] = tuple(sorted(HARVESTED_SOURCES))
 BARRED_ERROR_SOURCES: tuple[str, ...] = ("capture",)
 
 # A lemma may be grown at runtime only from a form the learner actually

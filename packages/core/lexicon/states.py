@@ -105,6 +105,48 @@ SOURCES: tuple[str, ...] = tuple(SOURCE_RANK)
 # PRD §8.5.1. Five values, on `cards`, `items` and `user_lexemes`.
 REGISTERS: tuple[str, ...] = ("formal", "neutral", "informal", "slang", "taboo")
 
+# ── which `errors.source` values may feed the ledger ────────────────────────
+#
+# W4 established the axis and W5 widened the CHECK, so the classification lives
+# here rather than as an inline list in one query. The axis is: DID THE LEARNER
+# TYPE IT, OR DID A RECOGNISER GUESS IT? ASR output is not evidence that a
+# learner produces a word, and a mishearing promoted to `known` is a permanently
+# known word they never said. A wrong row is permanent damage; a missing one is
+# recoverable, so the doubtful cases are excluded rather than downgraded.
+#
+# Migration 012 added six values and every one is classified below, in the same
+# slice that added it — not left for whichever later slice first writes one.
+# `tests/test_items_sources.py` asserts the CHECK and these two sets agree
+# exactly, so a seventh value cannot be added without a decision.
+HARVESTED_SOURCES = frozenset(
+    {
+        "quiz",       # W4: keyboard-authored
+        "text",       # W4: keyboard-authored
+        "reading",    # W4: keyboard-authored
+        "conversation",  # W4: keyboard-authored
+        "answer",     # W5: free written answer -- `text`'s class
+        "retell",     # W5: written retell of a passage -- `text`'s class
+    }
+)
+
+NOT_HARVESTED_SOURCES = frozenset(
+    {
+        "voice",      # W4: ASR
+        "diary",      # W4: ASR
+        "capture",    # W4: someone else's English, and barred from the journal
+        "shadow",     # W5: ASR -- `voice`'s class
+        "video",      # W5: the source line is someone else's English
+        "item",       # W5: covers typed AND ASR-graded responses under one
+                      #     value, so harvesting it would let a `speak_answer`
+                      #     mishearing promote a word. `core.items.RESPONSE_MODE`
+                      #     is shipped so W6/W7 can split them honestly instead
+                      #     of widening this set and hoping.
+        "placement",  # W5: PRD §6 requires the instrument not to change.
+                      #     Harvesting from it feeds the measurement back into
+                      #     the thing being measured.
+    }
+)
+
 
 def state_rank(state: str) -> int:
     return STATE_RANK[state]

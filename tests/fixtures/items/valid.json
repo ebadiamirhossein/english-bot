@@ -1,0 +1,57 @@
+[
+  {"name": "mcq", "item": {
+    "item_type": "mcq", "track": "life", "lexeme": "go",
+    "prompt_text": "I ___ to the shops yesterday.", "answer": "went",
+    "options": ["went", "goed", "gone", "going"]}},
+
+  {"name": "cloze_cued", "item": {
+    "item_type": "cloze_cued", "track": "life", "lexeme": "go",
+    "prompt_text": "I ___ to the shops yesterday.", "answer": "went"}},
+
+  {"name": "word_bank_order", "item": {
+    "item_type": "word_bank_order", "track": "life", "unit_number": 3,
+    "prompt_text": "Put these in order.", "answer": "I went to the shops",
+    "bank": ["shops", "went", "I", "the", "to"]}},
+
+  {"name": "error_spot", "item": {
+    "item_type": "error_spot", "track": "life", "unit_number": 3,
+    "prompt_text": "Tap the word that is wrong.", "answer": "goed",
+    "tiles": ["I", "goed", "to", "the", "shops"],
+    "wrong_index": 1, "correction": "went"}},
+
+  {"name": "l1_to_l2_production", "item": {
+    "item_type": "l1_to_l2_production", "track": "life", "lexeme": "go",
+    "prompt_text": "من دیروز به مغازه رفتم", "answer": "I went to the shops",
+    "accepted_variants": ["i went to the shops", "i went to the shop"]}},
+
+  {"name": "dictation", "item": {
+    "item_type": "dictation", "track": "life", "unit_number": 2,
+    "prompt_text": "Type what you hear.",
+    "answer": "I forgot my keys and had to wait outside"}},
+
+  {"name": "listening_gap", "item": {
+    "item_type": "listening_gap", "track": "life", "lexeme": "key",
+    "prompt_text": "I forgot my ___ this morning", "answer": "keys",
+    "transcript": "I forgot my keys this morning"}},
+
+  {"name": "speak_repeat", "item": {
+    "item_type": "speak_repeat", "track": "life", "unit_number": 5,
+    "prompt_text": "I'll call you back in a minute",
+    "answer": "I'll call you back in a minute"}},
+
+  {"name": "speak_answer", "item": {
+    "item_type": "speak_answer", "track": "life", "lexeme": "weekend",
+    "prompt_text": "What did you do last weekend?",
+    "rubric": "talk about your weekend using past simple"}},
+
+  {"name": "match_pairs", "item": {
+    "item_type": "match_pairs", "track": "life", "unit_number": 6,
+    "prompt_text": "Match each word to its meaning.",
+    "pairs": [["knackered", "very tired"], ["skint", "having no money"],
+              ["gutted", "very disappointed"]]}},
+
+  {"name": "collocation_pick", "item": {
+    "item_type": "collocation_pick", "track": "life", "lexeme": "make",
+    "prompt_text": "I need to ___ a decision.", "answer": "make",
+    "options": ["make", "do", "take"]}}
+]

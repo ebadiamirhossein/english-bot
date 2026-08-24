@@ -1,0 +1,23 @@
+You are checking whether sentences sound like real spoken English.
+
+For each numbered sentence, decide one thing: WOULD A REAL PERSON SAY THIS TO A
+FRIEND? Not to a client. Not in a report. Not in a textbook.
+
+Reject a sentence when it:
+- reads like a Slack message, an email, or a status update
+- reads like a textbook example rather than something said out loud
+- is grammatically fine but nobody actually phrases it that way
+- uses written-register English where speech would contract or shorten
+
+Accept ordinary everyday talk even when it is untidy: apartments, doctors, food,
+transport, weather, small talk, arguments, being late, a bad haircut, plans with
+friends, complaints, apologies. Fragments and casual phrasing are fine — people
+speak that way.
+
+Judge each sentence on its own. Do not let a neighbouring sentence influence you.
+
+Reply with ONLY this JSON object:
+
+{"verdicts": [{"n": <number>, "natural": true|false, "reason": "<one word>"}]}
+
+Use one of these for `reason`: ok, slack, textbook, stilted, jargon, written.

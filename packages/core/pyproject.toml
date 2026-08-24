@@ -18,6 +18,13 @@ dependencies = [
     # requirements.txt would leave `core` importing something it does not
     # declare. tests/test_core_boundary.py asserts the mirror agrees.
     "webauthn>=2.5,<3",
+    # W5. `core/items/schema.py` parses an eleven-variant generator payload as a
+    # discriminated union, so this file is its authority. It already arrives in
+    # every venv transitively (via `anthropic`, and `apps/api` imports it
+    # directly), so declaring it turns an undeclared transitive dependency into
+    # a declared one -- a tightening, and the deploy sequence gains no step
+    # because `pip install -e packages/core` is already step 3.
+    "pydantic>=2.7,<3",
 ]
 
 # `core` is this directory itself, so the package root maps to ".".
@@ -25,7 +32,11 @@ dependencies = [
 # fact rather than a path convention: apps/api, apps/worker and apps/bot must
 # declare a dependency on it, and it can never depend on them.
 [tool.setuptools]
-packages = ["core", "core.services"]
+# `core.lexicon` was shipped by W4 and never listed here. The editable install
+# resolves it by filesystem path so nothing has failed, but a wheel build would
+# have dropped the whole lexicon package. W5 adds `core.items` and would have
+# walked into the same hole, so both are declared.
+packages = ["core", "core.services", "core.lexicon", "core.items"]
 
 [tool.setuptools.package-dir]
 core = "."

@@ -277,6 +277,81 @@ def test_lexicon_package_is_pure() -> None:
     )
 
 
+# W5. `core/items/` is the pure half of the item validator, the same shape
+# `core/lexicon/` is: it turns a draft into a verdict without reaching a
+# database. `core/services/items.py` holds every query. Because `core/items/` is
+# NOT under `core/services/`, `test_no_sql_outside_services` already covers it
+# with **zero new exemptions** -- #59 stays the only one in this file.
+ITEMS = CORE / "items"
+# The two deliberately impure modules, named so nobody has to guess. `gates.py`
+# is where the model-required gates live; `verify.py` is the human-run
+# verification. They are exempt from the LLM/speech rule below and from nothing
+# else -- in particular they may not carry SQL.
+ITEMS_MODEL_CALLERS = {ITEMS / "gates.py", ITEMS / "verify.py"}
+
+
+def test_items_package_is_pure() -> None:
+    """No SQL and no driver anywhere; no `core.llm`/`core.speech` outside two.
+
+    If a query appeared here it would force the first new boundary exemption
+    since #59, which `test_no_sql_outside_services`'s own docstring refuses. And
+    if `core.llm` leaked into `checks.py` the deterministic half would stop
+    being testable without a network, which is the property that lets the whole
+    fixture set run under `netguard`.
+    """
+    offenders: list[str] = []
+    for path in _python_files(ITEMS):
+        rel = path.relative_to(REPO_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        roots = _imported_roots(tree)
+        modules = _imported_modules(tree)
+        if roots & {"psycopg", "psycopg_pool"}:
+            offenders.append(f"{rel}: imports a database driver")
+        if path not in ITEMS_MODEL_CALLERS:
+            reaching = {m for m in modules if m in {"core.llm", "core.speech"}}
+            if reaching:
+                offenders.append(f"{rel}: imports {', '.join(sorted(reaching))}")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if _looks_like_sql(node.value):
+                    offenders.append(f"{rel}:{node.lineno}: SQL")
+    assert offenders == [], (
+        "core/items/ is pure: every query lives in core/services/items.py and "
+        "only gates.py/verify.py may reach a provider (CLAUDE.md §2): "
+        + "; ".join(offenders)
+    )
+
+
+def test_exactly_one_module_writes_an_item() -> None:
+    """"No item reaches a learner without a validation record", structurally.
+
+    Three layers hold that claim up: migration 012's `validation JSONB NOT NULL`
+    plus its `? 'deterministic'` CHECK, `insert_item`'s refusal to write a
+    report that is not `ok`, and this. **This is the layer that survives a
+    refactor** -- the other two can be bypassed by a second INSERT written
+    somewhere else, and nothing would fail.
+    """
+    writers: set[str] = set()
+    for root in (CORE, APPS):
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            # Prose describing the rule is not a violation of it. This test
+            # caught its own docstring on the first run, which is the same trap
+            # `test_only_the_tokeniser_reads_the_lexicon_data_files` solves.
+            prose = _docstring_ids(tree)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Constant) or id(node) in prose:
+                    continue
+                if not isinstance(node.value, str):
+                    continue
+                statement = " ".join(node.value.upper().split())
+                if re.search(r"\bINSERT INTO ITEMS\b", statement):
+                    writers.add(str(path.relative_to(REPO_ROOT)))
+    assert writers == {"packages/core/services/items.py"}, (
+        "exactly one module may INSERT INTO items: " + ", ".join(sorted(writers))
+    )
+
+
 def _docstring_ids(tree: ast.AST) -> set[int]:
     """Docstrings naming a file are prose about it, not a read of it."""
     ids: set[int] = set()
