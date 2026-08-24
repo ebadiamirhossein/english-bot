@@ -58,6 +58,33 @@ SOURCE_RANK: dict[str, int] = {
 # the IS DISTINCT FROM guard in the upsert, not by rank.
 AUTHORITATIVE_SOURCES = frozenset({"review", "placement"})
 
+# Which sources may lower a state, and it is not the same question as rank.
+#
+# Rank measures **authority** — how much a channel is trusted. Demotion asks
+# something else entirely: does this source carry evidence that the learner
+# knows the lemma *less well* than the row already records? Only three things do:
+#
+#   `review`     a measured lapse
+#   `placement`  a diagnostic result
+#   `tapped`     the learner stopped at the word because they did not know it
+#
+# Exposure and inference never qualify. A word appearing in a reading the bot
+# sent, or in a chunk shown to the learner, is evidence they have **met** it —
+# never evidence they have failed to learn it, and for a top-2000 lemma the
+# frequency band is by far the stronger prior.
+#
+# W4 gated demotion on rank alone, and the consequence was perverse: at rank 1,
+# `v2_encountered` outranked the rank-0 frequency floor, so a passive exposure
+# dragged `known` down to `seen`. **The more a learner had used the app, the
+# lower their coverage** — 231 of one learner's 2,000 floor lemmas fell out on
+# the first production harvest. Nothing read coverage yet, so a learner would
+# have inherited it later as an unexplained number.
+#
+# This is a superset of AUTHORITATIVE_SOURCES and must not be collapsed into it.
+# The two sets answer different questions — "may this write ignore rank?" and
+# "may this write lower a state?" — and `tapped` is in one and not the other.
+MAY_LOWER = frozenset({"review", "placement", "tapped"})
+
 # Which states each source is entitled to assert. W4 writes only `assumption`
 # and the three `v2_*` sources; the rest are declared now so a later slice adds
 # a caller rather than a migration.

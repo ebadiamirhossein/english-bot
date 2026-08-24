@@ -100,13 +100,26 @@ def test_a_placement_test_can_correct_an_assumption_downwards(conn, user) -> Non
     assert state_of(conn, user, "w4gamma") == "seen"
 
 
-def test_an_equal_ranked_inference_may_raise_but_not_demote(conn, user) -> None:
+def test_an_equal_ranked_inference_raises(conn, user) -> None:
     add_lexeme(conn, "w4delta")
     svc.record(conn, user, [LedgerEntry("w4delta", "seen", "tapped")])
     svc.record(conn, user, [LedgerEntry("w4delta", "learning", "v2_studied")])
     assert state_of(conn, user, "w4delta") == "learning"
-    svc.record(conn, user, [LedgerEntry("w4delta", "seen", "tapped")])
-    assert state_of(conn, user, "w4delta") == "learning"
+
+
+def test_a_tap_may_lower_an_equal_ranked_inference(conn, user) -> None:
+    """W4a changed this, and the change is the point.
+
+    `tapped` and `v2_studied` share rank 2. Under W4's rank-only rule the tap
+    could not lower `learning` back to `seen`; under W4a it can, because a tap
+    means the learner stopped at the word — evidence of not-knowing, which is
+    the property that gates a demotion. Rank still applies: see
+    `test_a_tap_cannot_demote_what_a_correction_proved_known`.
+    """
+    add_lexeme(conn, "w4deltatwo")
+    svc.record(conn, user, [LedgerEntry("w4deltatwo", "learning", "v2_studied")])
+    svc.record(conn, user, [LedgerEntry("w4deltatwo", "seen", "tapped")])
+    assert state_of(conn, user, "w4deltatwo") == "seen"
 
 
 def test_a_review_lapse_over_an_earlier_review_demotes(conn, user) -> None:

@@ -25,6 +25,7 @@ from core.lexicon.normalize import lemmatize, lexeme_rows, tokenize
 from core.lexicon.states import (
     AUTHORITATIVE_SOURCES,
     COVERED_STATES,
+    MAY_LOWER,
     SOURCE_RANK,
     STATE_RANK,
     validate,
@@ -82,7 +83,12 @@ def _case(column: str) -> str:
     return f"CASE {column} {whens} END"
 
 
-_AUTHORITATIVE_IN = ", ".join(f"'{s}'" for s in sorted(AUTHORITATIVE_SOURCES))
+def _in_list(sources) -> str:
+    return ", ".join(f"'{name}'" for name in sorted(sources))
+
+
+_AUTHORITATIVE_IN = _in_list(AUTHORITATIVE_SOURCES)
+_MAY_LOWER_IN = _in_list(MAY_LOWER)
 
 # The conflict rule, in one place.
 #
@@ -93,10 +99,18 @@ _AUTHORITATIVE_IN = ", ".join(f"'{s}'" for s in sorted(AUTHORITATIVE_SOURCES))
 #     wins. Gating them would discard every FSRS lapse (equal rank) and, worse,
 #     would let a monthly placement freeze out the daily reviewer for up to
 #     thirty days (lower rank) — W7 would appear to work while changing nothing.
-#   * A higher-ranked inference writes any state.
-#   * An equal-ranked inference may only raise, so a word tapped in a transcript
-#     cannot demote a word a correction proved known.
-#   * A lower-ranked inference never writes.
+#   * Otherwise a write that **lowers** the state applies only if its source is
+#     in MAY_LOWER *and* it ranks at least as high as the row it is overwriting.
+#   * Otherwise a write that **raises** the state applies if it ranks at least
+#     as high as the row it is overwriting.
+#   * A write that changes neither state nor rank direction applies only from a
+#     strictly higher rank, which just re-attributes the row.
+#
+# W4a added the MAY_LOWER clause. Before it, demotion was gated on rank alone,
+# and `v2_encountered` at rank 1 therefore outranked the rank-0 frequency floor:
+# a passive exposure pulled `known` down to `seen`, so the more a learner had
+# used the app the lower their coverage read. Rank measures authority; demotion
+# needs evidence of not-knowing, and those are different properties.
 #
 # The IS DISTINCT FROM guard carries the whole weight of idempotency, since
 # nothing else gates an authoritative write: re-running any ingestion fires no
@@ -112,9 +126,13 @@ ON CONFLICT (user_id, lexeme_id) DO UPDATE
        updated_at  = NOW()
  WHERE (
          EXCLUDED.source IN ({_AUTHORITATIVE_IN})
-      OR EXCLUDED.source_rank > user_lexemes.source_rank
-      OR (EXCLUDED.source_rank = user_lexemes.source_rank
-          AND {_case('EXCLUDED.state')} > {_case('user_lexemes.state')})
+      OR ({_case('EXCLUDED.state')} < {_case('user_lexemes.state')}
+          AND EXCLUDED.source IN ({_MAY_LOWER_IN})
+          AND EXCLUDED.source_rank >= user_lexemes.source_rank)
+      OR ({_case('EXCLUDED.state')} > {_case('user_lexemes.state')}
+          AND EXCLUDED.source_rank >= user_lexemes.source_rank)
+      OR ({_case('EXCLUDED.state')} = {_case('user_lexemes.state')}
+          AND EXCLUDED.source_rank > user_lexemes.source_rank)
        )
    AND (EXCLUDED.state,
         EXCLUDED.source,
@@ -135,12 +153,15 @@ def wins(incoming: LedgerEntry, existing: LedgerEntry) -> bool:
     """
     if incoming.source in AUTHORITATIVE_SOURCES:
         return True
-    if existing.source in AUTHORITATIVE_SOURCES:
-        return False
-    incoming_rank, existing_rank = SOURCE_RANK[incoming.source], SOURCE_RANK[existing.source]
-    if incoming_rank != existing_rank:
-        return incoming_rank > existing_rank
-    return STATE_RANK[incoming.state] > STATE_RANK[existing.state]
+    incoming_rank = SOURCE_RANK[incoming.source]
+    existing_rank = SOURCE_RANK[existing.source]
+    incoming_state = STATE_RANK[incoming.state]
+    existing_state = STATE_RANK[existing.state]
+    if incoming_state < existing_state:
+        return incoming.source in MAY_LOWER and incoming_rank >= existing_rank
+    if incoming_state > existing_state:
+        return incoming_rank >= existing_rank
+    return incoming_rank > existing_rank
 
 
 def _reduce(entries: Iterable[LedgerEntry]) -> list[LedgerEntry]:
@@ -396,6 +417,106 @@ def onboarded_user_ids(conn) -> list[int]:
         return [row[0] for row in cur.fetchall()]
 
 
+# W4a. The rows the W4 harvest demoted out of the frequency floor.
+#
+# Three conditions, all required, and the middle one does the real work:
+#
+#   * the row was written by an exposure source — the only ones that could have
+#     demoted a floor row under the old rule;
+#   * the lemma is inside the floor, `freq_rank <= top_n`. This is exact rather
+#     than heuristic: the floor inserts *every* lemma at or above that rank, so
+#     a lemma in that band sitting at `v2_encountered`/`v2_studied` can only be
+#     an overwritten floor row — the harvest cannot have inserted it fresh;
+#   * `first_seen_at` falls inside the window of that learner's surviving
+#     `assumption` rows. Belt-and-braces given the condition above, and it
+#     matters if the floor is ever run separately from the harvest: `NOW()` is
+#     transaction time, so today the floor and the harvest share one timestamp
+#     and `first_seen_at` never moves on conflict, which is what makes the
+#     window identify the floor's own insert.
+#
+# `known`/`v2_produced` is deliberately outside the filter. Self-produced
+# English is stronger evidence than the floor's hypothesis, and those rows are
+# a real gain from the harvest — repairing them would be a second bug.
+_DEMOTED_FLOOR_ROWS = """
+  FROM user_lexemes ul
+  JOIN lexemes l ON l.id = ul.lexeme_id
+ WHERE ul.source IN ('v2_encountered', 'v2_studied')
+   AND l.freq_rank IS NOT NULL
+   AND l.freq_rank <= %s
+   AND ul.first_seen_at BETWEEN
+         (SELECT MIN(first_seen_at) FROM user_lexemes a
+           WHERE a.user_id = ul.user_id AND a.source = 'assumption')
+     AND (SELECT MAX(first_seen_at) FROM user_lexemes a
+           WHERE a.user_id = ul.user_id AND a.source = 'assumption')
+"""
+
+
+# Printed by `python -m core.lexicon.repair` so the human can confirm the result
+# against the database directly rather than trusting the command's own arithmetic.
+# It lives here because it is SQL, and SQL lives in services — `core/lexicon/` is
+# pure, and a query string sitting there would breach that boundary even though
+# nothing executes it.
+VERIFICATION_QUERY = """\
+SELECT user_id,
+       COUNT(*) FILTER (WHERE state IN ('known','mastered')) AS covered,
+       COUNT(*) AS total
+  FROM user_lexemes GROUP BY 1 ORDER BY 1;"""
+
+
+def count_demoted_floor_rows(conn, top_n: int) -> list[tuple[int, int]]:
+    """Per learner, how many floor lemmas the old rule demoted. Reads nothing else."""
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            "SELECT ul.user_id, COUNT(*)" + _DEMOTED_FLOOR_ROWS
+            + " GROUP BY ul.user_id ORDER BY ul.user_id",
+            (top_n,),
+        )
+        return [(row[0], row[1]) for row in cur.fetchall()]
+
+
+def restore_demoted_floor_rows(conn, top_n: int) -> list[tuple[int, int]]:
+    """Put them back to `known`/`assumption`, leaving `first_seen_at` alone.
+
+    The rule change stops this happening again; it cannot undo what is already
+    written, because no future write raises them — `v2_encountered` can only
+    ever assert `seen`. Idempotent: a second run matches nothing, since the
+    rows it repaired now read `assumption` and fall outside the filter.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            UPDATE user_lexemes SET state = 'known',
+                                    source = 'assumption',
+                                    source_rank = 0,
+                                    updated_at = NOW()
+             WHERE id IN (SELECT ul.id"""
+            + _DEMOTED_FLOOR_ROWS
+            + """)
+            RETURNING user_id
+            """,
+            (top_n,),
+        )
+        repaired: dict[int, int] = {}
+        for (user_id,) in cur.fetchall():
+            repaired[user_id] = repaired.get(user_id, 0) + 1
+    return sorted(repaired.items())
+
+
+def coverage_totals(conn) -> list[tuple[int, int, int]]:
+    """`user_id, covered, total` — the shape the human's verification query has."""
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT user_id,
+                   COUNT(*) FILTER (WHERE state = ANY(%s)) AS covered,
+                   COUNT(*) AS total
+              FROM user_lexemes GROUP BY 1 ORDER BY 1
+            """,
+            (sorted(COVERED_STATES),),
+        )
+        return [tuple(row) for row in cur.fetchall()]
+
+
 def _lemmas_in(text: str, vocabulary: frozenset[str]) -> set[str]:
     found = set()
     for token in tokenize(text or ""):
@@ -483,9 +604,12 @@ def seed_rows_from_file() -> list[tuple[str, str, int, int, str]]:
 __all__ = [
     "CoverageReport",
     "LedgerEntry",
+    "VERIFICATION_QUERY",
     "WriteCounts",
     "assume_top_frequency_known",
+    "count_demoted_floor_rows",
     "coverage_for",
+    "coverage_totals",
     "ensure_lexeme",
     "evidenced_known_count",
     "harvest_v2",
@@ -494,6 +618,7 @@ __all__ = [
     "onboarded_user_ids",
     "lemmatize",
     "record",
+    "restore_demoted_floor_rows",
     "seed_rows_from_file",
     "upsert_lexemes",
     "wins",
