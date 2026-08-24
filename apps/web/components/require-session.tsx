@@ -37,37 +37,60 @@ export function useSession(): SessionUser | null {
 type State =
   | { kind: "checking" }
   | { kind: "in"; user: SessionUser }
-  | { kind: "out" };
+  | { kind: "out" }
+  | { kind: "unreachable"; message: string };
 
 export function RequireSession({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [state, setState] = useState<State>({ kind: "checking" });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    getAuthHealth()
-      .then((session) => {
-        if (cancelled) return;
-        setState(
-          session
-            ? { kind: "in", user: session as unknown as SessionUser }
-            : { kind: "out" },
-        );
-      })
-      .catch(() => {
-        // A dead API and a refused origin look identical from here. Either way
-        // there is no session, so the sign-in screen is the honest destination.
-        if (!cancelled) setState({ kind: "out" });
-      });
+    // getAuthHealth never rejects: it returns which of the three outcomes
+    // happened, so "nobody is signed in" cannot arrive here as an error.
+    getAuthHealth().then((result) => {
+      if (cancelled) return;
+      if (result.kind === "signed-in") {
+        setState({ kind: "in", user: result.session as unknown as SessionUser });
+      } else if (result.kind === "anonymous") {
+        setState({ kind: "out" });
+      } else {
+        // Deliberately NOT a redirect. Sending someone to /sign-in because the
+        // API is down tells them to fix the wrong problem — and signing in is
+        // the one thing that cannot work while it is down.
+        setState({ kind: "unreachable", message: result.message });
+      }
+    });
     return () => {
       cancelled = true;
     };
-  }, [pathname]);
+  }, [pathname, attempt]);
 
   useEffect(() => {
     if (state.kind === "out") router.replace("/sign-in");
   }, [state.kind, router]);
+
+  if (state.kind === "unreachable") {
+    return (
+      <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col items-center justify-center gap-4 px-5 text-center">
+        <p className="font-heading text-lg">We can’t reach the app right now.</p>
+        <p className="max-w-prose text-sm text-muted-foreground">
+          Nothing is lost — this is a connection problem, not your account.
+        </p>
+        <button
+          onClick={() => {
+            setState({ kind: "checking" });
+            setAttempt((n) => n + 1);
+          }}
+          className="h-12 rounded-2xl bg-primary px-6 text-sm font-semibold text-primary-foreground"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
 
   if (state.kind !== "in") {
     return (

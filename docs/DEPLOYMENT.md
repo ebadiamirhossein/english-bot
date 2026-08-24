@@ -228,6 +228,46 @@ aws s3 ls s3://english-bot-backups/english_bot/ --recursive \
 
 ## Deploying an update
 
+### Which command installs which dependencies
+
+The sequence below is settled (`CLAUDE.md` §5) and is not changing. What it does
+**not** do is obvious only once it has bitten, so it is written down here:
+
+| Command | Covers |
+|---|---|
+| `pip install -e packages/core` | everything in `packages/core/pyproject.toml` — `psycopg`, `python-dotenv`, `anthropic`, `openai`, `webauthn` |
+| `pip install -r requirements.txt` | **additionally** the `apps/bot`, `apps/api`, `apps/worker` and test dependencies — `python-telegram-bot`, `fastapi`, `uvicorn`, `APScheduler`, `pytest`, `httpx` |
+
+**`pip install -r requirements.txt` is required whenever a slice adds a
+dependency outside `core`.** It is not in the five-step sequence because most
+slices do not need it, which is exactly why it gets forgotten.
+
+> **This cost real time on the W2 deploy.** `english-api` failed with
+> `status=203/EXEC` — systemd could not execute `uvicorn`, because `uvicorn` was
+> never installed. `fastapi`, `uvicorn` and `httpx` are `apps/*` dependencies
+> declared only in `requirements.txt`; W1b added them, but the API unit was
+> deliberately left uninstalled for two slices, so nothing surfaced the gap
+> until the unit finally started. The W2 plan reasoned that `webauthn` needed no
+> new deploy step because `packages/core/pyproject.toml` declares it — correct
+> for `core`, and wrongly generalised to the whole slice.
+
+**Before running it against a shared venv, dry-run it and read the output:**
+
+```bash
+sudo -u bot -i
+cd /home/bot/english-bot
+.venv/bin/pip install --dry-run -r requirements.txt
+```
+
+The venv is shared with `english-bot`, which is serving live traffic, so the
+question is not "does this add what I need" but "does this *upgrade* anything
+underneath a running bot". On the W2 deploy the dry run showed **ten additions
+and zero upgrades**, with `python-telegram-bot` held at 22.8 — which is what
+made it safe to proceed. A dry run before a shared-venv install belongs in the
+runbook, not in someone's judgement at the end of a long evening.
+
+---
+
 **The sequence is: backup → pull → `pip install -e packages/core` → migrate → restart.**
 Settled at W1, run as written on the W1c deploy of 2026-08-23, not to be
 re-argued. The backup comes first because it is the only step that cannot be
@@ -423,13 +463,23 @@ aws --endpoint-url "$R2_ENDPOINT" s3api list-objects-v2 \
 
 ### 2. Pull, install, migrate
 
-The settled sequence, unchanged. No new step: `webauthn` is declared in
-`packages/core/pyproject.toml`, so step 3 installs it.
+The settled sequence, plus the `requirements.txt` install — **which W2 needs and
+the five-step sequence does not include.** `webauthn` is declared in
+`packages/core/pyproject.toml`, so `pip install -e packages/core` covers it; but
+`fastapi`, `uvicorn` and `httpx` are `apps/*` dependencies declared only in
+`requirements.txt`, and without them `english-api` fails at start with
+`status=203/EXEC`. See **Which command installs which dependencies** above.
 
 ```bash
 git pull
 .venv/bin/pip install -e packages/core
 .venv/bin/pip show webauthn | head -2      # record the version in BUILD_PROGRESS
+
+# The venv is shared with the running bot: read the dry run before committing to
+# it. Additions are fine; an UPGRADE to python-telegram-bot is not.
+.venv/bin/pip install --dry-run -r requirements.txt
+.venv/bin/pip install -r requirements.txt
+
 .venv/bin/python -m core.db migrate        # expect: Applied: 009
 .venv/bin/python -m core.db status         # expect: Applied 001–009, Pending (none)
 ```

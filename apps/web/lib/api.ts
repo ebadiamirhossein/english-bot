@@ -18,20 +18,34 @@ export type Health = {
   schema_version: number | null;
 };
 
-/**
- * The resolved session, or null when nobody is signed in.
- *
- * `GET /health/auth` answers 200 with `null` rather than 401 on purpose: the
- * guard needs the two cases to differ in the body, and "am I signed in" stays
- * one curl away.
- */
 export type Session = {
   telegram_user_id: number;
   name: string;
   expires_at: string;
 };
 
-export type AuthHealth = Session | null;
+/** What `GET /health/auth` puts on the wire: the session, or literal `null`. */
+type AuthHealthBody = Session | null;
+
+/**
+ * The three outcomes of asking "am I signed in", kept apart by construction.
+ *
+ * `GET /health/auth` answers **200 with `null`** for an anonymous caller rather
+ * than 401 — deliberately, so one `curl` answers the question. That makes
+ * "reachable, nobody signed in" and "could not reach the API" two different
+ * facts that a nullable return type cannot express: a caller with
+ * `Session | null` in hand has already lost the difference, and the only place
+ * left to notice it is a `catch` block that is easy to write as
+ * `.catch(() => signedOut)`.
+ *
+ * Modelling it as a union means the compiler asks every caller which of the
+ * three it means, and "no session" can no longer be rendered as a connectivity
+ * error — which is what reached a learner's phone.
+ */
+export type SessionState =
+  | { kind: "signed-in"; session: Session }
+  | { kind: "anonymous" }
+  | { kind: "unreachable"; message: string };
 
 export class ApiError extends Error {
   constructor(
@@ -72,6 +86,29 @@ export function getHealth(): Promise<Health> {
   return request<Health>("/health");
 }
 
-export function getAuthHealth(): Promise<AuthHealth> {
-  return request<AuthHealth>("/health/auth");
+/**
+ * Ask whether this browser has a session. **Never throws.**
+ *
+ * A rejected promise here is what let "nobody is signed in yet" be rendered as
+ * "could not reach the API". Every outcome comes back as a value the caller has
+ * to name, so the anonymous case cannot fall into an error path by default.
+ */
+export async function getAuthHealth(): Promise<SessionState> {
+  let body: AuthHealthBody;
+  try {
+    body = await request<AuthHealthBody>("/health/auth");
+  } catch (error) {
+    // Transport failure, a CORS refusal, or any non-2xx. This is the only
+    // branch the connectivity message may come from.
+    return {
+      kind: "unreachable",
+      message:
+        error instanceof Error
+          ? error.message
+          : `Could not reach the API at ${API_BASE_URL}.`,
+    };
+  }
+  // 200 with a null body is a complete, successful answer: reachable, and
+  // nobody is signed in. It is the ordinary state of a first visit.
+  return body ? { kind: "signed-in", session: body } : { kind: "anonymous" };
 }

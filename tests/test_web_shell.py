@@ -308,6 +308,75 @@ def test_the_frontend_writes_no_base64url_by_hand() -> None:
     assert "toJSON()" in source
 
 
+# W2a. These four are **weaker than they look, and deliberately so.** There is no
+# JavaScript test runner (#67), so they read source rather than rendering a
+# component and clicking it. They would catch the shape of the W2 defect —
+# "no session" collapsing into "no answer" — coming back, and they would not
+# catch a new way of losing the same distinction. The real check is a phone.
+
+
+def test_the_session_check_distinguishes_three_outcomes() -> None:
+    """The W2a bug: a first visit rendered as a connectivity failure.
+
+    `GET /health/auth` answers 200 with a literal `null` for an anonymous
+    caller, which is a complete and successful answer. A nullable return type
+    cannot express the difference between that and "the request failed", so the
+    difference was lost at the only place left to notice it — a `catch`.
+    """
+    source = _without_comments((WEB / "lib" / "api.ts").read_text(encoding="utf-8"))
+    for outcome in ('"signed-in"', '"anonymous"', '"unreachable"'):
+        assert outcome in source, f"lib/api.ts does not name the {outcome} outcome"
+    assert "SessionState" in source
+
+
+def test_the_connectivity_message_is_unreachable_from_a_null_body() -> None:
+    """The banner may only come from a genuine failure.
+
+    Asserted structurally: the connectivity string is produced inside
+    `request()` and inside `getAuthHealth`'s `catch`, and the branch that turns
+    a `null` body into a value must not be able to reach it. If the `anonymous`
+    result and the connectivity text ever appear in the same expression again,
+    this fails.
+    """
+    source = _without_comments((WEB / "lib" / "api.ts").read_text(encoding="utf-8"))
+    start = source.index("export async function getAuthHealth")
+    body = source[start:]
+    anonymous_line = next(
+        line for line in body.splitlines() if '"anonymous"' in line
+    )
+    assert "Could not reach" not in anonymous_line
+    assert "unreachable" not in anonymous_line
+
+
+def test_get_auth_health_does_not_reject() -> None:
+    """A rejected promise is what let the anonymous case fall into an error path.
+
+    Every outcome comes back as a value the caller has to name, so
+    `.catch(() => signedOut)` is no longer a thing anyone can write by accident.
+    """
+    source = _without_comments((WEB / "lib" / "api.ts").read_text(encoding="utf-8"))
+    body = source[source.index("export async function getAuthHealth") :]
+    assert "try {" in body and "catch" in body, (
+        "getAuthHealth must absorb the failure and return it as a value"
+    )
+
+
+def test_an_unreachable_api_does_not_redirect_to_sign_in() -> None:
+    """Redirecting on "API down" tells the learner to fix the wrong problem.
+
+    Before W2a the guard sent both the anonymous visitor and the unreachable
+    API to `/sign-in` — the right destination for one of them, by accident. And
+    signing in is precisely the thing that cannot work while the API is down.
+    """
+    source = _without_comments(
+        (WEB / "components" / "require-session.tsx").read_text(encoding="utf-8")
+    )
+    assert '"unreachable"' in source, "the guard does not model the third outcome"
+    unreachable_branch = source[source.index('kind: "unreachable"') :]
+    assert 'router.replace("/sign-in")' not in unreachable_branch.split("}")[0]
+    assert "Try again" in source, "an unreachable state needs a way out"
+
+
 def test_the_api_client_sends_credentials_on_every_call() -> None:
     """The session cookie is on a different origin from the page.
 
