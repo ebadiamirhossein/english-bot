@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from apps.api.routers import auth as auth_router
+from apps.api.routers import correct as correct_router
 from apps.api.routers import health as health_router
 from core.config import Settings, load_settings
 from core.services.alerts import format_alert, should_send_alert
@@ -163,13 +164,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(Exception, handle_unexpected_error)
     app.include_router(health_router.router)
     app.include_router(auth_router.router)
+    app.include_router(correct_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
         ",".join(
             sorted(
                 getattr(route, "path", "?")
-                for router in (health_router.router, auth_router.router)
+                for router in (
+                    health_router.router,
+                    auth_router.router,
+                    correct_router.router,
+                )
                 for route in router.routes
             )
         ),

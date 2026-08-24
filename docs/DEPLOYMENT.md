@@ -380,6 +380,44 @@ Restores into a **scratch** database unless you pass the live name **and** `--fo
 
 ---
 
+## W3 — three moving parts, not one
+
+W3 changes **prompts**, adds an **API route**, and adds a **screen**. That is
+three processes rather than the usual one, and missing the first is the one that
+degrades quietly:
+
+| What changed | What has to be restarted |
+|---|---|
+| `core/prompt_rules.py` + the five explanation paths | **`english-bot`** — the prompts are loaded at process start, so the running bot keeps the old text until it restarts |
+| `core/services/correction.py`, `apps/api/routers/correct.py` | **`english-api`** |
+| `apps/web` — the `/write` screen | **a Vercel deploy** |
+
+```bash
+sudo -u bot -i
+cd /home/bot/english-bot
+./scripts/backup.sh          # W3 writes to `errors`; back up first regardless
+git pull
+.venv/bin/pip install -e packages/core
+# `pip install -r requirements.txt` is only needed when a slice adds a
+# dependency OUTSIDE packages/core. W3 adds none — no new dependency in either
+# file — so it can be skipped. See "Which command installs which dependencies".
+.venv/bin/python -m core.db status     # expect 001–009, Pending (none). W3 adds NO migration.
+exit                                    # back to root for systemctl
+sudo systemctl restart english-bot english-api
+sudo systemctl status english-bot english-api --no-pager | head -20
+```
+
+**Then desk-check the four live Telegram paths before calling it done.** W3
+edits the instructions given to the model on paths two people use daily, and a
+prompt does not throw — free correction, `/diary`, a voice message, `/capture`,
+and a `/talk` close-out. A degraded explanation looks like normal output.
+
+**No migration.** `errors` already exists and W3 writes to it as it stands;
+`core.db status` should report nothing pending. If it reports a pending
+migration, stop — something else is in the tree.
+
+---
+
 ## W2 — the auth deploy, in order
 
 **Nothing in this section has been run.** W2 shipped the code, the migration,

@@ -34,6 +34,7 @@ from telegram.ext import (
 
 from apps.bot import texts
 from core import PROMPTS_DIR
+from core.prompt_rules import ENGLISH_ONLY_RULE, SINGLE_LANGUAGE_RULE
 from core.config import load_settings
 from core.db import connection
 from apps.bot.handlers.correction import (
@@ -98,22 +99,20 @@ _CLOSE_PROMPT_PATH = (
 _prompt_template: str | None = None
 _close_prompt_template: str | None = None
 
+# S26c wrote the single-language sentences inline here; W3 moved them to
+# core.prompt_rules so the other four explanation paths get the same text
+# (known issue #45). The rendered string is unchanged.
 _FALLBACK_RULE_TRUE = (
     "BUT when the error type is abstract grammar "
     f"({', '.join(ABSTRACT_ERROR_TYPES)}) AND the user's "
     "explanation_language_fallback is enabled, write that explanation in "
     "their native language ({native_language}) instead. Concrete error types "
-    "stay English regardless. "
-    "Each explanation must be ONE language only — never mix. "
-    "If using {native_language}, write the whole sentence in that language's "
-    "own script (never Latin transliteration like \"zaman\"). "
-    "Standard English grammar terms (e.g. present perfect continuous) may "
-    "stay in English inside an otherwise fully {native_language} sentence."
+    "stay English regardless. " + SINGLE_LANGUAGE_RULE
 )
 
 _FALLBACK_RULE_FALSE = (
     "Write every explanation in English, including abstract grammar types. "
-    "Never mix in another language or transliterate."
+    + ENGLISH_ONLY_RULE
 )
 
 

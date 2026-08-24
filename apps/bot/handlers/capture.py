@@ -20,6 +20,7 @@ from telegram.ext import (
 
 from apps.bot import texts
 from core import PROMPTS_DIR
+from core.prompt_rules import ENGLISH_ONLY_RULE, SINGLE_LANGUAGE_RULE
 from core.llm import LLMError, chat
 from core.services.capture import (
     CaptureValidationError,
@@ -45,11 +46,12 @@ _FALLBACK_RULE_TRUE = (
     "Explanations are in English (max 25 words). When an opaque point is "
     "abstract grammar AND explanation_language_fallback is enabled, you may "
     "drop that gloss into the learner's native language ({native_language}). "
-    "Concrete idioms and register stay English."
+    "Concrete idioms and register stay English. " + SINGLE_LANGUAGE_RULE
 )
 
 _FALLBACK_RULE_FALSE = (
-    "Write every explanation and gloss in English (max 25 words each)."
+    "Write every explanation and gloss in English (max 25 words each). "
+    + ENGLISH_ONLY_RULE
 )
 
 

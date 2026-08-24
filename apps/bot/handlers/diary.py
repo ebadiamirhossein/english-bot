@@ -17,6 +17,7 @@ from telegram.ext import CommandHandler, ContextTypes
 
 from apps.bot import texts
 from core import PROMPTS_DIR
+from core.prompt_rules import ENGLISH_ONLY_RULE, SINGLE_LANGUAGE_RULE
 from core.config import load_settings
 from apps.bot.handlers.correction import (
     ABSTRACT_ERROR_TYPES,
@@ -56,11 +57,12 @@ _FALLBACK_RULE_TRUE = (
     f"({', '.join(ABSTRACT_ERROR_TYPES)}) AND the user's "
     "explanation_language_fallback is enabled, write that explanation in "
     "their native language ({native_language}) instead. Concrete error types "
-    "stay English regardless."
+    "stay English regardless. " + SINGLE_LANGUAGE_RULE
 )
 
 _FALLBACK_RULE_FALSE = (
-    "Write every explanation in English, including abstract grammar types."
+    "Write every explanation in English, including abstract grammar types. "
+    + ENGLISH_ONLY_RULE
 )
 
 

@@ -18,6 +18,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from core.services.correction import MAX_CHARS as CORRECTION_MAX_CHARS
+from core.services.correction import MIN_CHARS as CORRECTION_MIN_CHARS
+
 
 class Health(BaseModel):
     """``GET /health``. ``schema_version`` is null only when the DB is down."""
@@ -74,7 +77,43 @@ class Passkey(BaseModel):
     backed_up: bool | None
 
 
+class CorrectRequest(BaseModel):
+    """`POST /correct`. The bounds are the service's, not a second opinion."""
+
+    text: str = Field(min_length=CORRECTION_MIN_CHARS, max_length=CORRECTION_MAX_CHARS)
+
+
+class Correction(BaseModel):
+    """One correction, in the v2 shape the learners already read in Telegram.
+
+    `murphy_units` is the Murphy reference for the error type — the "why" half,
+    which is the half that teaches.
+    """
+
+    you_said: str
+    correct_form: str
+    error_type: str
+    explanation: str
+    murphy_units: str | None = None
+
+
+class CorrectionResult(BaseModel):
+    """What one piece of writing produced.
+
+    `has_errors: false` with a `did_well` is the ordinary good outcome, not an
+    empty response — the praise is the content in that case.
+    """
+
+    is_english: bool
+    has_errors: bool
+    did_well: str
+    corrections: list[Correction] = []
+
+
 __all__ = [
+    "CorrectRequest",
+    "Correction",
+    "CorrectionResult",
     "CredentialEnvelope",
     "Health",
     "Passkey",

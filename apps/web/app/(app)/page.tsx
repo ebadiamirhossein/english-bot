@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { ApiStatus } from "@/components/api-status";
 import { ComingLater } from "@/components/coming-later";
 import { PageHeader } from "@/components/page-header";
@@ -27,7 +29,14 @@ export default function TodayPage() {
           Start today&rsquo;s session
         </Button>
         <p className="text-center text-sm text-muted-foreground">
-          The session runner arrives in W10. Nothing to do here yet.
+          The session runner arrives in W10.{" "}
+          <Link
+            href="/write"
+            className="text-primary underline underline-offset-4"
+          >
+            Write anything
+          </Link>{" "}
+          in the meantime.
         </p>
       </section>
 

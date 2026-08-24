@@ -12,103 +12,43 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes, MessageHandler, filters
 
-from datetime import datetime, timezone
-
 from apps.bot import texts
-from core import PROMPTS_DIR
-from core.db import connection
-from core.llm import LLMError, chat
-from core.services.errors import record_errors
-from core.services.sessions import complete_open_free_practice, local_today
-from core.services.users import User, get_user, is_registered
+from core.llm import LLMError
+from core.services.correction import (
+    ABSTRACT_ERROR_TYPES,
+    MAX_CHARS as _MAX_CHARS,
+    MIN_CHARS as _MIN_CHARS,
+    apply_result,
+    build_system_prompt,
+    call_model,
+    error_type_list_text,
+    init_correction_prompt,
+    murphy_lookup,
+    wrap_user_text,
+)
+from core.services.users import get_user, is_registered
 
 logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "correction"
 
-_PROMPT_PATH = PROMPTS_DIR / "correction.txt"
-_MIN_CHARS = 10
-_MAX_CHARS = 1000
-
-ABSTRACT_ERROR_TYPES = (
-    "gerund_vs_infinitive",
-    "present_perfect",
-    "conditional",
-    "modal_verb",
-    "article_missing",
-    "article_wrong",
-)
-
-# Populated by init_correction_prompt() at startup.
-_prompt_template: str | None = None
-_error_type_list: str = ""
-_murphy_by_code: dict[str, str | None] = {}
-
-_FALLBACK_RULE_TRUE = (
-    "BUT when the error type is abstract grammar "
-    f"({', '.join(ABSTRACT_ERROR_TYPES)}) AND the user's "
-    "explanation_language_fallback is enabled, write that explanation in "
-    "their native language ({native_language}) instead. Concrete error types "
-    "stay English regardless."
-)
-
-_FALLBACK_RULE_FALSE = (
-    "Write every explanation in English, including abstract grammar types."
-)
-
-
-def init_correction_prompt() -> None:
-    """Load the prompt template and error taxonomy from the database."""
-    global _prompt_template, _error_type_list, _murphy_by_code
-    _prompt_template = _PROMPT_PATH.read_text(encoding="utf-8")
-    with connection() as conn:
-        rows = conn.execute(
-            "SELECT code, label, murphy_units FROM error_types ORDER BY code"
-        ).fetchall()
-    _murphy_by_code = {row["code"]: row["murphy_units"] for row in rows}
-    _error_type_list = "\n".join(
-        f"- {row['code']}: {row['label']}" for row in rows
-    )
-    logger.info("Loaded %s error types for correction prompt", len(rows))
-
-
-def murphy_lookup() -> dict[str, str | None]:
-    """Return the cached code → murphy_units map (for tests / rendering)."""
-    if not _murphy_by_code:
-        init_correction_prompt()
-    return dict(_murphy_by_code)
-
-
-def error_type_list_text() -> str:
-    """Return the cached error-type bullet list for prompts."""
-    if not _error_type_list:
-        init_correction_prompt()
-    return _error_type_list
-
-
-def build_system_prompt(user: User) -> str:
-    """Parameterise the correction system prompt for this learner."""
-    if _prompt_template is None:
-        init_correction_prompt()
-    assert _prompt_template is not None
-
-    if user.explanation_language_fallback:
-        explanation_rule = _FALLBACK_RULE_TRUE.format(
-            native_language=user.native_language
-        )
-    else:
-        explanation_rule = _FALLBACK_RULE_FALSE
-
-    return _prompt_template.format(
-        cefr_level=user.cefr_level,
-        native_language=user.native_language,
-        error_type_list=_error_type_list,
-        explanation_language_rule=explanation_rule,
-    )
-
-
-def wrap_user_text(text: str) -> str:
-    return f"<user_text>\n{text}\n</user_text>"
+# The prompt, the taxonomy cache, build_system_prompt, wrap_user_text and the
+# journal write all live in core.services.correction from W3 — `apps/api` needs
+# them too and may not import this package. These names are re-exported because
+# eight modules and five test files already import them from here; moving the
+# logic without moving the imports is what keeps that a move rather than a
+# rewrite.
+__all__ = [
+    "ABSTRACT_ERROR_TYPES",
+    "build_correction_handler",
+    "build_system_prompt",
+    "correct_text",
+    "error_type_list_text",
+    "init_correction_prompt",
+    "murphy_lookup",
+    "render_correction_message",
+    "wrap_user_text",
+]
 
 
 def build_correction_handler() -> MessageHandler:
@@ -145,12 +85,7 @@ async def correct_text(
         chat_id=message.chat_id, action=ChatAction.TYPING
     )
 
-    system = build_system_prompt(user)
-    messages = [{"role": "user", "content": wrap_user_text(text)}]
-
-    result = await _call_llm_with_handler_retry(
-        message, messages=messages, system=system
-    )
+    result = await _call_llm_with_handler_retry(message, user=user, text=text)
     if result is None:
         return
 
@@ -160,22 +95,22 @@ async def correct_text(
 async def _call_llm_with_handler_retry(
     message,
     *,
-    messages: list[dict],
-    system: str,
+    user,
+    text: str,
 ) -> dict | None:
-    """Call llm.chat; on first LLMError reply LLM_RETRY and try once more."""
+    """One correction call; on first LLMError tell the learner and try once more.
+
+    The retry lives here and not in `core` because it *speaks*: LLM_RETRY goes
+    to the learner between the two attempts, and a service has no channel to
+    say anything. The call itself is `core.services.correction.call_model`, so
+    the prompt this sends is byte-for-byte the prompt `POST /correct` sends.
+    """
     try:
-        raw = chat(messages, system=system, json_mode=True)
-        if not isinstance(raw, dict):
-            raise LLMError("Expected JSON object from correction call")
-        return raw
+        return call_model(user, text)
     except LLMError:
         await message.reply_text(texts.LLM_RETRY)
         try:
-            raw = chat(messages, system=system, json_mode=True)
-            if not isinstance(raw, dict):
-                raise LLMError("Expected JSON object from correction call")
-            return raw
+            return call_model(user, text)
         except LLMError:
             logger.exception(
                 "LLM failed after handler retry user_id=%s handler=%s",
@@ -186,49 +121,28 @@ async def _call_llm_with_handler_retry(
             return None
 
 
-def _complete_free_practice_if_open(user_id: int) -> None:
-    """S4: a processed correction makes today's free_practice day Active."""
-    with connection() as conn:
-        row = conn.execute(
-            """
-            SELECT timezone FROM users WHERE telegram_user_id = %s
-            """,
-            (user_id,),
-        ).fetchone()
-    tz = str(row["timezone"] or "Europe/Vilnius") if row else "Europe/Vilnius"
-    day = local_today(tz, datetime.now(timezone.utc))
-    complete_open_free_practice(user_id, day)
-
-
 async def _handle_model_result(message, user_id: int, result: dict) -> None:
-    _complete_free_practice_if_open(user_id)
+    """Render what the shared service decided. One correction path, two skins.
 
-    if not result.get("is_english", True):
+    Every branch below mirrors an ``CorrectionOutcome`` field rather than
+    re-deriving it: the cap, the unknown-type drop and the journal write all
+    happened in ``core.services.correction.apply_result``, which the web route
+    calls too. Re-deriving any of it here is how the two front ends would start
+    disagreeing about what a correction is.
+    """
+    outcome = apply_result(user_id, result, source="text")
+
+    if not outcome.is_english:
         await message.reply_text(texts.NOT_ENGLISH)
         return
 
-    did_well = str(result.get("did_well") or "").strip()
-    if not result.get("has_errors", False):
-        await message.reply_text(texts.format_praise(did_well or "Nice."))
+    if not outcome.has_errors:
+        await message.reply_text(texts.format_praise(outcome.did_well))
         return
 
-    corrections = list(result.get("corrections") or [])
-    # Cap at 3 even if the model overshoots.
-    corrections = corrections[:3]
-    if not corrections:
-        await message.reply_text(texts.format_praise(did_well or "Nice."))
-        return
-
-    written = record_errors(user_id, "text", corrections)
-    # Re-filter to what we would show: drop unknown types the same way writes do.
-    valid = murphy_lookup()
-    kept = [c for c in corrections if c.get("error_type") in valid]
-    if written == 0 or not kept:
-        # All dropped as invalid types — still acknowledge the attempt softly.
-        await message.reply_text(texts.format_praise(did_well or "Nice."))
-        return
-
-    await message.reply_text(render_correction_message(corrections, did_well))
+    await message.reply_text(
+        render_correction_message(outcome.corrections, outcome.did_well)
+    )
 
 
 def render_correction_message(

@@ -186,7 +186,7 @@ def test_has_errors_false_writes_zero_rows(cleanup_user: int) -> None:
         "corrections": [],
         "did_well": "Natural word order.",
     }
-    with patch("apps.bot.handlers.correction.chat", return_value=payload):
+    with patch("core.services.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
     assert _count_errors(tid) == 0
     update.message.reply_text.assert_awaited_with("👍 Natural word order.")
@@ -203,7 +203,7 @@ def test_is_english_false_writes_zero_rows(cleanup_user: int) -> None:
         "corrections": [],
         "did_well": "",
     }
-    with patch("apps.bot.handlers.correction.chat", return_value=payload):
+    with patch("core.services.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
     assert _count_errors(tid) == 0
     update.message.reply_text.assert_awaited_with(texts.NOT_ENGLISH)
@@ -235,7 +235,7 @@ def test_rendered_message_matches_prd_shape(cleanup_user: int) -> None:
         ],
         "did_well": "Clean word order in the whole sentence.",
     }
-    with patch("apps.bot.handlers.correction.chat", return_value=payload):
+    with patch("core.services.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
 
     assert _count_errors(tid) == 2
@@ -317,7 +317,7 @@ def test_short_single_error_includes_nonempty_did_well(cleanup_user: int) -> Non
         ],
         "did_well": "Short and clear.",
     }
-    with patch("apps.bot.handlers.correction.chat", return_value=payload):
+    with patch("core.services.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
 
     assert _count_errors(tid) == 1

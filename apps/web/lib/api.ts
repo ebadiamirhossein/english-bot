@@ -82,6 +82,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** One correction, the same shape learners already read in Telegram. */
+export type Correction = {
+  you_said: string;
+  correct_form: string;
+  error_type: string;
+  explanation: string;
+  murphy_units: string | null;
+};
+
+export type CorrectionResult = {
+  is_english: boolean;
+  has_errors: boolean;
+  did_well: string;
+  corrections: Correction[];
+};
+
+/**
+ * Correct a piece of free writing.
+ *
+ * `Content-Type: application/json` is not decoration — it is what keeps this a
+ * preflighted request. A form encoding would make it a simple request, and the
+ * CORS preflight is the actual CSRF barrier for this API (see
+ * `apps/api/README.md`). The route refuses anything else with 415.
+ */
+export function requestCorrection(text: string): Promise<CorrectionResult> {
+  return request<CorrectionResult>("/correct", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+}
+
 export function getHealth(): Promise<Health> {
   return request<Health>("/health");
 }

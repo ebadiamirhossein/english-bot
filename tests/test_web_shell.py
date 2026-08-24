@@ -377,6 +377,69 @@ def test_an_unreachable_api_does_not_redirect_to_sign_in() -> None:
     assert "Try again" in source, "an unreachable state needs a way out"
 
 
+def test_the_write_screen_exists_and_is_behind_the_session_guard() -> None:
+    """W3's "Write anything" surface. It writes to the error journal, so it
+    lives under `(app)` — everything there is behind `RequireSession`."""
+    page = WEB / "app" / "(app)" / "write" / "page.tsx"
+    assert page.is_file()
+    layout = (WEB / "app" / "(app)" / "layout.tsx").read_text(encoding="utf-8")
+    assert "RequireSession" in layout
+
+
+def test_the_correction_bounds_match_the_service() -> None:
+    """The frontend mirrors the bounds so a learner is not made to round-trip
+    to find out a sentence was too short. Mirrors drift, so this pins them to
+    the Python constants (rule 5 — the expected values are read from the other
+    side, not from the file under test)."""
+    from core.services.correction import MAX_CHARS, MIN_CHARS
+
+    source = (WEB / "lib" / "limits.ts").read_text(encoding="utf-8")
+    assert f"CORRECTION_MIN_CHARS = {MIN_CHARS};" in source
+    assert f"CORRECTION_MAX_CHARS = {MAX_CHARS};" in source
+
+
+def test_the_write_screen_never_marks_what_the_learner_wrote() -> None:
+    """CLAUDE.md §4 — the one screen in the product where tone matters most.
+
+    Striking through someone's sentence is the visual form of "you failed".
+    The emphasis belongs on the better version, not on the mistake.
+    """
+    source = _without_comments(
+        (WEB / "app" / "(app)" / "write" / "page.tsx").read_text(encoding="utf-8")
+    )
+    for banned in ("line-through", "text-destructive", "bg-destructive"):
+        assert banned not in source, f"{banned} on the correction screen"
+
+
+def test_no_red_reaches_the_correction_screen() -> None:
+    """The palette has no red in it by design (apps/web/README.md), and this is
+    exactly the screen someone would be tempted to add one to."""
+    source = _without_comments(
+        (WEB / "app" / "(app)" / "write" / "page.tsx").read_text(encoding="utf-8")
+    )
+    for banned in ("text-red", "bg-red", "border-red", "#f00", "rgb(255,0,0)"):
+        assert banned not in source
+
+
+def test_today_still_offers_one_button() -> None:
+    """W3 adds a link to /write, not a second action. PRD §4: home resolves to
+    one decision a day, and the session runner is that decision from W10."""
+    source = (WEB / "app" / "(app)" / "page.tsx").read_text(encoding="utf-8")
+    assert source.count("<Button") == 1
+    assert 'href="/write"' in source
+
+
+def test_the_correction_request_is_json_encoded() -> None:
+    """A form encoding would make this a simple request, remove the CORS
+    preflight, and remove the CSRF barrier the API relies on. The route answers
+    415; this is the client half of the same rule."""
+    source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
+    body = source[source.index("export function requestCorrection") :]
+    assert '"Content-Type": "application/json"' in body
+    assert "JSON.stringify" in body
+    assert "FormData" not in source
+
+
 def test_the_api_client_sends_credentials_on_every_call() -> None:
     """The session cookie is on a different origin from the page.
 
