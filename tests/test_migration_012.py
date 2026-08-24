@@ -75,8 +75,19 @@ def test_migration_012_is_applied(conn) -> None:
 # ── identity: the assertion nothing else in the suite makes ────────────────
 
 
-def test_item_attempts_user_id_references_users_id(conn) -> None:
-    """#92 stays closed. `users.id`, never `users.telegram_user_id`."""
+def test_item_attempts_reaches_users_only_through_items(conn) -> None:
+    """#92 stays closed — and this asserts the COMPOSITE FK, not a direct one.
+
+    The old name (`..._user_id_references_users_id`) overstated what runs here.
+    The catalogue returns exactly one FK from these two tables into `users`:
+    `items_user_id_fkey → users(id)`, asserted separately below. `item_attempts`
+    reaches `users` only *through* `items(id, user_id)`, which is what makes its
+    denormalised `user_id` unforgeable rather than merely conventional.
+
+    So W5's criterion 5 is satisfied **transitively**, not "transitively and
+    directly" as the plan claimed. The constraint was always right; the wording
+    was not (#101).
+    """
     fks = _fks(conn, "item_attempts")
     composite = {f for f in fks if f[1] == "items"}
     assert composite == {(("item_id", "user_id"), "items", ("id", "user_id"), "c")}

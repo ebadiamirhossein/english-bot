@@ -78,7 +78,53 @@ RESPONSE_MODE: dict[str, str] = {
 # Bumped whenever a gate is tightened. `items.validator_version` stores it, and
 # that column is the only way a later slice can tell which of the accumulated
 # bank was validated under the old rules. Retrofitting it is impossible.
-VALIDATOR_VERSION = 1
+#
+# **2 (W5a): the uniqueness gate became a multi-answer probe.** Version-1 rows
+# were validated by a single-answer solve, which proved an answer was
+# RECOVERABLE and could never prove it was the ONLY acceptable one -- so a
+# version-1 row may be multi-acceptable and therefore ungradable. They are not
+# equivalent to version-2 rows and must not be served as though they were.
+# **W10's `assign_daily` filters the bank on `validator_version =
+# VALIDATOR_VERSION`.** A re-gate pass may promote old rows later; until then
+# they sit unread. Nothing was ever generated under version 1, so there is
+# nothing to migrate today -- the rule is stated for the first slice that finds
+# rows there.
+VALIDATOR_VERSION = 2
+
+# What an item of this type is actually testing, which is what decides whether a
+# multi-acceptable item is WIDENED or REJECTED. A constant, not a runtime
+# judgement and not a model call:
+#
+#   slot         one specific form in one specific position. A second fitting
+#                form means the gap tests nothing in particular -- PRD §4.3
+#                gate 3 failing, not gate 1 passing. Never widen.
+#   message      "can you say this thing in English at all". A sentence
+#                legitimately has several correct renderings. Widen, capped.
+#   fixed_option pick the right one from an authored set. A second correct
+#                option is not a fact about English, it is a defect in the
+#                item. Never widen.
+#   exact        a bijection or an audio round-trip; "every acceptable answer"
+#                is degenerate. No probe.
+ANSWER_FAMILY: dict[str, str] = {
+    "cloze_cued": "slot",
+    "listening_gap": "slot",
+    "l1_to_l2_production": "message",
+    "word_bank_order": "message",
+    "mcq": "fixed_option",
+    "error_spot": "fixed_option",
+    "collocation_pick": "fixed_option",
+    "match_pairs": "exact",
+    "dictation": "exact",
+    "speak_repeat": "exact",
+    "speak_answer": "exact",
+}
+
+#: Families whose items are probed for multi-acceptability.
+PROBED_FAMILIES: frozenset[str] = frozenset({"slot", "message", "fixed_option"})
+
+#: A message item may accumulate this many renderings before the L1 prompt is
+#: judged under-specified rather than the English merely varied.
+MAX_ACCEPTED_VARIANTS = 6
 
 # The two types PRD leaves without a single canonical answer string:
 # `speak_answer` is open production scored against a rubric, `match_pairs`'
@@ -99,6 +145,9 @@ __all__ = [
     "REGISTERS",
     "RESPONSE_MODE",
     "TRACKS",
+    "ANSWER_FAMILY",
+    "MAX_ACCEPTED_VARIANTS",
+    "PROBED_FAMILIES",
     "TYPES_WITHOUT_ANSWER",
     "TYPES_WITH_AUDIO",
     "VALIDATOR_VERSION",

@@ -13,6 +13,16 @@ only `duplicate_options`, and the validator also reported
 string are also two accepted answers. The fixture was wrong, not the code, and
 the comparison is what surfaced it.
 
+**W5a's limit on all of it, learned the hard way.** A recorded-response test can
+prove a branch is REACHABLE and can never prove a model TAKES it. W5's
+`test_the_prd_broken_item_is_rejected_by_the_blind_solver` fed the solver a
+hardcoded `{"answer": "I'd"}`, so it asserted *if the solver disagrees, the item
+is discarded* — a true statement about the plumbing, and silent on the fact that
+the live solver returned `I'll` every time. 1250 green and a permissive live gate
+were always consistent. Any gate whose value depends on what a model actually
+does needs a live check with a stated polarity, and **that** live check is the
+acceptance criterion — not the recorded one. See `core.items.verify`.
+
 No test in this file makes a network call. `tests/conftest.py` installs
 `netguard` autouse and session-scoped, so one that tried would raise rather than
 spend money — structural, not a promise (CLAUDE.md §5b).
@@ -106,23 +116,35 @@ def test_the_prd_broken_item_survives_the_deterministic_checks() -> None:
     assert deterministic_failures(_item(PRD_BROKEN)) == ()
 
 
-def test_the_prd_broken_item_is_rejected_by_the_blind_solver(monkeypatch) -> None:
-    """100% rejected or repaired, and here: discarded after the cap.
+def test_a_multi_acceptable_probe_response_discards_a_slot_item(monkeypatch) -> None:
+    """Plumbing: GIVEN more than one class, a slot item is discarded.
 
-    The recorded solver answer is `I'd` — one of the alternatives PRD itself
-    lists as equally grammatical in that slot.
+    **Named for what it proves.** The response below is a value this test
+    chooses, so it establishes the discard branch is reachable and says nothing
+    about what a model returns for this item — which is exactly the flaw W5's
+    version of this test had while being read as proof the gate worked. The
+    property it appears to assert is checked live, in `core.items.verify`.
     """
-    monkeypatch.setattr(gates, "_chat", _recorded({"answer": "I'd"}))
+    monkeypatch.setattr(
+        gates, "_chat", _recorded({"acceptable": ["I'll", "I'd", "I can"]})
+    )
     result = gates.validate(_item(PRD_BROKEN), judge=False)
 
     assert result.report.verdict == "discarded"
     assert result.item is None
-    assert result.report.blind_solver[0] == "ambiguous"
+    assert result.report.blind_solver[0] == "multi_acceptable"
 
 
 def test_a_repaired_item_is_kept_and_records_its_cue(monkeypatch) -> None:
-    """Repair before rejection: a solver that comes good after a cue passes."""
-    answers = iter([{"answer": "I'd"}, {"answer": "I'll"}])
+    """Repair before rejection: a cue that narrows to one class rescues the item.
+
+    PRD §4.3 offers `I'_ _ _` (4) for this very item, so `repaired` is a correct
+    outcome and TASKS says "rejected **or** repaired".
+    """
+    answers = iter([
+        {"acceptable": ["I'll", "I'd", "I can"]},
+        {"acceptable": ["I'll"]},
+    ])
 
     def chat(*_args, **_kwargs):
         return next(answers)
@@ -152,7 +174,7 @@ def test_the_retry_cap_is_two_repairs_and_three_solver_calls(monkeypatch) -> Non
 
     def chat(*args, **kwargs):
         calls.append(kwargs.get("max_tokens"))
-        return {"answer": "I'd"}
+        return {"acceptable": ["I'll", "I'd", "I can"]}
 
     monkeypatch.setattr(gates, "_chat", chat)
     result = gates.validate(_item(PRD_BROKEN), judge=False)
@@ -160,9 +182,11 @@ def test_the_retry_cap_is_two_repairs_and_three_solver_calls(monkeypatch) -> Non
     assert len(calls) == gates.MAX_REPAIRS + 1 == 3
     assert result.report.solver_calls == 3
     assert result.report.repair_count == gates.MAX_REPAIRS
-    # The ceiling is part of the design: a solver that narrates has reasoned
-    # about what the item probably wants, which is not what a learner does.
+    # 400 at W5a because the probe returns a list. Still a design constraint:
+    # a response needing more than this is narrating, and `max_tokens` is an
+    # existing parameter of `chat()`, so CLAUDE.md §3 rule 2 does not fire.
     assert set(calls) == {gates.SOLVER_MAX_TOKENS}
+    assert gates.SOLVER_MAX_TOKENS == 400
 
 
 def test_a_solver_that_agrees_costs_exactly_one_call(monkeypatch) -> None:
@@ -170,7 +194,7 @@ def test_a_solver_that_agrees_costs_exactly_one_call(monkeypatch) -> None:
 
     def chat(*args, **kwargs):
         calls.append(1)
-        return {"answer": "went"}
+        return {"acceptable": ["went"]}
 
     monkeypatch.setattr(gates, "_chat", chat)
     good = next(r for r in VALID if r["name"] == "cloze_cued")
@@ -211,19 +235,25 @@ def test_a_jargon_item_is_rejected_for_zero_model_calls(monkeypatch) -> None:
 
 
 def test_production_widens_its_variants_rather_than_cueing(monkeypatch) -> None:
-    """A second correct translation is a fact about English, not a defect."""
+    """A second correct rendering is a fact about English, not a defect.
+
+    W5 discovered alternatives one per call and could only ever find as many as
+    it had attempts left. The probe returns the whole set in **one** call, which
+    is both cheaper and more complete — asserted on the call count.
+    """
     monkeypatch.setattr(
-        gates, "_chat", _recorded({"answer": "I went to the shop yesterday"})
+        gates,
+        "_chat",
+        _recorded({"acceptable": ["I went to the shops", "I went shopping"]}),
     )
     row = next(r for r in VALID if r["name"] == "l1_to_l2_production")
     result = gates.validate(_item(row["item"]), judge=False)
 
-    # The solver's wording was not in the accepted set, so it was added and
-    # re-solved; the second identical answer then matched.
     assert result.report.verdict == "repaired"
     assert result.item is not None
-    assert "i went to the shop yesterday" in result.item.accepted_variants
+    assert "i went shopping" in result.item.accepted_variants
     assert result.report.cue_applied is None
+    assert result.report.solver_calls == 1
 
 
 # ── the audio round-trip replaces the solver for the audio types ────────────

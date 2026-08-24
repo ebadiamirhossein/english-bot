@@ -1,57 +1,163 @@
 [
-  {"name": "mcq", "item": {
-    "item_type": "mcq", "track": "life", "lexeme": "go",
-    "prompt_text": "I ___ to the shops yesterday.", "answer": "went",
-    "options": ["went", "goed", "gone", "going"]}},
-
-  {"name": "cloze_cued", "item": {
-    "item_type": "cloze_cued", "track": "life", "lexeme": "go",
-    "prompt_text": "I ___ to the shops yesterday.", "answer": "went"}},
-
-  {"name": "word_bank_order", "item": {
-    "item_type": "word_bank_order", "track": "life", "unit_number": 3,
-    "prompt_text": "Put these in order.", "answer": "I went to the shops",
-    "bank": ["shops", "went", "I", "the", "to"]}},
-
-  {"name": "error_spot", "item": {
-    "item_type": "error_spot", "track": "life", "unit_number": 3,
-    "prompt_text": "Tap the word that is wrong.", "answer": "goed",
-    "tiles": ["I", "goed", "to", "the", "shops"],
-    "wrong_index": 1, "correction": "went"}},
-
-  {"name": "l1_to_l2_production", "item": {
-    "item_type": "l1_to_l2_production", "track": "life", "lexeme": "go",
-    "prompt_text": "من دیروز به مغازه رفتم", "answer": "I went to the shops",
-    "accepted_variants": ["i went to the shops", "i went to the shop"]}},
-
-  {"name": "dictation", "item": {
-    "item_type": "dictation", "track": "life", "unit_number": 2,
-    "prompt_text": "Type what you hear.",
-    "answer": "I forgot my keys and had to wait outside"}},
-
-  {"name": "listening_gap", "item": {
-    "item_type": "listening_gap", "track": "life", "lexeme": "key",
-    "prompt_text": "I forgot my ___ this morning", "answer": "keys",
-    "transcript": "I forgot my keys this morning"}},
-
-  {"name": "speak_repeat", "item": {
-    "item_type": "speak_repeat", "track": "life", "unit_number": 5,
-    "prompt_text": "I'll call you back in a minute",
-    "answer": "I'll call you back in a minute"}},
-
-  {"name": "speak_answer", "item": {
-    "item_type": "speak_answer", "track": "life", "lexeme": "weekend",
-    "prompt_text": "What did you do last weekend?",
-    "rubric": "talk about your weekend using past simple"}},
-
-  {"name": "match_pairs", "item": {
-    "item_type": "match_pairs", "track": "life", "unit_number": 6,
-    "prompt_text": "Match each word to its meaning.",
-    "pairs": [["knackered", "very tired"], ["skint", "having no money"],
-              ["gutted", "very disappointed"]]}},
-
-  {"name": "collocation_pick", "item": {
-    "item_type": "collocation_pick", "track": "life", "lexeme": "make",
-    "prompt_text": "I need to ___ a decision.", "answer": "make",
-    "options": ["make", "do", "take"]}}
+  {
+    "name": "mcq",
+    "item": {
+      "item_type": "mcq",
+      "track": "life",
+      "lexeme": "go",
+      "prompt_text": "I ___ to the shops yesterday.",
+      "answer": "went",
+      "options": [
+        "went",
+        "goed",
+        "gone",
+        "going"
+      ]
+    }
+  },
+  {
+    "name": "cloze_cued",
+    "_unique_because": "The cue supplies the lemma and 'yesterday' forces the tense, so MORPHOLOGY decides the filler, not meaning. Without the cue this slot admits walked, drove, ran, cycled and got — which is what the original fixture did, and it would have made a correct probe look over-generous.",
+    "item": {
+      "item_type": "cloze_cued",
+      "track": "life",
+      "lexeme": "go",
+      "prompt_text": "I ___ to the shops yesterday.",
+      "answer": "went",
+      "cue_type": "definition",
+      "cue_text": "(past of go)"
+    }
+  },
+  {
+    "name": "word_bank_order",
+    "item": {
+      "item_type": "word_bank_order",
+      "track": "life",
+      "unit_number": 3,
+      "prompt_text": "Put these in order.",
+      "answer": "I went to the shops",
+      "bank": [
+        "shops",
+        "went",
+        "I",
+        "the",
+        "to"
+      ]
+    }
+  },
+  {
+    "name": "error_spot",
+    "item": {
+      "item_type": "error_spot",
+      "track": "life",
+      "unit_number": 3,
+      "prompt_text": "Tap the word that is wrong.",
+      "answer": "goed",
+      "tiles": [
+        "I",
+        "goed",
+        "to",
+        "the",
+        "shops"
+      ],
+      "wrong_index": 1,
+      "correction": "went"
+    }
+  },
+  {
+    "name": "l1_to_l2_production",
+    "item": {
+      "item_type": "l1_to_l2_production",
+      "track": "life",
+      "lexeme": "go",
+      "prompt_text": "من دیروز به مغازه رفتم",
+      "answer": "I went to the shops",
+      "accepted_variants": [
+        "i went to the shops",
+        "i went to the shop"
+      ]
+    }
+  },
+  {
+    "name": "dictation",
+    "item": {
+      "item_type": "dictation",
+      "track": "life",
+      "unit_number": 2,
+      "prompt_text": "Type what you hear.",
+      "answer": "I forgot my keys and had to wait outside"
+    }
+  },
+  {
+    "name": "listening_gap",
+    "_unique_because": "A present-time adverbial ('these days') blocks past tense, and third-person singular forces doesn't. 'does not' is the same equivalence class; 'didn't' is excluded by the adverbial; 'don't' is an agreement error.",
+    "_rejected_alternative": "\"I've been waiting here ___ eight\" -> since. Defensible (perfect + point-in-time obliges since, for takes a duration) but 'from eight' is used by enough speakers that the probe may return it as a second class. Recorded rather than left to fail at the terminal.",
+    "item": {
+      "item_type": "listening_gap",
+      "track": "life",
+      "unit_number": 4,
+      "prompt_text": "She ___ like coffee these days",
+      "answer": "doesn't",
+      "transcript": "She doesn't like coffee these days"
+    }
+  },
+  {
+    "name": "speak_repeat",
+    "item": {
+      "item_type": "speak_repeat",
+      "track": "life",
+      "unit_number": 5,
+      "prompt_text": "I'll call you back in a minute",
+      "answer": "I'll call you back in a minute"
+    }
+  },
+  {
+    "name": "speak_answer",
+    "item": {
+      "item_type": "speak_answer",
+      "track": "life",
+      "lexeme": "weekend",
+      "prompt_text": "What did you do last weekend?",
+      "rubric": "talk about your weekend using past simple"
+    }
+  },
+  {
+    "name": "match_pairs",
+    "item": {
+      "item_type": "match_pairs",
+      "track": "life",
+      "unit_number": 6,
+      "prompt_text": "Match each word to its meaning.",
+      "pairs": [
+        [
+          "knackered",
+          "very tired"
+        ],
+        [
+          "skint",
+          "having no money"
+        ],
+        [
+          "gutted",
+          "very disappointed"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "collocation_pick",
+    "_unique_because": "'take a photo' is fixed; 'make a photo' and 'do a photo' are not English. The fixture this replaces was 'I need to ___ a decision.' with make/do/take — and 'take a decision' is correct British English, so it was PRD §4c's own have/take-a-shower case sitting in the valid set of the very type §4c wrote the probe for.",
+    "item": {
+      "item_type": "collocation_pick",
+      "track": "life",
+      "lexeme": "take",
+      "prompt_text": "She ___ a photo of us at the beach.",
+      "answer": "took",
+      "options": [
+        "took",
+        "made",
+        "did"
+      ]
+    }
+  }
 ]

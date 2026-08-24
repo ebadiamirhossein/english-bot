@@ -1,0 +1,76 @@
+[
+  {
+    "name": "prd_broken_item",
+    "_note": "PRD §4.3's own example. It lived as a Python constant in the test file, which is why `grep tests/fixtures` found nothing. It belongs here: it is the canonical probe-only failure.",
+    "family": "slot",
+    "expect_classes": 4,
+    "expect_widened": false,
+    "probe_response": {
+      "acceptable": [
+        "I'll",
+        "I'd",
+        "I can",
+        "let me"
+      ]
+    },
+    "item": {
+      "item_type": "cloze_cued",
+      "track": "work",
+      "prompt_text": "Head home if you want — ___ stay and push the deploy.",
+      "answer": "I'll",
+      "lexeme": "will",
+      "definition": "a decision made at this moment",
+      "l1_gloss": "من می‌مونم"
+    }
+  },
+  {
+    "name": "shower_have_take",
+    "_note": "PRD §4c's own example, displaced from the valid set. 'have a shower' and 'take a shower' are both correct, so a single-answer solve hides the second and ships an unmarkable item. Deterministically clean — nothing but the probe can catch it.",
+    "family": "fixed_option",
+    "expect_classes": 2,
+    "expect_widened": false,
+    "probe_response": {
+      "acceptable": [
+        "have",
+        "take"
+      ]
+    },
+    "item": {
+      "item_type": "collocation_pick",
+      "track": "life",
+      "lexeme": "have",
+      "prompt_text": "I ___ a shower every morning.",
+      "answer": "have",
+      "options": [
+        "have",
+        "take",
+        "do"
+      ]
+    }
+  },
+  {
+    "name": "translation_with_a_third_rendering",
+    "_note": "The message family: renderings of ONE answer, so the correct outcome is widening, not rejection. The fixture starts with the two the generator authored -- `too_few_variants` requires at least two deterministically, so it cannot start with one -- and the probe returns a THIRD. That is what makes the widening observable; with the probe returning only what is already stored, the widen branch runs and changes nothing and the test would pass without proving anything.",
+    "family": "message",
+    "expect_classes": 3,
+    "expect_widened": true,
+    "probe_response": {
+      "acceptable": [
+        "I went to the shops",
+        "I went to the shop",
+        "I went shopping yesterday"
+      ]
+    },
+    "item": {
+      "item_type": "l1_to_l2_production",
+      "track": "life",
+      "lexeme": "go",
+      "prompt_text": "من دیروز به مغازه رفتم",
+      "answer": "I went to the shops",
+      "accepted_variants": [
+        "i went to the shops",
+        "i went to the shop"
+      ]
+    }
+  }
+]

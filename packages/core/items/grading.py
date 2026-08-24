@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Sequence
 
-from core.lexicon.normalize import fold_apostrophes
+from core.lexicon.normalize import fold_apostrophes, tokenize
 
 _WHITESPACE = re.compile(r"\s+")
 
@@ -95,3 +95,47 @@ def grade_text(response: str | None, item: object) -> bool:
     """
     accepted = getattr(item, "accepted_variants", ()) or ()
     return matches(response, accepted)
+
+
+def equivalence_key(text: str | None) -> tuple[str, ...]:
+    """Two answers are the SAME answer when their keys are equal.
+
+    The key is the expanded, lowered token tuple from
+    `core.lexicon.normalize.tokenize`, which already expands contractions for
+    W4's coverage path. So no second table is introduced and no second notion of
+    sameness::
+
+        "I'll"   -> ('i', 'will')      "I'd"       -> ('i', 'would')
+        "I will" -> ('i', 'will')      "I can"     -> ('i', 'can')
+        "Went."  -> ('went',)          "I'm gonna" -> ('i', 'am', 'going', 'to')
+
+    `I'll` and `I will` collapse to one class; `I'd`, `I can`, `I'm gonna` and
+    `let me` are four more. That is exactly the judgement W5a needs: a
+    contraction or spelling variant of the canonical is not a second answer, and
+    a different modal is.
+
+    **Why this is not `fold_answer`.** `fold` handles case, quotes and edge
+    punctuation — enough to grade one response against one canonical. It leaves
+    `I'll` and `I will` as different strings, which is right for grading (either
+    is accepted because both are stored) and wrong for counting *distinct
+    answers*, where treating them as two would make every contraction look like
+    an ambiguity.
+    """
+    return tuple(token.lower for token in tokenize(text or ""))
+
+
+def distinct_answers(candidates: Iterable[str]) -> tuple[tuple[str, ...], ...]:
+    """The distinct equivalence classes among candidates, order preserved.
+
+    Order matters for the stored validation record: the first class is the one
+    the model offered first, which is the closest thing to "the canonical
+    reading" a probe gives us.
+    """
+    seen: set[tuple[str, ...]] = set()
+    out: list[tuple[str, ...]] = []
+    for candidate in candidates:
+        key = equivalence_key(candidate)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(key)
+    return tuple(out)

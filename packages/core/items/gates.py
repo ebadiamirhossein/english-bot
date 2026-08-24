@@ -28,13 +28,25 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from core import PROMPTS_DIR
 from core.config import Settings
-from core.items import TYPES_WITH_AUDIO, VALIDATOR_VERSION
+from core.items import (
+    ANSWER_FAMILY,
+    MAX_ACCEPTED_VARIANTS,
+    PROBED_FAMILIES,
+    TYPES_WITH_AUDIO,
+    VALIDATOR_VERSION,
+)
 from core.items.checks import Failure, deterministic_failures, sentence_of
-from core.items.grading import fold, fold_answer, matches, normalise_variants
+from core.items.grading import (
+    distinct_answers,
+    equivalence_key,
+    fold,
+    fold_answer,
+    normalise_variants,
+)
 from core.items.naturalness import (
     contract,
     jargon_hits,
@@ -47,11 +59,17 @@ from core.items.schema import BaseItem, DictationItem, ListeningGapItem
 from core.llm import LLMError, chat
 from core.speech import SpeechError, synthesize, transcribe
 
-# The solver's required output is `{"answer": ..., "confidence": ...}` and the
-# prompt forbids reasoning. This ceiling is a design constraint, not a guess: a
-# solver that narrates has reasoned about what the item "probably wants", which
-# is not what a learner does, and truncating it is the correct outcome.
-SOLVER_MAX_TOKENS = 200
+# **W5a: the probe returns a LIST, so the ceiling doubles.** 400 is still a
+# design constraint rather than a guess -- the required output is
+# `{"acceptable": [...], "confidence": ...}` and the prompt forbids reasoning, so
+# a response that needs more than this is narrating, and truncating it is the
+# correct outcome.
+#
+# `max_tokens` is an existing parameter of `chat()`. **CLAUDE.md §3 rule 2 does
+# not fire**: passing a different value to an existing parameter is not a change
+# to request construction. If a gate ever needs a parameter `chat()` does not
+# have, the slice stops and says so rather than adding one quietly.
+SOLVER_MAX_TOKENS = 400
 
 # One verdict plus a one-word reason per sentence, up to a batch of 20.
 JUDGE_MAX_TOKENS = 1000
@@ -63,10 +81,11 @@ JUDGE_BATCH = 20
 # loosening this loop.
 MAX_REPAIRS = 2
 
-# `l1_to_l2_production` widens instead of cueing (see `_solve_and_repair`), and
-# a third distinct correct translation means the prompt is genuinely
-# under-specified rather than merely varied.
-MAX_WIDENINGS = 2
+# W5a deleted `MAX_WIDENINGS`. W5 discovered acceptable translations one per
+# call, so it needed a loop bound; the probe returns the whole set in one call,
+# so the bound that matters is now on the SET size —
+# `core.items.MAX_ACCEPTED_VARIANTS`. More renderings than that means the L1
+# prompt is under-specified rather than the English merely varied.
 
 
 def _prompt(name: str) -> str:
@@ -143,8 +162,22 @@ class Validated:
 # ── gate 1: the blind solver ────────────────────────────────────────────────
 
 
-def blind_solve(item: BaseItem, *, settings: Settings | None = None) -> dict:
+def probe_acceptable(item: BaseItem, *, settings: Settings | None = None) -> dict:
     """One call. Sees `visible_projection(item)` and nothing else.
+
+    **This replaces the single-answer solve rather than following it**, and the
+    reason is the whole of W5a. A solve asks "what is your answer?" and a correct
+    answer proves the item is RECOVERABLE. Unmarkability is caused by
+    MULTI-ACCEPTABILITY, which is a different property: PRD's own broken item
+    yields `I'll` on every run because `I'll` genuinely is the best completion,
+    while `I can`, `I'm gonna` and `let me` fit the same slot and a learner
+    typing any of them is marked wrong.
+
+    Appending a second call was rejected on two counts. Cost: it doubles the
+    per-item spend for information the first call could have returned. And
+    correctness: two calls would leave two definitions of "the answer" in a
+    codebase where `grade_text` is deliberately one function, because two notions
+    of *same answer* is how a gate and a grader silently disagree.
 
     The system prompt is byte-identical across a batch, so `llm.chat`'s
     `cache_control: ephemeral` block gets a real cache hit and the marginal cost
@@ -153,32 +186,58 @@ def blind_solve(item: BaseItem, *, settings: Settings | None = None) -> dict:
     projection = visible_projection(item)
     response = _chat(
         [{"role": "user", "content": json.dumps(projection, ensure_ascii=False)}],
-        system=_prompt("item_blind_solver.txt"),
+        system=_prompt("item_probe.txt"),
         json_mode=True,
         max_tokens=SOLVER_MAX_TOKENS,
         reject_truncation=True,
         settings=settings,
     )
     if not isinstance(response, dict):
-        raise LLMError("blind solver did not return an object")
+        raise LLMError("probe did not return an object")
     return response
 
 
-def _solver_agrees(item: BaseItem, answer: object) -> bool:
-    """Pass = the solver's answer is the canonical one or an accepted variant.
+def _candidates(response: dict) -> list[str]:
+    """The probe's list, as strings. A bare mapping is one candidate."""
+    raw = response.get("acceptable")
+    if isinstance(raw, dict):  # match_pairs returns a mapping
+        return [json.dumps(raw, sort_keys=True, ensure_ascii=False)]
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for entry in raw:
+        if isinstance(entry, dict):
+            out.append(json.dumps(entry, sort_keys=True, ensure_ascii=False))
+        elif entry is not None:
+            out.append(str(entry))
+    return out
 
-    Uses `grading.matches`, which is the SAME comparison the grader uses. If the
-    gate and the grader ever used different comparisons, an item would pass the
-    gate and then be ungradable — the learner types the identical string and is
-    marked wrong. One function, both callers.
+
+def _mapping_matches(item: BaseItem, response: dict) -> bool:
+    """`match_pairs` keeps exact-mapping comparison.
+
+    "Every acceptable answer" is degenerate for a bijection, and serialising a
+    set of candidate mappings buys nothing: a second defensible pairing is an
+    authoring defect, which the deterministic `columns_overlap` and duplicate
+    checks already catch.
     """
-    if isinstance(answer, dict):
-        # `match_pairs`: the whole mapping must match. A partial match is a
-        # fail, because one ambiguous pair is the coin-flip bug at smaller scale.
-        expected = {fold(left): fold(right) for left, right in item.pairs}  # type: ignore[attr-defined]
-        got = {fold(str(k)): fold(str(v)) for k, v in answer.items()}
-        return expected == got
-    return matches(str(answer), item.accepted_variants)
+    raw = response.get("acceptable")
+    if isinstance(raw, list) and len(raw) == 1 and isinstance(raw[0], dict):
+        raw = raw[0]
+    if not isinstance(raw, dict):
+        return False
+    expected = {fold(left): fold(right) for left, right in item.pairs}  # type: ignore[attr-defined]
+    got = {fold(str(k)): fold(str(v)) for k, v in raw.items()}
+    return expected == got
+
+
+def _canonical_offered(item: BaseItem, classes: tuple[tuple[str, ...], ...]) -> bool:
+    """Recoverability: is the canonical answer among what the probe accepted?
+
+    The old failure mode, preserved. An item whose canonical is not offered is
+    not answerable as authored, whatever else the probe returned.
+    """
+    return equivalence_key(item.answer) in classes
 
 
 # ── gate 2: naturalness (PRD §4.6) ──────────────────────────────────────────
@@ -335,7 +394,21 @@ def validate(
             )
 
     if item.item_type in TYPES_WITH_AUDIO:
-        return _audio_gate(item, settings=settings)
+        audio = _audio_gate(item, settings=settings)
+        # **`listening_gap` needs BOTH gates, and W5 gave it only one.** It sits
+        # in TYPES_WITH_AUDIO, so it never reached the solver: the round-trip
+        # proved the gapped word was AUDIBLE and nothing ever proved it was the
+        # only word that FITS. `"I forgot my ___ this morning"` round-trips
+        # perfectly and admits wallet, phone, bag and purse. It was carrying
+        # `cloze_cued`'s defect plus one more, and this is the one type where
+        # W5a adds a call rather than swapping one.
+        if not audio.report.ok or item.item_type != "listening_gap":
+            return audio
+        probed = _probe_and_repair(audio.item or item, settings=settings)
+        return Validated(
+            probed.item,
+            replace(probed.report, solver_answer=audio.report.solver_answer),
+        )
 
     if item.item_type == "speak_answer":
         # No blind solver: an open production task has no single answer to
@@ -343,7 +416,9 @@ def validate(
         # gate, and `rubric` is what makes gate 3 verifiable at all.
         return Validated(item, ValidationReport("passed"))
 
-    return _solve_and_repair(item, settings=settings)
+    if ANSWER_FAMILY[item.item_type] not in PROBED_FAMILIES:
+        return Validated(item, ValidationReport("passed"))
+    return _probe_and_repair(item, settings=settings)
 
 
 def _audio_gate(item: BaseItem, *, settings: Settings | None) -> Validated:
@@ -382,86 +457,183 @@ def _audio_gate(item: BaseItem, *, settings: Settings | None) -> Validated:
     return Validated(item, ValidationReport("passed", solver_answer=heard))
 
 
-def _solve_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated:
-    """Solve; on disagreement widen or cue, then solve again. Hard cap of two."""
-    widening = item.item_type == "l1_to_l2_production"
-    limit = MAX_WIDENINGS if widening else MAX_REPAIRS
+def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated:
+    """Probe; on multi-acceptability widen or cue, then probe again. Cap of two.
 
+    The widen-or-reject decision is `core.items.ANSWER_FAMILY` — a constant, not
+    a runtime judgement and not a model call. A slot admits one filler; a message
+    admits many phrasings; authored options admit exactly the one authored.
+    """
+    family = ANSWER_FAMILY[item.item_type]
     current = item
     calls = 0
-    attempts: list[str] = []
-    distractors: list[str] = []
     cue_applied: str | None = None
-    # Every rung already used. Excluding only the LAST one would let a
-    # three-rung ladder revisit rung one, which spends a capped attempt on a cue
-    # the solver has already failed against.
     tried: set[str] = set()
+    distractors: list[str] = []
 
-    for attempt in range(limit + 1):
+    for attempt in range(MAX_REPAIRS + 1):
         try:
-            result = blind_solve(current, settings=settings)
+            response = probe_acceptable(current, settings=settings)
         except LLMError as exc:
             return Validated(
                 None,
                 ValidationReport(
                     "discarded",
-                    blind_solver=(f"solver_error: {exc}",),
+                    blind_solver=(f"probe_error: {exc}",),
                     solver_calls=calls,
                 ),
             )
         calls += 1
-        answer = result.get("answer", "")
-        attempts.append(str(answer))
 
-        if _solver_agrees(current, answer):
-            verdict = "repaired" if attempt else "passed"
+        if current.item_type == "match_pairs":
+            if _mapping_matches(current, response):
+                return Validated(
+                    current,
+                    ValidationReport(
+                        "passed" if not attempt else "repaired",
+                        repair_count=attempt,
+                        cue_applied=cue_applied,
+                        canonical=None,
+                        solver_calls=calls,
+                    ),
+                )
             return Validated(
-                current,
+                None,
                 ValidationReport(
-                    verdict,
+                    "discarded",
+                    blind_solver=("mapping_mismatch",),
+                    solver_calls=calls,
+                ),
+            )
+
+        candidates = _candidates(response)
+        classes = distinct_answers(candidates)
+
+        # Recoverability, unchanged from W5: an item whose canonical answer is
+        # not among what a careful reader would accept is not answerable as
+        # authored, whatever else came back.
+        if not _canonical_offered(current, classes):
+            if attempt < MAX_REPAIRS:
+                distractors.extend(candidates)
+                cue = _next_cue(current, distractors, tried)
+                if cue is not None:
+                    cue_applied, current = cue[0], cue[1]
+                    tried.add(cue_applied)
+                    continue
+            return Validated(
+                None,
+                ValidationReport(
+                    "discarded",
+                    blind_solver=("not_recoverable", *candidates),
                     repair_count=attempt,
                     cue_applied=cue_applied,
-                    solver_answer=str(answer),
+                    solver_answer=candidates[0] if candidates else None,
                     canonical=current.answer,
                     solver_calls=calls,
                 ),
             )
 
-        if attempt == limit:
-            break
-
-        if widening:
-            # For production, a second correct translation is a fact about
-            # English, not a defect — so the solver's answer is ADDED rather
-            # than used to reject. A third distinct output means the prompt is
-            # genuinely under-specified and the item is discarded.
-            current = current.model_copy(
-                update={
-                    "accepted_variants": normalise_variants(
-                        current.answer, [*current.accepted_variants, str(answer)]
-                    )
-                }
+        if len(classes) == 1:
+            return Validated(
+                current,
+                ValidationReport(
+                    "repaired" if attempt else "passed",
+                    repair_count=attempt,
+                    cue_applied=cue_applied,
+                    solver_answer=candidates[0] if candidates else None,
+                    canonical=current.answer,
+                    solver_calls=calls,
+                ),
             )
-            continue
 
-        distractors.append(str(answer))
-        cues = available_cues(current, distractors)
-        remaining = [c for c in cues if c not in tried]
-        if not remaining:
-            break
-        cue_applied = remaining[0]
-        tried.add(cue_applied)
-        current = apply_cue(current, cue_applied, distractors)
+        # More than one class: the item is multi-acceptable.
+        if family == "message":
+            # The sentence is the answer and a sentence legitimately has several
+            # correct renderings, so these are one answer said differently.
+            # Widening in ONE call is what replaced W5's iterative
+            # widen-on-mismatch loop, which could only ever discover as many
+            # alternatives as it had attempts left.
+            widened = normalise_variants(
+                current.answer, [*current.accepted_variants, *candidates]
+            )
+            if len(widened) > MAX_ACCEPTED_VARIANTS:
+                return Validated(
+                    None,
+                    ValidationReport(
+                        "discarded",
+                        blind_solver=("under_specified", *candidates),
+                        repair_count=attempt,
+                        solver_calls=calls,
+                        canonical=current.answer,
+                    ),
+                )
+            return Validated(
+                current.model_copy(update={"accepted_variants": widened}),
+                ValidationReport(
+                    "repaired" if attempt or len(widened) > 1 else "passed",
+                    blind_solver=("widened", *candidates),
+                    repair_count=attempt,
+                    cue_applied=cue_applied,
+                    solver_answer=candidates[0],
+                    canonical=current.answer,
+                    solver_calls=calls,
+                ),
+            )
 
-    return Validated(
-        None,
-        ValidationReport(
-            "discarded",
-            blind_solver=("ambiguous", *attempts),
-            repair_count=min(limit, calls - 1),
-            cue_applied=cue_applied,
-            solver_answer=attempts[-1] if attempts else None,
-            canonical=item.answer,
-            solver_calls=calls,
-        ),
-    )
+        # slot and fixed_option: never widen.
+        #
+        # A slot admits one filler by definition -- if two forms fit, the gap
+        # tests nothing in particular, which is PRD §4.3 gate 3 failing rather
+        # than gate 1 passing. Accepting all four modals for the PRD item would
+        # make it gradable and worthless.
+        #
+        # For fixed_option a second correct option is not a fact about English,
+        # it is a defect in the authored option set.
+        #
+        # A cue may still rescue a slot item, and PRD asks for it: §4.3's repair
+        # table offers `I'_ _ _` (4) for this very item, and a first-letter cue
+        # narrows the candidates the probe will accept.
+        if attempt < MAX_REPAIRS:
+            distractors.extend(candidates)
+            cue = _next_cue(current, distractors, tried)
+            if cue is not None:
+                cue_applied, current = cue[0], cue[1]
+                tried.add(cue_applied)
+                continue
+
+        return Validated(
+            None,
+            ValidationReport(
+                "discarded",
+                blind_solver=("multi_acceptable", *candidates),
+                repair_count=attempt,
+                cue_applied=cue_applied,
+                solver_answer=candidates[0] if candidates else None,
+                canonical=current.answer,
+                solver_calls=calls,
+            ),
+        )
+
+    raise AssertionError("unreachable: the loop returns on every path")
+
+
+def _next_cue(
+    item: BaseItem, distractors: list[str], tried: set[str]
+) -> tuple[str, BaseItem] | None:
+    """The next unused rung, applied. None when the ladder is exhausted.
+
+    **Only the `slot` family is cue-repairable.** A cue narrows which filler is
+    acceptable, which is exactly what a gapped item needs. It cannot help a
+    `fixed_option` item: the options are already on screen, and if two of them
+    are correct then the authored set is defective and no cue changes that. A
+    `message` item widens instead of cueing. So a fixed-option item that comes
+    back multi-acceptable is discarded on the FIRST probe rather than paying two
+    more calls to be told the same thing.
+    """
+    if ANSWER_FAMILY[item.item_type] != "slot":
+        return None
+    remaining = [c for c in available_cues(item, distractors) if c not in tried]
+    if not remaining:
+        return None
+    cue = remaining[0]
+    return cue, apply_cue(item, cue, distractors)

@@ -90,6 +90,8 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 
 | W5 | Item schema + validator | 🟡 code-complete | 2026-08-24 | **Migration 012** (`items`, `item_attempts`, `register` on `items`, `errors.source` widened once for the full v3 set, `users.track_weights` default → 50/30/20 with the paired view recreate). **The eleven item types as pydantic models — and PRD names them and stops**, giving no field shapes and no per-type descriptions, so W5 *defines* them rather than transcribing them. `core/items/` is pure (schema, projection, deterministic checks, naturalness, grading, cue ladder); `core/items/gates.py` is the only module reaching a provider; `core/services/items.py` holds every query. **#59 stays the only boundary exemption** and two new parse tests were proven non-inert. **The blind-solver gate** with repair-before-reject over PRD's five cues and a hard cap of two repairs / three solver calls, carried as a CHECK on `items.repair_count` so the cap survives someone loosening the loop. Dictation and listening are gated by a **`synthesize` → `transcribe` round-trip** instead. Suite **1103 → 1250 passing / 0 failing**. **The #57 gate ran first and returned ⬜ UNMEASURED** — see the decisions log. **Local only — not deployed**; 012 is applied to the Mac dev database only, and the production migration plus the `--live` verification are explicit commands for the human in Next action. Stays 🟡 until the human marks it. |
 
+| W5a | Uniqueness gate — the multi-answer probe | 🟡 code-complete | 2026-08-24 | **W5 deployed cleanly and the deploy's own verification step found a fault in it**, exactly as W4 → W4a. `--live` returned the canonical answer three runs running: the gate asked *"what is your answer?"*, which proves an item is **recoverable** and can never prove it is **uniquely acceptable** — and unmarkability is caused by the second. The single-answer solve is replaced **one-for-one** by a probe asking for every acceptable answer; distinct answers are counted by an equivalence key built from W4's existing `tokenize` (`I'll` and `I will` are one class, `I'd` and `I can` are two more), so no second table. Widen-or-reject is `ANSWER_FAMILY` — a constant, not a runtime judgement: **slot** never widens (a second fitting form means the gap tests nothing — gate 3 failing, not gate 1 passing), **message** widens up to 6 renderings, **fixed_option** never widens and is not cue-repairable, so it costs one call rather than three. **`listening_gap` gains a uniqueness gate for the first time** — it was audio-gated only, so nothing had ever tested whether the gapped word was the only word that fits. `validator_version` 1 → 2. **Three of eleven "valid" fixtures were themselves multi-acceptable** and were replaced before the probe was written. Call count unchanged; `max_tokens` 200 → 400, an existing parameter, so **rule 2 still does not fire**. No migration. Suite **1250 → 1272 passing / 0 failing**. **Local only.** Stays 🟡, and **W5 stays 🟡 with it**. |
+
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
 
 ---
@@ -150,6 +152,12 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-24 | **W5a: a recorded-response test can prove a branch is REACHABLE and can never prove a model TAKES it.** W5's `test_the_prd_broken_item_is_rejected_by_the_blind_solver` fed the solver a hardcoded `{"answer": "I'd"}` — a value the author chose — so it asserted *if the solver disagrees, the item is discarded and the cap holds*. True, useful, and silent on whether the solver disagrees. It does not: live, it returned `I'll` three runs running. **1250 green and a permissive live gate were always consistent, and no fixture would have changed that.** | The general rule, and it outlives W5a: **any gate whose value depends on what a model actually does needs a live check with a stated polarity, and that live check is the acceptance criterion — not the recorded one.** The plan had already written the limit down ("these prove the validator; they can never prove the provider contract") and then criterion 9 was worded as if the named test proved more than its recorded response allowed. The criterion was **overstated, not unmet**. This is CLAUDE.md §3 rule 4 in a form the rule does not quite name: I could say which user action the test exercised, but not which *outcome* it proved. |
+| 2026-08-24 | **W5a: when a control fails, re-examine the control before touching the gate.** | The same failure as the entry above, wearing different clothes. A control failing live is evidence about one of two things, and **the gate is the less likely of them**: the fixtures were authored under weaker gates, the probe is a new instrument, and loosening the probe until a control passes is how a correct gate gets tuned into a permissive one. This is not hypothetical — the audit below found three bad controls *before* the probe existed, and had it not, the first live run would have shown a correct probe rejecting valid items and the obvious response would have been to soften the prompt. |
+| 2026-08-24 | **W5a: three of eleven "valid" fixtures were themselves multi-acceptable, and they were fixed BEFORE the probe was written.** `cloze_cued` (`"I ___ to the shops yesterday."` admits walked, drove, ran, cycled, got — **and carried no cue at all**, in the type literally named *cued*); `listening_gap` (`"I forgot my ___ this morning"` admits wallet, phone, bag, purse); `collocation_pick` (`"I need to ___ a decision."` — **`take a decision` is correct British English**). | The pattern is worth more than the three fixes: **fixtures are written against the gates that exist at the time, so adding a gate means re-auditing the fixtures against it, not just adding tests.** These were authored to survive the deterministic checks and nobody asked whether they would survive a uniqueness probe, because there was not one. The `collocation_pick` case is the one that indicts the approach — it is PRD §4c's own `have/take a shower` example sitting in the *valid* set of the very type §4c wrote the probe for. It is not deleted: it moves to `probe_only.json` as the canonical probe-catchable fixture, deterministically clean and catchable by nothing else. |
+| 2026-08-24 | **W5a: the probe REPLACES the single-answer solve rather than following it, and widen-vs-reject is a constant per type rather than a model call.** | Replacing costs nothing extra — one call still answers both questions, so §5(c)'s ~1.15 calls per accepted item holds — and appending would have left **two definitions of "the answer"** in a codebase where `grade_text` is deliberately one function, which is precisely how a gate and a grader silently disagree. On widen-vs-reject: a slot admits one filler, a message admits many phrasings, and authored options admit exactly the one authored. Nothing judges that at runtime. **The PRD item does not become good once widened** — accepting `I'll`, `I'd`, `I can` and `let me` would make the gap test nothing in particular, which is gate 3 failing rather than gate 1 passing. |
+| 2026-08-24 | **W5a: the lemma-realisation discriminator was designed, tested, and killed.** The first design decided widen-vs-reject by asking whether each alternative realises the declared target lexeme, via `lemmatize`. | `lemmatize("would") == "will"`, so `I'd` reads as realising the target `will` exactly as `I'll` does — the rule would have **widened the PRD item to accept both**, the precise opposite of what is wanted. Recorded because a design that looked right and was not is worth more in this log than the one that worked: the appeal of it was that it reused existing machinery, and reusing machinery is not the same as reusing a *meaning*. The inflection table exists to collapse forms for coverage counting, and collapsing is the wrong operation when the question is whether two answers differ. |
+| 2026-08-24 | **W5a: `listening_gap` had no uniqueness gate at all, and neither the plan nor the prompt caught it.** It is in `TYPES_WITH_AUDIO`, so it never reached the solver: the round-trip proved the gapped word was *audible* and nothing proved it was the only word that *fits*. | The larger of the two holes W5a found, and the one type where W5a **adds** a call rather than swapping one. It had been carrying `cloze_cued`'s defect plus one more, invisibly, because a passing round-trip reads as a passing gate. Worth recording as a shape: **when a type is routed to a different gate, check what the original gate was doing that the new one is not.** `collocation_pick` is the same shape from the other side — approved §4c specified a multi-answer probe for it and the implementation routed it to the single solve, so the approved design's own exception was lost in the build. That one is mine. |
 | 2026-08-24 | **W5: the #57 gate ran before any code and returned ⬜ UNMEASURED. The `< 10%` branch was considered and DECLINED.** Production, via `scripts/w5_57.sql` (committed `ec3ce8d`): `quiz_prompt` n=96, 7.3% work terms, 95% CI **2.1–12.5%**; `chunk_sentence` n=29, 13.8%; `reading_body` **n=1**; ALL SOURCES n=126, **9.5%**. `JARGON` therefore ships as PRD's five plus four unambiguous additions (`sprint`, `standup`, `KPI`, `deliverable`), with its provenance recorded as unmeasured **in the comment at the head of the list**, not only here. #57 stays **open**, retargeted to re-measure once the v3 corpus is large enough. | Two independent failures of the minimum-n rule: no source reaches n≥150, and the interval straddles the 10% boundary regardless. **The declining is the part worth recording.** The all-sources point estimate is 9.5% — below the line — and the `< 10%` branch would have said keep the list narrow. The branch rules were written *before* the numbers precisely so a near-miss point estimate could not pull the action afterwards, and taking it would have been the post-hoc tuning the gate exists to prevent. The asymmetry that makes UNMEASURED *widen* where `< 10%` would *narrow* is deliberate and is written into `naturalness.py`: measured-low is **evidence** the sentences are clean, so widening only adds false rejections; unmeasured is **absence** of evidence, where a false reject costs one regenerated item overnight and a false accept ships a Slack-sounding sentence to a learner. |
 | 2026-08-24 | **W5: the work bias is in the SCENARIO LABELS, not in the sentences — filed as #99 off the back of the gate.** Of the 16 surviving quiz scenarios, roughly **nine carry work framing**: *"Mina and Pooya texting after a late-night deploy"*, *"Omid and Bahar texting during a Saturday deploy while watching a football match"*, *"Nima and Leila texting through a rainy weekend about a stuck deploy"*, *"Yasmin off sick while Kaveh covers a client deploy"*. | This is a **census, not a sample** — those sixteen are every surviving quiz session, so counting them describes what the generator actually produced rather than inferring about a population, and the small n does not weaken it the way it weakens A1's percentage. It also corroborates the `< 10%` story exactly as the plan predicted: sentences measuring 7.3% while the *framing* is work-saturated points at scenario labels, `{work_domain}` injected into 8 of 13 prompts, and the Work-40 schema default (#56) — **not** at the jargon list. W5's generator prompt and W10's session mix are where this is fixed; the jargon gate is not. |
 | 2026-08-24 | **W5: `items` is per-learner fan-out, not a shared library with per-user delivery rows.** | An item is **not shareable by construction**. PRD §3: the content inside a unit is generated against your error profile, your interests and your known-word ledger. An item built from `errors.id 47` means nothing to the other learner, and the coverage gate is per-learner, which makes **validity itself user-scoped** — the same sentence can sit inside one learner's comprehensible band and outside the other's. A shared row would need a per-user validation record, which is the delivery table with extra steps, and the shared row would then hold nothing but a string. S24's lesson lands directly: every consumer (W7's FSRS, W10's builder, W11's re-queue) reads "this learner's items", and a shared table gives each of them a join they can forget. `content_hash` exists from day one because it is the key a future de-dup into a shared library would need. **PRODUCT-PRINCIPLES §3 flag:** the genuine cheap-now/expensive-later note points the *other* way — a fixed authored bank does not go in this table; W18's `placement_bank` (019) is that shape, and PRD §6 requires the instrument not to change. |
@@ -705,6 +713,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | # | Issue | Severity | Slice | Status |
 |---|---|---|---|---|
+| 101 | **W5's acceptance criterion 9 was overstated, and criterion 5's wording was wrong.** (a) Criterion 9 read as though the named PRD-item test proved the gate rejects it; the test fed the solver a hardcoded response, so it proved only that the discard branch is reachable. Corrected at W5a, and the general lesson is in the decisions log. (b) Criterion 5 claimed `item_attempts.user_id → users(id)` was satisfied "transitively and directly". **The catalogue returns exactly one FK from these tables into `users`: `items_user_id_fkey → users(id)`.** `item_attempts` reaches `users` only through the composite FK to `items(id, user_id)`. The constraint is correct; the claim was not, and `test_item_attempts_user_id_references_users_id`'s **name overstates what it checks** — it asserts the composite FK. | low | W5 → W5a | ✅ closed — both corrected at W5a; the test docstring now says what it asserts |
 | 100 | **`docs/TASKS-v3-web.md`'s Build columns for W7, W8 and W10 are stale by one migration number.** W7 reads "Migration 012", which is now W5's; W8 reads 013 and W10 reads 014. The authoritative table at `docs/TASKS-v3-web.md:89` has them at 013 / 014 / 015 and line 124 already rules that the table wins and the Build column is the bug. Only W5's Build column was corrected when W4b renumbered. Identified during W5 planning; **not edited, because a `docs/` rewrite is outside the slice**. | medium | W4b → W7 | ⬜ open — correct the three Build columns before W7 |
 | 99 | **The v2 work bias lives in the quiz SCENARIO LABELS, not in the sentences.** Of the 16 surviving quiz scenarios on production, roughly **nine carry work framing** — *"Mina and Pooya texting after a late-night deploy"*, *"Omid and Bahar texting during a Saturday deploy while watching a football match"*, *"Nima and Leila texting through a rainy weekend about a stuck deploy"*, *"Yasmin off sick while Kaveh covers a client deploy"* — in a system where Work is meant to be 20% of the mix. This is a **census, not a sample**: those sixteen are every surviving quiz session, so the small n does not weaken it the way it weakens #57's percentage. It corroborates the sentence-level reading (7.3% work terms) precisely: the sentences are mostly clean while the *framing* is work-saturated, which points at scenario labels, `{work_domain}` injected into 8 of 13 prompts, and the Work-40 schema default (#56). **W5's generator prompt and W10's session mix are where this is fixed. The jargon gate is not.** | medium | W5 → #56 / W10 | ⬜ open — W10 owns the session mix |
 | 98 | **An unquoted `.env` value containing a space breaks any shell that sources the file.** `.env` line 28 was `WEBAUTHN_RP_NAME=Everyday English`. Python's `dotenv` parses it correctly, so the application never noticed; a shell sourcing the same file truncates at the space and then tries to **execute `English`**. Observed twice during the W4b deploy. Quoted on production 2026-08-24 — no restart needed, since dotenv strips the quotes. **The fix is not the issue.** Nothing prevents the next unquoted value: `.env.example` does not carry the convention, and no check enforces it. Two readers with different parsing rules share one file, and only one of them complains. | low | W4b | ⬜ open — `.env.example` should carry the quoting convention |
@@ -837,6 +846,15 @@ Cursor: keep this current so a fresh chat knows what exists without reading the 
 
 | Path | Purpose | Status |
 |---|---|---|
+| **W5a — new / changed** | | |
+| `packages/core/prompts/item_probe.txt` | **Replaces `item_blind_solver.txt`.** Asks for every acceptable answer, not the best one. Instructs the model to be strict rather than generous — over-generation is this gate's principal failure mode. | 🟡 |
+| `packages/core/items/grading.py` | **+`equivalence_key` / `distinct_answers`.** Built on W4's `tokenize`, so contractions collapse and different modals do not. No second table. | 🟡 |
+| `packages/core/items/__init__.py` | **+`ANSWER_FAMILY`** (slot / message / fixed_option / exact), `PROBED_FAMILIES`, `MAX_ACCEPTED_VARIANTS`; **`VALIDATOR_VERSION` 1 → 2**. | 🟡 |
+| `packages/core/items/gates.py` | `probe_acceptable` replaces `blind_solve`; `_probe_and_repair` replaces `_solve_and_repair`; `listening_gap` now runs **both** gates; `MAX_WIDENINGS` deleted (widening is one call, so the bound moved to the set size). | 🟡 |
+| `packages/core/items/verify.py` | **Both directions.** Catch = the PRD item yields ≥2 classes; over-rejection = three controls, one per probed family, each yielding exactly 1. Exits non-zero if either fails. | 🟡 — human runs `--live` |
+| `tests/fixtures/items/probe_only.json` | Deterministically clean, catchable by nothing but the probe: the PRD item (now **in** the fixture set), `have/take a shower`, and a message item needing a third rendering. | 🟡 |
+| `tests/test_items_probe.py` | The equivalence key, the three families, the cap, recoverability preserved, and `listening_gap`'s new gate. | 🟡 |
+| `tests/fixtures/items/valid.json` | **Three controls replaced**, each carrying a written `_unique_because`, plus the rejected `since/eight` alternative recorded rather than left to fail at a terminal. | 🟡 |
 | **W5 — new** | | |
 | `migrations/012_items.sql` | `items` + `item_attempts`; `errors.source` widened once for the full v3 set; `users.track_weights` default → 50/30/20 **with the paired `CREATE OR REPLACE VIEW` (#48)**. | 🟡 applied to the Mac dev DB only |
 | `packages/core/items/__init__.py` | `ITEM_TYPES` (11), `CUE_TYPES` (5), `TRACKS`, `RESPONSE_MODE` (tap/typed/spoken — **defined by W5, PRD has no such concept**), `VALIDATOR_VERSION`. | 🟡 |
@@ -1431,54 +1449,58 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-**W5 is code-complete and local only.** Migration 012 is applied to the Mac dev
-database and **nowhere else**. Suite **1250 passing / 0 failing** against a
-baseline of 1103.
+**W5a is code-complete and local only.** No migration — `validator_version` takes
+2 without an ALTER. Suite **1272 passing / 0 failing** against a baseline of 1250.
 
-**The #57 gate ran first and is closed as a gate, not as an issue.** It returned
-⬜ UNMEASURED — no source clears n≥150 (`quiz_prompt` 96, `chunk_sentence` 29,
-`reading_body` **1**) and the interval straddles the boundary regardless
-(7.3% ± 5.2 → 2.1–12.5%). The `< 10%` branch was **considered and declined**;
-the reasoning is in the decisions log and in `naturalness.py`. #57 stays open,
-retargeted. The queries are committed at `ec3ce8d` so every figure is
-recoverable.
+**W5 is deployed; W5a is not.** Production is at `Applied: 001–012, Pending:
+(none)` and the item table is empty by design, so **nothing a learner touches
+changes** with either. W5 stays 🟡 *because* its own verification step found a
+fault — the same way W4 stayed 🟡 through W4a.
 
-### The human's deploy steps for W5 — Claude Code has no SSH to this host
+### The human's deploy steps for W5a
 
-Backup → pull → `pip install -e packages/core` → migrate → restart. The sequence
-is settled and is not re-argued. **012 takes no lock like 011's** — it creates
-two new tables and alters one column default — so no `systemctl stop` step is
-owed this time.
+No migration and no new dependency, so the sequence is shorter than W5's.
 
-1. `bash scripts/backup.sh` and confirm the byte count went to R2.
-2. Pull to the W5 commit, then `pip install -e packages/core` — **pydantic is a
-   new declared dependency**, so this step is not optional this time even though
-   it is already in the venv transitively.
-3. `python -m core.db migrate` → expect `Applied: 012`, then
-   `python -m core.db status` → `Applied: 001–012, Pending: (none)`.
-4. `systemctl restart english-bot english-api` and confirm both `active`.
-5. **Nothing else changes for a learner.** W5 writes no items; the table is
-   empty by design until W10's `assign_daily`. If a learner notices anything at
-   all after this deploy, something is wrong.
+1. `bash scripts/backup.sh` — routine, not because this slice touches data.
+2. Pull to the W5a commit, then `pip install -e packages/core`.
+3. `python -m core.db status` → still `Applied: 001–012, Pending: (none)`.
+   **If this shows a pending migration, stop — W5a should not have one.**
+4. `systemctl restart english-bot english-api`; confirm both `active`.
 
-### W5's own checks — the human, and only the human
+### W5a's checks — the human, and only the human
 
-1. **`python -m core.items.verify --live`.** ONE blind-solver call against PRD's
-   own broken item. **The pass condition is inverted**: the gate is working when
-   the solver returns something *other* than `I'll`. **One sample of a
-   stochastic system** — it licenses no claim about the gate's rate. A fail is
-   decisive; a pass is not proof. Record the answer it gave in the decisions log.
-2. **`python -m core.items.verify --live-audio`.** ONE `synthesize` + ONE
-   `transcribe`. Verifies the round-trip *composition*, not request construction.
-3. **The 20-item Life sample — and it cannot be automated.** A test asserting
-   "reads as spoken English" would be decoration (CLAUDE.md §3 rule 4), and
-   weakening it to something testable would lower the bar (rule 7). Generate 20
-   Life-track items and read them. **Do they sound like a person talking to a
-   friend, or like a Slack message?** This is the acceptance criterion TASKS
-   actually states and the only instrument for it is a person.
-4. **Read three or four scenario labels from #99 and confirm the diagnosis.**
-   The bias is in the framing, not the sentences. If the W5 generator prompt has
-   not moved it, W10 inherits the problem.
+1. **`python -m core.items.verify --live`. Both directions, and the second is
+   the one that matters.**
+   - **Catch:** the PRD item must yield **≥2 equivalence classes**. The polarity
+     is printed. A final verdict of `repaired` is a **correct** outcome — PRD
+     §4.3 offers a first-letter cue for this very item and TASKS says "rejected
+     **or** repaired". Only `passed` with `repair_count == 0` is a failure.
+   - **Over-rejection:** three controls, one per probed family, each must yield
+     **exactly one** class. **A gate that rejects everything passes the catch
+     direction perfectly**, so this half is what shows the probe is calibrated
+     rather than merely strict.
+   - The command exits non-zero if either half fails. Record both results.
+   - **If a control fails, re-examine the control before the gate** (decisions
+     log). The fixtures were authored under weaker gates; loosening the probe
+     until a control passes is how a correct gate becomes a permissive one.
+     `listening_gap`'s control is the likeliest to need attention, and its
+     rejected alternative is recorded in the fixture rather than left to be
+     invented at the terminal.
+2. **`--live-audio`** — unchanged and already passed once (below). Re-run only if
+   `speech.py` changes.
+3. **The 20-item Life sample, still unrun and still not automatable.** W5a does
+   not touch it.
+
+### Recorded from the W5 deploy, 2026-08-24
+
+- **`--live` FAILED**, three consecutive runs, identically: solver answered
+  `"I'll"`, canonical `"I'll"`. That is what W5a exists for.
+- **`--live-audio` PASSED**: `'I forgot my keys and had to wait outside.'`
+  round-tripped exactly. **Necessary but not sufficient** — STT hears better
+  than a B1 learner, so a fail would have been decisive and a pass is not proof
+  the sentence is audible to a person (§4d).
+- Production verified: `items_user_id_fkey → users(id)` by catalogue query,
+  `track_weights` default live, both services active.
 
 ### Still unrun, carried forward — every one of these, named, never silently
 
@@ -1568,7 +1590,7 @@ to two modules — and **not** a second exemption. It was proven not inert:
 introducing one violation on each side makes each half fail, and reverting makes
 it pass.
 
-**W4, W4a, W4b and W5 are all 🟡, awaiting the human's mark. Do not start W6.**
+**W4, W4a, W4b, W5 and W5a are all 🟡, awaiting the human's mark. Do not start W6.**
 
 ### Human — carried forward, explicitly and not silently
 
