@@ -6,10 +6,10 @@
 **Project:** English Learning System — web app (PWA), 2 users, B1 → B2 in 6 months. Telegram is a notification channel, not the product.
 **Repo:** `english-bot`
 **Last updated:** 2026-08-24
-**Current slice:** W3
-**Status:** **v2 is closed** — the Telegram bot build ended at S26c. The **v3 web rebuild** (`docs/TASKS-v3-web.md`) is at **W4a: deployed to production on 2026-08-24 and 🟡, awaiting the human's mark.** **The lexicon is seeded on production and the ledger is repaired.** **W4 deployed to production on 2026-08-24 and the deploy found a fault in it** — the conflict rule gated demotion on source rank, so passive exposure demoted assumed-known words and **coverage fell as a learner used the app more** (231 of 2,000 floor lemmas for the learner with the most v2 history; **#91**). W4a gates demotion on evidence of not-knowing (`MAY_LOWER`) instead of authority, and its repair **ran on production on 2026-08-24: 245 floor rows restored** (234 + 11 + 0), coverage 1769 → **2003** for the learner with the most v2 history, and a second run wrote nothing. **#91 is closed.** **No migration** — 011 belongs to W5. **Both W4 and W4a stay 🟡 until the human marks them.** Suite **1068 passing / 0 failing**. W4 itself deployed cleanly: backup 68,586 bytes to R2, `010` applied, `Applied: 001–010, Pending: (none)`, seed idempotent on the real database, and **no `source='capture'` warning** — an evidenced negative saying the error journal holds no rows that should not be there. W4 lays the foundation the whole knowledge model stands on: migration **010** (`lexemes`, `user_lexemes`), a 15,000-lemma frequency + CEFR seed in `data/`, and a pure text → %-known-coverage function. The lemmatiser is a **committed lookup table generated offline**, so the runtime gains no NLP dependency and the settled deployment sequence gains no step. **The licence verification gate ran first and caught the plan's own table wrong in both rows** — FrequencyWords is CC BY-SA 4.0 for content rather than MIT, and CEFR-J is a TUFS permission rather than a Creative Commons licence; `data/LICENCES.md` carries the corrected terms verbatim and **#87** records the redistribution gap. Suite **974 → 1068 passing / 0 failing (1068 collected)**. **W3 was deployed to production on 2026-08-24 and marked ✅.** W3 gives the web app its first teaching surface — `POST /correct` over the shared correction service and a "Write anything" screen — and moved the correction logic out of `apps/bot/handlers/` into `packages/core/services/correction.py`. The move is **confirmed live by the bot's own startup log**, which now reads `INFO core.services.correction: Loaded 19 error types for correction prompt` where it read `apps.bot.handlers.correction` before. **#45 is closed** — the single-language / no-transliteration rule is one constant in all five explanation paths, verified with a real API call per template. **No migration in the slice:** production reports `schema_version: 9`, which is W2's 009 and unchanged. Suite **974 passing / 0 failing (974 collected)**. **W1c and W2 are ✅ (marked 2026-08-24); W2a stays 🟡** — its fix to the false connectivity banner ships in this restart, and only the human marks it. W1c's off-site backup to Cloudflare R2 is now proven end to end and **#6 is closed**; the restore-drill numbers, the byte counts and the R2 mechanics live in #6, #70, #73 and `docs/DEPLOYMENT.md`, not here. `english-bot` and `english-api` both run; `english-worker` is still deliberately uninstalled (#69). Open and carried: **#65** (no operator alert channel — now with a money-spending route behind it, and the highest-priority open infrastructure issue), the new **#82** (the v3 documents describe the intended structure, not the actual one — W4 must plan from the repo tree), #44, #67, #70, #72, #73, #79, #80, #81 and the v2 set. **New from the 2026-08-24 Telegram evidence:** **#83** (two hosts can poll one bot token — high; the only open issue that can write learner data to the wrong database), #84, #85 and #86. **New from W4:** **#87** (CEFR-J redistribution gap — medium, crystallises at a sale or an open-sourcing), **#88** (the coverage band contradicts itself across PRD and TASKS), **#89** and **#90**.
+**Current slice:** W4b
+**Status:** **v2 is closed** — the Telegram bot build ended at S26c. The **v3 web rebuild** (`docs/TASKS-v3-web.md`) is at **W4b: deployed to production on 2026-08-24 and 🟡, awaiting the human's mark.** **Identity is decoupled from Telegram.** Migration **011** is live (`Applied: 001–011, Pending: (none)`): `users.id` is a surrogate primary key, `telegram_user_id` is nullable and UNIQUE, all 17 user foreign keys point at `users(id)`, and **a person can now exist in this database without a Telegram account** — `PRODUCT-PRINCIPLES.md` §2 satisfied by the schema for the first time. **#92 is closed**, verified on production by a query run separately from the migration's own assertions: ids 1 / 2 / 3 with every Telegram id preserved, errors 0 + 26 + 7 = 33, `user_lexemes` 6,075, both totals identical to before. The already-signed-in phone opened with **no re-enrolment prompt**. Suite **1103 passing / 0 failing**. **W5 is next, and it is now migration 012** — W4b took 011 and every unwritten slice shifted by one. **The lexicon is seeded on production and the ledger is repaired.** **W4 deployed to production on 2026-08-24 and the deploy found a fault in it** — the conflict rule gated demotion on source rank, so passive exposure demoted assumed-known words and **coverage fell as a learner used the app more** (231 of 2,000 floor lemmas for the learner with the most v2 history; **#91**). W4a gates demotion on evidence of not-knowing (`MAY_LOWER`) instead of authority, and its repair **ran on production on 2026-08-24: 245 floor rows restored** (234 + 11 + 0), coverage 1769 → **2003** for the learner with the most v2 history, and a second run wrote nothing. **#91 is closed.** **No migration** — 011 belongs to W5. **Both W4 and W4a stay 🟡 until the human marks them.** Suite **1068 passing / 0 failing**. W4 itself deployed cleanly: backup 68,586 bytes to R2, `010` applied, `Applied: 001–010, Pending: (none)`, seed idempotent on the real database, and **no `source='capture'` warning** — an evidenced negative saying the error journal holds no rows that should not be there. W4 lays the foundation the whole knowledge model stands on: migration **010** (`lexemes`, `user_lexemes`), a 15,000-lemma frequency + CEFR seed in `data/`, and a pure text → %-known-coverage function. The lemmatiser is a **committed lookup table generated offline**, so the runtime gains no NLP dependency and the settled deployment sequence gains no step. **The licence verification gate ran first and caught the plan's own table wrong in both rows** — FrequencyWords is CC BY-SA 4.0 for content rather than MIT, and CEFR-J is a TUFS permission rather than a Creative Commons licence; `data/LICENCES.md` carries the corrected terms verbatim and **#87** records the redistribution gap. Suite **974 → 1068 passing / 0 failing (1068 collected)**. **W3 was deployed to production on 2026-08-24 and marked ✅.** W3 gives the web app its first teaching surface — `POST /correct` over the shared correction service and a "Write anything" screen — and moved the correction logic out of `apps/bot/handlers/` into `packages/core/services/correction.py`. The move is **confirmed live by the bot's own startup log**, which now reads `INFO core.services.correction: Loaded 19 error types for correction prompt` where it read `apps.bot.handlers.correction` before. **#45 is closed** — the single-language / no-transliteration rule is one constant in all five explanation paths, verified with a real API call per template. **No migration in the slice:** production reports `schema_version: 9`, which is W2's 009 and unchanged. Suite **974 passing / 0 failing (974 collected)**. **W1c and W2 are ✅ (marked 2026-08-24); W2a stays 🟡** — its fix to the false connectivity banner ships in this restart, and only the human marks it. W1c's off-site backup to Cloudflare R2 is now proven end to end and **#6 is closed**; the restore-drill numbers, the byte counts and the R2 mechanics live in #6, #70, #73 and `docs/DEPLOYMENT.md`, not here. `english-bot` and `english-api` both run; `english-worker` is still deliberately uninstalled (#69). Open and carried: **#65** (no operator alert channel — now with a money-spending route behind it, and the highest-priority open infrastructure issue), the new **#82** (the v3 documents describe the intended structure, not the actual one — W4 must plan from the repo tree), #44, #67, #70, #72, #73, #79, #80, #81 and the v2 set. **New from the 2026-08-24 Telegram evidence:** **#83** (two hosts can poll one bot token — high; the only open issue that can write learner data to the wrong database), #84, #85 and #86. **New from W4:** **#87** (CEFR-J redistribution gap — medium, crystallises at a sale or an open-sourcing), **#88** (the coverage band contradicts itself across PRD and TASKS), **#89** and **#90**.
 
-**W1c and W2 are ✅ (marked 2026-08-24).** `app.foundgrant.com` serves over HTTPS; `api.foundgrant.com` has a Let's Encrypt certificate through Caddy; migration **009 is applied to production**; `english-api` runs two uvicorn workers on `127.0.0.1:8000`; **both learners are enrolled**, and the production access log carries the **full WebAuthn registration ceremony** (`register/begin` → `register/finish` → `health/auth`, all 200, 20:33:41–47). `fonderis-worker` was verified answering after the Caddy reload, and a hostile CORS preflight was correctly refused with 400. The API is **scanned continuously** from the moment its certificate issued — all 404, nothing exposed — which makes **#65 (no operator alert channel) the highest-priority open infrastructure issue**, to fix before or with W3. **W2a** (🟡) fixed the one user-facing bug the deploy exposed: a working API reported as unreachable. Suite at W2a: **926 passing / 0 failing**; **974 / 0 (974 collected)** after W3. **W4 and W4a are both deployed to production (2026-08-24).** Suite **974 → 1068 passing / 0 failing (1068 collected)**. The W4 deploy found a fault in W4 — passive exposure demoted assumed-known words, so coverage fell as a learner used the app more — and W4a closed it: **245 floor rows restored (234 + 11 + 0), coverage 1769 → 2003 for the learner with the most v2 history, second run wrote nothing, confirmed by an independent `psql` query. #91 is closed.** **The lexicon is seeded on production and the ledger is repaired; nothing reads coverage until W12.** **Next is the hand-checked coverage number** — a paragraph the human has actually read, run through `coverage_for`, judged against how hard it felt; no test can substitute for it. **W4 and W4a both stay 🟡;** only the human marks either. Unrun: `/stats` on the restructured bot (`/ping` answered `pong` on 2026-08-24). Every v2 desk check remains unrun — infrastructure exercises no learner path.
+**W1c and W2 are ✅ (marked 2026-08-24).** `app.foundgrant.com` serves over HTTPS; `api.foundgrant.com` has a Let's Encrypt certificate through Caddy; migration **009 is applied to production**; `english-api` runs two uvicorn workers on `127.0.0.1:8000`; **both learners are enrolled**, and the production access log carries the **full WebAuthn registration ceremony** (`register/begin` → `register/finish` → `health/auth`, all 200, 20:33:41–47). `fonderis-worker` was verified answering after the Caddy reload, and a hostile CORS preflight was correctly refused with 400. The API is **scanned continuously** from the moment its certificate issued — all 404, nothing exposed — which makes **#65 (no operator alert channel) the highest-priority open infrastructure issue**, to fix before or with W3. **W2a** (🟡) fixed the one user-facing bug the deploy exposed: a working API reported as unreachable. Suite at W2a: **926 passing / 0 failing**; **974 / 0 (974 collected)** after W3. **W4 and W4a are both deployed to production (2026-08-24).** Suite **974 → 1068 passing / 0 failing (1068 collected)**. The W4 deploy found a fault in W4 — passive exposure demoted assumed-known words, so coverage fell as a learner used the app more — and W4a closed it: **245 floor rows restored (234 + 11 + 0), coverage 1769 → 2003 for the learner with the most v2 history, second run wrote nothing, confirmed by an independent `psql` query. #91 is closed.** **The lexicon is seeded on production and the ledger is repaired; nothing reads coverage until W12.** **Next is the hand-checked coverage number** — a paragraph the human has actually read, run through `coverage_for`, judged against how hard it felt; no test can substitute for it. **W4b then re-keyed the whole schema** — migration 011, live on production 2026-08-24, both learners verified intact, **#92 closed**. **W4, W4a and W4b all stay 🟡;** only the human marks any of them. Unrun: `/stats` on the restructured bot (`/ping` answered `pong` on 2026-08-24). **The phone `/write` check ran on 2026-08-24 and is off the list.** Every v2 desk check remains unrun — infrastructure and a re-key exercise no learner path.
 
 ---
 
@@ -82,11 +82,11 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | W1c | Off-site backup — Cloudflare R2 | ✅ done & verified | 2026-08-24 | R2 daily, 14-day retention, freshness alarm, restore drill passed, unattended cron confirmed. Marked on the human's authority 2026-08-24. **Evidenced in the record:** restore drill (errors 27/27, chunks 29/29, users 3/3, sessions 43/44), freshness alarm proven both directions, byte counts matched on both sides, and **the first *unattended* 04:00 UTC cron dump** — `journalctl -u english-bot`, 2026-08-24 08:09:30 UTC: `Off-site backup R2 ok: Newest object english_bot/2026/08/english_bot_2026-08-24_0400.dump is 4.2h old (68436 bytes)`. The cron fired unattended (key stamped `0400`, verdict 08:09:30), the upload path and the alarm path confirmed each other with no human between them, and 68436 bytes against 56176 the day before is a live database taking writes, not a truncated upload. **Nothing in W1c now rests on report**, and its production backup is unaffected by **#85** — that issue is the *Mac's* R2 configuration, not the server's. |
 | W2 | Auth + shell | ✅ done & verified | 2026-08-24 | Passkeys in FastAPI, migration 009, api.foundgrant.com live, both learners enrolled. Marked on the human's authority 2026-08-24. **Evidenced in the record:** the full registration ceremony in the production access log (20:33:41–47), the `information_schema` comparison (42 rows, 21 vs 21), certificate issuance, a hostile preflight correctly refused (400 at 02:13 UTC), `fonderis-worker` answering after the Caddy reload. **On the human's report:** home-screen installs, second passkeys, the Android enrolment, force-quit session survival, the unauthenticated redirect, the theme toggle. |
 | W2a | Deploy record + the false API banner | 🟡 code-complete | 2026-08-23 | Fixed a working API being reported unreachable (`getAuthHealth` now three-way; the guard no longer redirects on unreachable). Deploy recorded; `requirements.txt` gap documented; #79 filed. Suite 828 / 0 → **926 passing / 0 failing (926 collected)** at W2a. |
-| W3 | Correction, ported (M2) | ✅ done & verified | 2026-08-24 | Marked ✅ **on the human's explicit instruction** — CLAUDE.md §1 is satisfied because the human made the mark, not because the slice certified itself. **Evidenced in the record:** the bot's startup log now reads `INFO core.services.correction: Loaded 19 error types for correction prompt` where it read `apps.bot.handlers.correction` before the move — a logger name comes from the module's `__name__`, so the runtime path genuinely runs through the core service and the re-export kept no copy of its own; the restart of `english-bot` and `english-api` at **08:18–08:20 UTC**; `schema_version: 9` in production, unchanged, confirming W3 carried no migration; **five real API calls, one per template**, each returning the shape its handler parses; the suite at **974 passing / 0 failing (974 collected)**. **Free correction answers in Telegram after the restart** — a plain `how are you` at **11:49 local Vilnius (08:49 UTC)**, roughly half an hour after the restart, drew `👍 Correct word order and natural phrasing for a greeting question.` M2 is the handler this project has silently killed three times; a plain-text message round-tripping is the only check that ever caught any of them, and with the startup log line it closes the loop end to end — the taxonomy loaded in the new module and a real message went through it on the same process. It does **not** prove explanation quality: this was the no-error path, so the reply is the acknowledgement shape, not a correction with a Murphy reference. **`/ping` → `pong`** on the restructured bot, same chat. **On the human's report:** the first-visit `/sign-in` screen showing no connectivity banner (confirmed 2026-08-24). **Unrun:** `/correct` from a phone at `app.foundgrant.com/write` and the `errors` row behind it — `/write` was typed into the Telegram bot instead, twice, at 11:49 local. **Not run and deprioritised by the human 2026-08-24:** the other four Telegram explanation paths (`/diary`, voice, `/capture`, `/talk` close-out). |
+| W3 | Correction, ported (M2) | ✅ done & verified | 2026-08-24 | Marked ✅ **on the human's explicit instruction** — CLAUDE.md §1 is satisfied because the human made the mark, not because the slice certified itself. **Evidenced in the record:** the bot's startup log now reads `INFO core.services.correction: Loaded 19 error types for correction prompt` where it read `apps.bot.handlers.correction` before the move — a logger name comes from the module's `__name__`, so the runtime path genuinely runs through the core service and the re-export kept no copy of its own; the restart of `english-bot` and `english-api` at **08:18–08:20 UTC**; `schema_version: 9` in production, unchanged, confirming W3 carried no migration; **five real API calls, one per template**, each returning the shape its handler parses; the suite at **974 passing / 0 failing (974 collected)**. **Free correction answers in Telegram after the restart** — a plain `how are you` at **11:49 local Vilnius (08:49 UTC)**, roughly half an hour after the restart, drew `👍 Correct word order and natural phrasing for a greeting question.` M2 is the handler this project has silently killed three times; a plain-text message round-tripping is the only check that ever caught any of them, and with the startup log line it closes the loop end to end — the taxonomy loaded in the new module and a real message went through it on the same process. It does **not** prove explanation quality: this was the no-error path, so the reply is the acknowledgement shape, not a correction with a Murphy reference. **`/ping` → `pong`** on the restructured bot, same chat. **On the human's report:** the first-visit `/sign-in` screen showing no connectivity banner (confirmed 2026-08-24). **Run at last, on 2026-08-24 (W4b closeout):** `/correct` from a phone at `app.foundgrant.com/write`. It had been carried unrun since W3 — the first attempt typed `/write` into the Telegram bot instead, twice, at 11:49 local — and it is the only check that exercises the API's correction route from a real client. **Not run and deprioritised by the human 2026-08-24:** the other four Telegram explanation paths (`/diary`, voice, `/capture`, `/talk` close-out). |
 | W4 | Lexicon + known-word ledger | 🟡 code-complete | 2026-08-24 | **Migration 010** (`lexemes`, `user_lexemes`). Lemmatiser: a **committed inflection table** (`data/inflections.tsv`, 16,916 forms) generated offline by `scripts/build_lexicon.py` — **no NLP library at runtime, no model download, no new deploy step**. Seed: **FrequencyWords (OpenSubtitles-derived) + CEFR-J Wordlist v1.6** → `data/lexemes.tsv`, 15,000 lemmas, 5,727 CEFR-tagged. `core/lexicon/coverage.py` is pure; `core/services/lexicon.py` holds every query; **#59 stays the only boundary exemption**. Suite **974 → 1050 passing / 0 failing (1050 collected)**. **Local only — not deployed.** Verified on the Mac dev database: 010 applied (`schema_version: 10`), seed idempotent (`0 inserted, 0 updated, 15000 unchanged` on the second run), `--ledger` idempotent likewise, and coverage discriminating register as it should — everyday speech **90.7%** at a top-2000 floor and **96.3%** at top-4000, academic prose **37.8%** at top-2000. **Nothing here is verified on production**: the migration, the seed command and the harvest are all written out as explicit commands for the human in Next action. **Deployed to production 2026-08-24** — pre-migration backup 68,586 bytes to R2, `010` applied, `Applied: 001–010, Pending: (none)`, seed idempotent on the real database (`15000 inserted`, then `0 inserted, 0 updated, 15000 unchanged`), and **no `source='capture'` warning** — an evidenced negative saying the error journal holds no rows that should not be there. **The fault this deploy exposed (#91) is now closed on production by W4a.** Stays 🟡 until the human marks it. |
 | W4a | Demotion gate + floor repair | 🟡 code-complete | 2026-08-24 | **W4 deployed cleanly and the deploy found a fault in it.** The conflict rule gated demotion on **source rank**, so `v2_encountered` (rank 1) outranked the rank-0 frequency floor and a passive exposure pulled `known` down to `seen` — **the more a learner had used the app, the lower their coverage**. 231 of one learner's 2,000 floor lemmas fell out. Fix: `MAY_LOWER = {review, placement, tapped}` in `states.py` gates demotion on **evidence of not-knowing** rather than on authority; both `IN (…)` lists are generated from it. **No migration** — 011 is W5's in the authoritative table and the rule is a SQL string, not schema. Repair: `python -m core.lexicon.repair [--dry-run]`, idempotent, conservative, leaves `known/v2_produced` alone. Suite **1050 → 1068 passing / 0 failing**. Verified on the Mac dev database first: 1994 → 2000 covered, second run zero. **The repair then ran on production 2026-08-24, and it is evidenced in the record.** Deploy: backup **272,583 bytes** to R2 (`english_bot/2026/08/english_bot_2026-08-24_1213.dump`), pull to `1975b3b`, `pip install -e packages/core`, and `core.db status` still reading **`Applied: 001–010, Pending: (none)`** — confirming W4a carried no migration, as designed. `--dry-run`, then applied, then run again: **`309538108` 2000→2000 (0 restored) · `5013535972` 1992→2003 (11) · `7222549221` 1769→2003 (234)**. **245 rows restored; the second run reported `(none)` in both sections**, so idempotency is met on production and not only on the Mac. **An independent `psql` query confirmed the same three rows**, run separately from the command that did the work. Stays 🟡 until the human marks it. |
 
-| W4b | Identity without Telegram | 🟡 code-complete | 2026-08-24 | **Migration 011 — the largest schema change this project will make, and the one every other table pointed at.** `users` gains `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`; `telegram_user_id` becomes a **nullable, unique secondary identifier**; all **17** user foreign keys repoint to `users(id)` with each one's original `ON DELETE` semantics preserved — sixteen CASCADE, `couple_challenges.winner_user_id` still NO ACTION. **The migration deletes nothing**: no `DELETE`, no `DROP TABLE`, no `DROP COLUMN`, so the cascade on sixteen keys is never armed while they are in flight. Row counts are asserted **per user, not just per table**, inside the migration, because a per-table total survives a bug that swaps two learners' rows. Two findings the plan did not have: **`access_requests.telegram_user_id` was the table's primary key**, so it could not simply be made nullable (a PK column is NOT NULL by definition) — it needed its own ordered re-key; and **`is_approved` has two callers with no `users` row at all** (`gate_unapproved`, `/start`), so one signature could not serve both. Identity now translates in exactly two modules, `core/services/identity.py` and `apps/bot/identity.py`, enforced by `tests/test_identity_boundary.py`. **Five operator comparisons against `OPERATOR_TELEGRAM_ID`** were re-pointed at the Telegram id; one of them (`/stats`'s `include_sweep`) was inlined rather than going through `_is_operator` and would have silently dropped the operator's fossil-sweep line with no error anywhere. Web sign-up ships as `identity.create_web_user` + `python -m core.claim create` — **no route, no screen**. Suite **1068 → 1103 passing / 0 failing**, baseline held exactly at every step. **Local only — nothing here is verified on production.** The rehearsal, the deploy and the post-migration counts are written out as explicit commands for the human in Next action. **#92 does not close until the migration is live on production and both learners are verified intact.** Stays 🟡 until the human marks it. |
+| W4b | Identity without Telegram | 🟡 code-complete, **deployed and verified on production** | 2026-08-24 | **Migration 011 is live. A person can now exist in this database without a Telegram account.** `users.id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`; `telegram_user_id` nullable + `UNIQUE`; all **17** user foreign keys repointed to `users(id)` with each one's original `ON DELETE` preserved — sixteen CASCADE, `couple_challenges.winner_user_id` still NO ACTION. **The migration deletes nothing**: no `DELETE`, no `DROP TABLE`, no `DROP COLUMN`, so the cascade on sixteen keys is never armed while they are in flight. Two findings the plan did not have: **`access_requests.telegram_user_id` was that table's primary key**, so it could not be made nullable in place and needed its own ordered re-key; and **`is_approved` has two callers with no `users` row at all** (`gate_unapproved`, `/start`), so one signature could not serve both. Identity translates in exactly two modules, enforced by `tests/test_identity_boundary.py`. **Five operator comparisons** against `OPERATOR_TELEGRAM_ID` re-pointed at the Telegram id — one of them inlined rather than routed through `_is_operator`, which would have silently removed the operator's own `/stats` fossil-sweep line. Web sign-up ships as `identity.create_web_user` + `python -m core.claim create` — no route, no screen. Suite **1068 → 1103 passing / 0 failing**, baseline held exactly at every step. **Evidenced in the record:** the rehearsal against a real restore (`english_bot/2026/08/english_bot_2026-08-24_1425.dump`, 272,751 bytes, drill passed in 3s, errors/chunks/users/sessions all matching live), **011 against that scratch copy in 0.330s** — against the plan's ~30s ceiling and the 34s the quadratic version took before it was fixed; the pre-deploy backup (272,751 bytes to R2, `english_bot_2026-08-24_1429.dump`, 14:29:48 UTC); `Applied: 011` then `Applied: 001–011, Pending: (none)`; both services back `active` with **total downtime under one minute**; and the post-migration counts run **independently of the migration's own assertions** (CLAUDE.md §3 rule 5) returning identically on the scratch copy and on production — **ids 1 / 2 / 3 (Navid, Morkyte, Amirhossein) with every Telegram id preserved, errors 0 + 26 + 7 = 33, and 2000 + 2006 + 2069 = 6,075 `user_lexemes` rows**, both totals identical to the pre-migration database. **On the human's report:** the already-signed-in phone opening with **no re-enrolment prompt** (criterion 11 on a real device, not only by the join in a test), `/correct` answering in Telegram for an existing learner, `/admin` still recognising the operator, and **`/write` on the phone — carried unrun since W3 and now run**. **#92 closes here.** Stays 🟡 until the human marks it. |
 
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
 
@@ -148,6 +148,12 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-24 | **W4b deployed. Migration 011 is live on production, verified independently of its own assertions.** Rehearsal: `restore_from_r2.sh --keep` on `english_bot/2026/08/english_bot_2026-08-24_1425.dump` (272,751 bytes), drill passed in 3s with errors/chunks/users/sessions matching live; **011 against that scratch copy in 0.330s**. Deploy: backup 272,751 bytes to R2 (`…_1429.dump`, 14:29:48 UTC) → `systemctl stop english-bot english-api` → `Applied: 011` → `Applied: 001–011, Pending: (none)` → both services `active`. **Downtime under one minute.** Post-migration, on both the scratch copy and production: **ids 1 / 2 / 3 with every Telegram id preserved, errors 0 + 26 + 7 = 33, `user_lexemes` 2000 + 2006 + 2069 = 6,075** — both totals identical to before. | The independent `psql` check is the part worth recording, not the counts. The migration asserts its own row counts and aborts on a mismatch, which is the right place for that guard — but a migration reporting on its own success is asserting a claim. A query written separately against the same tables is a result. Same distinction W4a's repair was held to, and the same reason: #91 existed because something that looked right in 1,050 tests was wrong in the only place that mattered. **0.330s against a ~30s ceiling** is also worth keeping: the number the plan set was never approached, so the stop-and-re-plan branch was never needed. |
+| 2026-08-24 | **W4b: `systemctl stop english-bot english-api` before `migrate` was a slice-specific step, NOT a change to the settled deployment sequence.** The sequence remains backup → pull → `pip install -e packages/core` → migrate → restart, and it is not re-argued. | 011 holds `ACCESS EXCLUSIVE` on `users` and `access_requests` for its entire transaction. Requests would not have errored, they would have **blocked** — and the sharper hazard is the lock *queue*: one bot handler holding an open transaction makes the `ALTER` wait, and every reader arriving afterwards queues behind the waiting `ALTER`, turning a sub-second migration into a stall for everything. Stopping first removed that entirely and made the window a bounded, deliberate outage rather than a hang that looks like a bug. The cost was already being paid — `apps/bot/main.py:196` is `run_polling(drop_pending_updates=True)`, so the ordinary restart at step 5 already discards anything sent while the bot is down. **This applied to W4b only. A future slice wanting it must justify it again.** |
+| 2026-08-24 | **W4b: the first rehearsal attempt did not run — a pasted command carried a placeholder DSN and failed with `failed to resolve host`.** It was caught, production was confirmed at `Applied: 001–010, Pending: 011` with both services `active`, and the rehearsal was then run properly. **Nothing reached production out of order.** | Recorded because the near-miss is the interesting part, not the typo. The placeholder failed *loudly* here only because the next step checked schema state before proceeding — had the DSN resolved to something real instead of nothing, the failure would have been silent and in the wrong database. This is the same shape as #64 (a scratch `.env` being silently ignored while the real configuration loads) and the same reason CLAUDE.md §5b insists on exported variables: the reliable protection is not careful pasting, it is a check between the step and the thing it affects. |
+| 2026-08-24 | **W4b: the per-user assertion was quadratic, and only a numeric ceiling in the plan caught it.** `IS NOT DISTINCT FROM` cannot be hash-joined, so the check nested-loop scanned every user pair: **34s** on a scratch database carrying 31,105 `access_requests` rows of test residue, roughly 10,000× production's size. Comparing keys as TEXT with an explicit `'~NULL~'` sentinel — which cannot collide with a user id — took it to **0.55s**, and to 0.330s on the real restore. | **The general lesson is the one to keep: production's small size would have hidden this permanently.** On three users the assertion would have passed in milliseconds and stayed quadratic, waiting silently for a table to grow — and this is a migration, so it would have surfaced years later as an unexplained lock held over a live database. It was found only because the plan committed to a **number** (~30s) rather than to "should be fast", and because the build stopped at 4 seconds over it instead of shrugging. A ceiling with no number attached would not have caught this. |
+| 2026-08-24 | **W4b: the migration's assertion was proven to fire, not assumed.** A deliberately swapped mapping — one that preserves every per-table total, 10 errors before and 10 after — was **caught by the per-user check**, aborted the transaction, and left the database at `schema_version 10` with the data untouched. | CLAUDE.md §3 rule 4: a green check over a path nothing exercises is decoration. The specific thing worth recording is that **per-table totals alone would have passed it** — a swap conserves them exactly. Counting per user is what turns "nothing was lost" into "nothing was lost *and* nothing moved to the wrong learner", which is the failure that actually matters for an error journal. It also confirmed the transaction guarantee end to end: a failure mid-migration leaves nothing behind. |
+| 2026-08-24 | **W4b: the fresh-id decision paid off measurably, and the number is the argument.** Rewriting the suite surfaced **~490 failures**, nearly all foreign-key violations naming the exact table and the exact value. | Under the rejected seeded-id scheme (`users.id` seeded from `telegram_user_id`) **every one of those 490 would have passed silently**, because the two numbers would have been equal for exactly the three learners the tests use — and would have diverged only for the first Telegram-less person, months later, with no test able to catch it. This is the general argument, worth keeping past this slice: **make a type error self-detecting on the rows you actually have.** The cost was one data rewrite of small tables; the return was 490 loud failures instead of one silent one. |
 | 2026-08-24 | **W4b: `users` gains a surrogate key and `telegram_user_id` becomes a nullable, unique secondary identifier. The cheap alternative — minting synthetic Telegram ids for web users — is rejected permanently.** | `PRODUCT-PRINCIPLES.md` §2 requires that a person can sign up, learn and pay without Telegram, and the schema forbade it: `telegram_user_id` was the primary key and 17 foreign keys pointed at it. Synthetic ids cost nothing today and are a lie in the data forever: a column named `telegram_user_id` holding values that are not Telegram ids, with **no way ever to separate the real ones from the invented ones**, and a bot that would try to deliver to them. It converts a schema problem into a data problem, and data problems are the ones that cannot be fixed later. Written down here so nobody proposes it again. |
 | 2026-08-24 | **W4b: existing learners get fresh ids (1, 2, 3), NOT their Telegram ids seeded into `users.id`.** The tempting shortcut would have made the migration touch no data at all. | **This is the load-bearing decision of the slice.** Seeding `id = telegram_user_id` makes the two numbers equal for exactly the three learners we test with, and different only for the first web user. Any code passing a Telegram id where an internal id belongs would then work in every test, in dev, and in production — and break months later for a Telegram-less person, with no test that could have caught it. With fresh small ids the same mistake fails **immediately and loudly**: a 10-digit value matches no `users.id`, so the query returns nothing or the foreign key re-add aborts. **This was not theoretical.** Rewriting the suite surfaced roughly 490 failures, nearly all of them a foreign-key violation naming the exact table and value — every one a place the old code had conflated identity with an address. Under the seeded scheme all of them would have passed. We paid one data rewrite of small tables to make the type error self-detecting. |
 | 2026-08-24 | **W4b took migration 011 and every unwritten slice below it shifted by one** (W5 011→012 … W18 018→019), corrected in `docs/TASKS-v3-web.md` in the same commit. | Taking a number above everything claimed — say 019 — would have *worked* on production, because `db.py:171` computes pending as a **set difference and not `v > max`**, so W5's later 011 would still be applied. That is exactly the problem. On a **fresh** database the runner applies in ascending numeric order, so 011 runs *before* 019 there and *after* it on production, and W5's file would have to be correct against two different parent schemas. The schema history stops being replayable, which is the one thing a numbered-file scheme exists to give you. **This is not #49's failure**: #49 was a slice shipping a number the authoritative table did not know about. Here the table was corrected in the same commit and the renumbered slices **have not been written** — nothing on disk, nothing applied, no `schema_version` row moved. Renumbering an applied migration is #49; renumbering a row in a planning table is bookkeeping. W4a made the same distinction in the other direction on 2026-08-24 and declined 011 for a slice that needed no migration. |
@@ -684,12 +690,13 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | # | Issue | Severity | Slice | Status |
 |---|---|---|---|---|
+| 98 | **An unquoted `.env` value containing a space breaks any shell that sources the file.** `.env` line 28 was `WEBAUTHN_RP_NAME=Everyday English`. Python's `dotenv` parses it correctly, so the application never noticed; a shell sourcing the same file truncates at the space and then tries to **execute `English`**. Observed twice during the W4b deploy. Quoted on production 2026-08-24 — no restart needed, since dotenv strips the quotes. **The fix is not the issue.** Nothing prevents the next unquoted value: `.env.example` does not carry the convention, and no check enforces it. Two readers with different parsing rules share one file, and only one of them complains. | low | W4b | ⬜ open — `.env.example` should carry the quoting convention |
 | 97 | **A web-only learner cannot be approved, declined or revoked by the operator.** `access_control.approve_access` / `decline_access` / `revoke_access` are keyed on `telegram_user_id`, which a web-originated learner does not have. Worse than a missing feature: `revoke_access` is an `INSERT … ON CONFLICT (telegram_user_id) DO UPDATE`, and with a NULL telegram id the conflict target never matches, so it would **insert a second `access_requests` row** (many NULLs are allowed by the unique constraint) rather than revoking the learner — leaving them approved and the operator believing otherwise. Not reachable today because `create_web_user` is operator-only and there is no web sign-up route, but it becomes reachable the moment one exists. Wants `user_id`-keyed variants alongside the Telegram-keyed ones, the same split `is_approved` got at W4b. | medium | W4b → before any web sign-up route | ⬜ open |
 | 96 | **`watch_import` inbox directories are named after the old user ids.** `inbox_path(root, user_id)` builds `inbox/<user_id>/`, so after 011 the code looks for `inbox/1/` while the existing folder on disk is `inbox/7222549221/`. **Production is unaffected — `WATCH_DIR` is unset there and S15a is dormant** (`docs/DEPLOYMENT.md`: "no Drive client on the server; CSV via Telegram only"), so this is a Mac-only orphan and no deploy step is needed. Filed rather than fixed because it must not be rediscovered as a mystery when S15a is turned on. Separately noticed and worth its own look: the Mac's watch folder holds **~900 stray directories** created by the test suite against a real Google Drive path. | low | W4b | ⬜ open — rename or re-create when S15a is enabled |
 | 95 | **A learner with no Telegram channel receives nothing, and the skip is silent by construction.** `EligibleUser`/`MotivationUser` carry a nullable `telegram_address` since W4b, and every delivery entry point (`deliver_morning`, `deliver_evening`, `deliver_diary`, `deliver_weekly`, the nudge and the Sunday report) returns `skipped_no_channel` when it is NULL. That is **correct** — this bot cannot reach them — but it means the first web-only learner gets no morning quiz, no evening reading and no nudge, and **no error is raised anywhere**; they simply never appear in a delivery pass. This is the exact shape of **#44** (a scheduled feature silently not firing) and of the empty-interests incident that caused topic defaulting with no error at S26b. Not a bug in W4b: delivery moves to the web at **W20**, and a Telegram-less learner has no channel until then. **W20 must alert on a learner with no reachable channel rather than skipping them quietly** — that requirement is stated here so W20 inherits it instead of rediscovering it. | medium | W4b → W20 | ⬜ open — W20 owns the alert |
 | 94 | **`LEXICON_ASSUMED_KNOWN_TOP_N` is a single global value.** One number for every learner. Right for two adults at roughly one level; wrong the moment users arrive at different levels, because the floor is a claim about an individual's vocabulary. It becomes a per-user column when multi-tenancy arrives — with #48's view recreate budgeted, since it would be an `ALTER TABLE users`. | low | W4 | ⬜ open — a per-user column at multi-tenancy |
 | 93 | **The frequency floor is materialised per user.** 2,000 rows per learner carrying no information beyond "this is a top-2000 lemma, and we are assuming it". Correct and cheap at three learners; at multi-tenant scale it is millions of rows of hypothesis. It should be computed from `lexemes.freq_rank` at read time instead. **`source='assumption'` already makes every one of those rows identifiable**, so the change is a query rewrite and a delete, not a migration. | low | W4 | ⬜ open — compute at read time before multi-tenancy |
-| 92 | **`users.telegram_user_id` is the identity key for the entire schema, so a learner without a Telegram account cannot exist.** Every user-keyed table references it — `errors`, `chunks`, `book_units`, `sessions`, `streaks`, `interests`, `readings`, the auth tables, and now `user_lexemes` from W4. This **contradicts a settled product decision**: the product is a web app, Telegram is legacy and is deleted at W22, and a user must be able to sign up, learn and pay without Telegram (`docs/PRODUCT-PRINCIPLES.md` §§1–2). W2 hung the web auth columns (`auth_user_id`, `auth_email`) onto that row rather than giving identity a key of its own, and W4 added another table to the pile. **Every user-keyed table added before the fix enlarges the eventual migration** — `cards` and `card_reviews` at W7 and the syllabus tables at W8 are next in line. The fix is a re-key of the whole schema and **is its own scheduled slice, never improvised inside another one**. | high | W2 → W4 | 🟡 **code-complete at W4b (migration 011), NOT closed.** It closes when the migration is live on production and **both learners are verified intact** — per-table and per-user row counts run independently of the migration's own assertions, both journals spot-checked by content, a bot path and a web path exercised by hand, and the already-signed-in phone confirming no re-enrolment. Written code is not a closed issue |
+| 92 | **`users.telegram_user_id` is the identity key for the entire schema, so a learner without a Telegram account cannot exist.** Every user-keyed table references it — `errors`, `chunks`, `book_units`, `sessions`, `streaks`, `interests`, `readings`, the auth tables, and now `user_lexemes` from W4. This **contradicts a settled product decision**: the product is a web app, Telegram is legacy and is deleted at W22, and a user must be able to sign up, learn and pay without Telegram (`docs/PRODUCT-PRINCIPLES.md` §§1–2). W2 hung the web auth columns (`auth_user_id`, `auth_email`) onto that row rather than giving identity a key of its own, and W4 added another table to the pile. **Every user-keyed table added before the fix enlarges the eventual migration** — `cards` and `card_reviews` at W7 and the syllabus tables at W8 are next in line. The fix is a re-key of the whole schema and **is its own scheduled slice, never improvised inside another one**. | high | W2 → W4 | ✅ **closed 2026-08-24, on production.** The condition was explicit and both halves hold. **Live:** `Applied: 001–011, Pending: (none)`. **Both learners intact**, verified by `psql` run separately from the migration's own assertions — ids **1 / 2 / 3** (Navid, Morkyte, Amirhossein) with every Telegram id preserved, **errors 0 + 26 + 7 = 33**, **`user_lexemes` 2000 + 2006 + 2069 = 6,075**, both totals identical to the pre-migration database. **Four hand checks passed** (human's report): already-signed-in phone with no re-enrolment prompt, `/correct` in Telegram, `/admin` recognising the operator, `/write` on the phone. **What it means in product terms:** `users.telegram_user_id` is nullable and UNIQUE, identity is `users.id`, and **a person can now exist in this database without a Telegram account** — `PRODUCT-PRINCIPLES.md` §2 is satisfied by the schema for the first time |
 | 91 | **The W4 conflict rule let passive exposure demote an assumed-known word, so coverage fell as a learner used the app more.** Demotion was gated on `source_rank`, and `v2_encountered` (rank 1) outranks `assumption` (rank 0), so a word appearing in a reading the bot had sent pulled `known` down to `seen`. Measured on the production seed: **231 of 2,000 floor lemmas lost for `7222549221`** (covered 1769/2069), 8 for `5013535972` (1992/2006), and **2000/2000 for the learner with no v2 history at all** — the learner with the most history had the least coverage. **Invisible to 1,050 passing tests**, because every W4 test wrote a state onto a row it had just created and none put an exposure on top of a floor row; it surfaced only on production data with real history, which is the argument for the harvest counts being *read* rather than merely printed. Nothing consumed coverage yet, so no learner ever saw a wrong number — W12 would have inherited it as an unexplained one. **Fixed at W4a:** demotion is gated on `MAY_LOWER = {review, placement, tapped}` — evidence of not-knowing — instead of on authority, and `python -m core.lexicon.repair` restores the rows already written. Dev database: 1994 → 2000 covered, second run zero. | high | W4 → W4a | ✅ **closed — 2026-08-24, on production.** `python -m core.lexicon.repair` restored **245 floor rows**: `309538108` 2000→2000 (0) · `5013535972` 1992→**2003** (11) · `7222549221` 1769→**2003** (234). **A second run reported `(none)` in both sections**, so the idempotency criterion is met on production and not only on the Mac, and **an independent `psql` query confirmed the same three rows** — the verification did not come from the tool reporting on itself. Reconciliation for `7222549221`: 1978 `known/assumption` + 22 floor lemmas legitimately promoted to `known/v2_produced` = the full 2,000, none demoted; the other 69 rows are the harvest's inserts from outside the floor. **No `assumption` row sits in any state but `known`.** |
 | 90 | **The v2 harvest can only record words the seed list already knows.** `harvest_v2` resolves through `lemmatize`, which accepts a candidate only if it is an existing lexeme, so a word the learners have genuinely used that falls outside the 15k list produces no ledger row. This is correct as a *default* — bulk historical text carries typos and proper nouns, and growing the lexicon from it would fill `lexemes` with rubbish — but it does mean the ledger under-reports for exactly the vocabulary that is most worth knowing about: the rare words they already met. **Fix if it matters:** a one-off pass that grows lexemes from harvest terms appearing ≥ N times across distinct rows, which is evidence rather than noise. Not built, and not needed until the harvest has run against production and the drop count is known. | low | W4 | ⬜ open — measure on the production harvest first |
 | 89 | **A proper noun at the start of a sentence is counted as an unknown word.** The rule needs a capital that is not sentence-initial to distinguish a name from an ordinary word, so `Sarah went to the shop` counts `Sarah` in the denominator as unknown while a mid-sentence `Sarah` is excluded. The direction is safe — coverage reads *low*, so material is judged slightly harder than it is, never easier — and it is asserted in `test_a_transcript_full_of_names_does_not_read_as_hard` rather than left implicit. The residual cost is a small systematic underestimate on dialogue-heavy transcripts, which are the ones W12 selects. **Fix if it matters:** a second pass marking any token that appears capitalised mid-sentence *anywhere* in the text as a name everywhere in it. Cheap, and deliberately not built inside W4. | low | W4 | ⬜ open — revisit at W12 with real transcripts |
@@ -799,9 +806,9 @@ duplicated predicate in the auth path. **#69** still blocks the worker install;
 W3; **#67**'s "wait for W6" recommendation stands, because the frontend ships no
 hand-written base64url.
 
-Full carried-forward set: #2 · #3 · #5 · #8 · #13 · #14 · #15 · #17 · #18 · #19 · #20 · #21 · #22 · #23 · #24 · #25 · #27 · #28 · #29 · #33 · #35 · #36 · #37 · #39 · #40 · #41 · #42 · #43 · #44 (**stays open until a real Mon/Wed/Fri evening reading lands — no deploy alone can prove it**) · #45 · #46 · #47 · #48 · #50 · #51 · #52 · #55 · #56 · #57 · #58 · #59 · #60 · #62 · #64 (dotenv resolution) · #65 (no operator alert channel for `apps/api` — and for `apps/worker`) · #66 (**duplicate job registration — now confirmed live, and the reason the worker unit is uninstalled**) · #67 (no JS test runner) · #69 (worker job-table overlap) · #70 (stubbed provider contract — narrowed, not closed) · #71 (`BACKUP_R2_REQUIRED`) · #72 · #73 (R2 list-after-write lag) · #79 · #80 · #81 (remainder: the two health routes) · **#82** (the v3 documents describe the intended structure, not the actual one — W4 planned from the repo tree and left the document uncorrected, so it now lags a further slice) · and, from the 2026-08-24 Telegram evidence, **#83** (two hosts can poll one token — high), **#84** (alerts do not name their host), **#85** (the Mac's R2 endpoint returns `AccessDenied` and alarms daily; production unaffected) and **#86** (unknown commands are silent). **New at W4:** **#87** (CEFR-J is licensed for use, not explicitly for redistribution — crystallises at a sale or an open-sourcing), **#88** (the 93–98 / 95–98 coverage band contradicts itself across PRD and TASKS; W12 must pick one), **#89** (a sentence-initial proper noun counts as unknown — biased low, the safe direction) and **#90** (the v2 harvest records only words already in the seed list). **New at W4a, still open:** **#92** (**`users.telegram_user_id` is the identity key for the whole schema** — **code-complete at W4b but NOT closed: it closes only when 011 is live on production and both learners are verified intact**), **#93** (the floor is materialised per user) and **#94** (`LEXICON_ASSUMED_KNOWN_TOP_N` is global). **New at W4b:** **#95** (a learner with no Telegram channel receives nothing and the skip is silent — medium, W20 must alert instead), **#96** (`watch_import` inbox directories carry the old ids; Mac-only, `WATCH_DIR` unset on production) and **#97** (a web-only learner cannot be approved or revoked by the operator, and `revoke_access` would silently insert a duplicate row rather than revoking — medium, before any web sign-up route).
+Full carried-forward set: #2 · #3 · #5 · #8 · #13 · #14 · #15 · #17 · #18 · #19 · #20 · #21 · #22 · #23 · #24 · #25 · #27 · #28 · #29 · #33 · #35 · #36 · #37 · #39 · #40 · #41 · #42 · #43 · #44 (**stays open until a real Mon/Wed/Fri evening reading lands — no deploy alone can prove it**) · #45 · #46 · #47 · #48 · #50 · #51 · #52 · #55 · #56 · #57 · #58 · #59 · #60 · #62 · #64 (dotenv resolution) · #65 (no operator alert channel for `apps/api` — and for `apps/worker`) · #66 (**duplicate job registration — now confirmed live, and the reason the worker unit is uninstalled**) · #67 (no JS test runner) · #69 (worker job-table overlap) · #70 (stubbed provider contract — narrowed, not closed) · #71 (`BACKUP_R2_REQUIRED`) · #72 · #73 (R2 list-after-write lag) · #79 · #80 · #81 (remainder: the two health routes) · **#82** (the v3 documents describe the intended structure, not the actual one — W4 planned from the repo tree and left the document uncorrected, so it now lags a further slice) · and, from the 2026-08-24 Telegram evidence, **#83** (two hosts can poll one token — high), **#84** (alerts do not name their host), **#85** (the Mac's R2 endpoint returns `AccessDenied` and alarms daily; production unaffected) and **#86** (unknown commands are silent). **New at W4:** **#87** (CEFR-J is licensed for use, not explicitly for redistribution — crystallises at a sale or an open-sourcing), **#88** (the 93–98 / 95–98 coverage band contradicts itself across PRD and TASKS; W12 must pick one), **#89** (a sentence-initial proper noun counts as unknown — biased low, the safe direction) and **#90** (the v2 harvest records only words already in the seed list). **New at W4a, still open:** **#93** (the floor is materialised per user) and **#94** (`LEXICON_ASSUMED_KNOWN_TOP_N` is global). **New at W4b, all still open:** **#95** (a learner with no Telegram channel receives nothing and the skip is silent — medium, W20 must alert instead of skipping), **#96** (`watch_import` inbox directories carry the old ids; Mac-only, `WATCH_DIR` unset on production), **#97** (a web-only learner cannot be approved or revoked by the operator, and `revoke_access` would silently insert a duplicate row rather than revoking — medium, before any web sign-up route) and **#98** (an unquoted `.env` value with a space breaks any shell sourcing the file — low). **#92 closed on production 2026-08-24.**
 
-**Closed and not to be reopened:** #1 · #4 · **#91 (2026-08-24, on production — the demotion inversion, 245 rows restored)** · #6 (**closed 2026-08-23 by the production restore drill**) · #7 · #9 · #10 · #11 · #12 · #16 · #26 · #31 · #32 · #34 · #38 · #49 · #53 (TASKS half) · #54 · #61 · #63 · #68.
+**Closed and not to be reopened:** #1 · #4 · **#92 (2026-08-24, on production — identity decoupled from Telegram; migration 011 live, both learners verified intact by an independent query)** · **#91 (2026-08-24, on production — the demotion inversion, 245 rows restored)** · #6 (**closed 2026-08-23 by the production restore drill**) · #7 · #9 · #10 · #11 · #12 · #16 · #26 · #31 · #32 · #34 · #38 · #49 · #53 (TASKS half) · #54 · #61 · #63 · #68.
 
 ---
 
@@ -1383,147 +1390,29 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-**W4b is code-complete and NOTHING in it has touched production.** Migration 011
-is applied to the **Mac dev database only** (`schema_version: 11`). The suite is
-**1103 passing / 0 failing (1103 collected)** — baseline 1068 held exactly at
-every step, plus 35 new tests. Production is still `Applied: 001–010`.
+**Identity is decoupled from Telegram on production.** Migration 011 is live —
+`Applied: 001–011, Pending: (none)` — `users.telegram_user_id` is nullable and
+UNIQUE, identity is `users.id`, and **a person can now exist in this database
+without a Telegram account**. `PRODUCT-PRINCIPLES.md` §2 is satisfied by the
+schema for the first time. **#92 is closed.**
 
-**#92 is not closed.** It closes when 011 is live on production and both learners
-are verified intact — not when the code is written.
+The lexicon is seeded and the ledger is repaired (W4, W4a). Both learners came
+through the re-key intact: ids **1 / 2 / 3** with every Telegram id preserved,
+**errors 0 + 26 + 7 = 33**, **`user_lexemes` 6,075** — verified by a query run
+separately from the migration's own assertions, and identical on the rehearsal
+copy and on production. Suite **1103 passing / 0 failing**.
 
-### W4b — the human's checks, in order. Nothing below can be done by Claude Code.
-
-**1. Rehearse against a restored copy of production. Do this before anything else.**
-
-```bash
-./scripts/restore_from_r2.sh --keep
-```
-
-Then migrate the scratch database — **exported**, never a scratch `.env` (#64,
-CLAUDE.md §5b):
-
-```bash
-DATABASE_URL="postgresql://USER@localhost:5432/english_bot_restore_test" .venv/bin/python -m core.db migrate
-```
-
-Record four things from this run, all of which go in the decisions log:
-
-- **the elapsed time.** Expected: seconds. **If it exceeds ~30s, stop and
-  re-plan** rather than carrying the number to production.
-- **per-table and per-learner row counts**, before and after.
-- **the `shared_content.created_by` pre-flight** (§4.5 of the plan):
-
-```bash
-psql -d english_bot_restore_test -c "SELECT sc.id, sc.created_by FROM shared_content sc LEFT JOIN users u ON u.id = sc.created_by WHERE u.id IS NULL;"
-```
-
-  Empty → the foreign key can be added in a follow-up migration, free. Not empty
-  → leave the column unconstrained and file the offending ids. **Decide from this
-  output, not at 23:00 mid-deploy.**
-- **a content spot-check of both learners' journals** — read actual `you_said`
-  rows and confirm they are attached to the right person. Counts cannot prove
-  this; only reading can.
-
-Then drop it:
-
-```bash
-dropdb english_bot_restore_test
-```
-
-**2. Deploy — with one slice-specific addition to the settled sequence.**
-
-The settled sequence is backup → pull → install → migrate → restart, and it is
-not being re-argued. W4b adds a **stop before migrate, for this deploy only**,
-because 011 holds an `ACCESS EXCLUSIVE` lock on `users` and `access_requests` for
-its whole transaction. Requests do not error, they **block** — and the sharper
-hazard is the lock *queue*: one bot handler holding a transaction open makes the
-`ALTER` wait, and every reader arriving after it queues behind the waiting
-`ALTER`. Stopping first removes that entirely and makes the window a bounded,
-deliberate outage rather than a hang that looks like a bug. The cost is already
-being paid: `apps/bot/main.py:196` is `run_polling(drop_pending_updates=True)`,
-so the existing restart already discards anything sent while the bot is down.
-
-**Deploy outside both learners' active hours** — after `evening_time` or before
-`morning_time` — because the discard applies either way.
-
-```bash
-./scripts/backup.sh
-```
-```bash
-git pull && .venv/bin/pip install -e packages/core
-```
-```bash
-sudo systemctl stop english-bot english-api
-```
-```bash
-.venv/bin/python -m core.db migrate     # expect: Applied: 011
-```
-```bash
-sudo systemctl start english-bot english-api && sudo systemctl status english-bot english-api --no-pager | head -20
-```
-
-**3. Post-migration counts on production, run independently of the migration's
-own assertions** (CLAUDE.md §3 rule 5 — a check that derives its expectation from
-the thing it is checking proves nothing):
-
-```bash
-psql -d english_bot -c "SELECT u.id, u.telegram_user_id, u.name, (SELECT count(*) FROM errors e WHERE e.user_id=u.id) AS errors, (SELECT count(*) FROM chunks c WHERE c.user_id=u.id) AS chunks, (SELECT count(*) FROM sessions s WHERE s.user_id=u.id) AS sessions, (SELECT count(*) FROM user_lexemes l WHERE l.user_id=u.id) AS lexemes FROM users u ORDER BY u.id;"
-```
-
-**4. On a phone that was already signed in, open the app.** Confirm **no
-re-enrolment is prompted** — the session cookie still resolves and the passkey
-still authenticates. The test proves the join; only the phone proves the device.
-This is the check that, if it fails, costs an evening of re-enrolling passkeys on
-two phones, one of them another person's.
-
-**5. One bot path and one web path, by hand, as the same existing learner.**
-`/correct` in Telegram, and `app.foundgrant.com/write`.
-
-**6. `/admin` still recognises the operator**, and `/stats` still shows the
-fossil-sweep line. Five operator comparisons changed in this slice and no
-existing test covers them (the tests do not set `OPERATOR_TELEGRAM_ID`).
-
-**Rollback, if the migration succeeds but the application misbehaves:** while no
-Telegram-less user exists,
-
-```bash
-psql "$DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -f scripts/rollback_011.sql
-```
-
-It refuses on its own if that is no longer true, in which case the pre-migration
-dump from step 2 is the only path.
-
-**Nothing reads coverage yet.** No screen, no job and no prompt consumes the
-number until W12 selects video on it and W13 highlights from it. That is why the
-first item below is the one that matters: the ledger is now correct in a way
-nobody has looked at.
-
-**W4 and W4a both stay 🟡.** Marked earlier: W3 ✅, W1c ✅, W2 ✅ (2026-08-24).
-**W2a stays 🟡** until the human marks it.
-
-> **One line worth keeping about how those marks were reached.** Some checks are
-> **evidenced in the record** and could be re-derived from it years from now: the
-> full registration ceremony in the production access log, the
-> `information_schema` comparison, the certificate issuance, the restore drill's
-> row counts, a hostile preflight refused with 400, **W1c's unattended 04:00 UTC
-> cron backup — the `ok` verdict in `journalctl -u english-bot` at 08:09:30 UTC
-> on 2026-08-24**, **W3's startup log line naming `core.services.correction`**,
-> **free correction answering `how are you` in Telegram at 11:49 local Vilnius /
-> 08:49 UTC**, and now **W4a's repair counts with their independent `psql`
-> confirmation**. Others rest on **the human's report**: the home-screen
-> installs, the second passkeys, the second learner's Android enrolment,
-> force-quit session survival, the unauthenticated redirect, the theme toggle,
-> and W3's clean first-visit `/sign-in` screen. **Neither group is complete** —
-> the phone `/write` check is unrun and four Telegram paths are deprioritised,
-> both named below. The distinction is not doubt; it is the difference between a
-> fact the record can reproduce and a fact it is taking on report.
+**The next slice is W5 — item schema + validator, and it is now migration 012**,
+not 011. W4b took 011 and every unwritten slice below it shifted by one in
+`docs/TASKS-v3-web.md`'s authoritative table. A slice reading only its own Build
+column would write the wrong number; the table wins.
 
 ### Still unrun, carried forward — every one of these, named, never silently
 
-**Everything below predates W4b and none of it was cleared by it.** W4b is a
-schema change and a data model; it exercises no learner path. The six W4b checks
-above are *in addition* to this list, not instead of it.
-
+**Nothing below was cleared by W4b.** It is a schema change and a data model; it
+exercises no learner path. The one item it did clear — the phone `/write` check,
+carried unrun since W3 — **has been removed from this list because it ran on
+2026-08-24**, not because it got old.
 
 1. **The hand-checked coverage number. Unrun, and it is the one that matters.**
    Take a paragraph of English the human has actually read, run it through
@@ -1532,28 +1421,25 @@ above are *in addition* to this list, not instead of it.
    self-consistent; it cannot prove it is *right*, because every expectation in
    it was written by the same person who wrote the code. **W12 selects video on
    this number**, and a plausible-but-wrong one stays invisible until a learner
-   drowns. It stays on this list until it is run.
+   drowns.
 2. **`/stats` in Telegram on the restructured bot.** W1's, and the last of that
    pair — `/ping` answered `pong` on 2026-08-24.
-3. **`/correct` from a phone at `app.foundgrant.com/write`, with the `errors`
-   row behind it.** Still the only check that exercises the API's correction
-   route from a real client; no test and no Telegram path reaches it.
-4. **The four Telegram explanation paths — `/diary`, a voice message,
+3. **The four Telegram explanation paths — `/diary`, a voice message,
    `/capture`, a `/talk` close-out. Deprioritised by the human on 2026-08-24,
    not declined and not pending.** They block nothing, and they stay listed
    because they remain live paths for two learners until W20–W22.
-5. **The S25 pre-flight counts from production**, for the decisions log: total /
+4. **The S25 pre-flight counts from production**, for the decisions log: total /
    stay_null slang / become_presented; confirm `non_slang_delivered = 0`.
-6. **#44 — evening reading**, until a real Mon/Wed/Fri delivery lands. No deploy
+5. **#44 — evening reading**, until a real Mon/Wed/Fri delivery lands. No deploy
    proves it.
-7. **#57 — before W5.** The §6b work-vocabulary SQL and the quiz-scenario
+6. **#57 — before W5.** The §6b work-vocabulary SQL and the quiz-scenario
    frequency query, run on Hetzner. W5 rewrites the prompts against that number.
-8. **S8** — create the shared group, add the bot, run `/here`, set
+7. **S8** — create the shared group, add the bot, run `/here`, set
    `COUPLE_CHAT_ID`, restart, then the seven group checks.
-9. **The entire v2 desk-check list, unchanged.** W1c, W2, W2a, W3, W4 and W4a
-   are backup, auth, infrastructure, one ported feature and a data model.
-   Between them they exercise **one** learner path and clear none of this list.
-   It is kept in full below and in the Verification checklist above.
+8. **The entire v2 desk-check list, unchanged.** W1c, W2, W2a, W3, W4, W4a and
+   W4b are backup, auth, infrastructure, one ported feature, a data model and a
+   re-key. Between them they exercise **one** learner path and clear none of this
+   list. It is kept in full below and in the Verification checklist above.
 
 ### What genuinely remains, in order
 
@@ -1561,40 +1447,47 @@ above are *in addition* to this list, not instead of it.
    the highest-priority open infrastructure issue: `POST /correct` spends money
    on a public, continuously-probed API and its failures land in a journal
    nobody is watching.
-2. **#92 — `users.telegram_user_id` is the identity key for the whole schema.**
-   A learner without a Telegram account cannot exist, which contradicts
-   `docs/PRODUCT-PRINCIPLES.md` §§1–2. **Every user-keyed table added before the
-   fix enlarges the migration** — `cards` and `card_reviews` at W7 and the
-   syllabus tables at W8 are next in line, so the cost rises with each slice.
-   Its own scheduled slice, never improvised inside another one.
-3. **#82 — the architecture document lags the tree**, now by a further slice: it
-   does not know `core/lexicon/`, `core/services/lexicon.py` or `data/` exist.
-   Wants a correction pass written from the tree.
-4. **#80 — an empty `NEXT_PUBLIC_API_URL` silently produces a broken build.**
+2. **#82 — the architecture document lags the tree.** It does not know
+   `core/lexicon/`, `core/services/lexicon.py`, `data/`, and now
+   `core/services/identity.py` and `apps/bot/identity.py` exist. Wants a
+   correction pass written from the tree.
+3. **#95 — a learner with no Telegram channel receives nothing, silently.**
+   Correct behaviour today (this bot cannot reach them) and newly *reachable*
+   now that a Telegram-less user can exist. **W20 must alert on a learner with
+   no reachable channel rather than skipping them quietly.**
+4. **#97 — a web-only learner cannot be approved or revoked by the operator**,
+   and `revoke_access` would insert a duplicate `access_requests` row rather
+   than revoking. Must be fixed before any web sign-up route exists.
+5. **#80 — an empty `NEXT_PUBLIC_API_URL` silently produces a broken build.**
    Fail the production build instead of defaulting to `localhost:8000`.
-5. **#79 — subprocess egress is not covered by the network guard.** A `PATH`
+6. **#79 — subprocess egress is not covered by the network guard.** A `PATH`
    shim for `aws`, roughly ten lines, symmetrical with the socket guard.
-6. **#67 — no JS test runner.** `apps/web` has no tests at all.
-7. **#93 — the frequency floor is materialised per learner**, 2,000 rows each of
+7. **#67 — no JS test runner.** `apps/web` has no tests at all.
+8. **#93 — the frequency floor is materialised per learner**, 2,000 rows each of
    pure hypothesis. Compute it from `freq_rank` at read time before
    multi-tenancy; `source='assumption'` already identifies every such row, so it
    is a query rewrite and a delete, not a migration.
-8. **#94 — `LEXICON_ASSUMED_KNOWN_TOP_N` is a single global value.** Becomes a
+9. **#94 — `LEXICON_ASSUMED_KNOWN_TOP_N` is a single global value.** Becomes a
    per-user column at multi-tenancy, with #48's view recreate budgeted.
-9. **#73, #70, #69, #72 — unchanged, carried.** Do not test the R2 alarm by hand
-   within minutes of a backup; the R2 paths the stub still stands in for remain
-   unverified; the worker cannot be installed while the job tables overlap; the
-   Mac's `.env` still wants `BACKUP_R2_REQUIRED=0` (or #85's endpoint fix).
+10. **#96 — `watch_import` inbox directories carry the old ids.** Mac-only;
+    `WATCH_DIR` is unset on production and S15a is dormant, so no deploy step is
+    owed. Rename or re-create when S15a is turned on.
+11. **#73, #70, #69, #72 — unchanged, carried.** Do not test the R2 alarm by hand
+    within minutes of a backup; the R2 paths the stub still stands in for remain
+    unverified; the worker cannot be installed while the job tables overlap; the
+    Mac's `.env` still wants `BACKUP_R2_REQUIRED=0` (or #85's endpoint fix).
 
 **Also open and unchanged:** **#83** (two hosts can poll one bot token — high,
 and the only open issue that can write learner data to the wrong database),
 **#84** (alerts do not name their host), **#85** (the Mac's R2 alarms daily;
-production unaffected), **#86** (unknown commands are silent).
+production unaffected), **#86** (unknown commands are silent), **#98** (an
+unquoted `.env` value with a space breaks any shell sourcing the file).
 
-**#59 remains the only boundary exemption.** Worth noting how it stayed that
-way: during the W4a build the purity test caught `VERIFICATION_QUERY` as a SQL
-constant in `core/lexicon/repair.py` — printed for a human, never executed — and
-it was **moved into the service rather than exempted**.
+**#59 remains the only boundary exemption.** W4b added a *second parse test* —
+`tests/test_identity_boundary.py`, confining the Telegram-to-user-id translation
+to two modules — and **not** a second exemption. It was proven not inert:
+introducing one violation on each side makes each half fail, and reverting makes
+it pass.
 
 **W4, W4a and W4b are 🟡, awaiting the human's mark. Do not start W5.**
 
@@ -1631,9 +1524,16 @@ it was **moved into the service rather than exempted**.
 by the human at the W2 closeout on both devices.
 
 **W3 is ✅.** W1c and W2 remain ✅; W2a stays 🟡 until the human marks it.
-**W4 and W4a are both deployed to production (2026-08-24).** The deploy of W4
+**W4, W4a and W4b are all deployed to production (2026-08-24).** The deploy of W4
 found a fault in W4 — passive exposure demoted assumed-known words — and W4a's
 rule change and repair closed it: **245 floor rows restored, verified by an
-independent query, second run wrote nothing. #91 is closed.** **Both stay 🟡
+independent query, second run wrote nothing. #91 is closed.** W4b then re-keyed
+the schema every other table points at: **migration 011 live, both learners
+verified intact by a query run separately from the migration's own assertions,
+the already-signed-in phone opening with no re-enrolment prompt. #92 is closed,
+and identity no longer depends on Telegram.** **All three stay 🟡
 until the human marks them; that column is the human's (`PRODUCT-PRINCIPLES.md`
 §5). Do not start W5.**
+
+**One check left this list rather than being carried:** the phone `/write`
+check, unrun since W3, ran on 2026-08-24. Nothing else was removed.
