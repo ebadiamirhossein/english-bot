@@ -1,0 +1,17 @@
+# Development-only. Nothing here is installed on the production server.
+#
+# `scripts/build_lexicon.py` runs once on a developer's machine to generate
+# `data/lexemes.tsv` and `data/inflections.tsv`, which are committed. The
+# runtime reads only those generated files and imports neither package.
+#
+# This lives in its own file rather than in requirements.txt on purpose.
+# `tests/test_core_boundary.py::test_requirements_mirror_core_dependencies`
+# walks requirements.txt with a cursor that only moves on a comment matching
+# `^#\s*(apps/|packages/|tests\b)`; a `# dev tooling` header does not match, so
+# it neither opens nor closes a section. A dev block placed after the
+# `# packages/core` lines would be collected *as a core dependency* and the
+# test would fail. Placed at the end of the file it would pass — but only
+# because of where it sits, and any later reordering would break it silently.
+# A separate file the mirror test never reads has no such trap.
+lemminflect==0.2.3
+openpyxl==3.1.5

@@ -235,6 +235,123 @@ def test_no_sql_outside_services() -> None:
     )
 
 
+# W4. `core/lexicon/` is the pure half of the lexicon: it turns text into lemmas
+# and lemmas into a percentage, and it never reaches a database. Keeping it that
+# way is what lets `compute_coverage` be tested without Postgres and what keeps
+# `test_no_sql_outside_services` unexempted — #59 stays the only exemption in
+# this file. This is a tightening of that rule, not a hole in it.
+LEXICON = CORE / "lexicon"
+# The offline table generator's dependencies. They are pinned in
+# `scripts/requirements-lexicon-build.txt` and are NOT installed on the server,
+# so an import of either from runtime code would work on a developer's machine
+# and fail at boot in production.
+BUILD_ONLY_LIBS = frozenset({"lemminflect", "openpyxl"})
+# One reader of the lexicon tables, forever. If the seed builder parsed
+# `data/lexemes.tsv` differently from the coverage path — a different header
+# rule, a different filter — the ledger would silently never match what
+# coverage counts, the number would read low for good, and nothing would fail.
+# That is the S24 Meaning/Translation mismatch in another costume, and it
+# already happened once here: a header check that matched on text rather than
+# position dropped the English word `surface` with no error at all.
+TOKENISER = LEXICON / "normalize.py"
+LEXICON_DATA_FILES = ("lexemes.tsv", "inflections.tsv")
+
+
+def test_lexicon_package_is_pure() -> None:
+    """No SQL, no driver, and no build-only import under `core/lexicon/`."""
+    offenders: list[str] = []
+    for path in _python_files(LEXICON):
+        rel = path.relative_to(REPO_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hit = _imported_roots(tree) & ({"psycopg", "psycopg_pool"} | BUILD_ONLY_LIBS)
+        if hit:
+            offenders.append(f"{rel}: imports {', '.join(sorted(hit))}")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if _looks_like_sql(node.value):
+                    offenders.append(f"{rel}:{node.lineno}: SQL")
+    assert offenders == [], (
+        "core/lexicon/ is pure: every query lives in core/services/lexicon.py, "
+        "and lemminflect/openpyxl are build-only (CLAUDE.md §2): "
+        + "; ".join(offenders)
+    )
+
+
+def _docstring_ids(tree: ast.AST) -> set[int]:
+    """Docstrings naming a file are prose about it, not a read of it."""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(body, list) or not body:
+            continue
+        if not isinstance(node, (ast.Module, ast.ClassDef,
+                                 ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        first = body[0]
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+            if isinstance(first.value.value, str):
+                ids.add(id(first.value))
+    return ids
+
+
+def test_only_the_tokeniser_reads_the_lexicon_data_files() -> None:
+    """`normalize.py` is the single door to `data/lexemes.tsv`.
+
+    Narrower than "no second word regex anywhere", and deliberately so: this
+    tree has several legitimate tokenisers that have nothing to do with English
+    vocabulary — migration filenames, CSV headers, slugs — and a rule that
+    caught those would need an exemption list long enough to make it a rubber
+    stamp, which is exactly what `test_no_sql_outside_services` refuses to be.
+
+    What actually drifts is the *parse*, and this catches that: one module
+    reads the tables, and every other call site goes through it. The identity
+    assertion in `test_lexicon_coverage.py` covers the other half — that the
+    seed builder and the coverage path hold the same function object.
+    """
+    offenders: list[str] = []
+    for root in (CORE, APPS):
+        for path in _python_files(root):
+            if path == TOKENISER:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            prose = _docstring_ids(tree)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Constant) or id(node) in prose:
+                    continue
+                if not isinstance(node.value, str):
+                    continue
+                if any(name in node.value for name in LEXICON_DATA_FILES):
+                    rel = path.relative_to(REPO_ROOT)
+                    offenders.append(f"{rel}:{node.lineno}")
+    assert offenders == [], (
+        "core/lexicon/normalize.py is the only module that may read the "
+        "lexicon data files — a second parser is a second answer: "
+        + "; ".join(offenders)
+    )
+
+
+def test_the_build_only_dependencies_stay_out_of_the_core_mirror() -> None:
+    r"""`lemminflect` and `openpyxl` generate `data/*.tsv` on a developer's
+    machine and are never installed by the deployment sequence. They live in
+    `scripts/requirements-lexicon-build.txt`, which nothing here reads.
+
+    They must not appear in requirements.txt at all. Its parser only moves its
+    cursor on a comment matching `^#\s*(apps/|packages/|tests\b)`, so a
+    `# dev tooling` header neither opens nor closes a section: a dev block
+    placed after the `# packages/core` lines would be collected as a core
+    dependency, and one placed at the end would pass only because of where it
+    sits, until someone reordered the file.
+    """
+    text = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
+    for library in sorted(BUILD_ONLY_LIBS):
+        assert library not in text, f"{library} belongs in the build-only file"
+    pinned = (REPO_ROOT / "scripts" / "requirements-lexicon-build.txt").read_text(
+        encoding="utf-8"
+    )
+    for library in sorted(BUILD_ONLY_LIBS):
+        assert f"{library}==" in pinned, f"{library} must be pinned, not floating"
+
+
 # W1b. The API runs several uvicorn workers and each one is a whole process.
 # A scheduler imported there runs every job once per worker: the streak
 # rollover fires four times, the monthly reset fires four times (W0 risk R3).

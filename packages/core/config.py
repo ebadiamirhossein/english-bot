@@ -60,6 +60,16 @@ class Settings:
     conversation_awaiting_topic_minutes: int = 2
     conversation_max_turns: int = 12
     conversation_history_max_messages: int = 20
+    # W4. How many of the commonest lemmas a new ledger assumes known, so that
+    # coverage is not 0% for every text on day one and W12's comprehensible-
+    # input band is reachable before W18's placement test exists. Written at
+    # source `assumption`, the weakest rank, so any real signal overrides it.
+    #
+    # 2000 is deliberately below PRD §2.1's B1 estimate of 2,500-3,000: an
+    # under-assumption selects material that is slightly too hard, which the
+    # learner can see and say so about, while an over-assumption selects
+    # material they drown in silently.
+    lexicon_assumed_known_top_n: int = 2000
     # S18 hardening — operator alerts + runtime files (optional ids).
     operator_telegram_id: int | None = None
     runtime_dir: str = ""
@@ -233,6 +243,12 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
     conversation_history_max_messages = _parse_int(
         "CONVERSATION_HISTORY_MAX_MESSAGES",
         os.environ.get("CONVERSATION_HISTORY_MAX_MESSAGES", "20"),
+        errors,
+    )
+
+    lexicon_assumed_known_top_n = _parse_int(
+        "LEXICON_ASSUMED_KNOWN_TOP_N",
+        os.environ.get("LEXICON_ASSUMED_KNOWN_TOP_N", "2000"),
         errors,
     )
 
@@ -480,6 +496,7 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         conversation_awaiting_topic_minutes=conversation_awaiting_topic_minutes,
         conversation_max_turns=conversation_max_turns,
         conversation_history_max_messages=conversation_history_max_messages,
+        lexicon_assumed_known_top_n=lexicon_assumed_known_top_n,
         operator_telegram_id=operator_telegram_id,
         runtime_dir=runtime_dir,
         log_file=log_file,
