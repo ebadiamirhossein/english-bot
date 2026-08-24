@@ -88,9 +88,9 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 
 | W4b | Identity without Telegram | 🟡 code-complete, **deployed and verified on production** | 2026-08-24 | **Migration 011 is live. A person can now exist in this database without a Telegram account.** `users.id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`; `telegram_user_id` nullable + `UNIQUE`; all **17** user foreign keys repointed to `users(id)` with each one's original `ON DELETE` preserved — sixteen CASCADE, `couple_challenges.winner_user_id` still NO ACTION. **The migration deletes nothing**: no `DELETE`, no `DROP TABLE`, no `DROP COLUMN`, so the cascade on sixteen keys is never armed while they are in flight. Two findings the plan did not have: **`access_requests.telegram_user_id` was that table's primary key**, so it could not be made nullable in place and needed its own ordered re-key; and **`is_approved` has two callers with no `users` row at all** (`gate_unapproved`, `/start`), so one signature could not serve both. Identity translates in exactly two modules, enforced by `tests/test_identity_boundary.py`. **Five operator comparisons** against `OPERATOR_TELEGRAM_ID` re-pointed at the Telegram id — one of them inlined rather than routed through `_is_operator`, which would have silently removed the operator's own `/stats` fossil-sweep line. Web sign-up ships as `identity.create_web_user` + `python -m core.claim create` — no route, no screen. Suite **1068 → 1103 passing / 0 failing**, baseline held exactly at every step. **Evidenced in the record:** the rehearsal against a real restore (`english_bot/2026/08/english_bot_2026-08-24_1425.dump`, 272,751 bytes, drill passed in 3s, errors/chunks/users/sessions all matching live), **011 against that scratch copy in 0.330s** — against the plan's ~30s ceiling and the 34s the quadratic version took before it was fixed; the pre-deploy backup (272,751 bytes to R2, `english_bot_2026-08-24_1429.dump`, 14:29:48 UTC); `Applied: 011` then `Applied: 001–011, Pending: (none)`; both services back `active` with **total downtime under one minute**; and the post-migration counts run **independently of the migration's own assertions** (CLAUDE.md §3 rule 5) returning identically on the scratch copy and on production — **ids 1 / 2 / 3 (Navid, Morkyte, Amirhossein) with every Telegram id preserved, errors 0 + 26 + 7 = 33, and 2000 + 2006 + 2069 = 6,075 `user_lexemes` rows**, both totals identical to the pre-migration database. **On the human's report:** the already-signed-in phone opening with **no re-enrolment prompt** (criterion 11 on a real device, not only by the join in a test), `/correct` answering in Telegram for an existing learner, `/admin` still recognising the operator, and **`/write` on the phone — carried unrun since W3 and now run**. **#92 closes here.** Stays 🟡 until the human marks it. |
 
-| W5 | Item schema + validator | 🟡 code-complete | 2026-08-24 | **Migration 012** (`items`, `item_attempts`, `register` on `items`, `errors.source` widened once for the full v3 set, `users.track_weights` default → 50/30/20 with the paired view recreate). **The eleven item types as pydantic models — and PRD names them and stops**, giving no field shapes and no per-type descriptions, so W5 *defines* them rather than transcribing them. `core/items/` is pure (schema, projection, deterministic checks, naturalness, grading, cue ladder); `core/items/gates.py` is the only module reaching a provider; `core/services/items.py` holds every query. **#59 stays the only boundary exemption** and two new parse tests were proven non-inert. **The blind-solver gate** with repair-before-reject over PRD's five cues and a hard cap of two repairs / three solver calls, carried as a CHECK on `items.repair_count` so the cap survives someone loosening the loop. Dictation and listening are gated by a **`synthesize` → `transcribe` round-trip** instead. Suite **1103 → 1250 passing / 0 failing**. **The #57 gate ran first and returned ⬜ UNMEASURED** — see the decisions log. **Local only — not deployed**; 012 is applied to the Mac dev database only, and the production migration plus the `--live` verification are explicit commands for the human in Next action. Stays 🟡 until the human marks it. |
+| W5 | Item schema + validator | 🟡 code-complete | 2026-08-24 | **Migration 012** (`items`, `item_attempts`, `register` on `items`, `errors.source` widened once for the full v3 set, `users.track_weights` default → 50/30/20 with the paired view recreate). **The eleven item types as pydantic models — and PRD names them and stops**, giving no field shapes and no per-type descriptions, so W5 *defines* them rather than transcribing them. `core/items/` is pure (schema, projection, deterministic checks, naturalness, grading, cue ladder); `core/items/gates.py` is the only module reaching a provider; `core/services/items.py` holds every query. **#59 stays the only boundary exemption** and two new parse tests were proven non-inert. **The blind-solver gate** with repair-before-reject over PRD's five cues and a hard cap of two repairs / three solver calls, carried as a CHECK on `items.repair_count` so the cap survives someone loosening the loop. Dictation and listening are gated by a **`synthesize` → `transcribe` round-trip** instead. Suite **1103 → 1250 passing / 0 failing**. **The #57 gate ran first and returned ⬜ UNMEASURED** — see the decisions log. **Deployed to production 2026-08-24** — pre-migration backup 274,715 bytes to R2, `012` applied, `Applied: 001–012, Pending: (none)`, `items_user_id_fkey → users(id)` confirmed by catalogue query, `track_weights` default live, both services active. **The deploy's own verification step then failed**: `--live` returned the canonical answer three consecutive runs, because the gate asked *"what is your answer?"* — which proves an item is RECOVERABLE and can never prove it is UNIQUELY ACCEPTABLE. **That failure is closed by W5a**, whose probe is verified live in both directions. `--live-audio` passed at this deploy and still stands. Stays 🟡 until the human marks it. |
 
-| W5a | Uniqueness gate — the multi-answer probe | 🟡 code-complete | 2026-08-24 | **W5 deployed cleanly and the deploy's own verification step found a fault in it**, exactly as W4 → W4a. `--live` returned the canonical answer three runs running: the gate asked *"what is your answer?"*, which proves an item is **recoverable** and can never prove it is **uniquely acceptable** — and unmarkability is caused by the second. The single-answer solve is replaced **one-for-one** by a probe asking for every acceptable answer; distinct answers are counted by an equivalence key built from W4's existing `tokenize` (`I'll` and `I will` are one class, `I'd` and `I can` are two more), so no second table. Widen-or-reject is `ANSWER_FAMILY` — a constant, not a runtime judgement: **slot** never widens (a second fitting form means the gap tests nothing — gate 3 failing, not gate 1 passing), **message** widens up to 6 renderings, **fixed_option** never widens and is not cue-repairable, so it costs one call rather than three. **`listening_gap` gains a uniqueness gate for the first time** — it was audio-gated only, so nothing had ever tested whether the gapped word was the only word that fits. `validator_version` 1 → 2. **Three of eleven "valid" fixtures were themselves multi-acceptable** and were replaced before the probe was written. Call count unchanged; `max_tokens` 200 → 400, an existing parameter, so **rule 2 still does not fire**. No migration. Suite **1250 → 1272 passing / 0 failing**. **Local only.** Stays 🟡, and **W5 stays 🟡 with it**. |
+| W5a | Uniqueness gate — the multi-answer probe | 🟡 code-complete | 2026-08-24 | **W5 deployed cleanly and the deploy's own verification step found a fault in it**, exactly as W4 → W4a. `--live` returned the canonical answer three runs running: the gate asked *"what is your answer?"*, which proves an item is **recoverable** and can never prove it is **uniquely acceptable** — and unmarkability is caused by the second. The single-answer solve is replaced **one-for-one** by a probe asking for every acceptable answer; distinct answers are counted by an equivalence key built from W4's existing `tokenize` (`I'll` and `I will` are one class, `I'd` and `I can` are two more), so no second table. Widen-or-reject is `ANSWER_FAMILY` — a constant, not a runtime judgement: **slot** never widens (a second fitting form means the gap tests nothing — gate 3 failing, not gate 1 passing), **message** widens up to 6 renderings, **fixed_option** never widens and is not cue-repairable, so it costs one call rather than three. **`listening_gap` gains a uniqueness gate for the first time** — it was audio-gated only, so nothing had ever tested whether the gapped word was the only word that fits. `validator_version` 1 → 2. **Three of eleven "valid" fixtures were themselves multi-acceptable** and were replaced before the probe was written. Call count unchanged; `max_tokens` 200 → 400, an existing parameter, so **rule 2 still does not fire**. Suite **1250 → 1275 passing / 0 failing**. **Deployed to production 2026-08-24 and evidenced in the record.** Backup **286,919 bytes** to R2 (`english_bot/2026/08/english_bot_2026-08-24_1739.dump`, 17:39:41 UTC — up from 274,715 at the W5 deploy, which is 012's two tables landing); pull to **`7d714ca`**; `pip install -e packages/core`; **NO MIGRATION — `schema_version` stays at 12**, because W5a changed Python and fixtures only, so a later reader should not go looking for an 013 that never existed; both services `active`. **`--live` then PASSED IN BOTH DIRECTIONS, exit 0** — the acceptance criterion, and the first time the item that started the v3 rebuild has been detected and repaired by the gate built for it. Stays 🟡, and **W5 stays 🟡 with it**. |
 
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
 
@@ -152,6 +152,10 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-24 | **W5a deployed. `--live` passes in both directions, exit 0, and that is the acceptance criterion.** Backup 286,919 bytes to R2 (`…_1739.dump`, 17:39:41 UTC) → pull to `7d714ca` → `pip install -e packages/core` → **no migration, `schema_version` unchanged at 12** → both services `active`. **Catch direction:** the PRD item returned **four distinct equivalence classes — `i will`, `i will just`, `i can`, `i can just`** — and the `first_letter_length` cue rescued it: verdict **`repaired`**, repairs=1, calls=2. **Over-rejection direction:** slot → 1 class, passed; fixed_option → 1 class, passed; message → 4 classes, **widened**, all four renderings absorbed into `accepted_variants`. | **`repaired` is the DESIGNED outcome, not a weaker form of pass.** PRD §4.3 offers a first-letter cue for this exact item and TASKS says "rejected **or** repaired", so a repair is the gate working as specified rather than the gate being lenient. The over-rejection half is what makes the result mean anything: a gate that rejects everything passes the catch direction perfectly, and each control asserts the property its family is *for* rather than a uniform "one class". **The scope note stands verbatim and is not softened by exit 0: one sample per item of a stochastic system, no claim about the gate's rate, a fail decisive and a pass not proof — and a model resolves cues a B1 learner will miss, so a clean probe is weaker evidence about a learner than it looks.** The first run of this same command produced a false alarm, which is the reason to keep that caveat attached rather than reading `EXIT=0` as "verified". |
+| 2026-08-24 | **W5a: the three levels of one lesson, stated together because they were learned separately and in order.** (1) *A recorded-response test can prove a branch is REACHABLE and never that a model TAKES it.* (2) *Any gate whose value depends on model behaviour needs a live check with a stated polarity, and that live check is the acceptance criterion — not the recorded one.* (3) **_The thing that verifies must measure the thing it reports on._ A verifier that samples twice and reports once is not observing the system — it is producing a coincidence.** | Level 3 cost the most to see because it wore the costume of a bug in the code under test. The first `--live` run printed the PRD item's four classes beside a verdict of `passed (repairs=0, calls=1)`, which reads unmistakably as the verdict ignoring the probe. **It was not a routing bug, and the record says so plainly because the accusation is in this session's history and the correction is the valuable part.** Reproduced with that exact response, `validate()` returns `discarded` in 3 calls: `ANSWER_FAMILY` is consulted, `cloze_cued` keys to `slot`, and the multi-class branch reads the same `classes` the probe populated. The harness had called `_classes(item)` and then `validate(item)` — **two independent probes** — and printed the first call's classes against the second call's verdict. **`calls=1` was the tell: a genuine four-class run cannot cost one call.** And **criterion 1 stayed green because it was correct** — the recorded test calls `validate()` once and exercises the real routing exactly. Nothing diverged between the recorded and live paths; the *verifier* diverged from both. |
+| 2026-08-24 | **W5a: the harness fix is structural rather than careful.** `ValidationReport.acceptable` now carries the probe's returned list on **every** path — pass, widen, reject, not-recoverable — so no code ever needs a second call to learn what a verdict was reached on. `items.validation` persists that evidence for later readers, and `tests/test_items_probe.py::test_the_verification_harness_probes_once_per_item` pins it. | "Be careful not to call it twice" is not a fix; it is the same instruction that failed the first time. Making the evidence part of the verdict means the two cannot come from different samples, because there is only one sample to come from. The persistence half matters independently: a reader of `items.validation` months from now can see the answer set a decision was made against, which is the difference between a stored verdict and a stored *judgement*. |
+| 2026-08-24 | **W5a: four bad fixtures, and the pattern is the finding.** `cloze_cued` — **no cue at all, in the type named *cued***, leaving the slot open to walked/drove/ran. `listening_gap` — `"I forgot my ___"` admits wallet/phone/bag. `collocation_pick` — `make/take a decision`, **PRD §4c's own example of the bug, sitting in the valid set of the very type whose design specified the probe**. `l1_to_l2_production` — canonical "I went to the shops" mistranslates its own prompt: `دیروز` (yesterday) dropped, `مغازه` (shop, singular) rendered plural. The first three fell out of a desk audit; **the fourth could only be found live.** | **Fixtures are written against the gates that exist when they are written. Adding a gate means re-auditing the fixtures against it, not only adding tests.** All four were authored to survive the deterministic checks, and nobody asked whether they would survive a uniqueness probe, because there was not one. The fourth needed a real model and surfaced only as a side effect of asking what a translation could acceptably be: **the gate was right** — the probe returned four translations all carrying *yesterday*, correctly declined to offer the canonical, and `not_recoverable` was the correct verdict on a mistranslated fixture. This is also the third time the standing rule paid: **when a control fails, re-examine the control before the gate.** |
 | 2026-08-24 | **W5a: `--live` PASSES in both directions.** Catch: the PRD item's first probe found more than one class, the `first_letter_length` cue narrowed it, and the verdict was **`repaired` (repairs=1, calls=2)** — PRD §4.3 offers that cue for this very item and TASKS says "rejected **or** repaired". Over-rejection: slot `classes=1 passed`, fixed_option `classes=1 passed`, message `classes=4 → widened` with all four renderings absorbed into `accepted_variants`. | The gate now does what PRD §4.3 describes, on the item the whole rebuild started from. **What this licenses is unchanged and worth restating**: one sample per item of a stochastic system, no claim about the gate's rate, a fail decisive and a pass not proof — and a model resolves cues a B1 learner will miss, so a clean probe is weaker evidence about a learner than it looks. The first run of this same command produced a false alarm (below), which is itself the reason to keep the caveat attached rather than reading `EXIT=0` as "verified". |
 | 2026-08-24 | **W5a: the first `--live` failure was in the VERIFICATION HARNESS, not the gate — and it looked exactly like a routing bug.** `live()` probed once to print the classes and then called `validate`, which probed **again**. It reported the first call's four classes beside the second call's `passed`/`calls=1` verdict. Reproducing the gate with that exact 4-class response returned `discarded` in 3 calls: `ANSWER_FAMILY` was consulted, keyed correctly, and the multi-class branch read the same variable the probe populated. | **The thing that verifies must measure the thing it reports on.** This is the third instance of one lesson in one slice, and the first two were about tests: a recorded response proves a branch is reachable, not that a model takes it. Here the same error aimed one level higher — two independent samples of a stochastic system, described as one event. The fix is structural rather than careful: `ValidationReport.acceptable` now carries the probe's list on **every** path, so a caller never needs a second call to learn what the verdict was reached on, and `items.validation` stores that evidence for later readers. `tests/test_items_probe.py::test_the_verification_harness_probes_once_per_item` pins it. |
 | 2026-08-24 | **W5a: a fourth bad fixture, and the only one findable live — the `l1_to_l2_production` canonical was not a faithful translation of its own prompt.** The Farsi reads `من دیروز به مغازه رفتم` — دیروز = *yesterday*, مغازه = *shop*, singular — and the stored English was "I went to the shops": plural, and dropping the adverbial. The probe returned four translations that all carry *yesterday* and correctly did not offer the canonical, so the gate returned `not_recoverable`. | **The standing rule held for the third time: when a control fails, re-examine the control before the gate.** Three bad fixtures were found by desk audit before the probe existed; this one could only surface against a real model, because no deterministic check compares an L1 prompt to its English answer and none can. Worth stating as a limit rather than a task: **`l1_to_l2_production` is the one type whose central invariant — that the answer means what the prompt says — is unreachable by any gate in this slice.** The probe catches it only as a side effect of asking what a translation could acceptably be. |
@@ -716,7 +720,8 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | # | Issue | Severity | Slice | Status |
 |---|---|---|---|---|
-| 101 | **W5's acceptance criterion 9 was overstated, and criterion 5's wording was wrong.** (a) Criterion 9 read as though the named PRD-item test proved the gate rejects it; the test fed the solver a hardcoded response, so it proved only that the discard branch is reachable. Corrected at W5a, and the general lesson is in the decisions log. (b) Criterion 5 claimed `item_attempts.user_id → users(id)` was satisfied "transitively and directly". **The catalogue returns exactly one FK from these tables into `users`: `items_user_id_fkey → users(id)`.** `item_attempts` reaches `users` only through the composite FK to `items(id, user_id)`. The constraint is correct; the claim was not, and `test_item_attempts_user_id_references_users_id`'s **name overstates what it checks** — it asserts the composite FK. | low | W5 → W5a | ✅ closed — both corrected at W5a; the test docstring now says what it asserts |
+| 102 | **`l1_to_l2_production`'s central invariant is reachable by no gate in this slice: that the answer MEANS WHAT THE PROMPT SAYS.** A wrong translation with a plausible canonical passes every deterministic check (the script test only asks that the prompt is in the L1 script and the answer in English), passes the naturalness gate (the English reads perfectly well), and passes the probe — because **the probe asks what a prompt *could* acceptably become, not whether the stored answer is one of them**. The W5a fixture was caught only because the probe's answer set happened to exclude the canonical outright; **a subtler mistranslation whose canonical sits inside the acceptable set would pass silently**, and the learner would be marked wrong for producing a correct translation — or worse, marked right for reproducing a wrong one. This is a first-class entry in "what is not validated", not a footnote: `l1_to_l2_production` is PRD §4's highest-value drill and the only type whose correctness depends on a relation between two languages that nothing in `core/items` examines. **Fixed by a meaning-equivalence check against the L1 prompt — a model call this slice does not make.** Until then, **every `l1_to_l2_production` item's canonical is trusted, not verified.** | high | W5a → W6/W7 | ⬜ open — no gate can reach it today |
+| 101 | **W5's acceptance criterion 9 was overstated, and criterion 5's wording was wrong.** (a) Criterion 9 read as though the named PRD-item test proved the gate rejects it; the test fed the solver a hardcoded response, so it proved only that the discard branch is reachable. Corrected at W5a, and the general lesson is in the decisions log. (b) Criterion 5 claimed `item_attempts.user_id → users(id)` was satisfied "transitively and directly". **The catalogue returns exactly one FK from these tables into `users`: `items_user_id_fkey → users(id)`.** `item_attempts` reaches `users` only through the composite FK to `items(id, user_id)`. The constraint is correct; the claim was not, and `test_item_attempts_user_id_references_users_id`'s **name overstates what it checks** — it asserts the composite FK. | low | W5 → W5a | ✅ **closed at W5a.** (a) Criterion 9 reworded for what its recorded response proves, and the general lesson logged in three levels. (b) The test is renamed **`test_item_attempts_reaches_users_only_through_items`** and its docstring states the correction: the catalogue returns exactly one FK from these tables into `users` — `items_user_id_fkey → users(id)` — and `item_attempts` reaches `users` only *through* the composite FK to `items(id, user_id)`. So criterion 5 is satisfied **transitively**, not "transitively and directly". The constraint was always right; the claim was not |
 | 100 | **`docs/TASKS-v3-web.md`'s Build columns for W7, W8 and W10 are stale by one migration number.** W7 reads "Migration 012", which is now W5's; W8 reads 013 and W10 reads 014. The authoritative table at `docs/TASKS-v3-web.md:89` has them at 013 / 014 / 015 and line 124 already rules that the table wins and the Build column is the bug. Only W5's Build column was corrected when W4b renumbered. Identified during W5 planning; **not edited, because a `docs/` rewrite is outside the slice**. | medium | W4b → W7 | ⬜ open — correct the three Build columns before W7 |
 | 99 | **The v2 work bias lives in the quiz SCENARIO LABELS, not in the sentences.** Of the 16 surviving quiz scenarios on production, roughly **nine carry work framing** — *"Mina and Pooya texting after a late-night deploy"*, *"Omid and Bahar texting during a Saturday deploy while watching a football match"*, *"Nima and Leila texting through a rainy weekend about a stuck deploy"*, *"Yasmin off sick while Kaveh covers a client deploy"* — in a system where Work is meant to be 20% of the mix. This is a **census, not a sample**: those sixteen are every surviving quiz session, so the small n does not weaken it the way it weakens #57's percentage. It corroborates the sentence-level reading (7.3% work terms) precisely: the sentences are mostly clean while the *framing* is work-saturated, which points at scenario labels, `{work_domain}` injected into 8 of 13 prompts, and the Work-40 schema default (#56). **W5's generator prompt and W10's session mix are where this is fixed. The jargon gate is not.** | medium | W5 → #56 / W10 | ⬜ open — W10 owns the session mix |
 | 98 | **An unquoted `.env` value containing a space breaks any shell that sources the file.** `.env` line 28 was `WEBAUTHN_RP_NAME=Everyday English`. Python's `dotenv` parses it correctly, so the application never noticed; a shell sourcing the same file truncates at the space and then tries to **execute `English`**. Observed twice during the W4b deploy. Quoted on production 2026-08-24 — no restart needed, since dotenv strips the quotes. **The fix is not the issue.** Nothing prevents the next unquoted value: `.env.example` does not carry the convention, and no check enforces it. Two readers with different parsing rules share one file, and only one of them complains. | low | W4b | ⬜ open — `.env.example` should carry the quoting convention |
@@ -1452,64 +1457,106 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-**W5a is code-complete and local only.** No migration — `validator_version` takes
-2 without an ALTER. Suite **1272 passing / 0 failing** against a baseline of 1250.
+**Items have a schema and a validator, and the uniqueness gate works.** Migration
+012 is live (`Applied: 001–012, Pending: (none)`); W5a is deployed on top of it
+with **no migration of its own** — `schema_version` stays at **12**, and a later
+reader should not go looking for an 013 that never existed. The gate detects
+multi-acceptability and is **verified live in both directions, exit 0**: the item
+that started the v3 rebuild is now caught and repaired by the gate built for it.
+Suite **1275 passing / 0 failing**.
 
-**W5 is deployed; W5a is not.** Production is at `Applied: 001–012, Pending:
-(none)` and the item table is empty by design, so **nothing a learner touches
-changes** with either. W5 stays 🟡 *because* its own verification step found a
-fault — the same way W4 stayed 🟡 through W4a.
+**Nothing has been generated.** `items` is empty by design and stays empty until
+W10's `assign_daily`. No learner sees anything different after either deploy — if
+one does, something is wrong.
 
-### The human's deploy steps for W5a
+**What the live pass licenses, unchanged by `exit 0`:** one sample per item of a
+stochastic system, no claim about the gate's rate, a fail decisive and a pass not
+proof — and a model resolves cues a B1 learner will miss, so a clean probe is
+weaker evidence about a learner than it looks. The first run of that same command
+produced a false alarm, which is precisely why the caveat stays attached.
 
-No migration and no new dependency, so the sequence is shorter than W5's.
+### Still unrun, carried forward — every one, named and not silently
 
-1. `bash scripts/backup.sh` — routine, not because this slice touches data.
-2. Pull to the W5a commit, then `pip install -e packages/core`.
-3. `python -m core.db status` → still `Applied: 001–012, Pending: (none)`.
-   **If this shows a pending migration, stop — W5a should not have one.**
-4. `systemctl restart english-bot english-api`; confirm both `active`.
+**Nothing below was cleared by W5 or W5a.** Between them they are a schema, a
+data model and a gate; they exercise **no learner path at all**.
 
-### W5a's checks — the human, and only the human
+1. **The hand-checked coverage number. Unrun since W4, and still the one that
+   matters.** Take a paragraph of English the human has actually read, run it
+   through `coverage_for`, and judge whether the percentage matches how hard it
+   felt. **No test can substitute for this.** W12 selects video on this number.
+2. **The 20-item Life sample — and it cannot be run today.** It is W5's own human
+   check, and it needs items to exist. **It belongs to the first `assign_daily`
+   run at W10**, not to this list as though someone could sit down and do it now.
+   Listing it as runnable would be the same error as a green test over an
+   unreachable path. When it runs: generate 20 Life-track items and read them —
+   do they sound like a person talking to a friend, or like a Slack message?
+3. **`/stats` in Telegram on the restructured bot.** W1's, and the last of that
+   pair — `/ping` answered `pong` on 2026-08-24.
+4. **The four Telegram explanation paths — `/diary`, a voice message, `/capture`,
+   a `/talk` close-out. Deprioritised by the human on 2026-08-24**, not declined
+   and not pending. They stay listed because they remain live paths for two
+   learners until W20–W22.
+5. **The S25 pre-flight counts from production**, for the decisions log: total /
+   stay_null slang / become_presented; confirm `non_slang_delivered = 0`.
+6. **#44 — evening reading**, until a real Mon/Wed/Fri delivery lands. **The #57
+   gate corroborated it**: `reading_body` came back **n = 1** on production, which
+   is what a feature that has not run since the rebuild looks like.
+7. **S8** — create the shared group, add the bot, run `/here`, set
+   `COUPLE_CHAT_ID`, restart, then the seven group checks.
+8. **The entire v2 desk-check list, unchanged**, kept in full below and in the
+   Verification checklist above.
 
-**`--live` was re-run on 2026-08-24 and BOTH DIRECTIONS PASS (exit 0)** — catch:
-`repaired`, repairs=1, cue=`first_letter_length`; over-rejection: slot 1 class
-passed, fixed_option 1 class passed, message 4 classes widened with all four
-absorbed. The checks below stay listed because they are re-run after any deploy,
-and because one sample licenses no claim about the gate's rate.
+### What genuinely remains, in order
 
-1. **`python -m core.items.verify --live`. Both directions, and the second is
-   the one that matters.**
-   - **Catch:** the PRD item must yield **≥2 equivalence classes**. The polarity
-     is printed. A final verdict of `repaired` is a **correct** outcome — PRD
-     §4.3 offers a first-letter cue for this very item and TASKS says "rejected
-     **or** repaired". Only `passed` with `repair_count == 0` is a failure.
-   - **Over-rejection:** three controls, one per probed family, each must yield
-     **exactly one** class. **A gate that rejects everything passes the catch
-     direction perfectly**, so this half is what shows the probe is calibrated
-     rather than merely strict.
-   - The command exits non-zero if either half fails. Record both results.
-   - **If a control fails, re-examine the control before the gate** (decisions
-     log). The fixtures were authored under weaker gates; loosening the probe
-     until a control passes is how a correct gate becomes a permissive one.
-     `listening_gap`'s control is the likeliest to need attention, and its
-     rejected alternative is recorded in the fixture rather than left to be
-     invented at the terminal.
-2. **`--live-audio`** — unchanged and already passed once (below). Re-run only if
-   `speech.py` changes.
-3. **The 20-item Life sample, still unrun and still not automatable.** W5a does
-   not touch it.
+1. **#65 — no operator alert channel**, for `apps/api` and `apps/worker`. Still
+   the highest-priority open infrastructure issue: `POST /correct` spends money
+   on a public, continuously-probed API and its failures land in a journal
+   nobody is watching.
+2. **#102 — a mistranslated `l1_to_l2_production` item cannot be caught by any
+   gate in this slice.** New at W5a and filed **high**: the probe asks what a
+   prompt *could* acceptably become, not whether the stored answer is one of
+   them. Today every such canonical is **trusted, not verified**.
+3. **#82 — the architecture document lags the tree.** It does not know
+   `core/lexicon/`, `core/items/`, `core/services/lexicon.py`,
+   `core/services/items.py`, `data/` or `core/services/identity.py`.
+4. **#95 — a learner with no Telegram channel receives nothing, silently.** W20
+   must alert rather than skip quietly.
+5. **#97 — a web-only learner cannot be approved or revoked by the operator**;
+   `revoke_access` would insert a duplicate row rather than revoking. Must be
+   fixed before any web sign-up route exists.
+6. **#99 — the v2 work bias lives in the scenario labels, not the sentences.**
+   W5's generator prompt and W10's session mix own it; the jargon gate does not.
+7. **#57 — open and retargeted**, not closed. The measurement returned
+   ⬜ UNMEASURED (largest source n=96 against a floor of 150; CI 2.1–12.5%
+   straddling the boundary), and `naturalness.py`'s `JARGON` carries that
+   provenance in a comment at its head so nobody mistakes it for a measured list.
+   Re-measure once the v3 corpus is large enough.
+8. **#80 — an empty `NEXT_PUBLIC_API_URL` silently produces a broken build.**
+9. **#79 — subprocess egress is not covered by the network guard.**
+10. **#67 — no JS test runner.** `apps/web` has no tests at all.
+11. **#93 — the frequency floor is materialised per learner**; compute it from
+    `freq_rank` at read time before multi-tenancy.
+12. **#94 — `LEXICON_ASSUMED_KNOWN_TOP_N` is a single global value.**
+13. **#96 — `watch_import` inbox directories carry the old ids.** Mac-only.
+14. **#98 — an unquoted `.env` value with a space breaks any shell sourcing it.**
+15. **#73, #70, #69, #72 — unchanged, carried.** Do not test the R2 alarm by hand
+    within minutes of a backup; the R2 paths the stub still stands in for remain
+    unverified; the worker cannot be installed while the job tables overlap; the
+    Mac's `.env` still wants `BACKUP_R2_REQUIRED=0` (or #85's endpoint fix).
 
-### Recorded from the W5 deploy, 2026-08-24
+**Also open and unchanged:** **#83** (two hosts can poll one bot token — high,
+and the only open issue that can write learner data to the wrong database),
+**#84** (alerts do not name their host), **#85** (the Mac's R2 alarms daily;
+production unaffected), **#86** (unknown commands are silent), **#100** (three
+stale Build columns in `docs/TASKS-v3-web.md`, to correct before W7).
 
-- **`--live` FAILED**, three consecutive runs, identically: solver answered
-  `"I'll"`, canonical `"I'll"`. That is what W5a exists for.
-- **`--live-audio` PASSED**: `'I forgot my keys and had to wait outside.'`
-  round-tripped exactly. **Necessary but not sufficient** — STT hears better
-  than a B1 learner, so a fail would have been decisive and a pass is not proof
-  the sentence is audible to a person (§4d).
-- Production verified: `items_user_id_fkey → users(id)` by catalogue query,
-  `track_weights` default live, both services active.
+**#59 remains the only boundary exemption.** W5 added `core/items/` as a second
+pure package and `core/services/items.py` as its query half, with **no new
+exemption**, and two new parse tests — `test_items_package_is_pure` and
+`test_exactly_one_module_writes_an_item` — both proven non-inert by introducing
+one violation each and reverting.
+
+**W5 and W5a are 🟡, awaiting the human's mark. Do not start W6.**
 
 ### Still unrun, carried forward — every one of these, named, never silently
 
