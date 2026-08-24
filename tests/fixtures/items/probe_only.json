@@ -56,9 +56,9 @@
     "expect_widened": true,
     "probe_response": {
       "acceptable": [
-        "I went to the shops",
-        "I went to the shop",
-        "I went shopping yesterday"
+        "I went to the shop yesterday",
+        "Yesterday I went to the shop",
+        "I went to the store yesterday"
       ]
     },
     "item": {
@@ -66,10 +66,10 @@
       "track": "life",
       "lexeme": "go",
       "prompt_text": "من دیروز به مغازه رفتم",
-      "answer": "I went to the shops",
+      "answer": "I went to the shop yesterday",
       "accepted_variants": [
-        "i went to the shops",
-        "i went to the shop"
+        "i went to the shop yesterday",
+        "yesterday i went to the shop"
       ]
     }
   }

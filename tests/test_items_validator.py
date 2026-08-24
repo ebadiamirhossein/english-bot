@@ -244,14 +244,14 @@ def test_production_widens_its_variants_rather_than_cueing(monkeypatch) -> None:
     monkeypatch.setattr(
         gates,
         "_chat",
-        _recorded({"acceptable": ["I went to the shops", "I went shopping"]}),
+        _recorded({"acceptable": ["I went to the shop yesterday", "I went shopping yesterday"]}),
     )
     row = next(r for r in VALID if r["name"] == "l1_to_l2_production")
     result = gates.validate(_item(row["item"]), judge=False)
 
     assert result.report.verdict == "repaired"
     assert result.item is not None
-    assert "i went shopping" in result.item.accepted_variants
+    assert "i went shopping yesterday" in result.item.accepted_variants
     assert result.report.cue_applied is None
     assert result.report.solver_calls == 1
 

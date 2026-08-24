@@ -125,6 +125,14 @@ class ValidationReport:
     #: How far up the cue ladder this item had to go. 0 means no repair.
     repair_count: int = 0
     cue_applied: str | None = None
+    #: **Everything the probe said it would accept, from the LAST probe call.**
+    #: On every probe path, including a pass — so a reader of `items.validation`
+    #: can see the evidence the verdict was reached on, and so a caller never
+    #: has to probe a second time to find out. Probing twice and reporting one
+    #: call's classes beside another call's verdict is exactly the bug W5a's own
+    #: `--live` harness shipped with.
+    acceptable: tuple[str, ...] = ()
+
     #: What the solver answered on its last attempt, and what was canonical.
     solver_answer: str | None = None
     canonical: str | None = None
@@ -142,6 +150,7 @@ class ValidationReport:
             "deterministic": list(self.deterministic),
             "naturalness": list(self.naturalness),
             "blind_solver": list(self.blind_solver),
+            "acceptable": list(self.acceptable),
             "repair_count": self.repair_count,
             "cue_applied": self.cue_applied,
             "solver_answer": self.solver_answer,
@@ -524,6 +533,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                 None,
                 ValidationReport(
                     "discarded",
+                    acceptable=tuple(candidates),
                     blind_solver=("not_recoverable", *candidates),
                     repair_count=attempt,
                     cue_applied=cue_applied,
@@ -538,6 +548,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                 current,
                 ValidationReport(
                     "repaired" if attempt else "passed",
+                    acceptable=tuple(candidates),
                     repair_count=attempt,
                     cue_applied=cue_applied,
                     solver_answer=candidates[0] if candidates else None,
@@ -561,6 +572,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                     None,
                     ValidationReport(
                         "discarded",
+                        acceptable=tuple(candidates),
                         blind_solver=("under_specified", *candidates),
                         repair_count=attempt,
                         solver_calls=calls,
@@ -571,6 +583,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                 current.model_copy(update={"accepted_variants": widened}),
                 ValidationReport(
                     "repaired" if attempt or len(widened) > 1 else "passed",
+                    acceptable=tuple(candidates),
                     blind_solver=("widened", *candidates),
                     repair_count=attempt,
                     cue_applied=cue_applied,
@@ -605,6 +618,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
             None,
             ValidationReport(
                 "discarded",
+                acceptable=tuple(candidates),
                 blind_solver=("multi_acceptable", *candidates),
                 repair_count=attempt,
                 cue_applied=cue_applied,

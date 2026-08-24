@@ -121,10 +121,17 @@ CONTROLS = [
         "item_type": "cloze_cued", "track": "life", "lexeme": "go",
         "prompt_text": "I ___ to the shops yesterday.", "answer": "went",
         "cue_type": "definition", "cue_text": "(past of go)"}),
+    # The canonical MUST be a faithful translation of the prompt. This control
+    # shipped as "I went to the shops" against a Farsi prompt that says دیروز
+    # (yesterday) and مغازه (shop, singular) — plural, and dropping the
+    # adverbial. The live probe correctly refused to offer it and the gate
+    # correctly returned `not_recoverable`; the control was wrong, not the gate.
     ("message", {
         "item_type": "l1_to_l2_production", "track": "life", "lexeme": "go",
-        "prompt_text": "من دیروز به مغازه رفتم", "answer": "I went to the shops",
-        "accepted_variants": ["i went to the shops", "i went to the shop"]}),
+        "prompt_text": "من دیروز به مغازه رفتم",
+        "answer": "I went to the shop yesterday",
+        "accepted_variants": ["i went to the shop yesterday",
+                              "yesterday i went to the shop"]}),
     ("fixed_option", {
         "item_type": "mcq", "track": "life", "lexeme": "go",
         "prompt_text": "I ___ to the shops yesterday.", "answer": "went",
@@ -132,10 +139,22 @@ CONTROLS = [
 ]
 
 
-def _classes(item) -> tuple[list[str], tuple]:
-    response = gates.probe_acceptable(item)
-    candidates = gates._candidates(response)
-    return candidates, distinct_answers(candidates)
+def _run(item) -> tuple:
+    """ONE `validate` call. Verdict and evidence from the SAME probe response.
+
+    **W5a's first `--live` run got this wrong and it is worth the comment.** The
+    harness probed once to print the classes and then called `validate`, which
+    probed *again*. It reported the first call's four classes beside the second
+    call's `passed` verdict — two independent samples of a stochastic system,
+    described as one event. It read exactly like a routing bug in the gate, and
+    the gate was correct.
+
+    The lesson is the same one W5a exists for, aimed one level higher: **the
+    thing that verifies must measure the thing it reports on.**
+    """
+    result = gates.validate(item, judge=False)
+    report = result.report
+    return result, report, distinct_answers(report.acceptable)
 
 
 def live() -> int:
@@ -143,27 +162,33 @@ def live() -> int:
     failures = 0
 
     print("=== CATCH DIRECTION — PRD §4.3's own broken item ===")
-    item = _item()
-    candidates, classes = _classes(item)
-    print("  probe accepted:", candidates)
-    print("  distinct classes:", len(classes), [" ".join(c) for c in classes])
-    if len(classes) > 1:
-        print("  PASS — the probe sees the ambiguity the gate exists for.")
+    _result, report, classes = _run(_item())
+    print("  final probe accepted:", list(report.acceptable))
+    print("  distinct classes (final probe):", len(classes),
+          [" ".join(c) for c in classes])
+    if report.repair_count:
+        print(f"  → an EARLIER probe found more than one class; the cue "
+              f"({report.cue_applied}) narrowed it.\n"
+              f"    `acceptable` always reports the last probe, by design.")
+    print(f"  verdict: {report.verdict} (repairs={report.repair_count}, "
+          f"cue={report.cue_applied}, calls={report.solver_calls})")
+
+    if len(classes) > 1 and report.verdict == "passed" and report.repair_count == 0:
+        print("  FAIL — multi-acceptable and accepted unrepaired. Routing bug.")
+        failures += 1
+    elif report.verdict in ("discarded", "repaired"):
+        print("  PASS — the item did not reach a learner unrepaired.")
+        print("         (`repaired` is correct: PRD §4.3 offers a first-letter "
+              "cue\n          for this very item, and TASKS says 'rejected OR "
+              "repaired'.)")
     else:
         print(
-            "  FAIL — one class. The gate still cannot see the ambiguity, and\n"
-            "         a single-answer solve is what it has effectively become."
+            "  FAIL — accepted with one class. The probe did not see the\n"
+            "         ambiguity this gate exists for. NOTE: this item is\n"
+            "         borderline and the probe is stochastic — a single pass\n"
+            "         here is weak evidence, and repeated runs are worth more\n"
+            "         than one."
         )
-        failures += 1
-
-    verdict = gates.validate(item, judge=False).report
-    print(f"  full verdict: {verdict.verdict} (repairs={verdict.repair_count}, "
-          f"cue={verdict.cue_applied}, calls={verdict.solver_calls})")
-    print("  NOTE: `repaired` is a correct outcome — PRD §4.3 offers a "
-          "first-letter cue\n        for this very item, and TASKS says "
-          "'rejected OR repaired'.")
-    if verdict.verdict == "passed" and verdict.repair_count == 0:
-        print("  FAIL — accepted unrepaired.")
         failures += 1
 
     print("\n=== OVER-REJECTION DIRECTION — one control per probed family ===")
@@ -174,10 +199,33 @@ def live() -> int:
             {**draft, "accepted_variants": draft.get("accepted_variants")
              or normalise_variants(draft["answer"])}
         )
-        candidates, classes = _classes(control)
-        ok = len(classes) == 1
-        print(f"  [{family:12}] classes={len(classes)} {candidates} "
-              f"{'PASS' if ok else 'FAIL — over-rejecting'}")
+        result, report, classes = _run(control)
+        n = len(classes)
+
+        if family == "message":
+            # **A message item is DESIGNED to widen.** `l1_to_l2_production`
+            # accepts up to MAX_ACCEPTED_VARIANTS renderings, so several
+            # legitimate translations is correct behaviour, not over-rejection.
+            # Asserting one class here was simply the wrong property — the
+            # property is that the item SURVIVES, and that extra renderings are
+            # absorbed rather than rejected.
+            grew = result.item is not None and len(
+                result.item.accepted_variants
+            ) > len(control.accepted_variants)
+            ok = report.verdict in ("passed", "repaired")
+            detail = f"widened={grew}"
+            if ok and result.item is not None:
+                detail += f" accepted={list(result.item.accepted_variants)}"
+            if n > 1 and ok and not grew:
+                ok = False
+                detail += " — multiple classes but nothing absorbed"
+        else:
+            # slot and fixed_option: a second acceptable answer is a defect.
+            ok = n == 1 and report.verdict == "passed"
+            detail = f"verdict={report.verdict}"
+
+        print(f"  [{family:12}] classes={n} {list(report.acceptable)} {detail} "
+              f"{'PASS' if ok else 'FAIL'}")
         if not ok:
             failures += 1
 

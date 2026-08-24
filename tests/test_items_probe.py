@@ -163,7 +163,7 @@ def test_a_message_item_over_the_cap_is_under_specified(monkeypatch) -> None:
     # recoverability check runs before the cap, and correctly so: an item whose
     # canonical nobody would accept is unanswerable as authored whatever else
     # came back.
-    many = ["I went to the shops"] + [
+    many = ["I went to the shop yesterday"] + [
         f"I went to shop number {n}" for n in range(MAX_ACCEPTED_VARIANTS + 3)
     ]
     monkeypatch.setattr(gates, "_chat", _recorded({"acceptable": many}))
@@ -234,3 +234,70 @@ def test_probed_families_are_exactly_the_non_exact_ones() -> None:
     probed = {t for t, f in ANSWER_FAMILY.items() if f in PROBED_FAMILIES}
     assert "match_pairs" not in probed
     assert {"cloze_cued", "listening_gap", "collocation_pick"} <= probed
+
+
+# ── the verification harness itself ─────────────────────────────────────────
+
+
+def test_the_report_carries_the_probe_response_on_every_path(monkeypatch) -> None:
+    """Verdict and evidence must be readable from ONE call.
+
+    Without this a caller wanting to know what the probe accepted has to probe
+    again, and a second call is a second sample.
+    """
+    row = next(r for r in VALID if r["name"] == "cloze_cued")
+
+    monkeypatch.setattr(gates, "_chat", _recorded({"acceptable": ["went"]}))
+    passed = gates.validate(_item(row["item"]), judge=False).report
+    assert passed.verdict == "passed"
+    assert passed.acceptable == ("went",)
+
+    monkeypatch.setattr(gates, "_chat", _recorded({"acceptable": ["went", "walked"]}))
+    rejected = gates.validate(_item(row["item"]), judge=False).report
+    assert rejected.verdict == "discarded"
+    assert rejected.acceptable == ("went", "walked")
+    assert "acceptable" in rejected.as_json()
+
+
+def test_the_verification_harness_probes_once_per_item(monkeypatch) -> None:
+    """The regression test for W5a's own `--live` bug.
+
+    The first harness probed once to print the classes and then called
+    `validate`, which probed again — reporting the first call's classes beside
+    the second call's verdict. Two independent samples of a stochastic system,
+    described as one event. It read exactly like a routing bug in the gate, and
+    the gate was correct.
+
+    **The thing that verifies must measure the thing it reports on.**
+    """
+    from core.items import verify
+
+    calls = []
+
+    def chat(*_a, **_k):
+        calls.append(1)
+        return {"acceptable": ["went"]}
+
+    monkeypatch.setattr(gates, "_chat", chat)
+    row = next(r for r in VALID if r["name"] == "cloze_cued")
+    result, report, classes = verify._run(_item(row["item"]))
+
+    assert len(calls) == 1, "one probe per item, or the evidence is not the verdict's"
+    assert report.verdict == "passed"
+    assert len(classes) == 1
+    assert result.item is not None
+
+
+def test_the_message_control_is_asserted_on_widening_not_on_one_class() -> None:
+    """`l1_to_l2_production` is DESIGNED to widen, so one class is the wrong bar.
+
+    Asserting a single class for the message family would fail the control on
+    correct behaviour — four legitimate translations is a pass, not
+    over-rejection. Pinned here because the check that got it wrong lived in a
+    module the suite does not otherwise exercise.
+    """
+    from core.items import verify
+
+    families = [family for family, _ in verify.CONTROLS]
+    assert families == ["slot", "message", "fixed_option"]
+    assert ANSWER_FAMILY["l1_to_l2_production"] == "message"

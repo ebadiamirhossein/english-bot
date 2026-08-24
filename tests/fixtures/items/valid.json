@@ -71,12 +71,13 @@
       "track": "life",
       "lexeme": "go",
       "prompt_text": "من دیروز به مغازه رفتم",
-      "answer": "I went to the shops",
+      "answer": "I went to the shop yesterday",
       "accepted_variants": [
-        "i went to the shops",
-        "i went to the shop"
+        "i went to the shop yesterday",
+        "yesterday i went to the shop"
       ]
-    }
+    },
+    "_canonical_matches_prompt": "The Farsi says دیروز (yesterday) and مغازه (shop, singular). The fixture shipped with 'I went to the shops' — plural, and dropping the adverbial — so the canonical was not a faithful translation of its own prompt. The live probe correctly refused to offer it and the gate correctly returned not_recoverable. Third bad fixture, and the only one findable live."
   },
   {
     "name": "dictation",
