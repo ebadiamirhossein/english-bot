@@ -132,10 +132,16 @@ def test_one_row_per_learner_per_lemma(conn) -> None:
 
 
 def test_the_ledger_is_keyed_on_a_lexeme_id_and_never_on_a_string(conn) -> None:
-    """A second tokeniser must be physically unable to write a mismatched row."""
+    """A second tokeniser must be physically unable to write a mismatched row.
+
+    The users half of this now reads ``users(id)``: W4b (011) repointed every
+    user foreign key off ``telegram_user_id``, which is the only reason this
+    assertion changed. The lexeme half is untouched and is what the test is
+    really about.
+    """
     clauses = _check_clauses(conn, "user_lexemes")
     assert "FOREIGN KEY (lexeme_id) REFERENCES lexemes(id)" in clauses
-    assert "FOREIGN KEY (user_id) REFERENCES users(telegram_user_id)" in clauses
+    assert "FOREIGN KEY (user_id) REFERENCES users(id)" in clauses
 
 
 def test_the_migration_does_not_touch_users(conn) -> None:

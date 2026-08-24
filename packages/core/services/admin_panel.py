@@ -20,7 +20,10 @@ from core.services.users import get_paused_until
 
 @dataclass(frozen=True)
 class AdminUserRow:
-    telegram_user_id: int
+    id: int
+    # The Telegram account behind this learner, or None for a web-only one.
+    # Shown, never used as a key -- see W4b.
+    telegram_user_id: int | None
     name: str
     cefr_level: str
     current_streak: int
@@ -35,20 +38,21 @@ def list_admin_users(*, now_day: date | None = None) -> list[AdminUserRow]:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT u.telegram_user_id, u.name, u.cefr_level, u.timezone,
+            SELECT u.id, u.telegram_user_id, u.name, u.cefr_level, u.timezone,
                    u.paused_until,
                    COALESCE(ar.status, 'approved') AS access_status
               FROM users u
               LEFT JOIN access_requests ar
-                     ON ar.telegram_user_id = u.telegram_user_id
+                     ON ar.user_id = u.id
              WHERE u.onboarded = TRUE
-             ORDER BY u.name ASC, u.telegram_user_id ASC
+             ORDER BY u.name ASC, u.id ASC
             """
         ).fetchall()
 
     out: list[AdminUserRow] = []
     for row in rows:
-        uid = int(row["telegram_user_id"])
+        uid = int(row["id"])
+        telegram = row["telegram_user_id"]
         tz = str(row["timezone"] or "Europe/Vilnius")
         # now_day is a local calendar date already chosen by the caller when
         # injected; otherwise derive "today" in the user's timezone via a
@@ -72,7 +76,8 @@ def list_admin_users(*, now_day: date | None = None) -> list[AdminUserRow]:
         active = count_active_days(uid, start=week_start, end=day)
         out.append(
             AdminUserRow(
-                telegram_user_id=uid,
+                id=uid,
+                telegram_user_id=None if telegram is None else int(telegram),
                 name=str(row["name"]),
                 cefr_level=str(row["cefr_level"]),
                 current_streak=current_streak,
@@ -148,7 +153,7 @@ def admin_user_label(user_id: int) -> str:
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT name FROM users WHERE telegram_user_id = %s
+            SELECT name FROM users WHERE id = %s
             """,
             (user_id,),
         ).fetchone()

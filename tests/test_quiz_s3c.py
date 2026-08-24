@@ -21,8 +21,7 @@ from apps.bot.handlers.quiz import (
     recent_scenarios,
 )
 from core.services.errors import Error
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_340_000_000
 _PROMPT_PATH = (
     Path(__file__).resolve().parents[1]
@@ -60,8 +59,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "S3c Test",
@@ -75,6 +74,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def test_reorder_removed_from_contract_and_handler() -> None:
@@ -126,7 +126,7 @@ def test_no_divider_in_rendered_messages() -> None:
 
 def test_past_scenarios_passed_into_llm(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     init_quiz_prompt()
 
     with connection() as conn:
@@ -141,7 +141,7 @@ def test_past_scenarios_passed_into_llm(cleanup_user: int) -> None:
             )
             RETURNING id
             """,
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert err is not None
     eid = int(err["id"])
@@ -155,7 +155,7 @@ def test_past_scenarios_passed_into_llm(cleanup_user: int) -> None:
             ) VALUES (%s, %s, 'quiz', NOW(), TRUE, %s)
             """,
             (
-                tid,
+                user_id,
                 date.today(),
                 Jsonb(
                     {
@@ -174,7 +174,7 @@ def test_past_scenarios_passed_into_llm(cleanup_user: int) -> None:
             ),
         )
 
-    assert old_scenario in recent_scenarios(tid)
+    assert old_scenario in recent_scenarios(user_id)
 
     captured: dict[str, str] = {}
 
@@ -222,7 +222,7 @@ def test_past_scenarios_passed_into_llm(cleanup_user: int) -> None:
     )
 
     questions, scenario = quiz_handler._build_quiz_questions(
-        tid, [error], chat_fn=fake_chat
+        user_id, [error], chat_fn=fake_chat
     )
     assert questions
     assert scenario == "busy Monday standup"

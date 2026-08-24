@@ -38,6 +38,7 @@ from core.services.users import (
     update_track_weights,
 )
 from core.db import connection
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +311,9 @@ async def on_settings_command(
 ) -> int:
     if update.effective_user is None or update.message is None:
         return ConversationHandler.END
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return ConversationHandler.END
     if not is_registered(user_id):
         return ConversationHandler.END
     user = get_user(user_id)
@@ -339,7 +342,8 @@ async def menu_callback(
     await query.answer()
 
     data = query.data
-    user = get_user(update.effective_user.id)
+    resolved = bot_identity.bot_user_id(update, context)
+    user = None if resolved is None else get_user(resolved)
     if user is None:
         return await _stale_end(update, context)
 
@@ -440,7 +444,9 @@ async def field_callback(
     await query.answer()
 
     data = query.data
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return MENU
 
     if data == "set:back":
         user = get_user(user_id)
@@ -667,7 +673,7 @@ def _user_timezone(user_id: int) -> str:
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT timezone FROM users WHERE telegram_user_id = %s
+            SELECT timezone FROM users WHERE id = %s
             """,
             (user_id,),
         ).fetchone()
@@ -736,7 +742,9 @@ async def on_pause_command(
 ) -> None:
     if update.message is None or update.effective_user is None:
         return
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if get_user(user_id) is None:
         return
     now = datetime.now(timezone.utc)
@@ -767,7 +775,9 @@ async def on_pause_callback(
     data = query.data or ""
     if not data.startswith("pause:"):
         return
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if get_user(user_id) is None:
         return
     now = datetime.now(timezone.utc)
@@ -811,13 +821,21 @@ async def on_stats_command(
 ) -> None:
     if update.message is None or update.effective_user is None:
         return
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if get_user(user_id) is None:
         return
     settings = load_settings()
+    # Against the TELEGRAM id, not `user_id`. This comparison is inlined rather
+    # than going through `_is_operator`, which is why it nearly survived W4b
+    # unnoticed: with an internal id on the left it can never match, and the
+    # operator's fossil-sweep line would have vanished from /stats with no error
+    # anywhere. `OPERATOR_TELEGRAM_ID` names a Telegram account.
+    telegram_user_id = bot_identity.telegram_id_of(update)
     include_sweep = (
         settings.operator_telegram_id is not None
-        and user_id == settings.operator_telegram_id
+        and telegram_user_id == settings.operator_telegram_id
     )
     now = datetime.now(timezone.utc)
     stats = collect_stats(user_id, now=now, include_sweep=include_sweep)

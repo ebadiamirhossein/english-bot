@@ -42,12 +42,12 @@ def list_recipients() -> list[int]:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT telegram_user_id
+            SELECT id
               FROM approved_onboarded_users
-             ORDER BY telegram_user_id
+             ORDER BY id
             """
         ).fetchall()
-    return [int(r["telegram_user_id"]) for r in rows]
+    return [int(r["id"]) for r in rows]
 
 
 def book_content_key(book: str, unit_number: str) -> str:
@@ -242,7 +242,7 @@ def backfill_shared_library(user_id: int) -> int:
     """
     with connection() as conn:
         user_row = conn.execute(
-            "SELECT 1 FROM users WHERE telegram_user_id = %s",
+            "SELECT 1 FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
         if user_row is None:

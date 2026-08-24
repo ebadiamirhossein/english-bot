@@ -18,6 +18,7 @@ from core.services.sessions import (
     update_session_payload,
 )
 from core.services.streaks import get_streak
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,9 @@ async def on_nudge_callback(
     except (IndexError, ValueError):
         return
 
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     session = get_session_by_id(user_id, session_id)
     if session is None or session.completed:
         return

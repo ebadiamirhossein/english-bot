@@ -37,8 +37,7 @@ from core.services.sessions import (
     insert_session,
 )
 from core.services.streaks import get_streak, roll_over_day
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
 
 # Real stored strings from Murphy units 1 / 4 / 5 (live dry-run fixtures).
@@ -83,8 +82,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int, *, morning: str = "07:00", tz: str = "UTC") -> None:
-    save_onboarding(
+def _onboard(tid: int, *, morning: str = "07:00", tz: str = "UTC") -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "S6a Test",
@@ -103,6 +102,7 @@ def _onboard(tid: int, *, morning: str = "07:00", tz: str = "UTC") -> None:
             "UPDATE users SET timezone = %s WHERE telegram_user_id = %s",
             (tz, tid),
         )
+    return user_id
 
 
 def _insert_unit(
@@ -174,32 +174,32 @@ def test_dedupe_near_duplicates_and_word_bank() -> None:
 
 def test_unit_number_string_match(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     _insert_unit(
-        tid,
+        user_id,
         book="murphy",
         unit_number="12",
         title="A",
         items=["item a"],
     )
     _insert_unit(
-        tid,
+        user_id,
         book="murphy",
         unit_number="12A",
         title="B",
         items=["item b"],
     )
     _insert_unit(
-        tid,
+        user_id,
         book="murphy",
         unit_number="101-102",
         title="C",
         items=["item c"],
     )
-    assert len(find_units_by_number(tid, "12")) == 1
-    assert find_units_by_number(tid, "12")[0]["unit_number"] == "12"
-    assert find_units_by_number(tid, "12A")[0]["unit_number"] == "12A"
-    assert find_units_by_number(tid, "101-102")[0]["unit_number"] == "101-102"
+    assert len(find_units_by_number(user_id, "12")) == 1
+    assert find_units_by_number(user_id, "12")[0]["unit_number"] == "12"
+    assert find_units_by_number(user_id, "12A")[0]["unit_number"] == "12A"
+    assert find_units_by_number(user_id, "101-102")[0]["unit_number"] == "101-102"
     assert parse_test_unit_arg(["unit", "101-102"]) == "101-102"
     assert parse_test_unit_arg(["unit", "12A"]) == "12A"
     assert parse_test_unit_arg(None) is None
@@ -207,9 +207,9 @@ def test_unit_number_string_match(cleanup_user: int) -> None:
 
 def test_select_topup_counts_and_recency(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     _insert_unit(
-        tid,
+        user_id,
         book="murphy",
         unit_number="1",
         title="Old",
@@ -217,14 +217,14 @@ def test_select_topup_counts_and_recency(cleanup_user: int) -> None:
         studied_at=date(2026, 7, 1),
     )
     _insert_unit(
-        tid,
+        user_id,
         book="murphy",
         unit_number="5",
         title="New",
         items=["new item one", "new item two", "new item three"],
         studied_at=date(2026, 8, 5),
     )
-    picked = select_topup_items(tid, 3)
+    picked = select_topup_items(user_id, 3)
     assert len(picked) == 3
     assert all(p["unit_number"] == "5" for p in picked)
 
@@ -234,11 +234,11 @@ def test_select_topup_counts_and_recency(cleanup_user: int) -> None:
 
 def test_topup_fills_remainder(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="00:00", tz="UTC")
-    _insert_due_errors(tid, 2)
+    user_id = _onboard(tid, morning="00:00", tz="UTC")
+    _insert_due_errors(user_id, 2)
     for i in range(5):
         _insert_unit(
-            tid,
+            user_id,
             book="murphy",
             unit_number=str(i + 1),
             title=f"U{i+1}",
@@ -276,7 +276,7 @@ def test_topup_fills_remainder(cleanup_user: int) -> None:
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)
     with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action == "quiz"
     assert len(captured["errors"]) == 2
     assert len(captured["book_items"]) == 3
@@ -284,10 +284,10 @@ def test_topup_fills_remainder(cleanup_user: int) -> None:
 
 def test_topup_zero_due_five_book(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="00:00", tz="UTC")
+    user_id = _onboard(tid, morning="00:00", tz="UTC")
     for i in range(5):
         _insert_unit(
-            tid,
+            user_id,
             book="murphy",
             unit_number=str(i + 1),
             title=f"U{i+1}",
@@ -319,22 +319,22 @@ def test_topup_zero_due_five_book(cleanup_user: int) -> None:
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)
     with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action == "quiz"
     with connection() as conn:
         row = conn.execute(
             "SELECT task_type FROM sessions WHERE user_id = %s",
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert row["task_type"] == "quiz"
 
 
 def test_topup_five_due_no_book(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="00:00", tz="UTC")
-    _insert_due_errors(tid, 5)
+    user_id = _onboard(tid, morning="00:00", tz="UTC")
+    _insert_due_errors(user_id, 5)
     _insert_unit(
-        tid,
+        user_id,
         book="murphy",
         unit_number="1",
         title="U1",
@@ -363,17 +363,17 @@ def test_topup_five_due_no_book(cleanup_user: int) -> None:
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)
     with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action == "quiz"
 
 
 def test_topup_rescue_one_due_two_book(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="00:00", tz="UTC")
-    _insert_due_errors(tid, 1)
+    user_id = _onboard(tid, morning="00:00", tz="UTC")
+    _insert_due_errors(user_id, 1)
     for i in range(4):
         _insert_unit(
-            tid,
+            user_id,
             book="murphy",
             unit_number=str(i + 1),
             title=f"U{i+1}",
@@ -388,7 +388,7 @@ def test_topup_rescue_one_due_two_book(cleanup_user: int) -> None:
                SET rescue_mode_until = %s
              WHERE user_id = %s
             """,
-            (day + timedelta(days=3), tid),
+            (day + timedelta(days=3), user_id),
         )
 
     captured: dict[str, Any] = {}
@@ -422,7 +422,7 @@ def test_topup_rescue_one_due_two_book(cleanup_user: int) -> None:
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)
     with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action == "quiz"
     assert captured["n_err"] == 1
     assert captured["n_book"] == 2
@@ -433,7 +433,7 @@ def test_topup_rescue_one_due_two_book(cleanup_user: int) -> None:
 
 def test_wrong_book_gap_typed_journals_no_mark_result(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     init_correction_prompt()
     init_quiz_prompt()
     day = date(2026, 8, 8)
@@ -457,7 +457,7 @@ def test_wrong_book_gap_typed_journals_no_mark_result(cleanup_user: int) -> None
             }
         ],
     }
-    sid = insert_session(tid, "quiz", day, payload=payload, completed=False)
+    sid = insert_session(user_id, "quiz", day, payload=payload, completed=False)
     payload["session_id"] = sid
 
     context = MagicMock()
@@ -467,7 +467,7 @@ def test_wrong_book_gap_typed_journals_no_mark_result(cleanup_user: int) -> None
         asyncio.run(
             quiz_handler._advance_after_answer(
                 context,
-                tid,
+                user_id,
                 sid,
                 payload,
                 correct=False,
@@ -484,7 +484,7 @@ def test_wrong_book_gap_typed_journals_no_mark_result(cleanup_user: int) -> None
               FROM errors
              WHERE user_id = %s
             """,
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert row is not None
     assert row["source"] == "quiz"
@@ -498,7 +498,7 @@ def test_wrong_book_bad_error_type_skips_row(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     question = {
         "source": "book",
         "format": "choice",
@@ -508,7 +508,7 @@ def test_wrong_book_bad_error_type_skips_row(
     }
     with caplog.at_level(logging.WARNING):
         written = record_errors(
-            tid,
+            user_id,
             "quiz",
             [
                 {
@@ -524,7 +524,7 @@ def test_wrong_book_bad_error_type_skips_row(
     with connection() as conn:
         n = conn.execute(
             "SELECT COUNT(*) AS n FROM errors WHERE user_id = %s",
-            (tid,),
+            (user_id,),
         ).fetchone()["n"]
     assert int(n) == 0
     del question
@@ -532,7 +532,7 @@ def test_wrong_book_bad_error_type_skips_row(
 
 def test_mark_result_not_called_for_book_choice(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     init_correction_prompt()
     init_quiz_prompt()
     day = date(2026, 8, 8)
@@ -556,14 +556,14 @@ def test_mark_result_not_called_for_book_choice(cleanup_user: int) -> None:
             }
         ],
     }
-    sid = insert_session(tid, "quiz", day, payload=payload, completed=False)
+    sid = insert_session(user_id, "quiz", day, payload=payload, completed=False)
     context = MagicMock()
     context.bot.edit_message_text = AsyncMock()
     with patch.object(quiz_handler, "mark_result") as mr:
         asyncio.run(
             quiz_handler._advance_after_answer(
                 context,
-                tid,
+                user_id,
                 sid,
                 dict(payload),
                 correct=False,
@@ -579,10 +579,10 @@ def test_mark_result_not_called_for_book_choice(cleanup_user: int) -> None:
 
 def test_zero_due_with_books_ignored_is_missed(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="00:00", tz="UTC")
+    user_id = _onboard(tid, morning="00:00", tz="UTC")
     for i in range(5):
         _insert_unit(
-            tid,
+            user_id,
             book="murphy",
             unit_number=str(i + 1),
             title=f"U{i+1}",
@@ -600,7 +600,7 @@ def test_zero_due_with_books_ignored_is_missed(cleanup_user: int) -> None:
                    last_active_date = %s
              WHERE user_id = %s
             """,
-            (day - timedelta(days=1), day - timedelta(days=1), tid),
+            (day - timedelta(days=1), day - timedelta(days=1), user_id),
         )
 
     def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
@@ -625,18 +625,18 @@ def test_zero_due_with_books_ignored_is_missed(cleanup_user: int) -> None:
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)
     with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action == "quiz"
 
-    result = roll_over_day(tid, day)
+    result = roll_over_day(user_id, day)
     assert result.outcome == "missed"
     assert result.freeze_consumed is True
-    assert get_streak(tid).freeze_tokens == 1
+    assert get_streak(user_id).freeze_tokens == 1
 
 
 def test_zero_due_no_books_ignored_is_neutral(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="00:00", tz="UTC")
+    user_id = _onboard(tid, morning="00:00", tz="UTC")
     day = date(2026, 8, 8)
     with connection() as conn:
         conn.execute(
@@ -648,17 +648,17 @@ def test_zero_due_no_books_ignored_is_neutral(cleanup_user: int) -> None:
                    last_active_date = %s
              WHERE user_id = %s
             """,
-            (day - timedelta(days=1), day - timedelta(days=1), tid),
+            (day - timedelta(days=1), day - timedelta(days=1), user_id),
         )
     app = MagicMock()
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)
-    action = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+    action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action == "free_practice"
-    result = roll_over_day(tid, day)
+    result = roll_over_day(user_id, day)
     assert result.outcome == "neutral"
-    assert get_streak(tid).freeze_tokens == 2
-    assert get_streak(tid).current_streak == 3
+    assert get_streak(user_id).freeze_tokens == 2
+    assert get_streak(user_id).current_streak == 3
 
 
 # --- /test command ----------------------------------------------------------
@@ -666,9 +666,9 @@ def test_zero_due_no_books_ignored_is_neutral(cleanup_user: int) -> None:
 
 def test_unknown_unit_warm_reply(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     _insert_unit(
-        tid,
+        user_id,
         book="murphy",
         unit_number="3",
         title="Present",
@@ -694,12 +694,12 @@ def test_unknown_unit_warm_reply(cleanup_user: int) -> None:
 
 def test_bare_test_lists_units(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     _insert_unit(
-        tid, book="murphy", unit_number="12", title="A", items=["a"]
+        user_id, book="murphy", unit_number="12", title="A", items=["a"]
     )
     _insert_unit(
-        tid, book="murphy", unit_number="12A", title="B", items=["b"]
+        user_id, book="murphy", unit_number="12A", title="B", items=["b"]
     )
 
     async def _run() -> None:
@@ -722,12 +722,12 @@ def test_bare_test_lists_units(cleanup_user: int) -> None:
 
 def test_two_books_same_unit_disambiguates(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     _insert_unit(
-        tid, book="murphy", unit_number="12", title="A", items=["a"]
+        user_id, book="murphy", unit_number="12", title="A", items=["a"]
     )
     _insert_unit(
-        tid,
+        user_id,
         book="vocabulary_in_use",
         unit_number="12",
         title="B",
@@ -750,12 +750,12 @@ def test_two_books_same_unit_disambiguates(cleanup_user: int) -> None:
 
 def test_one_book_no_disambiguation(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     init_book = book_test_handler.init_book_test_prompt
     init_book()
     init_correction_prompt()
     _insert_unit(
-        tid,
+        user_id,
         book="murphy",
         unit_number="12",
         title="A",
@@ -816,25 +816,25 @@ def test_one_book_no_disambiguation(cleanup_user: int) -> None:
              ORDER BY id DESC
              LIMIT 1
             """,
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert row is not None
     assert row["task_type"] == "book_test"
-    assert has_session_on(tid, row["date"]) is False
+    assert has_session_on(user_id, row["date"]) is False
 
 
 def test_new_test_abandons_prior_book_test(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 8)
     old_id = insert_session(
-        tid,
+        user_id,
         "book_test",
         day,
         payload={"index": 0, "questions": [], "message_id": 1, "chat_id": tid},
         completed=False,
     )
-    n = abandon_open_book_tests(tid)
+    n = abandon_open_book_tests(user_id)
     assert n == 1
     with connection() as conn:
         row = conn.execute(
@@ -847,16 +847,16 @@ def test_new_test_abandons_prior_book_test(cleanup_user: int) -> None:
 
 def test_book_test_does_not_block_morning(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 8)
     insert_session(
-        tid,
+        user_id,
         "book_test",
         day,
         payload={"index": 0, "questions": []},
         completed=False,
     )
-    assert has_session_on(tid, day) is False
+    assert has_session_on(user_id, day) is False
 
 
 def test_s6a_button_labels_max_20() -> None:
@@ -873,9 +873,9 @@ def test_plan_tap_formats_never_gap() -> None:
 
 def test_teachable_items_filters_word_bank(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     _insert_unit(
-        tid,
+        user_id,
         book="murphy",
         unit_number="1",
         title="Present continuous",
@@ -886,7 +886,7 @@ def test_teachable_items_filters_word_bank(cleanup_user: int) -> None:
             STATIVE_ITEM,
         ],
     )
-    items = teachable_items_for_unit(tid, "murphy", "1")
+    items = teachable_items_for_unit(user_id, "murphy", "1")
     assert WORD_BANK_ITEM not in items
     assert STATIVE_ITEM in items
     assert "am/is/are + -ing" in items

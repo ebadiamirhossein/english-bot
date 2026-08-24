@@ -97,11 +97,17 @@ def _has_flight(context: ContextTypes.DEFAULT_TYPE) -> bool:
     )
 
 
-def _is_operator(user_id: int) -> bool:
+def _is_operator(telegram_user_id: int) -> bool:
+    """Compares a TELEGRAM id, deliberately.
+
+    ``OPERATOR_TELEGRAM_ID`` names a Telegram account, not a learner. Passing an
+    internal user id here after W4b would silently lock the operator out -- the
+    parameter is named for the type it takes so that cannot happen by accident.
+    """
     settings = load_settings()
     return (
         settings.operator_telegram_id is not None
-        and user_id == settings.operator_telegram_id
+        and telegram_user_id == settings.operator_telegram_id
     )
 
 
@@ -185,7 +191,7 @@ def _home_keyboard(users: list[Any]) -> InlineKeyboardMarkup:
         label = u.name[:18] if len(u.name) <= 18 else u.name[:17] + "…"
         if u.revoked:
             label = ("✗ " + label)[:20]
-        user_btns.append((label, f"admin:user:{u.telegram_user_id}"))
+        user_btns.append((label, f"admin:user:{u.id}"))
     rows.extend(layout_buttons(user_btns, max_per_row=2))
     rows.append([(texts.BTN_ADMIN_DONE, "admin:done")])
     return _keyboard(rows)
@@ -280,7 +286,7 @@ async def home_callback(
             tid = int(data.split(":", 2)[2])
         except (IndexError, ValueError):
             return HOME
-        users = {u.telegram_user_id: u for u in list_admin_users()}
+        users = {u.id: u for u in list_admin_users()}
         user = users.get(tid)
         if user is None:
             return await _show_home(update, context, notice=texts.ADMIN_NOTHING)

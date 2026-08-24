@@ -39,9 +39,9 @@ from core.services.sessions import (
     local_today,
     update_session_payload,
 )
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_490_000_000
+_TG_ADDRESS_BASE = 9_000_000_000
 
 # Sunday 2026-08-09 08:05 Vilnius (UTC+3)
 _SUNDAY_MORNING = datetime(2026, 8, 9, 5, 5, tzinfo=timezone.utc)
@@ -84,8 +84,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Weekly Test",
@@ -99,6 +99,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _insert_error(
@@ -202,14 +203,14 @@ def _deliver(
 
 def test_sunday_delivers_fifteen(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     for i in range(15):
         _insert_error(
-            tid,
+            user_id,
             error_type="quantifier_modifier" if i % 2 == 0 else "preposition",
             you_said=f"bad{i}",
         )
-    action, build = _deliver(tid, _SUNDAY_MORNING, n_questions=15)
+    action, build = _deliver(user_id, _SUNDAY_MORNING, n_questions=15)
     assert action == "quiz"
     errors_arg = build.call_args[0][1]
     assert len(errors_arg) == 15
@@ -220,7 +221,7 @@ def test_sunday_delivers_fifteen(cleanup_user: int) -> None:
              WHERE user_id = %s AND task_type = 'quiz'
              ORDER BY id DESC LIMIT 1
             """,
-            (tid,),
+            (user_id,),
         ).fetchone()
     payload = dict(row["payload"])
     assert payload.get("weekly_test") is True
@@ -229,10 +230,10 @@ def test_sunday_delivers_fifteen(cleanup_user: int) -> None:
 
 def test_monday_delivers_five(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     for i in range(8):
-        _insert_error(tid, error_type="preposition", you_said=f"m{i}")
-    action, build = _deliver(tid, _MONDAY_MORNING, n_questions=5)
+        _insert_error(user_id, error_type="preposition", you_said=f"m{i}")
+    action, build = _deliver(user_id, _MONDAY_MORNING, n_questions=5)
     assert action == "quiz"
     assert len(build.call_args[0][1]) == 5
     with connection() as conn:
@@ -242,19 +243,19 @@ def test_monday_delivers_five(cleanup_user: int) -> None:
              WHERE user_id = %s AND task_type = 'quiz'
              ORDER BY id DESC LIMIT 1
             """,
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert dict(row["payload"]).get("weekly_test") is not True
 
 
 def test_rescue_sunday_delivers_three_not_fifteen(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", _SUNDAY_MORNING)
-    _set_rescue(tid, day + timedelta(days=3))
+    _set_rescue(user_id, day + timedelta(days=3))
     for i in range(12):
-        _insert_error(tid, error_type="modal_verb", you_said=f"r{i}")
-    action, build = _deliver(tid, _SUNDAY_MORNING, n_questions=3, day=day)
+        _insert_error(user_id, error_type="modal_verb", you_said=f"r{i}")
+    action, build = _deliver(user_id, _SUNDAY_MORNING, n_questions=3, day=day)
     assert action == "quiz"
     assert len(build.call_args[0][1]) == 3
     with connection() as conn:
@@ -264,14 +265,14 @@ def test_rescue_sunday_delivers_three_not_fifteen(cleanup_user: int) -> None:
              WHERE user_id = %s AND task_type = 'quiz'
              ORDER BY id DESC LIMIT 1
             """,
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert dict(row["payload"]).get("weekly_test") is not True
 
 
 def test_selection_spreads_across_types(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     types = [
         "article_missing",
         "preposition",
@@ -281,8 +282,8 @@ def test_selection_spreads_across_types(cleanup_user: int) -> None:
     ]
     for t in types:
         for i in range(4):
-            _insert_error(tid, error_type=t, you_said=f"{t}-{i}")
-    selected = select_weekly_test_errors(tid, limit=15)
+            _insert_error(user_id, error_type=t, you_said=f"{t}-{i}")
+    selected = select_weekly_test_errors(user_id, limit=15)
     assert len(selected) == 15
     first_five = [e.error_type for e in selected[:5]]
     assert len(set(first_five)) == 5  # one of each before repeats
@@ -290,11 +291,11 @@ def test_selection_spreads_across_types(cleanup_user: int) -> None:
 
 def test_fewer_than_fifteen_tops_up_from_book(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     for i in range(3):
-        _insert_error(tid, error_type="preposition", you_said=f"few{i}")
+        _insert_error(user_id, error_type="preposition", you_said=f"few{i}")
     upsert_unit(
-        tid,
+        user_id,
         "murphy",
         MergedUnit(
             unit_number="1",
@@ -303,7 +304,7 @@ def test_fewer_than_fifteen_tops_up_from_book(cleanup_user: int) -> None:
         ),
         studied_at=date(2026, 8, 1),
     )
-    action, build = _deliver(tid, _SUNDAY_MORNING, n_questions=15)
+    action, build = _deliver(user_id, _SUNDAY_MORNING, n_questions=15)
     assert action == "quiz"
     errors_arg = build.call_args[0][1]
     books = build.call_args.kwargs.get("book_items") or []
@@ -313,16 +314,16 @@ def test_fewer_than_fifteen_tops_up_from_book(cleanup_user: int) -> None:
 
 def test_nothing_available_free_practice(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    action, _ = _deliver(tid, _SUNDAY_MORNING, n_questions=15)
+    user_id = _onboard(tid)
+    action, _ = _deliver(user_id, _SUNDAY_MORNING, n_questions=15)
     assert action == "free_practice"
 
 
 def test_mark_result_on_weekly_error_answers(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     eid = _insert_error(
-        tid,
+        user_id,
         error_type="article_missing",
         you_said="a apple",
         next_review=date(2030, 1, 1),  # not yet due
@@ -361,9 +362,11 @@ def test_early_limit_two_on_fifteen(cleanup_user: int) -> None:
 def test_anki_saturday_not_sunday(cleanup_user: int) -> None:
     assert ANKI_WEEKDAY == 5
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     user = EligibleUser(
-        telegram_user_id=tid,
+        id=user_id,
+        # Deliberately not equal to `id`.
+        telegram_address=_TG_ADDRESS_BASE + user_id,
         timezone="Europe/Vilnius",
         morning_time=time(8, 0),
         paused_until=None,
@@ -372,22 +375,24 @@ def test_anki_saturday_not_sunday(cleanup_user: int) -> None:
     assert is_user_due_for_anki(user, _SATURDAY_EVENING) is True
     assert is_user_due_for_anki(user, _SUNDAY_EVENING) is False
     sun = local_today("Europe/Vilnius", _SUNDAY_EVENING)
-    assert has_anki_session_on(tid, sun) is False
+    assert has_anki_session_on(user_id, sun) is False
 
 
 def test_sunday_message_count_two_with_headroom(cleanup_user: int) -> None:
     """Weekly test (morning) + report (evening) = 2; ceiling headroom left."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     for i in range(15):
-        _insert_error(tid, error_type="preposition", you_said=f"c{i}")
+        _insert_error(user_id, error_type="preposition", you_said=f"c{i}")
     day = local_today("Europe/Vilnius", _SUNDAY_MORNING)
-    action, _ = _deliver(tid, _SUNDAY_MORNING, n_questions=15, day=day)
+    action, _ = _deliver(user_id, _SUNDAY_MORNING, n_questions=15, day=day)
     assert action == "quiz"
-    assert bot_initiated_count(tid, day) == 1
+    assert bot_initiated_count(user_id, day) == 1
 
     mot = MotivationUser(
-        telegram_user_id=tid,
+        id=user_id,
+        # Deliberately not equal to `id`.
+        telegram_address=_TG_ADDRESS_BASE + user_id,
         timezone="Europe/Vilnius",
         evening_time=time(21, 0),
         paused_until=None,
@@ -401,20 +406,20 @@ def test_sunday_message_count_two_with_headroom(cleanup_user: int) -> None:
         asyncio.run(deliver_sunday_report(app, mot, now=_SUNDAY_EVENING))
         == "sent"
     )
-    assert bot_initiated_count(tid, day) == 2
-    assert bot_initiated_count(tid, day) < 3
+    assert bot_initiated_count(user_id, day) == 2
+    assert bot_initiated_count(user_id, day) < 3
 
 
 def test_murphy_routing_skips_null_and_marks_studied(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     # collocation has NULL murphy_units; article_missing → 69-81
     for i in range(5):
-        _insert_error(tid, error_type="collocation", you_said=f"col{i}")
+        _insert_error(user_id, error_type="collocation", you_said=f"col{i}")
     for i in range(3):
-        _insert_error(tid, error_type="article_missing", you_said=f"art{i}")
+        _insert_error(user_id, error_type="article_missing", you_said=f"art{i}")
     upsert_unit(
-        tid,
+        user_id,
         "murphy",
         MergedUnit(
             unit_number="70",
@@ -423,9 +428,9 @@ def test_murphy_routing_skips_null_and_marks_studied(cleanup_user: int) -> None:
         ),
         studied_at=date(2026, 8, 1),
     )
-    top = top_error_types(tid, n=5)
+    top = top_error_types(user_id, n=5)
     assert "Collocation" in top
-    rec = format_murphy_recommendation(tid)
+    rec = format_murphy_recommendation(user_id)
     assert rec is not None
     assert "Collocation" not in rec  # NULL skipped
     assert "Missing article" in rec
@@ -438,10 +443,10 @@ def test_murphy_routing_skips_null_and_marks_studied(cleanup_user: int) -> None:
 
 def test_murphy_new_when_not_studied(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     for i in range(3):
-        _insert_error(tid, error_type="word_order", you_said=f"wo{i}")
-    rec = format_murphy_recommendation(tid)
+        _insert_error(user_id, error_type="word_order", you_said=f"wo{i}")
+    rec = format_murphy_recommendation(user_id)
     assert rec is not None
     assert "Word order" in rec
     assert "New" in rec or "new" in rec
@@ -470,9 +475,9 @@ def test_s11_button_labels_short() -> None:
 def test_early_limit_completes_fifteen_set(cleanup_user: int) -> None:
     """Just do 2 against a 15Q weekly payload → score / 2.0."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     ids = [
-        _insert_error(tid, error_type="preposition", you_said=f"el{i}")
+        _insert_error(user_id, error_type="preposition", you_said=f"el{i}")
         for i in range(15)
     ]
     questions = _fake_questions(15, error_ids=ids)
@@ -488,7 +493,7 @@ def test_early_limit_completes_fifteen_set(cleanup_user: int) -> None:
         "weekly_test": True,
         "early_limit": 2,
     }
-    sid = insert_session(tid, "quiz", day, payload=payload, completed=False)
+    sid = insert_session(user_id, "quiz", day, payload=payload, completed=False)
     payload["session_id"] = sid
     update_session_payload(sid, payload)
 
@@ -496,13 +501,13 @@ def test_early_limit_completes_fifteen_set(cleanup_user: int) -> None:
     context.bot = AsyncMock()
     context.bot.edit_message_text = AsyncMock()
     for i in range(2):
-        session = get_session_by_id(tid, sid)
+        session = get_session_by_id(user_id, sid)
         assert session is not None
         payload = dict(session.payload or {})
         asyncio.run(
             quiz_handler._advance_after_answer(
                 context,
-                tid,
+                user_id,
                 sid,
                 payload,
                 correct=True,
@@ -510,7 +515,7 @@ def test_early_limit_completes_fifteen_set(cleanup_user: int) -> None:
                 user_answer="a",
             )
         )
-    session = get_session_by_id(tid, sid)
+    session = get_session_by_id(user_id, sid)
     assert session is not None
     assert session.completed is True
     assert session.score == pytest.approx(2 / 2.0)

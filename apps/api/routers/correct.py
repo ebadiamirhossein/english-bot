@@ -76,14 +76,14 @@ def correct(
     session: AuthenticatedUser = Depends(require_current_user),
 ) -> CorrectionResult:
     """Correct a piece of free writing and write any errors to the journal."""
-    user = get_user(session.telegram_user_id)
+    user = get_user(session.id)
     if user is None:
         # A live session whose users row vanished. Not reachable through any
         # normal path — the session lookup joins that row — so it is a real
         # inconsistency rather than a client error.
         logger.error(
             "Session resolved for a missing user row user_id=%s",
-            session.telegram_user_id,
+            session.id,
         )
         raise HTTPException(status_code=401, detail="not_authenticated")
 
@@ -93,7 +93,7 @@ def correct(
         # The model failed or answered with something unparseable. The bot
         # retries because it can tell the learner it is retrying; here the
         # honest answer is that it did not work, and the client offers a retry.
-        logger.warning("Correction unavailable user_id=%s", user.telegram_user_id)
+        logger.warning("Correction unavailable user_id=%s", user.id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="correction_unavailable",

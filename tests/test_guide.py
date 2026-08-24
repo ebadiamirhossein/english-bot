@@ -35,8 +35,7 @@ from apps.bot.handlers.guide import (
 )
 from apps.bot.main import register_handlers
 from apps.bot.commands import menu_command_names
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_510_000_000
 
 _GUILT = re.compile(
@@ -76,8 +75,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Guide Test",
@@ -91,6 +90,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _ctx(*, chat_id: int = 20, message_id: int = 10) -> MagicMock:

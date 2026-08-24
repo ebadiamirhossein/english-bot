@@ -12,6 +12,7 @@ from telegram.ext import CommandHandler, ContextTypes
 from apps.bot import texts
 from core.services.users import is_registered
 from core.services.watch_import import watch_dir_configured
+from apps.bot import identity as bot_identity
 
 
 def format_help_message(*, include_import: bool | None = None) -> str:
@@ -65,7 +66,8 @@ async def on_help_command(
 ) -> None:
     if update.message is None or update.effective_user is None:
         return
-    if not is_registered(update.effective_user.id):
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None or not is_registered(user_id):
         return
     await update.message.reply_text(format_help_message())
 

@@ -44,6 +44,7 @@ from core.services.books import (
 from core.services.reading import normalize_for_match
 from core.services.shared_content import record_and_fanout_book_units
 from core.services.users import is_registered
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,13 @@ def _shared_book_slug_set() -> set[str]:
 def _maybe_fanout_shared_book(
     user_id: int, book: str, units: list[MergedUnit]
 ) -> None:
-    """Fan out operator uploads of configured shared books; else log and stay personal."""
+    """Fan out operator uploads of configured shared books; else log and stay personal.
+
+    ``user_id`` is the internal id; ``OPERATOR_TELEGRAM_ID`` names a Telegram
+    account. The two are different numbers since W4b, so the check translates
+    rather than comparing them directly -- comparing them would silently make
+    every upload personal and fan nothing out, with no error anywhere.
+    """
     if not units:
         return
     settings = load_settings()
@@ -73,7 +80,9 @@ def _maybe_fanout_shared_book(
     shared = _shared_book_slug_set()
     book_norm = normalize_for_match(book)
 
-    if operator_id is None or user_id != operator_id:
+    if operator_id is None:
+        return
+    if bot_identity.telegram_address_or_none(user_id) != operator_id:
         return
     if book_norm not in shared:
         logger.info(
@@ -218,7 +227,9 @@ def _schedule_debounce(
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.effective_user is None or update.message is None:
         return ConversationHandler.END
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return ConversationHandler.END
     if not is_registered(user_id):
         return ConversationHandler.END
 
@@ -343,11 +354,15 @@ async def after_batch_choice(
         return COLLECT_PAGES
     await query.answer()
 
-    user_id = update.effective_user.id
+    # May be None, and that is not a reason to abandon the tap: everything below
+    # is a UI state transition. The id is needed only to name the debounce job,
+    # and somebody with no users row never scheduled one.
+    user_id = bot_identity.bot_user_id(update, context)
     action = query.data.removeprefix("book:after:")
 
     if action == "done":
-        _cancel_debounce(context, user_id)
+        if user_id is not None:
+            _cancel_debounce(context, user_id)
         _clear_session(context)
         try:
             await query.edit_message_reply_markup(reply_markup=None)

@@ -45,9 +45,9 @@ from core.services.motivation import (
 from core.services.sessions import insert_session, local_today
 from core.services.stats import collect_stats, format_stats_message
 from core.services.streaks import get_streak, roll_over_day
+from core.services.identity import save_onboarding
 from core.services.users import (
     get_paused_until,
-    save_onboarding,
     set_paused_until,
 )
 from core.services.errors import run_monthly_fossil_sweep
@@ -59,6 +59,9 @@ _MON_MORNING = datetime(2026, 8, 3, 5, 10, tzinfo=timezone.utc)  # Vilnius 08:10
 _WED_EVENING = datetime(2026, 8, 5, 18, 10, tzinfo=timezone.utc)  # Wed 21:10
 _SAT_EVENING = datetime(2026, 8, 8, 18, 10, tzinfo=timezone.utc)  # Sat 21:10
 _SUN_EVENING = datetime(2026, 8, 9, 18, 10, tzinfo=timezone.utc)  # Sun 21:10
+
+
+_TG_ADDRESS_BASE = 9_000_000_000
 
 
 @pytest.fixture
@@ -98,8 +101,8 @@ def runtime_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Hardening Test",
@@ -113,11 +116,15 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
-def _eligible(tid: int, *, paused_until: date | None = None) -> EligibleUser:
+def _eligible(user_id: int, *, paused_until: date | None = None) -> EligibleUser:
     return EligibleUser(
-        telegram_user_id=tid,
+        id=user_id,
+        # Deliberately not equal to `id`: nothing may rely on the two
+        # being the same number again.
+        telegram_address=_TG_ADDRESS_BASE + user_id,
         timezone="Europe/Vilnius",
         morning_time=time(8, 0),
         paused_until=paused_until,
@@ -125,9 +132,12 @@ def _eligible(tid: int, *, paused_until: date | None = None) -> EligibleUser:
     )
 
 
-def _mot(tid: int, *, paused_until: date | None = None) -> MotivationUser:
+def _mot(user_id: int, *, paused_until: date | None = None) -> MotivationUser:
     return MotivationUser(
-        telegram_user_id=tid,
+        id=user_id,
+        # Deliberately not equal to `id`: nothing may rely on the two
+        # being the same number again.
+        telegram_address=_TG_ADDRESS_BASE + user_id,
         timezone="Europe/Vilnius",
         evening_time=time(21, 0),
         paused_until=paused_until,
@@ -337,22 +347,22 @@ def test_instance_lock_second_refuses(runtime_dir: Path) -> None:
 
 def test_pause_sets_and_resume_clears(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", _MON_MORNING)
-    set_paused_until(tid, day + timedelta(days=2))
-    assert get_paused_until(tid) == day + timedelta(days=2)
-    set_paused_until(tid, None)
-    assert get_paused_until(tid) is None
+    set_paused_until(user_id, day + timedelta(days=2))
+    assert get_paused_until(user_id) == day + timedelta(days=2)
+    set_paused_until(user_id, None)
+    assert get_paused_until(user_id) is None
 
 
 def test_six_senders_skip_paused(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", _MON_MORNING)
     paused = day + timedelta(days=14)
-    set_paused_until(tid, paused)
-    user = _eligible(tid, paused_until=paused)
-    mot = _mot(tid, paused_until=paused)
+    set_paused_until(user_id, paused)
+    user = _eligible(user_id, paused_until=paused)
+    mot = _mot(user_id, paused_until=paused)
 
     assert is_user_due_for_morning(user, _MON_MORNING) is False
     assert is_user_due_for_evening(user, _WED_EVENING) is False
@@ -367,7 +377,7 @@ def test_six_senders_skip_paused(cleanup_user: int) -> None:
     # May be 0 for this user; assert no fossil session created while paused.
     from core.services.sessions import open_fossil_sweep_for_user
 
-    assert open_fossil_sweep_for_user(tid) is None
+    assert open_fossil_sweep_for_user(user_id) is None
     assert isinstance(n, int)
 
 
@@ -375,9 +385,9 @@ def test_pause_while_paused_offers_resume_not_stack(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", _MON_MORNING)
-    set_paused_until(tid, day + timedelta(days=6))
+    set_paused_until(user_id, day + timedelta(days=6))
 
     msg = MagicMock()
     msg.reply_text = AsyncMock()
@@ -403,7 +413,7 @@ def test_pause_while_paused_offers_resume_not_stack(
 
 def test_pause_callback_sets_duration(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", _MON_MORNING)
 
     msg = MagicMock()
@@ -420,16 +430,16 @@ def test_pause_callback_sets_duration(cleanup_user: int) -> None:
         mock_dt.now = MagicMock(return_value=_MON_MORNING)
         asyncio.run(on_pause_callback(update, MagicMock()))
 
-    assert get_paused_until(tid) == day + timedelta(days=2)
+    assert get_paused_until(user_id) == day + timedelta(days=2)
 
 
 def test_pause_day_incomplete_quiz_still_missed(cleanup_user: int) -> None:
     """Pin: pre-pause open quiz still Missed — streaks.py untouched."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
-    insert_session(tid, "quiz", day, completed=False)
-    set_paused_until(tid, day + timedelta(days=7))
+    insert_session(user_id, "quiz", day, completed=False)
+    set_paused_until(user_id, day + timedelta(days=7))
     with connection() as conn:
         conn.execute(
             """
@@ -438,12 +448,12 @@ def test_pause_day_incomplete_quiz_still_missed(cleanup_user: int) -> None:
                    last_evaluated_date = %s
              WHERE user_id = %s
             """,
-            (day - timedelta(days=1), tid),
+            (day - timedelta(days=1), user_id),
         )
-    result = roll_over_day(tid, day)
+    result = roll_over_day(user_id, day)
     assert result.outcome == "missed"
     assert result.freeze_consumed is True
-    assert get_streak(tid).freeze_tokens == 1
+    assert get_streak(user_id).freeze_tokens == 1
 
 
 # --- /stats -------------------------------------------------------------------
@@ -451,10 +461,10 @@ def test_pause_day_incomplete_quiz_still_missed(cleanup_user: int) -> None:
 
 def test_stats_learner_no_sweep_fields(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    create_fossil_sweep_session(tid, date(2026, 8, 1), pending=[1, 2])
+    user_id = _onboard(tid)
+    create_fossil_sweep_session(user_id, date(2026, 8, 1), pending=[1, 2])
     stats = collect_stats(
-        tid,
+        user_id,
         now=_MON_MORNING,
         include_sweep=False,
     )
@@ -472,9 +482,9 @@ def test_stats_operator_sees_sweep(
     cleanup_user: int, monkeypatch: pytest.MonkeyPatch, runtime_dir: Path
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    create_fossil_sweep_session(tid, date(2026, 8, 1), pending=[11])
-    stats = collect_stats(tid, now=_MON_MORNING, include_sweep=True)
+    user_id = _onboard(tid)
+    create_fossil_sweep_session(user_id, date(2026, 8, 1), pending=[11])
+    stats = collect_stats(user_id, now=_MON_MORNING, include_sweep=True)
     assert stats is not None
     body = format_stats_message(stats, include_sweep=True)
     assert "Sweep (ops)" in body
@@ -484,8 +494,8 @@ def test_stats_operator_sees_sweep(
 def test_stats_user_scoped(cleanup_user: int, fake_telegram_id: int) -> None:
     tid_a = cleanup_user
     tid_b = fake_telegram_id + 1
-    _onboard(tid_a)
-    _onboard(tid_b)
+    user_id = _onboard(tid_a)
+    tid_b_id = _onboard(tid_b)
     try:
         with connection() as conn:
             conn.execute(
@@ -495,7 +505,7 @@ def test_stats_user_scoped(cleanup_user: int, fake_telegram_id: int) -> None:
                     exported_to_anki
                 ) VALUES (%s, 'only-a', 's', 'm', 'reading', 'work', FALSE)
                 """,
-                (tid_a,),
+                (user_id,),
             )
             conn.execute(
                 """
@@ -504,10 +514,10 @@ def test_stats_user_scoped(cleanup_user: int, fake_telegram_id: int) -> None:
                     exported_to_anki
                 ) VALUES (%s, 'only-b', 's', 'm', 'reading', 'work', FALSE)
                 """,
-                (tid_b,),
+                (tid_b_id,),
             )
-        stats_a = collect_stats(tid_a, now=_MON_MORNING)
-        stats_b = collect_stats(tid_b, now=_MON_MORNING)
+        stats_a = collect_stats(user_id, now=_MON_MORNING)
+        stats_b = collect_stats(tid_b_id, now=_MON_MORNING)
         assert stats_a is not None and stats_b is not None
         assert stats_a.chunk_total == 1
         assert stats_b.chunk_total == 1
@@ -519,7 +529,7 @@ def test_stats_user_scoped(cleanup_user: int, fake_telegram_id: int) -> None:
 
 def test_stats_labels_not_codes(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     with connection() as conn:
         label_row = conn.execute(
             "SELECT label FROM error_types WHERE code = %s",
@@ -539,9 +549,9 @@ def test_stats_labels_not_codes(cleanup_user: int) -> None:
                 CURRENT_DATE - 1, TRUE, CURRENT_DATE - 1, 0
             )
             """,
-            (tid,),
+            (user_id,),
         )
-    stats = collect_stats(tid, now=_MON_MORNING)
+    stats = collect_stats(user_id, now=_MON_MORNING)
     assert stats is not None
     body = format_stats_message(stats, include_sweep=False)
     assert label in body

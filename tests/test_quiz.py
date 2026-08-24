@@ -13,8 +13,7 @@ from core.db import close_pool, connection
 from apps.bot.handlers import quiz as quiz_handler
 from apps.bot.handlers.quiz import grade_answer, normalize_answer
 from core.services.errors import mark_result
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_310_000_000
 
 
@@ -44,8 +43,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int, *, morning: str = "07:00", tz: str = "Europe/Vilnius") -> None:
-    save_onboarding(
+def _onboard(tid: int, *, morning: str = "07:00", tz: str = "Europe/Vilnius") -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Quiz Test",
@@ -64,6 +63,7 @@ def _onboard(tid: int, *, morning: str = "07:00", tz: str = "Europe/Vilnius") ->
             "UPDATE users SET timezone = %s WHERE telegram_user_id = %s",
             (tz, tid),
         )
+    return user_id
 
 
 def _insert_error(tid: int, *, next_review: date | None = None) -> int:
@@ -122,8 +122,8 @@ def test_grading_normalisation() -> None:
 
 def test_answer_calls_mark_result_once(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    eid = _insert_error(tid, next_review=date.today())
+    user_id = _onboard(tid)
+    eid = _insert_error(user_id, next_review=date.today())
     today = date.today()
     payload = {
         "index": 0,
@@ -154,7 +154,7 @@ def test_answer_calls_mark_result_once(cleanup_user: int) -> None:
             ) VALUES (%s, %s, 'quiz', NOW(), FALSE, %s)
             RETURNING id
             """,
-            (tid, today, Jsonb(payload)),
+            (user_id, today, Jsonb(payload)),
         ).fetchone()
     assert row is not None
     session_id = int(row["id"])
@@ -172,7 +172,7 @@ def test_answer_calls_mark_result_once(cleanup_user: int) -> None:
         asyncio.run(
             quiz_handler._advance_after_answer(
                 context,
-                tid,
+                user_id,
                 session_id,
                 payload,
                 correct=True,
@@ -186,9 +186,9 @@ def test_answer_calls_mark_result_once(cleanup_user: int) -> None:
 
 def test_abandon_leaves_remaining_untouched(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     today = date.today()
-    ids = [_insert_error(tid, next_review=today) for _ in range(5)]
+    ids = [_insert_error(user_id, next_review=today) for _ in range(5)]
     reviews_before = {eid: _next_review(eid) for eid in ids}
 
     # Answer only first two via mark_result (simulate); leave 3–5 alone.
@@ -201,19 +201,19 @@ def test_abandon_leaves_remaining_untouched(cleanup_user: int) -> None:
 
 def test_zero_due_errors_free_practice_once(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="00:00", tz="UTC")
+    user_id = _onboard(tid, morning="00:00", tz="UTC")
     # Future review only — nothing due
-    _insert_error(tid, next_review=date.today() + timedelta(days=10))
+    _insert_error(user_id, next_review=date.today() + timedelta(days=10))
 
     app = MagicMock()
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc)
 
-    action1 = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+    action1 = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action1 == "free_practice"
     assert app.bot.send_message.await_count == 1
 
-    sessions = _sessions(tid)
+    sessions = _sessions(user_id)
     assert len(sessions) == 1
     assert sessions[0]["task_type"] == "free_practice"
     assert sessions[0]["completed"] is False
@@ -221,14 +221,14 @@ def test_zero_due_errors_free_practice_once(cleanup_user: int) -> None:
 
     # Next poll five minutes later must not send again
     action2 = asyncio.run(
-        quiz_handler.deliver_morning(app, tid, now=now + timedelta(minutes=5))
+        quiz_handler.deliver_morning(app, user_id, now=now + timedelta(minutes=5))
     )
     assert action2 == "skipped_existing"
     assert app.bot.send_message.await_count == 1
-    assert len(_sessions(tid)) == 1
+    assert len(_sessions(user_id)) == 1
 
     # And eligibility must exclude the user
     from apps.bot.scheduler import users_due_for_morning
 
-    due_ids = [u.telegram_user_id for u in users_due_for_morning(now + timedelta(minutes=5))]
-    assert tid not in due_ids
+    due_ids = [u.id for u in users_due_for_morning(now + timedelta(minutes=5))]
+    assert user_id not in due_ids

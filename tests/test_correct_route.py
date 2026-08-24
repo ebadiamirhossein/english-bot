@@ -71,23 +71,30 @@ def db():
 @pytest.fixture
 def learner(db):
     """An approved, enrolled learner with a live session cookie."""
-    user_id = -secrets.randbelow(1_000_000_000) - 1
-    db.execute(
+    telegram_user_id = -secrets.randbelow(1_000_000_000) - 1
+    row = db.execute(
         """
         INSERT INTO users (telegram_user_id, name, native_language, onboarded,
                            cefr_level, explanation_language_fallback,
                            auth_email, auth_user_id, timezone)
         VALUES (%s, 'W3 Learner', 'fa', TRUE, 'B1', TRUE, %s, %s,
                 'Europe/Vilnius')
+        RETURNING id
         """,
-        (user_id, f"w3-{abs(user_id)}@example.test", str(uuid.uuid4())),
-    )
+        (
+            telegram_user_id,
+            f"w3-{abs(telegram_user_id)}@example.test",
+            str(uuid.uuid4()),
+        ),
+    ).fetchone()
+    user_id = int(row[0])
     db.execute(
         """
-        INSERT INTO access_requests (telegram_user_id, display_name, status)
-        VALUES (%s, 'W3 Learner', 'approved')
+        INSERT INTO access_requests (telegram_user_id, user_id, display_name,
+                                     status)
+        VALUES (%s, %s, 'W3 Learner', 'approved')
         """,
-        (user_id,),
+        (telegram_user_id, user_id),
     )
     raw = secrets.token_urlsafe(32)
     import hashlib
@@ -106,8 +113,8 @@ def learner(db):
     db.commit()
     yield type("L", (), {"user_id": user_id, "cookie": raw})()
     db.execute("DELETE FROM errors WHERE user_id = %s", (user_id,))
-    db.execute("DELETE FROM users WHERE telegram_user_id = %s", (user_id,))
-    db.execute("DELETE FROM access_requests WHERE telegram_user_id = %s", (user_id,))
+    db.execute("DELETE FROM users WHERE id = %s", (user_id,))
+    db.execute("DELETE FROM access_requests WHERE user_id = %s", (user_id,))
     db.commit()
 
 
@@ -357,7 +364,7 @@ def test_a_revoked_learner_cannot_correct(app, db, learner, monkeypatch) -> None
     """Revocation takes effect on the next request, including this one."""
     seen = stub_model(monkeypatch, ACCEPTANCE_PAYLOAD)
     db.execute(
-        "UPDATE access_requests SET status = 'revoked' WHERE telegram_user_id = %s",
+        "UPDATE access_requests SET status = 'revoked' WHERE user_id = %s",
         (learner.user_id,),
     )
     db.commit()

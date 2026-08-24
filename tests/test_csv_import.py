@@ -18,7 +18,7 @@ from apps.bot.handlers.csv_import import (
     on_csv_document,
     on_non_csv_document,
 )
-from core.services.users import save_onboarding
+from core.services.identity import save_onboarding
 from core.services.watch_import import (
     CSV_IMPORT_MAX_BYTES,
     clear_orphan_warnings,
@@ -68,8 +68,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "CSV Doc Test",
@@ -83,18 +83,19 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _doc_update(
-    user_id: int,
+    telegram_user_id: int,
     *,
     file_name: str,
     file_size: int | None = 100,
     file_id: str = "file-1",
     update_id: int = 1,
 ) -> Update:
-    user = User(id=user_id, first_name="A", is_bot=False)
-    chat = Chat(id=user_id, type="private")
+    user = User(id=telegram_user_id, first_name="A", is_bot=False)
+    chat = Chat(id=telegram_user_id, type="private")
     doc = Document(
         file_id=file_id,
         file_unique_id=f"u-{file_id}",
@@ -167,12 +168,12 @@ def test_import_csv_bytes_happy_path(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     now = datetime.now(timezone.utc)
     with caplog.at_level(logging.INFO):
         result = import_csv_bytes(
             _TRANCY_CSV.encode("utf-8"),
-            user_id=tid,
+            user_id=user_id,
             filename="export.csv",
             now=now,
         )
@@ -186,7 +187,7 @@ def test_import_csv_bytes_happy_path(
     with connection() as conn:
         rows = conn.execute(
             "SELECT chunk, source FROM chunks WHERE user_id = %s ORDER BY id",
-            (tid,),
+            (user_id,),
         ).fetchall()
     assert len(rows) == 2
     assert str(rows[0]["source"]).startswith("subtitle_trancy_")
@@ -196,35 +197,35 @@ def test_attribution_is_sender(cleanup_user: int, fake_telegram_id: int) -> None
     tid_a = cleanup_user
     tid_b = fake_telegram_id + 1_000_000
     assert tid_a != tid_b
-    _onboard(tid_a)
-    _onboard(tid_b)
+    user_id = _onboard(tid_a)
+    tid_b_id = _onboard(tid_b)
     try:
         now = datetime.now(timezone.utc)
         import_csv_bytes(
             _TRANCY_CSV.encode("utf-8"),
-            user_id=tid_a,
+            user_id=user_id,
             filename="a.csv",
             now=now,
         )
         import_csv_bytes(
             _TRANCY_CSV.encode("utf-8"),
-            user_id=tid_b,
+            user_id=tid_b_id,
             filename="b.csv",
             now=now,
         )
         with connection() as conn:
             n_a = conn.execute(
                 "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s",
-                (tid_a,),
+                (user_id,),
             ).fetchone()
             n_b = conn.execute(
                 "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s",
-                (tid_b,),
+                (tid_b_id,),
             ).fetchone()
             cross = conn.execute(
                 "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s "
                 "AND chunk IN (SELECT chunk FROM chunks WHERE user_id = %s)",
-                (tid_a, tid_b),
+                (user_id, tid_b_id),
             ).fetchone()
         assert int(n_a["n"]) == 2
         assert int(n_b["n"]) == 2
@@ -234,7 +235,7 @@ def test_attribution_is_sender(cleanup_user: int, fake_telegram_id: int) -> None
             wrong = conn.execute(
                 "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s "
                 "AND id IN (SELECT id FROM chunks WHERE user_id = %s)",
-                (tid_a, tid_b),
+                (user_id, tid_b_id),
             ).fetchone()
         assert int(wrong["n"]) == 0
     finally:
@@ -245,7 +246,7 @@ def test_unrecognisable_headers_no_persist_alerts_operator(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _doc_update(tid, file_name="bad.csv")
     context = _context_with_download(_BAD_HEADERS_CSV.encode("utf-8"))
     with (
@@ -268,14 +269,14 @@ def test_unrecognisable_headers_no_persist_alerts_operator(
     assert "failed_headers" in caplog.text
     with connection() as conn:
         n = conn.execute(
-            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (tid,)
+            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (user_id,)
         ).fetchone()
     assert int(n["n"]) == 0
 
 
 def test_non_csv_warm_line_no_llm(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _doc_update(tid, file_name="notes.xlsx")
     context = MagicMock()
     with (
@@ -292,7 +293,7 @@ def test_non_csv_warm_line_no_llm(cleanup_user: int) -> None:
 
 def test_oversized_refused_before_download(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _doc_update(
         tid, file_name="huge.csv", file_size=CSV_IMPORT_MAX_BYTES + 1
     )
@@ -314,7 +315,7 @@ def test_unregistered_document_ignored(fake_telegram_id: int) -> None:
 
 def test_handler_reports_counts(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _doc_update(tid, file_name="export.csv")
     context = _context_with_download(_TRANCY_CSV.encode("utf-8"))
     with (
@@ -332,7 +333,7 @@ def test_dedupe_across_folder_and_telegram(
     cleanup_user: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     root = tmp_path / "watch"
     root.mkdir()
     monkeypatch.setattr(
@@ -343,8 +344,8 @@ def test_dedupe_across_folder_and_telegram(
         "core.services.watch_import.assert_path_outside_repo",
         lambda path, label="WATCH_DIR": Path(path).resolve(),
     )
-    ensure_user_layout(root, tid)
-    csv_path = root / "inbox" / str(tid) / "trancy" / "export.csv"
+    ensure_user_layout(root, user_id)
+    csv_path = root / "inbox" / str(user_id) / "trancy" / "export.csv"
     csv_path.write_text(_TRANCY_CSV, encoding="utf-8")
     # Age via utime without sleeping the wall clock.
     import os
@@ -358,13 +359,13 @@ def test_dedupe_across_folder_and_telegram(
 
     now = datetime.now(timezone.utc)
     folder = process_csv_file(
-        csv_path, user_id=tid, tool="trancy", root=root, now=now
+        csv_path, user_id=user_id, tool="trancy", root=root, now=now
     )
     assert folder.imported == 2
 
     telegram = import_csv_bytes(
         _TRANCY_CSV.encode("utf-8"),
-        user_id=tid,
+        user_id=user_id,
         filename="export.csv",
         now=now,
     )
@@ -376,7 +377,7 @@ def test_watch_dir_unset_telegram_still_works(
     cleanup_user: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     monkeypatch.setattr(
         "core.services.watch_import.load_settings",
         lambda: MagicMock(watch_dir=""),
@@ -386,7 +387,7 @@ def test_watch_dir_unset_telegram_still_works(
     assert watch_dir_configured() == ""
     result = import_csv_bytes(
         _TRANCY_CSV.encode("utf-8"),
-        user_id=tid,
+        user_id=user_id,
         filename="export.csv",
         now=datetime.now(timezone.utc),
     )

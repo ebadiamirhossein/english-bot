@@ -9,8 +9,7 @@ import pytest
 
 from core.db import close_pool, connection
 from core.services.errors import due_errors, mark_result, record_errors
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_300_000_000
 
 
@@ -40,8 +39,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Spacing Test",
@@ -55,6 +54,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _insert_error(
@@ -117,8 +117,8 @@ def _fetch(error_id: int) -> dict:
 
 def test_correct_ladder_four_steps(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    eid = _insert_error(tid, next_review=date.today(), streak_right=0)
+    user_id = _onboard(tid)
+    eid = _insert_error(user_id, next_review=date.today(), streak_right=0)
     today = date.today()
 
     mark_result(eid, True)
@@ -146,8 +146,8 @@ def test_correct_ladder_four_steps(cleanup_user: int) -> None:
 
 def test_wrong_resets_ladder(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    eid = _insert_error(tid, streak_right=3, next_review=date.today())
+    user_id = _onboard(tid)
+    eid = _insert_error(user_id, streak_right=3, next_review=date.today())
     with connection() as conn:
         conn.execute(
             "UPDATE errors SET times_wrong = 1 WHERE id = %s",
@@ -163,9 +163,9 @@ def test_wrong_resets_ladder(cleanup_user: int) -> None:
 
 def test_streak_five_young_does_not_resolve(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     eid = _insert_error(
-        tid,
+        user_id,
         created_at=date.today() - timedelta(days=10),
         streak_right=4,
         next_review=date.today(),
@@ -180,9 +180,9 @@ def test_streak_five_young_does_not_resolve(cleanup_user: int) -> None:
 
 def test_streak_five_old_resolves(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     eid = _insert_error(
-        tid,
+        user_id,
         created_at=date.today() - timedelta(days=21),
         streak_right=4,
         next_review=date.today(),
@@ -196,9 +196,9 @@ def test_streak_five_old_resolves(cleanup_user: int) -> None:
 
 def test_wrong_on_resolved_unresolves(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     eid = _insert_error(
-        tid,
+        user_id,
         created_at=date.today() - timedelta(days=30),
         streak_right=5,
         resolved=True,
@@ -217,24 +217,24 @@ def test_wrong_on_resolved_unresolves(cleanup_user: int) -> None:
 
 def test_due_errors_filter_order_limit(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     today = date.today()
     # Future — excluded
-    _insert_error(tid, next_review=today + timedelta(days=5))
+    _insert_error(user_id, next_review=today + timedelta(days=5))
     # Resolved — excluded
     _insert_error(
-        tid,
+        user_id,
         next_review=today,
         resolved=True,
         resolved_at=today,
         streak_right=5,
     )
-    old = _insert_error(tid, next_review=today - timedelta(days=2))
-    mid = _insert_error(tid, next_review=today - timedelta(days=1))
-    new = _insert_error(tid, next_review=today)
-    extra = _insert_error(tid, next_review=today)
+    old = _insert_error(user_id, next_review=today - timedelta(days=2))
+    mid = _insert_error(user_id, next_review=today - timedelta(days=1))
+    new = _insert_error(user_id, next_review=today)
+    extra = _insert_error(user_id, next_review=today)
 
-    due = due_errors(tid, limit=3)
+    due = due_errors(user_id, limit=3)
     assert [e.id for e in due] == [old, mid, new]
     assert extra not in [e.id for e in due]
     assert all(not e.resolved for e in due)
@@ -246,12 +246,12 @@ def test_due_errors_never_other_user(
     tid_a = cleanup_user
     tid_b = FAKE_TELEGRAM_ID_BASE + (uuid.uuid4().int % 1_000_000_000)
     try:
-        _onboard(tid_a)
-        _onboard(tid_b)
-        a_id = _insert_error(tid_a, next_review=date.today())
-        _insert_error(tid_b, next_review=date.today())
-        due = due_errors(tid_a, limit=5)
+        user_id = _onboard(tid_a)
+        tid_b_id = _onboard(tid_b)
+        a_id = _insert_error(user_id, next_review=date.today())
+        _insert_error(tid_b_id, next_review=date.today())
+        due = due_errors(user_id, limit=5)
         assert [e.id for e in due] == [a_id]
-        assert all(e.user_id == tid_a for e in due)
+        assert all(e.user_id == user_id for e in due)
     finally:
         _delete_user(tid_b)

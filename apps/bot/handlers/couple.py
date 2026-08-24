@@ -44,6 +44,8 @@ from apps.bot.services.couple import (
 )
 from core.services.errors import Error
 from core.services.users import get_user, is_registered
+from apps.bot import identity as bot_identity
+from core.services import identity
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +101,11 @@ class OpenCoupleChallengeFilter(filters.MessageFilter):
             return False
         if int(chat.id) != int(settings.couple_chat_id):
             return False
-        if not is_registered(user.id):
+        # A PTB filter has no `context` to read the gate's stash from, so it
+        # resolves through the core resolver directly. Still one translation
+        # module, which is what the rule is about.
+        resolved = identity.user_id_for_telegram(user.id)
+        if resolved is None or not is_registered(resolved):
             return False
         try:
             # Filter has no injected clock; use UTC now → Vilnius local today.
@@ -109,7 +115,7 @@ class OpenCoupleChallengeFilter(filters.MessageFilter):
             return get_open_challenge(day) is not None
         except Exception:
             logger.exception(
-                "OpenCoupleChallengeFilter failed chat_id=%s user_id=%s",
+                "OpenCoupleChallengeFilter failed chat_id=%s telegram_user_id=%s",
                 chat.id,
                 user.id,
             )
@@ -136,7 +142,8 @@ async def on_here_command(
     user_tg = update.effective_user
     if message is None or user_tg is None:
         return
-    if not is_registered(user_tg.id):
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None or not is_registered(user_id):
         return
 
     chat = message.chat
@@ -166,7 +173,9 @@ async def on_couple_answer(
     if message is None or user_tg is None or not message.text:
         return
 
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     # Filter already checked registration; belt-and-suspenders.
     if not is_registered(user_id):
         return

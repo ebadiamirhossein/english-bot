@@ -45,7 +45,7 @@ def _user_timezone(user_id: int) -> str:
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT timezone FROM users WHERE telegram_user_id = %s
+            SELECT timezone FROM users WHERE id = %s
             """,
             (user_id,),
         ).fetchone()

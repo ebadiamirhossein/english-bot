@@ -32,7 +32,7 @@ class Health(BaseModel):
 class Session(BaseModel):
     """A resolved session. The body of a successful sign-in, and of /health/auth."""
 
-    telegram_user_id: int
+    user_id: int
     name: str
     expires_at: datetime
 

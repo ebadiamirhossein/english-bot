@@ -70,7 +70,7 @@ from core.services.sessions import (
     save_voice_exchange,
     utc_now_iso,
 )
-from core.services.users import save_onboarding
+from core.services.identity import save_onboarding
 from apps.bot.services.couple import insert_challenge_if_absent, couple_local_today
 from datetime import timedelta
 FAKE_TELEGRAM_ID_BASE = 9_470_000_000
@@ -105,8 +105,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Dispatch Test",
@@ -120,6 +120,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _quiz_payload(fmt: str, *, index: int = 0) -> dict[str, Any]:
@@ -448,17 +449,17 @@ def _document_update(
 
 def test_open_quiz_awaits_gap_only(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 8)
-    insert_session(tid, "quiz", day, payload=_quiz_payload("choice"), completed=False)
-    assert open_quiz_awaits_gap_answer(tid) is False
-    assert open_quiz_awaits_gap_answer(tid + 999) is False
+    insert_session(user_id, "quiz", day, payload=_quiz_payload("choice"), completed=False)
+    assert open_quiz_awaits_gap_answer(user_id) is False
+    assert open_quiz_awaits_gap_answer(user_id + 999) is False
 
     with connection() as conn:
         with conn.transaction():
-            conn.execute("DELETE FROM sessions WHERE user_id = %s", (tid,))
-    insert_session(tid, "quiz", day, payload=_quiz_payload("gap"), completed=False)
-    assert open_quiz_awaits_gap_answer(tid) is True
+            conn.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
+    insert_session(user_id, "quiz", day, payload=_quiz_payload("gap"), completed=False)
+    assert open_quiz_awaits_gap_answer(user_id) is True
 
 
 def test_dispatch_presentation_open_reaches_correction(
@@ -466,7 +467,7 @@ def test_dispatch_presentation_open_reaches_correction(
 ) -> None:
     """S25: free text while a presentation card is open must reach M2."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     payload = _quiz_payload("gap")
     payload["presentations"] = [
         {
@@ -478,9 +479,9 @@ def test_dispatch_presentation_open_reaches_correction(
     ]
     payload["present_index"] = 0
     insert_session(
-        tid, "quiz", date(2026, 8, 8), payload=payload, completed=False
+        user_id, "quiz", date(2026, 8, 8), payload=payload, completed=False
     )
-    assert open_quiz_awaits_gap_answer(tid) is False
+    assert open_quiz_awaits_gap_answer(user_id) is False
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -532,9 +533,9 @@ def test_book_timeout_clears_session() -> None:
 
 def test_dispatch_gap_quiz_grades_not_correction(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid, "quiz", date(2026, 8, 8), payload=_quiz_payload("gap"), completed=False
+        user_id, "quiz", date(2026, 8, 8), payload=_quiz_payload("gap"), completed=False
     )
 
     async def _run() -> None:
@@ -561,7 +562,7 @@ def test_dispatch_open_weekly_test_midset_reaches_correction(
 ) -> None:
     """Open 15Q weekly test on a non-gap question must not swallow free text."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     questions = []
     for i in range(15):
         fmt = "choice" if i == 3 else "gap"
@@ -585,7 +586,7 @@ def test_dispatch_open_weekly_test_midset_reaches_correction(
         "questions": questions,
     }
     insert_session(
-        tid, "quiz", date(2026, 8, 9), payload=payload, completed=False
+        user_id, "quiz", date(2026, 8, 9), payload=payload, completed=False
     )
 
     async def _run() -> None:
@@ -610,9 +611,9 @@ def test_dispatch_open_weekly_test_midset_reaches_correction(
 def test_dispatch_nudged_open_quiz_reaches_correction(cleanup_user: int) -> None:
     """Outstanding nudge (nudges_sent > 0) must not steal free text from M2."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     sid = insert_session(
-        tid,
+        user_id,
         "quiz",
         date(2026, 8, 8),
         payload=_quiz_payload("choice"),
@@ -648,9 +649,9 @@ def test_dispatch_nongap_quiz_reaches_correction(
     cleanup_user: int, fmt: str
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid, "quiz", date(2026, 8, 8), payload=_quiz_payload(fmt), completed=False
+        user_id, "quiz", date(2026, 8, 8), payload=_quiz_payload(fmt), completed=False
     )
 
     async def _run() -> None:
@@ -674,7 +675,7 @@ def test_dispatch_nongap_quiz_reaches_correction(
 
 def test_dispatch_idle_reaches_correction(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -703,7 +704,7 @@ def test_dispatch_forwarded_reaches_capture_not_correction(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -732,7 +733,7 @@ def test_dispatch_capture_command_reaches_capture_not_correction(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -762,9 +763,9 @@ def test_dispatch_forwarded_during_gap_quiz_reaches_capture(
 ) -> None:
     """A forward must not be graded as a typed gap answer."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid, "quiz", date(2026, 8, 8), payload=_quiz_payload("gap"), completed=False
+        user_id, "quiz", date(2026, 8, 8), payload=_quiz_payload("gap"), completed=False
     )
 
     async def _run() -> None:
@@ -793,9 +794,9 @@ def test_dispatch_forwarded_during_gap_quiz_reaches_capture(
 def test_dispatch_open_book_test_reaches_correction(cleanup_user: int) -> None:
     """Open mid-set /test must not swallow free text (tap-only; no text filter)."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "book_test",
         date(2026, 8, 8),
         payload={
@@ -838,7 +839,7 @@ def test_dispatch_open_book_test_reaches_correction(cleanup_user: int) -> None:
 
 def test_dispatch_book_other_owns_text(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -876,7 +877,7 @@ def test_dispatch_after_summary_reaches_correction_without_done(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -885,7 +886,7 @@ def test_dispatch_after_summary_reaches_correction_without_done(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
-            key = (tid, tid)
+            key = (tid, tid)  # per_chat + per_user private chat
             book._conversations[key] = COLLECT_PAGES
             app.user_data[tid]["book"] = {
                 "book": "murphy",
@@ -907,7 +908,7 @@ def test_dispatch_after_summary_reaches_correction_without_done(
 
 def test_dispatch_after_done_reaches_correction(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -916,7 +917,7 @@ def test_dispatch_after_done_reaches_correction(cleanup_user: int) -> None:
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
-            key = (tid, tid)
+            key = (tid, tid)  # per_chat + per_user private chat
             book._conversations[key] = COLLECT_PAGES
             app.user_data[tid]["book"] = {
                 "book": "murphy",
@@ -952,7 +953,7 @@ def test_dispatch_after_done_reaches_correction(cleanup_user: int) -> None:
 
 def test_dispatch_add_more_collects_photo(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -961,7 +962,7 @@ def test_dispatch_add_more_collects_photo(cleanup_user: int) -> None:
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
-            key = (tid, tid)
+            key = (tid, tid)  # per_chat + per_user private chat
             book._conversations[key] = COLLECT_PAGES
             app.user_data[tid]["book"] = {
                 "book": "murphy",
@@ -1012,7 +1013,7 @@ def test_dispatch_add_more_collects_photo(cleanup_user: int) -> None:
 
 def test_second_book_after_done_starts_clean(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         context = MagicMock()
@@ -1053,9 +1054,9 @@ def test_second_book_after_done_starts_clean(cleanup_user: int) -> None:
 def test_dispatch_open_reading_mid_qa_reaches_correction(cleanup_user: int) -> None:
     """S9c: open reading mid-question-set must not swallow free text (M2)."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "reading",
         date(2026, 8, 8),
         payload={
@@ -1105,11 +1106,11 @@ def test_dispatch_claimable_shadow_reaches_shadow_not_diary_or_m3(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     now = datetime.now(timezone.utc)
     day = local_today("Europe/Vilnius", now)
     insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={
@@ -1155,10 +1156,10 @@ def test_dispatch_claimable_shadow_reaches_shadow_not_diary_or_m3(
 
 def test_dispatch_open_diary_reaches_diary_not_m3(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", datetime.now(timezone.utc))
     insert_session(
-        tid, "diary", day, payload={"source": "poll"}, completed=False
+        user_id, "diary", day, payload={"source": "poll"}, completed=False
     )
 
     async def _run() -> None:
@@ -1195,7 +1196,7 @@ def test_dispatch_open_diary_reaches_diary_not_m3(cleanup_user: int) -> None:
 
 def test_dispatch_no_diary_reaches_m3_not_diary(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -1231,11 +1232,11 @@ def test_dispatch_no_diary_reaches_m3_not_diary(cleanup_user: int) -> None:
 
 def test_dispatch_live_m3_beats_open_diary(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", datetime.now(timezone.utc))
     save_voice_exchange(
         None,
-        tid,
+        user_id,
         day,
         {
             "messages": [
@@ -1246,7 +1247,7 @@ def test_dispatch_live_m3_beats_open_diary(cleanup_user: int) -> None:
         },
     )
     insert_session(
-        tid, "diary", day, payload={"source": "poll"}, completed=False
+        user_id, "diary", day, payload={"source": "poll"}, completed=False
     )
 
     async def _run() -> None:
@@ -1289,7 +1290,7 @@ def test_dispatch_csv_during_book_reaches_csv_not_book(
 ) -> None:
     """Open /book COLLECT_PAGES only matches IMAGE — CSV must not be swallowed."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -1301,7 +1302,7 @@ def test_dispatch_csv_during_book_reaches_csv_not_book(
             csv_spy=csv_spy,
         )
         try:
-            key = (tid, tid)
+            key = (tid, tid)  # per_chat + per_user private chat
             book._conversations[key] = COLLECT_PAGES
             app.user_data[tid]["book"] = {
                 "book": "murphy",
@@ -1329,7 +1330,7 @@ def test_dispatch_image_document_during_book_reaches_book(
 ) -> None:
     """Image documents mid-/book must still hit collect_page, not non-CSV reply."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -1343,7 +1344,7 @@ def test_dispatch_image_document_during_book_reaches_book(
             non_csv_spy=non_csv_spy,
         )
         try:
-            key = (tid, tid)
+            key = (tid, tid)  # per_chat + per_user private chat
             book._conversations[key] = COLLECT_PAGES
             app.user_data[tid]["book"] = {
                 "book": "murphy",
@@ -1374,7 +1375,7 @@ def test_dispatch_plain_text_still_reaches_correction_with_csv_handlers(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -1411,7 +1412,7 @@ def test_dispatch_share_pending_plain_text_reaches_correction(
     assert isinstance(orphan_h, CallbackQueryHandler)
 
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -1455,7 +1456,7 @@ def test_dispatch_settings_mid_flow_plain_text_reaches_correction(
 ) -> None:
     """Open /settings mid-flow must not swallow plain text (no MessageHandler)."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -1464,7 +1465,7 @@ def test_dispatch_settings_mid_flow_plain_text_reaches_correction(
             quiz_spy=quiz_spy, correction_spy=correction_spy
         )
         try:
-            key = (tid, tid)
+            key = (tid, tid)  # per_chat + per_user private chat
             settings._conversations[key] = MENU
             app.user_data[tid]["settings"] = {
                 "wizard_chat_id": tid,
@@ -1490,7 +1491,7 @@ def test_dispatch_private_text_still_reaches_correction_with_couple_registered(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -1519,7 +1520,7 @@ def test_dispatch_group_open_challenge_reaches_couple(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = couple_local_today(datetime.now(timezone.utc))
     with connection() as conn:
         with conn.transaction():
@@ -1565,7 +1566,7 @@ def test_dispatch_group_no_open_challenge_reaches_nothing(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = couple_local_today(datetime.now(timezone.utc))
     with connection() as conn:
         with conn.transaction():
@@ -1604,8 +1605,8 @@ def test_dispatch_group_unregistered_reaches_nothing(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    stranger = tid + 777_777
+    user_id = _onboard(tid)
+    stranger = user_id + 777_777
     day = couple_local_today(datetime.now(timezone.utc))
     with connection() as conn:
         with conn.transaction():
@@ -1702,9 +1703,9 @@ def test_dispatch_open_conversation_captures_correction_spy_zero(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conversation_payload(),
@@ -1738,7 +1739,7 @@ def test_dispatch_no_conversation_correction_conversation_spy_zero(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _run() -> None:
         quiz_spy = AsyncMock()
@@ -1769,10 +1770,10 @@ def test_dispatch_stale_conversation_falls_through_to_correction(
     from core.services.sessions import get_open_conversation_session
 
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     stale = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conversation_payload(last_activity=stale),
@@ -1822,10 +1823,10 @@ def test_dispatch_stale_via_get_open_returns_none(cleanup_user: int) -> None:
     from core.services.sessions import get_open_conversation_session
 
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     stale = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conversation_payload(last_activity=stale),
@@ -1834,13 +1835,13 @@ def test_dispatch_stale_via_get_open_returns_none(cleanup_user: int) -> None:
     now = stale + timedelta(minutes=45)
     assert (
         get_open_conversation_session(
-            tid, now=now, active_minutes=30, awaiting_topic_minutes=2
+            user_id, now=now, active_minutes=30, awaiting_topic_minutes=2
         )
         is None
     )
     assert (
         get_open_conversation_session(
-            tid, now=stale + timedelta(minutes=5), active_minutes=30, awaiting_topic_minutes=2
+            user_id, now=stale + timedelta(minutes=5), active_minutes=30, awaiting_topic_minutes=2
         )
         is not None
     )
@@ -1852,10 +1853,10 @@ def test_dispatch_awaiting_topic_stale_after_two_minutes(
     from core.services.sessions import get_open_conversation_session
 
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     start = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conversation_payload(
@@ -1865,7 +1866,7 @@ def test_dispatch_awaiting_topic_stale_after_two_minutes(
     )
     assert (
         get_open_conversation_session(
-            tid,
+            user_id,
             now=start + timedelta(minutes=1),
             active_minutes=30,
             awaiting_topic_minutes=2,
@@ -1874,7 +1875,7 @@ def test_dispatch_awaiting_topic_stale_after_two_minutes(
     )
     assert (
         get_open_conversation_session(
-            tid,
+            user_id,
             now=start + timedelta(minutes=3),
             active_minutes=30,
             awaiting_topic_minutes=2,
@@ -1887,9 +1888,9 @@ def test_dispatch_group_chat_never_captured_by_conversation(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conversation_payload(),
@@ -1922,9 +1923,9 @@ def test_dispatch_command_mid_conversation_reaches_handler(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conversation_payload(),
@@ -1976,21 +1977,21 @@ def test_open_conversation_does_not_change_eligibility(
 ) -> None:
     """S7a lesson: open conversation must not affect quiz/reading/diary gates."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 14)
-    before_quiz = has_session_on(tid, day)
-    before_reading = has_reading_session_on(tid, day)
-    before_diary = has_diary_session_on(tid, day)
+    before_quiz = has_session_on(user_id, day)
+    before_reading = has_reading_session_on(user_id, day)
+    before_diary = has_diary_session_on(user_id, day)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         day,
         payload=_conversation_payload(),
         completed=False,
     )
-    assert has_session_on(tid, day) is before_quiz
-    assert has_reading_session_on(tid, day) is before_reading
-    assert has_diary_session_on(tid, day) is before_diary
+    assert has_session_on(user_id, day) is before_quiz
+    assert has_reading_session_on(user_id, day) is before_reading
+    assert has_diary_session_on(user_id, day) is before_diary
     assert before_quiz is False
     assert before_reading is False
     assert before_diary is False

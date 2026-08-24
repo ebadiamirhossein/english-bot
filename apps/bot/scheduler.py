@@ -152,21 +152,21 @@ async def run_morning_poll(
         try:
             action = await quiz_handler.deliver_morning(
                 application,
-                user.telegram_user_id,
+                user.id,
                 now=instant,
             )
-            results.append((user.telegram_user_id, action))
+            results.append((user.id, action))
             logger.info(
                 "Morning delivery user_id=%s action=%s",
-                user.telegram_user_id,
+                user.id,
                 action,
             )
         except Exception:
             logger.exception(
                 "Morning delivery failed user_id=%s",
-                user.telegram_user_id,
+                user.id,
             )
-            results.append((user.telegram_user_id, "error"))
+            results.append((user.id, "error"))
     return results
 
 
@@ -183,21 +183,21 @@ async def run_evening_poll(
         try:
             action = await reading_handler.deliver_evening(
                 application,
-                user.telegram_user_id,
+                user.id,
                 now=instant,
             )
-            results.append((user.telegram_user_id, action))
+            results.append((user.id, action))
             logger.info(
                 "Evening delivery user_id=%s action=%s",
-                user.telegram_user_id,
+                user.id,
                 action,
             )
         except Exception:
             logger.exception(
                 "Evening delivery failed user_id=%s",
-                user.telegram_user_id,
+                user.id,
             )
-            results.append((user.telegram_user_id, "error"))
+            results.append((user.id, "error"))
     return results
 
 
@@ -214,21 +214,21 @@ async def run_diary_poll(
         try:
             action = await diary_handler.deliver_diary(
                 application,
-                user.telegram_user_id,
+                user.id,
                 now=instant,
             )
-            results.append((user.telegram_user_id, action))
+            results.append((user.id, action))
             logger.info(
                 "Diary delivery user_id=%s action=%s",
-                user.telegram_user_id,
+                user.id,
                 action,
             )
         except Exception:
             logger.exception(
                 "Diary delivery failed user_id=%s",
-                user.telegram_user_id,
+                user.id,
             )
-            results.append((user.telegram_user_id, "error"))
+            results.append((user.id, "error"))
     return results
 
 
@@ -245,21 +245,21 @@ async def run_anki_poll(
         try:
             action = await anki_service.deliver_weekly(
                 application,
-                user.telegram_user_id,
+                user.id,
                 now=instant,
             )
-            results.append((user.telegram_user_id, action))
+            results.append((user.id, action))
             logger.info(
                 "Anki delivery user_id=%s action=%s",
-                user.telegram_user_id,
+                user.id,
                 action,
             )
         except Exception:
             logger.exception(
                 "Anki delivery failed user_id=%s",
-                user.telegram_user_id,
+                user.id,
             )
-            results.append((user.telegram_user_id, "error"))
+            results.append((user.id, "error"))
     return results
 
 
@@ -553,7 +553,7 @@ async def run_watch_poll(
             continue
         with connection() as conn:
             row = conn.execute(
-                "SELECT timezone FROM users WHERE telegram_user_id = %s",
+                "SELECT timezone FROM users WHERE id = %s",
                 (user_id,),
             ).fetchone()
         tz = (

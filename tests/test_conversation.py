@@ -43,8 +43,8 @@ from core.services.sessions import (
     update_session_payload,
     utc_now_iso,
 )
-from core.services.users import get_user, save_onboarding, set_paused_until
-
+from core.services.identity import save_onboarding
+from core.services.users import get_user, set_paused_until
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
 _FROZEN = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
 _PROMPT_DIR = (
@@ -69,7 +69,7 @@ def cleanup_user(fake_telegram_id: int):
     with connection() as conn:
         with conn.transaction():
             conn.execute(
-                "DELETE FROM users WHERE telegram_user_id = %s",
+                "DELETE FROM users WHERE id = %s",
                 (fake_telegram_id,),
             )
 
@@ -80,8 +80,8 @@ def _init_prompts() -> None:
     init_conversation_prompt()
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Talk Test",
@@ -95,6 +95,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _quiz_gap_payload() -> dict[str, Any]:
@@ -183,7 +184,7 @@ def _settings_mock() -> MagicMock:
 def test_migration_008_accepts_conversation_source(cleanup_user: int) -> None:
     assert migrate() == []
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     with connection() as conn:
         with conn.transaction():
             conn.execute(
@@ -196,9 +197,9 @@ def test_migration_008_accepts_conversation_source(cleanup_user: int) -> None:
                     'verb_tense_past', CURRENT_DATE + 1
                 )
                 """,
-                (tid,),
+                (user_id,),
             )
-    assert _error_count(tid) == 1
+    assert _error_count(user_id) == 1
 
 
 def test_s26_button_labels_max_20() -> None:
@@ -246,15 +247,15 @@ def test_talk_refuses_every_entry_path_while_gap_open(
     cleanup_user: int, entry: str
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "quiz",
         date(2026, 8, 14),
         payload=_quiz_gap_payload(),
         completed=False,
     )
-    assert open_quiz_awaits_gap_answer(tid) is True
+    assert open_quiz_awaits_gap_answer(user_id) is True
 
     async def _run() -> None:
         context = MagicMock()
@@ -306,7 +307,7 @@ def test_talk_refuses_every_entry_path_while_gap_open(
                 SELECT COUNT(*) AS n FROM sessions
                  WHERE user_id = %s AND task_type = 'conversation'
                 """,
-                (tid,),
+                (user_id,),
             ).fetchone()
         assert int(row["n"]) == 0
 
@@ -315,8 +316,8 @@ def test_talk_refuses_every_entry_path_while_gap_open(
 
 def test_talk_works_while_paused(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    set_paused_until(tid, date(2099, 1, 1))
+    user_id = _onboard(tid)
+    set_paused_until(user_id, date(2099, 1, 1))
 
     async def _run() -> None:
         update, message = _make_update(tid, "/talk weekend plans")
@@ -329,7 +330,7 @@ def test_talk_works_while_paused(cleanup_user: int) -> None:
             await on_talk_command(update, context)
         assert message.reply_text.await_count >= 1
         session = get_open_conversation_session(
-            tid,
+            user_id,
             now=_FROZEN,
             active_minutes=30,
             awaiting_topic_minutes=2,
@@ -343,9 +344,9 @@ def test_turn_llm_failure_keeps_session_open_no_turn_count(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(turn_count=3),
@@ -374,23 +375,23 @@ def test_turn_llm_failure_keeps_session_open_no_turn_count(
 
         assert texts.TALK_TURN_FAILED in message.reply_text.await_args.args[0]
         session = get_open_conversation_session(
-            tid,
+            user_id,
             now=_FROZEN,
             active_minutes=30,
             awaiting_topic_minutes=2,
         )
         assert session is not None
         assert int(session.payload["turn_count"]) == 3
-        assert _error_count(tid) == 0
+        assert _error_count(user_id) == 0
 
     asyncio.run(_run())
 
 
 def test_successful_turn_uses_to_thread_no_errors(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(turn_count=1),
@@ -420,9 +421,9 @@ def test_successful_turn_uses_to_thread_no_errors(cleanup_user: int) -> None:
             await on_conversation_text(update, context)
 
         assert to_thread_calls
-        assert _error_count(tid) == 0
+        assert _error_count(user_id) == 0
         session = get_open_conversation_session(
-            tid,
+            user_id,
             now=_FROZEN,
             active_minutes=30,
             awaiting_topic_minutes=2,
@@ -436,9 +437,9 @@ def test_successful_turn_uses_to_thread_no_errors(cleanup_user: int) -> None:
 
 def test_turn_cap_warns_then_closes(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(
@@ -480,7 +481,7 @@ def test_turn_cap_warns_then_closes(cleanup_user: int) -> None:
             )
 
         session = get_open_conversation_session(
-            tid,
+            user_id,
             now=_FROZEN,
             active_minutes=30,
             awaiting_topic_minutes=2,
@@ -493,7 +494,7 @@ def test_turn_cap_warns_then_closes(cleanup_user: int) -> None:
                  WHERE user_id = %s AND task_type = 'conversation'
                  ORDER BY id DESC LIMIT 1
                 """,
-                (tid,),
+                (user_id,),
             ).fetchone()
         assert bool(row["completed"]) is True
 
@@ -502,9 +503,9 @@ def test_turn_cap_warns_then_closes(cleanup_user: int) -> None:
 
 def test_failed_close_send_writes_zero_errors(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     sid = insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(
@@ -531,9 +532,9 @@ def test_failed_close_send_writes_zero_errors(cleanup_user: int) -> None:
         }
 
     async def _run() -> None:
-        message = _make_message(tid, "end")
+        message = _make_message(user_id, "end")
         message.reply_text = AsyncMock(side_effect=RuntimeError("send failed"))
-        user = get_user(tid)
+        user = get_user(user_id)
         assert user is not None
         with patch(
             "apps.bot.handlers.conversation.asyncio.to_thread",
@@ -541,7 +542,7 @@ def test_failed_close_send_writes_zero_errors(cleanup_user: int) -> None:
         ):
             await _close_out(
                 message,
-                tid,
+                user_id,
                 sid,
                 _conv_payload(
                     turn_count=2,
@@ -552,7 +553,7 @@ def test_failed_close_send_writes_zero_errors(cleanup_user: int) -> None:
                 ),
                 user=user,
             )
-        assert _error_count(tid) == 0
+        assert _error_count(user_id) == 0
         with connection() as conn:
             row = conn.execute(
                 "SELECT completed FROM sessions WHERE id = %s",
@@ -567,9 +568,9 @@ def test_successful_close_writes_at_most_three_errors(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     sid = insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(
@@ -597,8 +598,8 @@ def test_successful_close_writes_at_most_three_errors(
         }
 
     async def _run() -> None:
-        message = _make_message(tid, "end")
-        user = get_user(tid)
+        message = _make_message(user_id, "end")
+        user = get_user(user_id)
         assert user is not None
         with patch(
             "apps.bot.handlers.conversation.asyncio.to_thread",
@@ -606,7 +607,7 @@ def test_successful_close_writes_at_most_three_errors(
         ):
             await _close_out(
                 message,
-                tid,
+                user_id,
                 sid,
                 _conv_payload(
                     turn_count=4,
@@ -617,7 +618,7 @@ def test_successful_close_writes_at_most_three_errors(
                 ),
                 user=user,
             )
-        assert _error_count(tid) == 3
+        assert _error_count(user_id) == 3
         with connection() as conn:
             row = conn.execute(
                 "SELECT completed FROM sessions WHERE id = %s",
@@ -625,7 +626,7 @@ def test_successful_close_writes_at_most_three_errors(
             ).fetchone()
             src = conn.execute(
                 "SELECT source FROM errors WHERE user_id = %s LIMIT 1",
-                (tid,),
+                (user_id,),
             ).fetchone()
         assert bool(row["completed"]) is True
         assert src["source"] == "conversation"
@@ -635,21 +636,21 @@ def test_successful_close_writes_at_most_three_errors(
 
 def test_abandoned_incomplete_writes_zero_errors(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(turn_count=2),
         completed=False,
     )
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_system_prompt_builds_for_user(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    user = get_user(tid)
+    user_id = _onboard(tid)
+    user = get_user(user_id)
     assert user is not None
     prompt = build_conversation_system_prompt(user, topic="weekend")
     assert "weekend" in prompt
@@ -778,9 +779,9 @@ def test_close_request_constructs_from_realistic_payload(
     and ``chat()`` construction all run for real.
     """
     tid = cleanup_user
-    _onboard(tid)
-    _seed_recurring_errors(tid)
-    user = get_user(tid)
+    user_id = _onboard(tid)
+    _seed_recurring_errors(user_id)
+    user = get_user(user_id)
     assert user is not None
 
     history = _realistic_history()
@@ -817,9 +818,9 @@ def test_turn_request_constructs_from_realistic_payload(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _seed_recurring_errors(tid)
-    user = get_user(tid)
+    user_id = _onboard(tid)
+    _seed_recurring_errors(user_id)
+    user = get_user(user_id)
     assert user is not None
 
     history = _realistic_history()
@@ -854,10 +855,10 @@ def test_failed_close_generation_completes_session_zero_errors(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     history = _realistic_history()
     sid = insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(turn_count=3, messages=history),
@@ -865,8 +866,8 @@ def test_failed_close_generation_completes_session_zero_errors(
     )
 
     async def _run() -> None:
-        message = _make_message(tid, "end")
-        user = get_user(tid)
+        message = _make_message(user_id, "end")
+        user = get_user(user_id)
         assert user is not None
         with (
             patch(
@@ -882,14 +883,14 @@ def test_failed_close_generation_completes_session_zero_errors(
         ):
             await _close_out(
                 message,
-                tid,
+                user_id,
                 sid,
                 _conv_payload(turn_count=3, messages=history),
                 user=user,
             )
         assert message.reply_text.await_count == 1
         assert message.reply_text.await_args.args[0] == texts.TALK_CLOSE_FAILED
-        assert _error_count(tid) == 0
+        assert _error_count(user_id) == 0
         with connection() as conn:
             row = conn.execute(
                 "SELECT completed FROM sessions WHERE id = %s",
@@ -924,10 +925,10 @@ def test_close_truncation_retries_then_fallback_zero_errors(
 ) -> None:
     """Close-out truncation → one max-2 retry → S26a fallback; zero errors."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     history = _realistic_history()
     sid = insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(turn_count=5, messages=history),
@@ -946,8 +947,8 @@ def test_close_truncation_retries_then_fallback_zero_errors(
         return fn(*a, **kw)
 
     async def _run() -> None:
-        message = _make_message(tid, "end")
-        user = get_user(tid)
+        message = _make_message(user_id, "end")
+        user = get_user(user_id)
         assert user is not None
         with (
             patch("apps.bot.handlers.conversation.chat", side_effect=_fake_chat),
@@ -959,7 +960,7 @@ def test_close_truncation_retries_then_fallback_zero_errors(
         ):
             await _close_out(
                 message,
-                tid,
+                user_id,
                 sid,
                 _conv_payload(turn_count=5, messages=history),
                 user=user,
@@ -968,7 +969,7 @@ def test_close_truncation_retries_then_fallback_zero_errors(
         assert "max 3" in calls[0]
         assert "at most 2" in calls[1]
         assert message.reply_text.await_args.args[0] == texts.TALK_CLOSE_FAILED
-        assert _error_count(tid) == 0
+        assert _error_count(user_id) == 0
         with connection() as conn:
             row = conn.execute(
                 "SELECT completed FROM sessions WHERE id = %s", (sid,)
@@ -982,8 +983,8 @@ def test_close_stop_reason_logged_on_llm_call(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    user = get_user(tid)
+    user_id = _onboard(tid)
+    user = get_user(user_id)
     assert user is not None
     history = _realistic_history()
     messages = build_conversation_close_messages(history, max_messages=20)
@@ -1013,9 +1014,9 @@ def test_truncated_turn_never_sent_warm_failure_no_turn_count(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(turn_count=2),
@@ -1046,24 +1047,24 @@ def test_truncated_turn_never_sent_warm_failure_no_turn_count(
         assert body == texts.TALK_TURN_FAILED
         assert "we stayed" not in body.lower()
         session = get_open_conversation_session(
-            tid,
+            user_id,
             now=_FROZEN,
             active_minutes=30,
             awaiting_topic_minutes=2,
         )
         assert session is not None
         assert int(session.payload["turn_count"]) == 2
-        assert _error_count(tid) == 0
+        assert _error_count(user_id) == 0
 
     asyncio.run(_run())
 
 
 def test_end_chat_answers_before_llm_second_tap_noop(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     history = _realistic_history()
     sid = insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(turn_count=3, messages=history),
@@ -1082,7 +1083,7 @@ def test_end_chat_answers_before_llm_second_tap_noop(cleanup_user: int) -> None:
         return {"errors": [], "did_well": "Clear detail."}
 
     async def _run() -> None:
-        message = _make_message(tid, "end")
+        message = _make_message(user_id, "end")
         message.edit_text = AsyncMock(side_effect=_edit)
         query = MagicMock(spec=CallbackQuery)
         query.from_user = User(id=tid, first_name="A", is_bot=False)
@@ -1136,11 +1137,11 @@ def test_end_chat_answers_before_llm_second_tap_noop(cleanup_user: int) -> None:
 
 def test_one_live_end_keyboard_after_turn_reply(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     payload = _conv_payload(turn_count=1)
     payload["end_keyboard_message_id"] = 4242
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=payload,
@@ -1173,14 +1174,14 @@ def test_one_live_end_keyboard_after_turn_reply(cleanup_user: int) -> None:
         assert call_kw["message_id"] == 4242
         assert call_kw["reply_markup"] is None
         session = get_open_conversation_session(
-            tid,
+            user_id,
             now=_FROZEN,
             active_minutes=30,
             awaiting_topic_minutes=2,
         )
         assert session is not None
         assert session.payload.get("end_keyboard_message_id") == 9001
-        assert _error_count(tid) == 0
+        assert _error_count(user_id) == 0
 
     asyncio.run(_run())
 
@@ -1218,9 +1219,9 @@ def test_picking_topic_not_claimed_by_conversation_filter(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload={
@@ -1234,17 +1235,17 @@ def test_picking_topic_not_claimed_by_conversation_filter(
         },
         completed=False,
     )
-    assert open_conversation_awaits_text(tid, now=_FROZEN) is False
-    assert get_picking_conversation_session(tid) is not None
+    assert open_conversation_awaits_text(user_id, now=_FROZEN) is False
+    assert get_picking_conversation_session(user_id) is not None
 
 
 def test_topic_picker_persists_offered_and_rotates(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     from core.services.interests import replace_interests
 
     replace_interests(
-        tid,
+        user_id,
         [
             ("travel", "life"),
             ("cooking", "life"),
@@ -1262,18 +1263,18 @@ def test_topic_picker_persists_offered_and_rotates(cleanup_user: int) -> None:
         with patch("apps.bot.handlers.conversation.datetime") as mock_dt:
             mock_dt.now = MagicMock(return_value=_FROZEN)
             await on_talk_command(update, context)
-        picking = get_picking_conversation_session(tid)
+        picking = get_picking_conversation_session(user_id)
         assert picking is not None
         first = list(picking.payload.get("offered_topics") or [])
         assert len(first) == 3
-        assert open_conversation_awaits_text(tid, now=_FROZEN) is False
+        assert open_conversation_awaits_text(user_id, now=_FROZEN) is False
 
         # Second /talk without tapping — must rotate away from the same set.
         update2, message2 = _make_update(tid, "/talk")
         with patch("apps.bot.handlers.conversation.datetime") as mock_dt:
             mock_dt.now = MagicMock(return_value=_FROZEN)
             await on_talk_command(update2, context)
-        picking2 = get_picking_conversation_session(tid)
+        picking2 = get_picking_conversation_session(user_id)
         assert picking2 is not None
         second = list(picking2.payload.get("offered_topics") or [])
         assert len(second) == 3
@@ -1286,14 +1287,14 @@ def test_topic_picker_persists_offered_and_rotates(cleanup_user: int) -> None:
 
 def test_topic_pool_defaults_only_when_all_empty(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    assert build_topic_pool(tid) == list(texts.TALK_DEFAULT_TOPICS)
+    user_id = _onboard(tid)
+    assert build_topic_pool(user_id) == list(texts.TALK_DEFAULT_TOPICS)
     from core.services.interests import replace_interests
 
     replace_interests(
-        tid, [("travel", "life"), ("cooking", "life")]
+        user_id, [("travel", "life"), ("cooking", "life")]
     )
-    pool = build_topic_pool(tid)
+    pool = build_topic_pool(user_id)
     assert "travel" in pool
     assert pool != list(texts.TALK_DEFAULT_TOPICS)
 
@@ -1333,7 +1334,7 @@ def test_reject_truncation_raises_on_max_tokens_stop(
 
 def test_reaction_occasional_not_every_turn(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     async def _to_thread(fn, *a, **k):
         return "Nice detail — that tracking layer is a notch above gut feel alone."
@@ -1343,10 +1344,10 @@ def test_reaction_occasional_not_every_turn(cleanup_user: int) -> None:
             conn.execute(
                 "UPDATE sessions SET completed = TRUE "
                 "WHERE user_id = %s AND task_type = 'conversation'",
-                (tid,),
+                (user_id,),
             )
         insert_session(
-            tid,
+            user_id,
             "conversation",
             date(2026, 8, 14),
             payload=_conv_payload(turn_count=turn_count),
@@ -1380,9 +1381,9 @@ def test_reaction_occasional_not_every_turn(cleanup_user: int) -> None:
 
 def test_reaction_failure_does_not_break_turn(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     insert_session(
-        tid,
+        user_id,
         "conversation",
         date(2026, 8, 14),
         payload=_conv_payload(turn_count=0),
@@ -1415,13 +1416,13 @@ def test_reaction_failure_does_not_break_turn(cleanup_user: int) -> None:
         assert message.reply_text.await_count >= 1
         assert "Fire" in message.reply_text.await_args.args[0]
         session = get_open_conversation_session(
-            tid,
+            user_id,
             now=_FROZEN,
             active_minutes=30,
             awaiting_topic_minutes=2,
         )
         assert session is not None
         assert int(session.payload["turn_count"]) == 1
-        assert _error_count(tid) == 0
+        assert _error_count(user_id) == 0
 
     asyncio.run(_run())

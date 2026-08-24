@@ -20,8 +20,7 @@ from apps.bot.handlers.quiz import (
     recent_prompts_for_errors,
 )
 from core.services.errors import Error
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_330_000_000
 
 
@@ -51,8 +50,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "S3a Test",
@@ -66,6 +65,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def test_distribute_tracks_5_at_40_40_20() -> None:
@@ -114,7 +114,7 @@ def test_completion_uses_label_not_code() -> None:
 
 def test_past_prompts_passed_into_llm_call(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     init_quiz_prompt()
 
     with connection() as conn:
@@ -129,7 +129,7 @@ def test_past_prompts_passed_into_llm_call(cleanup_user: int) -> None:
             )
             RETURNING id
             """,
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert err is not None
     eid = int(err["id"])
@@ -153,10 +153,10 @@ def test_past_prompts_passed_into_llm_call(cleanup_user: int) -> None:
                 user_id, date, task_type, delivered_at, completed, payload
             ) VALUES (%s, %s, 'quiz', NOW(), TRUE, %s)
             """,
-            (tid, date.today(), Jsonb(prior_payload)),
+            (user_id, date.today(), Jsonb(prior_payload)),
         )
 
-    recent = recent_prompts_for_errors(tid, [eid])
+    recent = recent_prompts_for_errors(user_id, [eid])
     assert recent[eid] == [old_prompt]
 
     captured: dict[str, str] = {}
@@ -205,7 +205,7 @@ def test_past_prompts_passed_into_llm_call(cleanup_user: int) -> None:
     )
 
     questions, _scenario = quiz_handler._build_quiz_questions(
-        tid, [error], chat_fn=fake_chat
+        user_id, [error], chat_fn=fake_chat
     )
     assert questions
     assert old_prompt in captured["system"]

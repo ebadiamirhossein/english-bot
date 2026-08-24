@@ -71,11 +71,18 @@ async def send_nudge(
     now: datetime,
 ) -> str:
     """Send one nudge if ceiling allows. Returns action string."""
+    # A web-only learner has no Telegram channel at all. Skipping is right --
+    # this bot cannot reach them -- but the skip is silent, which is known issue
+    # #95: W20 must alert on a learner with no reachable channel instead.
+    if user.telegram_address is None:
+        logger.info("Nudge skipped user_id=%s reason=no_telegram_channel", user.id)
+        return "skipped_no_channel"
+    address = user.telegram_address
     day = local_today(user.timezone, now)
-    if not under_message_ceiling(user.telegram_user_id, day):
+    if not under_message_ceiling(user.id, day):
         logger.warning(
             "Nudge suppressed user_id=%s session_id=%s reason=message_ceiling",
-            user.telegram_user_id,
+            user.id,
             session.id,
         )
         return "skipped_ceiling"
@@ -83,7 +90,7 @@ async def send_nudge(
     # Re-check ladder + daily budget under the same now (idempotent poll).
     if session.nudges_sent >= MAX_NUDGES_PER_SESSION:
         return "skipped_ladder"
-    if daily_nudges_sent(user.telegram_user_id, session.date) >= MAX_NUDGES_PER_DAY:
+    if daily_nudges_sent(user.id, session.date) >= MAX_NUDGES_PER_DAY:
         return "skipped_daily_cap"
     due_at = next_nudge_due_at(session)
     if due_at is None or now < due_at:
@@ -93,16 +100,16 @@ async def send_nudge(
 
     body, action = format_nudge_message(session)
     await app.bot.send_message(
-        chat_id=user.telegram_user_id,
+        chat_id=address,
         text=body,
         reply_markup=nudge_keyboard(action),
     )
-    increment_bot_messages(user.telegram_user_id, day)
-    increment_nudges_sent(user.telegram_user_id, session.id)
+    increment_bot_messages(user.id, day)
+    increment_nudges_sent(user.id, session.id)
     which = "first" if session.nudges_sent == 0 else "second"
     logger.info(
         "Nudge sent user_id=%s session_id=%s which=%s",
-        user.telegram_user_id,
+        user.id,
         session.id,
         which,
     )
@@ -152,12 +159,12 @@ async def run_nudge_pass(
         try:
             actions = await deliver_nudges_for_user(app, user, now=now)
             if actions:
-                results.append((user.telegram_user_id, actions))
+                results.append((user.id, actions))
         except Exception:
             logger.exception(
-                "Nudge pass failed user_id=%s", user.telegram_user_id
+                "Nudge pass failed user_id=%s", user.id
             )
-            results.append((user.telegram_user_id, ["error"]))
+            results.append((user.id, ["error"]))
     return results
 
 
@@ -170,38 +177,44 @@ async def deliver_sunday_report(
     """Send one Sunday report if due. Returns action string."""
     if not is_user_due_for_sunday_report(user, now):
         day = local_today(user.timezone, now)
-        if not under_message_ceiling(user.telegram_user_id, day):
+        if not under_message_ceiling(user.id, day):
             logger.warning(
                 "Sunday report suppressed user_id=%s reason=message_ceiling",
-                user.telegram_user_id,
+                user.id,
             )
             return "skipped_ceiling"
         return "skipped"
 
+    if user.telegram_address is None:
+        logger.info(
+            "Sunday report skipped user_id=%s reason=no_telegram_channel", user.id
+        )
+        return "skipped_no_channel"
+    address = user.telegram_address
     day = local_today(user.timezone, now)
     # Re-check marker + ceiling immediately before send.
-    if has_sunday_report_session_on(user.telegram_user_id, day):
+    if has_sunday_report_session_on(user.id, day):
         return "skipped_idempotent"
-    if not under_message_ceiling(user.telegram_user_id, day):
+    if not under_message_ceiling(user.id, day):
         logger.warning(
             "Sunday report suppressed user_id=%s reason=message_ceiling",
-            user.telegram_user_id,
+            user.id,
         )
         return "skipped_ceiling"
 
     body = assemble_sunday_report(
-        user.telegram_user_id,
+        user.id,
         local_day=day,
         why_statement=user.why_statement,
     )
-    await app.bot.send_message(chat_id=user.telegram_user_id, text=body)
-    increment_bot_messages(user.telegram_user_id, day)
+    await app.bot.send_message(chat_id=address, text=body)
+    increment_bot_messages(user.id, day)
     claim_sunday_report_session(
-        user.telegram_user_id,
+        user.id,
         day,
         payload={"chars": len(body)},
     )
-    logger.info("Sunday report sent user_id=%s", user.telegram_user_id)
+    logger.info("Sunday report sent user_id=%s", user.id)
     return "sent"
 
 
@@ -216,10 +229,10 @@ async def run_sunday_report_pass(
             if not is_user_due_for_sunday_report(user, now):
                 continue
             action = await deliver_sunday_report(app, user, now=now)
-            results.append((user.telegram_user_id, action))
+            results.append((user.id, action))
         except Exception:
             logger.exception(
-                "Sunday report failed user_id=%s", user.telegram_user_id
+                "Sunday report failed user_id=%s", user.id
             )
-            results.append((user.telegram_user_id, "error"))
+            results.append((user.id, "error"))
     return results

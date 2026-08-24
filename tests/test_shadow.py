@@ -43,7 +43,7 @@ from core.services.shadow import (
     words_for_compare,
 )
 from core.services.streaks import get_streak, roll_over_day
-from core.services.users import save_onboarding
+from core.services.identity import save_onboarding
 from core.speech import SpeechError
 
 FAKE_TELEGRAM_ID_BASE = 9_510_000_000
@@ -77,8 +77,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Shadow Test",
@@ -92,6 +92,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _settings() -> Settings:
@@ -266,19 +267,19 @@ def test_diff_ignores_case_and_punctuation() -> None:
 
 def test_select_excludes_last_k_for_variety(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    ids = _seed_chunks(tid, 10, prefix="var")
+    user_id = _onboard(tid)
+    ids = _seed_chunks(user_id, 10, prefix="var")
     assert len(ids) == 10
     assert SHADOW_EXCLUDE_RECENT_K >= 5
 
     picked: list[int] = []
     day = date(2026, 8, 9)
     for i in range(5):
-        chunk = select_shadow_sentence(tid)
+        chunk = select_shadow_sentence(user_id)
         assert chunk is not None
         picked.append(chunk.id)
         insert_session(
-            tid,
+            user_id,
             "shadow",
             day,
             payload={
@@ -296,8 +297,8 @@ def test_select_excludes_last_k_for_variety(cleanup_user: int) -> None:
 
 def test_select_empty_pool(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    assert select_shadow_sentence(tid) is None
+    user_id = _onboard(tid)
+    assert select_shadow_sentence(user_id) is None
 
 
 # --- /shadow command ----------------------------------------------------------
@@ -305,8 +306,8 @@ def test_select_empty_pool(cleanup_user: int) -> None:
 
 def test_shadow_command_with_chunks_creates_session(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _seed_chunks(tid, 1)
+    user_id = _onboard(tid)
+    _seed_chunks(user_id, 1)
     update = _make_command_update(tid)
     context = _make_context()
     with (
@@ -317,7 +318,7 @@ def test_shadow_command_with_chunks_creates_session(cleanup_user: int) -> None:
     ):
         asyncio.run(shadow_handler.on_shadow_command(update, context))
     synth.assert_called_once()
-    sessions = _shadow_sessions(tid)
+    sessions = _shadow_sessions(user_id)
     assert len(sessions) == 1
     assert sessions[0]["completed"] is False
     assert sessions[0]["payload"]["target_sentence"]
@@ -327,7 +328,7 @@ def test_shadow_command_with_chunks_creates_session(cleanup_user: int) -> None:
 
 def test_shadow_empty_pool_no_tts_no_session(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _make_command_update(tid)
     context = _make_context()
     with (
@@ -336,7 +337,7 @@ def test_shadow_empty_pool_no_tts_no_session(cleanup_user: int) -> None:
     ):
         asyncio.run(shadow_handler.on_shadow_command(update, context))
     synth.assert_not_called()
-    assert _shadow_sessions(tid) == []
+    assert _shadow_sessions(user_id) == []
     update.message.reply_text.assert_awaited_with(texts.SHADOW_EMPTY_POOL)
 
 
@@ -344,8 +345,8 @@ def test_shadow_tts_failure_warm_degrade(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _seed_chunks(tid, 1)
+    user_id = _onboard(tid)
+    _seed_chunks(user_id, 1)
     update = _make_command_update(tid)
     context = _make_context()
     with (
@@ -357,7 +358,7 @@ def test_shadow_tts_failure_warm_degrade(
         ),
     ):
         asyncio.run(shadow_handler.on_shadow_command(update, context))
-    assert _shadow_sessions(tid) == []
+    assert _shadow_sessions(user_id) == []
     update.message.reply_text.assert_awaited_with(texts.SHADOW_FAILED_TTS)
     assert any("TTS failed" in r.message for r in caplog.records)
 
@@ -367,11 +368,11 @@ def test_shadow_tts_failure_warm_degrade(
 
 def test_claimable_shadow_routes_to_shadow_not_m3(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     now = datetime.now(timezone.utc)
     day = local_today("Europe/Vilnius", now)
     insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={
@@ -401,13 +402,13 @@ def test_claimable_shadow_routes_to_shadow_not_m3(cleanup_user: int) -> None:
 
 def test_stale_shadow_defers_to_live_m3(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     now = datetime.now(timezone.utc)
     day = local_today("Europe/Vilnius", now)
     stale = now - timedelta(minutes=45)
     assert SHADOW_VOICE_CLAIM_MINUTES == 30
     sid = insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={
@@ -420,7 +421,7 @@ def test_stale_shadow_defers_to_live_m3(cleanup_user: int) -> None:
     )
     save_voice_exchange(
         None,
-        tid,
+        user_id,
         day,
         {
             "messages": [
@@ -430,7 +431,7 @@ def test_stale_shadow_defers_to_live_m3(cleanup_user: int) -> None:
             "turn_count": 1,
         },
     )
-    assert get_claimable_shadow_session(tid, day, now=now) is None
+    assert get_claimable_shadow_session(user_id, day, now=now) is None
 
     update = _make_voice_update(tid)
     context = _make_context()
@@ -447,7 +448,7 @@ def test_stale_shadow_defers_to_live_m3(cleanup_user: int) -> None:
     m3_spy.assert_awaited_once()
     shadow_spy.assert_not_awaited()
     diary_spy.assert_not_awaited()
-    open_s = get_open_shadow_session(tid, day)
+    open_s = get_open_shadow_session(user_id, day)
     assert open_s is not None
     assert open_s.id == sid
     assert open_s.completed is False
@@ -455,11 +456,11 @@ def test_stale_shadow_defers_to_live_m3(cleanup_user: int) -> None:
 
 def test_claimable_shadow_beats_live_m3_and_diary(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     now = datetime.now(timezone.utc)
     day = local_today("Europe/Vilnius", now)
     insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={
@@ -472,7 +473,7 @@ def test_claimable_shadow_beats_live_m3_and_diary(cleanup_user: int) -> None:
     )
     save_voice_exchange(
         None,
-        tid,
+        user_id,
         day,
         {
             "messages": [
@@ -482,7 +483,7 @@ def test_claimable_shadow_beats_live_m3_and_diary(cleanup_user: int) -> None:
             "turn_count": 1,
         },
     )
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
 
     update = _make_voice_update(tid)
     context = _make_context()
@@ -506,11 +507,11 @@ def test_claimable_shadow_beats_live_m3_and_diary(cleanup_user: int) -> None:
 
 def test_attempt_offers_retry_then_completes(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     now = datetime.now(timezone.utc)
     day = local_today("Europe/Vilnius", now)
     sid = insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={
@@ -533,7 +534,7 @@ def test_attempt_offers_retry_then_completes(cleanup_user: int) -> None:
     ):
         asyncio.run(handle_voice(update, context))
 
-    sessions = _shadow_sessions(tid)
+    sessions = _shadow_sessions(user_id)
     assert sessions[0]["completed"] is False
     assert sessions[0]["payload"]["attempts"] == 1
     assert PERSONAL_FIXTURE not in str(sessions[0]["payload"])
@@ -544,7 +545,7 @@ def test_attempt_offers_retry_then_completes(cleanup_user: int) -> None:
         isinstance(c.get("reply_markup"), InlineKeyboardMarkup)
         for c in call_kwargs
     )
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
     update2 = _make_voice_update(tid, message_id=51)
     context2 = _make_context()
@@ -557,23 +558,23 @@ def test_attempt_offers_retry_then_completes(cleanup_user: int) -> None:
     ):
         asyncio.run(handle_voice(update2, context2))
 
-    sessions = _shadow_sessions(tid)
+    sessions = _shadow_sessions(user_id)
     assert sessions[0]["id"] == sid
     assert sessions[0]["completed"] is True
     assert sessions[0]["score"] is not None
     assert sessions[0]["payload"].get("transcript") is None
     assert PERSONAL_FIXTURE not in str(sessions[0]["payload"])
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_retry_rearms_clip_sent_at(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     now = datetime.now(timezone.utc)
     day = local_today("Europe/Vilnius", now)
     old = (now - timedelta(minutes=40)).isoformat()
     sid = insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={
@@ -595,6 +596,7 @@ def test_retry_rearms_clip_sent_at(cleanup_user: int) -> None:
     cq.answer = AsyncMock()
     update = MagicMock()
     update.callback_query = cq
+    update.effective_user = MagicMock(id=tid)
     context = _make_context()
     before = datetime.now(timezone.utc)
     with (
@@ -605,23 +607,23 @@ def test_retry_rearms_clip_sent_at(cleanup_user: int) -> None:
     ):
         asyncio.run(shadow_handler.on_shadow_retry(update, context))
     synth.assert_called_once()
-    sessions = _shadow_sessions(tid)
+    sessions = _shadow_sessions(user_id)
     rearmed = datetime.fromisoformat(sessions[0]["payload"]["clip_sent_at"])
     if rearmed.tzinfo is None:
         rearmed = rearmed.replace(tzinfo=timezone.utc)
     assert rearmed >= before - timedelta(seconds=2)
-    assert get_claimable_shadow_session(tid, day, now=datetime.now(timezone.utc)) is not None
+    assert get_claimable_shadow_session(user_id, day, now=datetime.now(timezone.utc)) is not None
 
 
 def test_stt_failure_warm_degrade(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     now = datetime.now(timezone.utc)
     day = local_today("Europe/Vilnius", now)
     insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={
@@ -644,18 +646,18 @@ def test_stt_failure_warm_degrade(
     ):
         asyncio.run(handle_voice(update, context))
     assert any("STT failed" in r.message for r in caplog.records)
-    assert get_open_shadow_session(tid, day) is not None
+    assert get_open_shadow_session(user_id, day) is not None
 
 
 def test_transcript_not_in_payload_or_logs(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     now = datetime.now(timezone.utc)
     day = local_today("Europe/Vilnius", now)
     insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={
@@ -677,7 +679,7 @@ def test_transcript_not_in_payload_or_logs(
         ),
     ):
         asyncio.run(handle_voice(update, context))
-    payload = _shadow_sessions(tid)[0]["payload"]
+    payload = _shadow_sessions(user_id)[0]["payload"]
     assert PERSONAL_FIXTURE not in str(payload)
     for record in caplog.records:
         assert PERSONAL_FIXTURE not in record.getMessage()
@@ -688,7 +690,7 @@ def test_transcript_not_in_payload_or_logs(
 
 def test_completed_shadow_makes_day_active(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
     with connection() as conn:
         conn.execute(
@@ -702,23 +704,23 @@ def test_completed_shadow_makes_day_active(cleanup_user: int) -> None:
                    last_evaluated_date = %s
              WHERE user_id = %s
             """,
-            (date(2026, 8, 3), date(2026, 8, 3), tid),
+            (date(2026, 8, 3), date(2026, 8, 3), user_id),
         )
     sid = insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={"chunk_id": 1, "target_sentence": TARGET},
         completed=False,
     )
     complete_session(sid, 0.8)
-    result = roll_over_day(tid, day)
+    result = roll_over_day(user_id, day)
     assert result.outcome == "active"
 
 
 def test_incomplete_shadow_alone_is_neutral(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
     with connection() as conn:
         conn.execute(
@@ -732,44 +734,44 @@ def test_incomplete_shadow_alone_is_neutral(cleanup_user: int) -> None:
                    last_evaluated_date = %s
              WHERE user_id = %s
             """,
-            (date(2026, 8, 3), date(2026, 8, 3), tid),
+            (date(2026, 8, 3), date(2026, 8, 3), user_id),
         )
     insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={"chunk_id": 1, "target_sentence": TARGET},
         completed=False,
     )
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
     assert result.outcome == "neutral"
     assert streak.current_streak == 3
 
 
 def test_shadow_does_not_block_morning_quiz(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 9)
     sid = insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={"chunk_id": 1, "target_sentence": TARGET},
         completed=False,
     )
-    assert has_session_on(tid, day) is False
+    assert has_session_on(user_id, day) is False
     complete_session(sid, 1.0)
-    assert has_session_on(tid, day) is False
+    assert has_session_on(user_id, day) is False
 
 
 def test_shadow_score_outside_calibration(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     assert "shadow" not in CALIBRATION_TASK_TYPES
     day = date(2026, 8, 9)
     sid = insert_session(
-        tid,
+        user_id,
         "shadow",
         day,
         payload={
@@ -781,13 +783,13 @@ def test_shadow_score_outside_calibration(cleanup_user: int) -> None:
         completed=False,
     )
     complete_session(sid, 1.0)
-    window = compute_accuracy_window(tid)
+    window = compute_accuracy_window(user_id)
     assert window.sample == 0
-    before = _calibration_count(tid)
+    before = _calibration_count(user_id)
     now = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
-    outcome = maybe_calibrate(tid, now=now)
+    outcome = maybe_calibrate(user_id, now=now)
     assert outcome.sample < 30
-    assert _calibration_count(tid) == before
+    assert _calibration_count(user_id) == before
 
 
 # --- copy / labels ------------------------------------------------------------

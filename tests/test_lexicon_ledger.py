@@ -32,14 +32,18 @@ def conn():
 
 @pytest.fixture
 def user(conn):
-    conn.execute(
+    # The invented Telegram id and the internal id are different numbers since
+    # W4b; the ledger is keyed on the latter, so the fixture yields that.
+    row = conn.execute(
         """
         INSERT INTO users (telegram_user_id, name, native_language, onboarded)
         VALUES (%s, 'W4 fixture', 'fa', TRUE)
+        RETURNING id
         """,
         (TEST_USER,),
-    )
-    return TEST_USER
+    ).fetchone()
+    assert row is not None
+    return int(row[0])
 
 
 def add_lexeme(conn, lemma: str, freq_rank: int | None = None) -> int:

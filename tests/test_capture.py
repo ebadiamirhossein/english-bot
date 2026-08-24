@@ -27,8 +27,7 @@ from core.services.capture import (
 )
 from core.services.reading import normalize_for_match
 from core.services.sessions import has_session_on
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
 
 PII_NAME = "MiraChenZX9"
@@ -70,8 +69,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Capture Test",
@@ -85,6 +84,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _good_llm(
@@ -254,7 +254,7 @@ def test_validate_does_not_redact_pii_in_code() -> None:
 
 def test_persist_writes_chunks_zero_errors(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     payload = validate_capture_payload(_good_llm(track=None))
     sent: list[str] = []
 
@@ -262,11 +262,11 @@ def test_persist_writes_chunks_zero_errors(cleanup_user: int) -> None:
         sent.append("ok")
 
     n = asyncio.run(
-        persist_and_send(user_id=tid, payload=payload, send=send)
+        persist_and_send(user_id=user_id, payload=payload, send=send)
     )
     assert n == 2
     assert sent == ["ok"]
-    rows = _chunk_rows(tid)
+    rows = _chunk_rows(user_id)
     assert len(rows) == 2
     assert all(r["source"] == CAPTURE_SOURCE for r in rows)
     assert all(r["track"] is None for r in rows)
@@ -274,13 +274,13 @@ def test_persist_writes_chunks_zero_errors(cleanup_user: int) -> None:
         assert normalize_for_match(r["chunk"]) in normalize_for_match(
             r["full_sentence"]
         )
-    assert _error_count(tid) == 0
-    assert has_session_on(tid, date(2026, 8, 9)) is False
+    assert _error_count(user_id) == 0
+    assert has_session_on(user_id, date(2026, 8, 9)) is False
 
 
 def test_persist_send_failure_rolls_back(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     payload = validate_capture_payload(_good_llm())
 
     async def boom() -> None:
@@ -288,22 +288,22 @@ def test_persist_send_failure_rolls_back(cleanup_user: int) -> None:
 
     with pytest.raises(RuntimeError):
         asyncio.run(
-            persist_and_send(user_id=tid, payload=payload, send=boom)
+            persist_and_send(user_id=user_id, payload=payload, send=boom)
         )
-    assert _chunk_rows(tid) == []
-    assert _error_count(tid) == 0
+    assert _chunk_rows(user_id) == []
+    assert _error_count(user_id) == 0
 
 
 def test_pii_fixture_sanitized_carriers_persist(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     payload = validate_capture_payload(_sanitized_pii_llm())
 
     async def send() -> None:
         return None
 
-    asyncio.run(persist_and_send(user_id=tid, payload=payload, send=send))
-    rows = _chunk_rows(tid)
+    asyncio.run(persist_and_send(user_id=user_id, payload=payload, send=send))
+    rows = _chunk_rows(user_id)
     assert rows
     blob = " ".join(
         f"{r['chunk']} {r['full_sentence']} {r['meaning']}" for r in rows
@@ -315,16 +315,16 @@ def test_pii_fixture_sanitized_carriers_persist(cleanup_user: int) -> None:
 
 def test_captured_chunks_in_anki_tsv(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     payload = validate_capture_payload(_good_llm())
 
     async def send() -> None:
         return None
 
-    asyncio.run(persist_and_send(user_id=tid, payload=payload, send=send))
+    asyncio.run(persist_and_send(user_id=user_id, payload=payload, send=send))
     with connection() as conn:
-        rows = fetch_unexported_chunks(conn, tid)
-    tsv = build_tsv(rows, user_id=tid)
+        rows = fetch_unexported_chunks(conn, user_id)
+    tsv = build_tsv(rows, user_id=user_id)
     assert CAPTURE_SOURCE in tsv
     assert "circle back" in tsv
     assert "reading_" not in tsv
@@ -337,7 +337,7 @@ def test_handler_success_no_errors_no_body_in_logs(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, PRIVATE_PROSE)
     context = MagicMock()
     context.bot.send_chat_action = AsyncMock()
@@ -357,17 +357,17 @@ def test_handler_success_no_errors_no_body_in_logs(
     reply = message.reply_text.await_args.args[0]
     assert "by Friday" in reply or "circle back" in reply
     assert texts.CAPTURE_SELF_HINT in reply or len(reply) <= 400
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
     assert PII_NAME not in caplog.text
     assert PII_FIGURE not in caplog.text
     assert PRIVATE_PROSE not in caplog.text
-    assert f"user_id={tid}" in caplog.text
+    assert f"user_id={user_id}" in caplog.text
     assert "handler=capture" in caplog.text
 
 
 def test_handler_over_length_no_llm(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     long_text = "x" * (capture_handler._MAX_CHARS + 1)
     update, message = _make_update(tid, long_text)
     context = MagicMock()
@@ -384,7 +384,7 @@ def test_handler_over_length_no_llm(cleanup_user: int) -> None:
 
 def test_handler_under_length_no_llm(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, "too short")
     context = MagicMock()
     context.bot.send_chat_action = AsyncMock()
@@ -399,7 +399,7 @@ def test_handler_under_length_no_llm(cleanup_user: int) -> None:
 
 def test_handler_bare_capture_usage_no_llm(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, "/capture")
     context = MagicMock()
     context.args = []
@@ -414,7 +414,7 @@ def test_handler_malformed_json_warm_degrade(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, PASSAGE_OK)
     context = MagicMock()
     context.bot.send_chat_action = AsyncMock()
@@ -428,14 +428,14 @@ def test_handler_malformed_json_warm_degrade(
 
     asyncio.run(_run())
     message.reply_text.assert_awaited_once_with(texts.CAPTURE_FAILED)
-    assert _chunk_rows(tid) == []
+    assert _chunk_rows(user_id) == []
     assert any("raw=" in r.message for r in caplog.records)
     assert PASSAGE_OK not in caplog.text
 
 
 def test_handler_llm_error_warm_degrade(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, PASSAGE_OK)
     context = MagicMock()
     context.bot.send_chat_action = AsyncMock()
@@ -449,12 +449,12 @@ def test_handler_llm_error_warm_degrade(cleanup_user: int) -> None:
 
     asyncio.run(_run())
     message.reply_text.assert_awaited_once_with(texts.LLM_FAILED)
-    assert _chunk_rows(tid) == []
+    assert _chunk_rows(user_id) == []
 
 
 def test_handler_ok_false_warm_degrade(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, PASSAGE_OK)
     context = MagicMock()
     context.bot.send_chat_action = AsyncMock()
@@ -468,13 +468,13 @@ def test_handler_ok_false_warm_degrade(cleanup_user: int) -> None:
 
     asyncio.run(_run())
     message.reply_text.assert_awaited_once_with(texts.CAPTURE_NOTHING_USEFUL)
-    assert _chunk_rows(tid) == []
-    assert _error_count(tid) == 0
+    assert _chunk_rows(user_id) == []
+    assert _error_count(user_id) == 0
 
 
 def test_handler_send_failure_no_chunks(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, PASSAGE_OK)
     # First reply (capture body) fails; soft CAPTURE_FAILED succeeds.
     message.reply_text = AsyncMock(
@@ -491,7 +491,7 @@ def test_handler_send_failure_no_chunks(cleanup_user: int) -> None:
             await capture_handler._run_capture(update, context, PASSAGE_OK)
 
     asyncio.run(_run())
-    assert _chunk_rows(tid) == []
+    assert _chunk_rows(user_id) == []
     assert message.reply_text.await_count == 2
     assert message.reply_text.await_args.args[0] == texts.CAPTURE_FAILED
 

@@ -282,16 +282,16 @@ def reset_monthly_freezes(*, now: datetime) -> int:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT u.telegram_user_id, u.timezone, s.freeze_reset_on
+            SELECT u.id, u.timezone, s.freeze_reset_on
               FROM users u
-              JOIN streaks s ON s.user_id = u.telegram_user_id
+              JOIN streaks s ON s.user_id = u.id
              WHERE u.onboarded = TRUE
             """
         ).fetchall()
 
     updated = 0
     for row in rows:
-        user_id = int(row["telegram_user_id"])
+        user_id = int(row["id"])
         tz = str(row["timezone"] or "Europe/Vilnius")
         local_day = local_today(tz, now)
         if local_day.day != 1:
@@ -319,16 +319,16 @@ def list_onboarded_streak_users() -> list[tuple[int, str]]:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT u.telegram_user_id, u.timezone
+            SELECT u.id, u.timezone
               FROM users u
-              JOIN streaks s ON s.user_id = u.telegram_user_id
+              JOIN streaks s ON s.user_id = u.id
              WHERE u.onboarded = TRUE
              ORDER BY s.last_evaluated_date NULLS FIRST,
-                      u.telegram_user_id
+                      u.id
             """
         ).fetchall()
     return [
-        (int(r["telegram_user_id"]), str(r["timezone"] or "Europe/Vilnius"))
+        (int(r["id"]), str(r["timezone"] or "Europe/Vilnius"))
         for r in rows
     ]
 

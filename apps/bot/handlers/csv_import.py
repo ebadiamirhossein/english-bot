@@ -27,6 +27,7 @@ from telegram.ext import (
     filters,
 )
 
+from apps.bot import identity as bot_identity
 from apps.bot import texts
 from core.db import connection
 from apps.bot.alerts import operator_send
@@ -127,7 +128,9 @@ async def on_csv_document(
     user = update.effective_user
     if message is None or user is None or message.document is None:
         return
-    user_id = int(user.id)
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if not is_registered(user_id):
         return
 
@@ -335,7 +338,9 @@ async def on_share_slang_callback(
     if query is None or query.data is None or user is None:
         return
     await query.answer()
-    user_id = int(user.id)
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if not is_registered(user_id):
         return
 
@@ -437,10 +442,10 @@ async def on_non_csv_document(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     message = update.message
-    user = update.effective_user
-    if message is None or user is None:
+    if message is None:
         return
-    if not is_registered(int(user.id)):
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None or not is_registered(user_id):
         return
     await message.reply_text(texts.IMPORT_DOC_NOT_CSV)
 

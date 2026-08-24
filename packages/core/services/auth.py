@@ -78,9 +78,14 @@ class AuthenticationFailed(Exception):
 
 @dataclass(frozen=True)
 class AuthenticatedUser:
-    """A resolved session."""
+    """A resolved session.
 
-    telegram_user_id: int
+    Carries ``id`` -- the internal ``users.id`` -- and deliberately not a
+    Telegram id. Before W4b this field was ``telegram_user_id``, which meant the
+    API could not represent a learner who had never used Telegram.
+    """
+
+    id: int
     name: str
     expires_at: datetime
     # True when this resolution slid the expiry, so the caller re-sets the
@@ -162,7 +167,7 @@ def begin_registration(
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT telegram_user_id, name
+            SELECT id, name
               FROM users
              WHERE auth_email = %(email)s
                AND auth_user_id IS NULL
@@ -171,7 +176,7 @@ def begin_registration(
         ).fetchone()
         if row is None:
             raise EnrolmentRefused()
-        user_id = int(row["telegram_user_id"])
+        user_id = int(row["id"])
 
         if not is_approved(user_id):
             raise EnrolmentRefused()
@@ -278,7 +283,7 @@ def finish_registration(
             """
             UPDATE users
                SET auth_user_id = %(handle)s
-             WHERE telegram_user_id = %(user_id)s
+             WHERE id = %(user_id)s
                AND auth_user_id IS NULL
             RETURNING name
             """,
@@ -349,10 +354,10 @@ def finish_authentication(
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT u.telegram_user_id, u.name, c.public_key, c.sign_count
+            SELECT u.id, u.name, c.public_key, c.sign_count
               FROM users u
               INNER JOIN auth_credentials c
-                      ON c.user_id = u.telegram_user_id
+                      ON c.user_id = u.id
              WHERE u.auth_user_id = %(handle)s
                AND c.credential_id = %(cid)s
             """,
@@ -363,7 +368,7 @@ def finish_authentication(
             # someone else" — one answer, no oracle.
             raise AuthenticationFailed()
 
-        user_id = int(row["telegram_user_id"])
+        user_id = int(row["id"])
         if not is_approved(user_id):
             raise AuthenticationFailed()
 
@@ -415,7 +420,7 @@ def begin_add_passkey(
             """
             SELECT name, auth_email, auth_user_id
               FROM users
-             WHERE telegram_user_id = %(user_id)s
+             WHERE id = %(user_id)s
             """,
             {"user_id": user_id},
         ).fetchone()
@@ -579,9 +584,9 @@ def resolve_session(
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT s.token_hash, s.expires_at, u.telegram_user_id, u.name
+            SELECT s.token_hash, s.expires_at, u.id, u.name
               FROM auth_sessions s
-              INNER JOIN users u ON u.telegram_user_id = s.user_id
+              INNER JOIN users u ON u.id = s.user_id
              WHERE s.token_hash = %(hash)s
                AND s.revoked_at IS NULL
                AND s.expires_at > %(now)s
@@ -591,7 +596,7 @@ def resolve_session(
         if row is None:
             return None
 
-        user_id = int(row["telegram_user_id"])
+        user_id = int(row["id"])
         if not is_approved(user_id):
             return None
 
@@ -611,7 +616,7 @@ def resolve_session(
             renewed = True
 
     return AuthenticatedUser(
-        telegram_user_id=user_id,
+        id=user_id,
         name=str(row["name"]),
         expires_at=expires_at,
         renewed=renewed,
@@ -731,11 +736,11 @@ def user_id_for_email(*, email: str) -> int | None:
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT telegram_user_id FROM users WHERE auth_email = %(email)s
+            SELECT id FROM users WHERE auth_email = %(email)s
             """,
             {"email": normalise_email(email)},
         ).fetchone()
-    return int(row["telegram_user_id"]) if row else None
+    return int(row["id"]) if row else None
 
 
 # --- rate limiting ------------------------------------------------------------
@@ -927,7 +932,7 @@ def _issue_session(
     return IssuedSession(
         raw_token=raw,
         user=AuthenticatedUser(
-            telegram_user_id=user_id, name=name, expires_at=expires_at
+            id=user_id, name=name, expires_at=expires_at
         ),
     )
 

@@ -7,6 +7,8 @@ All answers are taps — no text handler (free text stays on correction).
 
 from __future__ import annotations
 
+from apps.bot import identity as bot_identity
+
 import asyncio
 import html
 import logging
@@ -110,7 +112,7 @@ def _user_timezone(user_id: int) -> str:
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT timezone FROM users WHERE telegram_user_id = %s
+            SELECT timezone FROM users WHERE id = %s
             """,
             (user_id,),
         ).fetchone()
@@ -275,6 +277,15 @@ async def deliver_evening(
     chat_fn: Callable[..., Any] | None = None,
 ) -> str:
     """Deliver one reading for ``user_id``. Returns action taken."""
+    # Where this learner is reached, which since W4b is not the same number as
+    # who they are. None means no Telegram account at all: skipping is correct
+    # (this bot cannot reach them) but silent, which is known issue #95.
+    address = bot_identity.telegram_address_or_none(user_id)
+    if address is None:
+        logger.info(
+            "deliver_evening skipped user_id=%s reason=no_telegram_channel", user_id
+        )
+        return "skipped_no_channel"
     bot = app.bot
     tz = _user_timezone(user_id)
     day = local_today(tz, now)
@@ -368,7 +379,7 @@ async def deliver_evening(
 
     async def _send() -> tuple[int, int]:
         msg = await bot.send_message(
-            chat_id=user_id,
+            chat_id=address,
             text=message_text,
             reply_markup=questions_keyboard(),
         )
@@ -397,6 +408,7 @@ async def deliver_evening(
 
 def _resolve_from_callback(
     update: Update,
+    context: Any,
 ) -> tuple[int, int, int, Any] | None:
     """Return (user_id, chat_id, message_id, session) or None."""
     query = update.callback_query
@@ -405,7 +417,9 @@ def _resolve_from_callback(
     msg = query.message
     if msg is None:
         return None
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return None
     chat_id = msg.chat_id
     message_id = msg.message_id
     session = get_reading_session_by_message(user_id, chat_id, message_id)
@@ -423,7 +437,7 @@ async def on_reading_callback(
         return
     await query.answer()
 
-    resolved = _resolve_from_callback(update)
+    resolved = _resolve_from_callback(update, context)
     if resolved is None:
         return
     user_id, _chat_id, _message_id, session = resolved

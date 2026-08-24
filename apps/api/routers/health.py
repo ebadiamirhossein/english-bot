@@ -62,7 +62,7 @@ def health_auth(
     if user is None:
         return None
     return Session(
-        telegram_user_id=user.telegram_user_id,
+        user_id=user.id,
         name=user.name,
         expires_at=user.expires_at,
     )

@@ -7,6 +7,8 @@ is channel-neutral. The TSV build, the transaction and the
 
 from __future__ import annotations
 
+from apps.bot import identity as bot_identity
+
 import logging
 from datetime import datetime, timezone
 from io import BytesIO
@@ -33,7 +35,7 @@ def _user_timezone(user_id: int) -> str:
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT timezone FROM users WHERE telegram_user_id = %s
+            SELECT timezone FROM users WHERE id = %s
             """,
             (user_id,),
         ).fetchone()
@@ -49,6 +51,15 @@ async def deliver_weekly(
     now: datetime,
 ) -> str:
     """Sunday Anki export for one user. Returns action taken."""
+    # Where this learner is reached, which since W4b is not the same number as
+    # who they are. None means no Telegram account at all: skipping is correct
+    # (this bot cannot reach them) but silent, which is known issue #95.
+    address = bot_identity.telegram_address_or_none(user_id)
+    if address is None:
+        logger.info(
+            "deliver_weekly skipped user_id=%s reason=no_telegram_channel", user_id
+        )
+        return "skipped_no_channel"
     bot = app.bot
     tz = _user_timezone(user_id)
     day = local_today(tz, now)
@@ -79,7 +90,7 @@ async def deliver_weekly(
 
     async def _send(tsv_bytes: bytes, filename: str, cap: str) -> None:
         await bot.send_document(
-            chat_id=user_id,
+            chat_id=address,
             document=InputFile(BytesIO(tsv_bytes), filename=filename),
             caption=cap,
         )
@@ -117,12 +128,14 @@ async def handle_anki_command(
 ) -> None:
     """Manual ``/anki`` — user-initiated; no ceiling increment, no session."""
     message = update.message
-    user = update.effective_user
-    if message is None or user is None:
+    if message is None:
         return
-    user_id = int(user.id)
-    if not is_registered(user_id):
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None or not is_registered(user_id):
         return
+    # The reply goes back to the chat the command came from, not to a looked-up
+    # address: this is a response, and the learner is standing right there.
+    chat_id = message.chat_id
 
     tz = _user_timezone(user_id)
     day = local_today(tz, datetime.now(timezone.utc))
@@ -139,7 +152,7 @@ async def handle_anki_command(
 
     async def _send(tsv_bytes: bytes, filename: str, cap: str) -> None:
         await bot.send_document(
-            chat_id=user_id,
+            chat_id=chat_id,
             document=InputFile(BytesIO(tsv_bytes), filename=filename),
             caption=cap,
         )

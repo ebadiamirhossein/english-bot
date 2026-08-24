@@ -18,8 +18,7 @@ from apps.bot.handlers.interests import (
     track_topic_button_rows,
 )
 from core.services.interests import list_interests, replace_interests
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_450_000_000
 
 
@@ -49,8 +48,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Interests Test",
@@ -64,6 +63,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _full_seed() -> list[tuple[str, str]]:
@@ -79,9 +79,9 @@ def _full_seed() -> list[tuple[str, str]]:
 
 def test_save_writes_one_row_per_topic_lowercased(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     replace_interests(
-        tid,
+        user_id,
         [
             ("  Campaigns ", "work"),
             ("Client Email", "work"),
@@ -91,7 +91,7 @@ def test_save_writes_one_row_per_topic_lowercased(cleanup_user: int) -> None:
             ("History", "curiosity"),
         ],
     )
-    rows = list_interests(tid)
+    rows = list_interests(user_id)
     assert len(rows) == 6
     by_topic = {r.topic: r for r in rows}
     assert set(by_topic) == {
@@ -113,10 +113,10 @@ def test_save_writes_one_row_per_topic_lowercased(cleanup_user: int) -> None:
 
 def test_rerun_replaces_rather_than_duplicates(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    replace_interests(tid, _full_seed())
+    user_id = _onboard(tid)
+    replace_interests(user_id, _full_seed())
     replace_interests(
-        tid,
+        user_id,
         [
             ("pricing", "work"),
             ("interviews", "work"),
@@ -126,7 +126,7 @@ def test_rerun_replaces_rather_than_duplicates(cleanup_user: int) -> None:
             ("nature", "curiosity"),
         ],
     )
-    rows = list_interests(tid)
+    rows = list_interests(user_id)
     assert len(rows) == 6
     assert {r.topic for r in rows} == {
         "pricing",
@@ -140,8 +140,8 @@ def test_rerun_replaces_rather_than_duplicates(cleanup_user: int) -> None:
 
 def test_kept_topic_retains_weight_and_last_used(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    replace_interests(tid, _full_seed())
+    user_id = _onboard(tid)
+    replace_interests(user_id, _full_seed())
     used = date(2026, 7, 1)
     with connection() as conn:
         conn.execute(
@@ -150,11 +150,11 @@ def test_kept_topic_retains_weight_and_last_used(cleanup_user: int) -> None:
                SET weight = 0.4, last_used = %s
              WHERE user_id = %s AND topic = %s AND track = %s
             """,
-            (used, tid, "campaigns", "work"),
+            (used, user_id, "campaigns", "work"),
         )
 
     replace_interests(
-        tid,
+        user_id,
         [
             ("campaigns", "work"),
             ("pricing", "work"),
@@ -164,7 +164,7 @@ def test_kept_topic_retains_weight_and_last_used(cleanup_user: int) -> None:
             ("history", "curiosity"),
         ],
     )
-    rows = {r.topic: r for r in list_interests(tid)}
+    rows = {r.topic: r for r in list_interests(user_id)}
     assert rows["campaigns"].weight == pytest.approx(0.4)
     assert rows["campaigns"].last_used == used
     assert rows["pricing"].weight == 1.0
@@ -174,11 +174,11 @@ def test_kept_topic_retains_weight_and_last_used(cleanup_user: int) -> None:
 def test_custom_topic_survives_noop_change(cleanup_user: int) -> None:
     """Change → Done with no edits must keep custom topics and their weights."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     custom = "ai: the future"
     used = date(2026, 6, 15)
     replace_interests(
-        tid,
+        user_id,
         [
             ("campaigns", "work"),
             (custom, "work"),
@@ -195,11 +195,11 @@ def test_custom_topic_survives_noop_change(cleanup_user: int) -> None:
                SET weight = 0.7, last_used = %s
              WHERE user_id = %s AND topic = %s AND track = %s
             """,
-            (used, tid, custom, "work"),
+            (used, user_id, custom, "work"),
         )
 
     # Simulate Change preload: option lists include DB customs.
-    existing = list_interests(tid)
+    existing = list_interests(user_id)
     selected: dict[str, set[str]] = {"work": set(), "life": set(), "curiosity": set()}
     for row in existing:
         selected[row.track].add(row.topic)
@@ -216,9 +216,9 @@ def test_custom_topic_survives_noop_change(cleanup_user: int) -> None:
         for track in ("work", "life", "curiosity")
         for topic in sorted(selected[track])
     ]
-    replace_interests(tid, selections)
+    replace_interests(user_id, selections)
 
-    rows = {r.topic: r for r in list_interests(tid)}
+    rows = {r.topic: r for r in list_interests(user_id)}
     assert custom in rows
     assert rows[custom].track == "work"
     assert rows[custom].weight == pytest.approx(0.7)
@@ -233,9 +233,9 @@ def test_fewer_than_two_selections_cannot_proceed() -> None:
 
 def test_free_text_topic_trimmed_and_lowercased(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     replace_interests(
-        tid,
+        user_id,
         [
             ("  AI: The Future  ", "work"),
             ("negotiation", "work"),
@@ -245,7 +245,7 @@ def test_free_text_topic_trimmed_and_lowercased(cleanup_user: int) -> None:
             ("history", "curiosity"),
         ],
     )
-    topics = {r.topic for r in list_interests(tid)}
+    topics = {r.topic for r in list_interests(user_id)}
     assert "ai: the future" in topics
     assert "  AI: The Future  " not in topics
 
@@ -400,6 +400,7 @@ def test_wizard_save_confirmation_names_all_three_tracks() -> None:
 
     from telegram.ext import ConversationHandler
 
+    from apps.bot import identity as bot_identity
     from apps.bot.handlers.interests import CURIOSITY, wizard_callback
 
     update = MagicMock()
@@ -411,6 +412,9 @@ def test_wizard_save_confirmation_names_all_three_tracks() -> None:
 
     context = MagicMock()
     context.user_data = {
+        # What the group -1 gate would have stashed. This is a copy test with a
+        # mocked save, so it needs an identity but not a users row.
+        bot_identity.USER_ID_KEY: 1,
         "interests": {
             "wizard_state": CURIOSITY,
             "wizard_message_id": 10,

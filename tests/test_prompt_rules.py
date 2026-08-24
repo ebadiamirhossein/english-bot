@@ -50,6 +50,7 @@ def _learner(*, fallback: bool, native: str = "fa") -> User:
     from datetime import time
 
     return User(
+        id=7222549221,
         telegram_user_id=7222549221,
         name="Test",
         native_language=native,

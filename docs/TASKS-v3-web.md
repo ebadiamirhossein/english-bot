@@ -26,7 +26,8 @@ Every prompt ends with a `BUILD_PROGRESS.md` update block. Slice row goes to �
 | # | Slice | Mode | Build | Accept |
 |---|---|---|---|---|
 | **W4** | Lexicon + known-word ledger | **PLAN** | Migration 010. Seed `lexemes` from the merged frequency + CEFR list in `data/`. `user_lexemes` with state machine. `lexicon/coverage.py`: text → % known coverage. | A fixture transcript scores a plausible coverage %; marking 200 words known moves the number correctly; ledger writes are idempotent. |
-| **W5** | Item schema + validator | **PLAN** | Migration 011 (`items`, `item_attempts`). The 11 item types as pydantic schemas. Generator over `llm.py`. **The blind-solver gate.** Repair-before-reject with the five cue types. **Plus the naturalness gate (PRD §4.6): new default track weights 50/30/20, work jargon banned outside the Work track, textbook-English ban list, contractions by default.** | The fixture set of ambiguous items — including `"Head home if you want — ___ stay and push the deploy"` — is 100% rejected or repaired. No item reaches a learner without a stored validation record. **A Life-track item containing "deploy", "Q3" or "stakeholder" is rejected; 20 sampled Life items read as spoken English, not Slack.** |
+| **W4b** | Identity without Telegram | **PLAN** | **Migration 011.** `users` gains a surrogate `id`; `telegram_user_id` becomes a nullable, unique secondary identifier; all 17 user foreign keys repoint to `users(id)` and their values are rewritten. One resolver at the bot edge (`core/services/identity.py` + `apps/bot/identity.py`), enforced by a parse test. `is_approved` splits into a pre-account and a post-account predicate. Web sign-up ships as a service function plus `python -m core.claim create` — no route. **Closes known issue #92.** | Per-table *and* per-user row counts identical, asserted inside the migration; both journals spot-checked by content; a user with `telegram_user_id NULL` holds a passkey, a session and ledger rows; the view returns the same rows with the new column list; every bot path still works through `Application.process_update` with the correction spy; **existing sessions and passkeys survive — nobody re-enrols**; suite green, baseline 1068. |
+| **W5** | Item schema + validator | **PLAN** | Migration **012** (`items`, `item_attempts`). The 11 item types as pydantic schemas. Generator over `llm.py`. **The blind-solver gate.** Repair-before-reject with the five cue types. **Plus the naturalness gate (PRD §4.6): new default track weights 50/30/20, work jargon banned outside the Work track, textbook-English ban list, contractions by default.** | The fixture set of ambiguous items — including `"Head home if you want — ___ stay and push the deploy"` — is 100% rejected or repaired. No item reaches a learner without a stored validation record. **A Life-track item containing "deploy", "Q3" or "stakeholder" is rejected; 20 sampled Life items read as spoken English, not Slack.** |
 | **W6** | Item renderers | AGENT | One React component per item type. Keyboard-friendly on mobile, big tap targets, instant feedback, explanation panel with Murphy ref. | All 11 types render and grade correctly on a phone; typed items never require punctuation or capitalisation to match. |
 | **W7** | FSRS deck + reviewer | **PLAN** | Migration 012 (`cards`, `card_reviews`). `py-fsrs` wrapper. **Migrate every existing `chunk` into cloze + production cards, seeding stability from v2 review history.** Reviewer UI with 4 grades, caps, leech handling. Anki export retained. **Register tag on every card (PRD §8.5)**; `slang`/`informal` created as recognition-only; card face shows source line, neutral equivalent, and who-says-this. | Deck is non-empty on day one from migrated chunks; grading changes due dates per FSRS; daily caps hold; export produces a valid Anki TSV; **no card exists without a register tag; no `slang` production card exists before its neutral equivalent is mastered; `/prep` output contains zero `slang`/`taboo` items.** |
 
@@ -84,14 +85,15 @@ Every prompt ends with a `BUILD_PROGRESS.md` update block. Slice row goes to �
 |---|---|---|
 | 009 | W2 | `users` auth columns (`auth_user_id`, `auth_email`, `l1_pronunciation_seed`) + `CREATE OR REPLACE VIEW approved_onboarded_users` **in the same file** + the auth tables `auth_credentials`, `auth_sessions`, `auth_claim_tokens`, `auth_challenges`, `auth_rate_limits` (all `auth_`-prefixed — `sessions` is already taken by learning sessions) |
 | 010 | W4 | `lexemes`, `user_lexemes` |
-| 011 | W5 | `items`, `item_attempts`, `register` on `items`, **`errors.source` CHECK widened once for the full v3 set** (`shadow`, `retell`, `answer`, `item`, `placement`, `video`), `users.track_weights` default → `{"life":50,"curiosity":30,"work":20}` (existing rows untouched) |
-| 012 | W7 | `cards`, `card_reviews`, `register` on `cards`, `cards.source_chunk_id` FK |
-| 013 | W8 | `syllabus_units`, `user_unit_state` |
-| 014 | W10 | `sessions` extension: `block_breakdown`, `minutes`, `xp` |
-| 015 | W12 | `videos`, `video_assignments` |
-| 016 | W13a | `subtitle_ladder` |
-| 017 | W14 | `speech_attempts` |
-| 018 | W18 | `placement_bank`, `placement_runs` |
+| 011 | **W4b** | **Identity re-key.** `users.id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`; `telegram_user_id` nullable + `UNIQUE`; all 17 user foreign keys repointed to `users(id)` with their original `ON DELETE` semantics; `access_requests` re-keyed (`id`, `user_id`) because its PK *was* `telegram_user_id`; `shared_content.created_by` values rewritten; `CREATE OR REPLACE VIEW approved_onboarded_users` joining `ar.user_id = u.id` **in the same file** (#48). Closes #92 |
+| 012 | W5 | `items`, `item_attempts`, `register` on `items`, **`errors.source` CHECK widened once for the full v3 set** (`shadow`, `retell`, `answer`, `item`, `placement`, `video`), `users.track_weights` default → `{"life":50,"curiosity":30,"work":20}` (existing rows untouched) |
+| 013 | W7 | `cards`, `card_reviews`, `register` on `cards`, `cards.source_chunk_id` FK |
+| 014 | W8 | `syllabus_units`, `user_unit_state` |
+| 015 | W10 | `sessions` extension: `block_breakdown`, `minutes`, `xp` |
+| 016 | W12 | `videos`, `video_assignments` |
+| 017 | W13a | `subtitle_ladder` |
+| 018 | W14 | `speech_attempts` |
+| 019 | W18 | `placement_bank`, `placement_runs` |
 
 **Rule: every `ALTER TABLE users` is paired with a view recreate in the same `.sql` file** (known issue #48).
 **Rule: `pg_dump` before every migration against production**, until W1c's off-site backup is verified.
@@ -101,6 +103,23 @@ Auth — which would have created its own tables — to WebAuthn in FastAPI, whi
 needs ours. The row above is the authority and the migration file matches it;
 splitting into 009 + 010 would have renumbered nine downstream rows that had
 only just been reconciled, for no benefit, since both files ship in one slice.
+
+**W4b took 011 on 2026-08-24 and every unwritten slice below it shifted by one**
+(W5 011→012, W7 012→013, W8 013→014, W10 014→015, W12 015→016, W13a 016→017,
+W14 017→018, W18 018→019), in the same commit as the migration. The alternative —
+taking a number above everything claimed, say 019 — would have *worked* on
+production, because `db.py`'s pending set is a set difference and not `v > max`,
+so W5's later 011 would still have been applied. That is exactly the problem: on
+a **fresh** database the runner applies in ascending numeric order, so 011 would
+run *before* 019 there and *after* it on production, and W5's file would have to
+be correct against two different parent schemas. The history stops being
+replayable, which is the one thing a numbered-file scheme exists to give you.
+
+This is **not** #49's failure. #49 was a slice shipping a number this table did
+not know about. Here the table was corrected in the same commit, and the slices
+being renumbered **have not been written**: nothing on disk, nothing applied to
+any database, no `schema_version` row moved. Renumbering an applied migration is
+#49; renumbering a row in a planning table is bookkeeping.
 
 **This table is authoritative.** The per-slice **Build** columns above were reconciled against it on 2026-08-23; before that date they still carried the pre-W0 numbering (W4 read 009, W5 010, W7 011, W8 012, W12 013, W13a 013a, W18 014) and a slice reading only its own row would have written the wrong number. W10 and W14 gained the migration numbers they had been missing entirely (known issue #53, TASKS half). **Known issue #49 closes here** — `013a` is now `016`, a plain integer, which is all `db.py::_discover_migrations` can parse. If a Build column and this table ever disagree again, the table wins and the Build column is the bug.
 

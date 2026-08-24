@@ -27,6 +27,7 @@ from apps.bot import texts
 from apps.bot.handlers.onboarding import layout_buttons
 from core.services.interests import list_interests, replace_interests
 from core.services.users import is_registered
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -363,7 +364,9 @@ def _selections_for_save(
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.effective_user is None or update.message is None:
         return ConversationHandler.END
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return ConversationHandler.END
     if not is_registered(user_id):
         return ConversationHandler.END
 
@@ -419,9 +422,10 @@ async def profile_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
 
     if action == "change":
-        if update.effective_user is None:
+        user_id = bot_identity.bot_user_id(update, context)
+        if user_id is None:
             return ConversationHandler.END
-        _preload_from_db(context, update.effective_user.id)
+        _preload_from_db(context, user_id)
         return await _show_track(update, context, "work")
 
     return SUMMARY
@@ -492,16 +496,15 @@ async def wizard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if track in _NEXT_TRACK:
             return await _show_track(update, context, _NEXT_TRACK[track])
         # Curiosity done → save
-        if update.effective_user is None:
+        user_id = bot_identity.bot_user_id(update, context)
+        if user_id is None:
             return ConversationHandler.END
         try:
-            replace_interests(
-                update.effective_user.id, _selections_for_save(context)
-            )
+            replace_interests(user_id, _selections_for_save(context))
         except Exception:
             logger.exception(
                 "Failed to save interests for user_id=%s",
-                update.effective_user.id,
+                user_id,
             )
             await _show(
                 update,

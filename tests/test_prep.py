@@ -26,8 +26,7 @@ from core.services.prep import (
     validate_prep_payload,
 )
 from core.services.reading import normalize_for_match
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_490_000_000
 
 # Fixture topic names a company — must never appear in logs.
@@ -61,8 +60,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int, *, cefr: str = "B1", domain: str = "marketing") -> None:
-    save_onboarding(
+def _onboard(tid: int, *, cefr: str = "B1", domain: str = "marketing") -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Prep Test",
@@ -76,6 +75,7 @@ def _onboard(tid: int, *, cefr: str = "B1", domain: str = "marketing") -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _chunk(
@@ -238,7 +238,7 @@ def test_persist_writes_prep_chunks_zero_errors_zero_sessions(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     payload = validate_prep_payload(_good_llm(), topic=TOPIC_OK)
     sent: list[str] = []
 
@@ -246,11 +246,11 @@ def test_persist_writes_prep_chunks_zero_errors_zero_sessions(
         sent.append("ok")
 
     n = asyncio.run(
-        persist_and_send(user_id=tid, payload=payload, send=send)
+        persist_and_send(user_id=user_id, payload=payload, send=send)
     )
     assert n == 10
     assert sent == ["ok"]
-    rows = _chunk_rows(tid)
+    rows = _chunk_rows(user_id)
     assert len(rows) == 10
     expected_source = prep_source(TOPIC_OK)
     assert all(r["source"] == expected_source for r in rows)
@@ -259,13 +259,13 @@ def test_persist_writes_prep_chunks_zero_errors_zero_sessions(
         assert normalize_for_match(r["chunk"]) in normalize_for_match(
             r["full_sentence"]
         )
-    assert _error_count(tid) == 0
-    assert _session_count(tid) == 0
+    assert _error_count(user_id) == 0
+    assert _session_count(user_id) == 0
 
 
 def test_persist_send_failure_rolls_back(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     payload = validate_prep_payload(_good_llm(), topic=TOPIC_OK)
 
     async def boom() -> None:
@@ -273,25 +273,25 @@ def test_persist_send_failure_rolls_back(cleanup_user: int) -> None:
 
     with pytest.raises(RuntimeError):
         asyncio.run(
-            persist_and_send(user_id=tid, payload=payload, send=boom)
+            persist_and_send(user_id=user_id, payload=payload, send=boom)
         )
-    assert _chunk_rows(tid) == []
-    assert _error_count(tid) == 0
-    assert _session_count(tid) == 0
+    assert _chunk_rows(user_id) == []
+    assert _error_count(user_id) == 0
+    assert _session_count(user_id) == 0
 
 
 def test_prep_chunks_in_anki_tsv(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     payload = validate_prep_payload(_good_llm(), topic=TOPIC_OK)
 
     async def send() -> None:
         return None
 
-    asyncio.run(persist_and_send(user_id=tid, payload=payload, send=send))
+    asyncio.run(persist_and_send(user_id=user_id, payload=payload, send=send))
     with connection() as conn:
-        rows = fetch_unexported_chunks(conn, tid)
-    tsv = build_tsv(rows, user_id=tid)
+        rows = fetch_unexported_chunks(conn, user_id)
+    tsv = build_tsv(rows, user_id=user_id)
     assert prep_source(TOPIC_OK) in tsv
     assert "prep_" in tsv
     assert "capture" not in tsv
@@ -305,7 +305,7 @@ def test_handler_success_persists_and_no_topic_in_logs(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, f"/prep {COMPANY_TOPIC}")
     context = MagicMock()
     context.args = COMPANY_TOPIC.split()
@@ -327,14 +327,14 @@ def test_handler_success_persists_and_no_topic_in_logs(
     assert texts.PREP_SECTION_CHUNKS in reply
     assert texts.PREP_SECTION_FRAMES in reply
     assert "▸" in reply
-    rows = _chunk_rows(tid)
+    rows = _chunk_rows(user_id)
     assert len(rows) == 10
     assert all(r["source"] == prep_source(COMPANY_TOPIC) for r in rows)
-    assert _error_count(tid) == 0
-    assert _session_count(tid) == 0
+    assert _error_count(user_id) == 0
+    assert _session_count(user_id) == 0
     assert COMPANY_TOPIC not in caplog.text
     assert "AcmeCorpZX9" not in caplog.text
-    assert f"user_id={tid}" in caplog.text
+    assert f"user_id={user_id}" in caplog.text
     assert "handler=prep" in caplog.text
 
 
@@ -342,7 +342,7 @@ def test_handler_partial_chunks_sends_and_warns(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, f"/prep {TOPIC_OK}")
     context = MagicMock()
     context.args = TOPIC_OK.split()
@@ -359,7 +359,7 @@ def test_handler_partial_chunks_sends_and_warns(
 
     asyncio.run(_run())
     message.reply_text.assert_awaited_once()
-    assert len(_chunk_rows(tid)) == 9
+    assert len(_chunk_rows(user_id)) == 9
     assert any(
         "partial_chunks" in r.message and "count=9" in r.message
         for r in caplog.records
@@ -368,7 +368,7 @@ def test_handler_partial_chunks_sends_and_warns(
 
 def test_handler_bare_prep_usage_no_llm(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, "/prep")
     context = MagicMock()
     context.args = []
@@ -381,7 +381,7 @@ def test_handler_bare_prep_usage_no_llm(cleanup_user: int) -> None:
 
 def test_handler_short_topic_usage_no_llm(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, "/prep ab")
     context = MagicMock()
     context.args = ["ab"]
@@ -394,7 +394,7 @@ def test_handler_short_topic_usage_no_llm(cleanup_user: int) -> None:
 
 def test_handler_over_length_no_llm(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     long_topic = "x" * (prep_handler._MAX_TOPIC_CHARS + 1)
     update, message = _make_update(tid, f"/prep {long_topic}")
     context = MagicMock()
@@ -410,7 +410,7 @@ def test_handler_malformed_json_warm_degrade(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, f"/prep {TOPIC_OK}")
     context = MagicMock()
     context.args = TOPIC_OK.split()
@@ -425,14 +425,14 @@ def test_handler_malformed_json_warm_degrade(
 
     asyncio.run(_run())
     message.reply_text.assert_awaited_once_with(texts.PREP_FAILED)
-    assert _chunk_rows(tid) == []
+    assert _chunk_rows(user_id) == []
     assert any("raw=" in r.message for r in caplog.records)
     assert TOPIC_OK not in caplog.text
 
 
 def test_handler_llm_error_warm_degrade(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, f"/prep {TOPIC_OK}")
     context = MagicMock()
     context.args = TOPIC_OK.split()
@@ -447,12 +447,12 @@ def test_handler_llm_error_warm_degrade(cleanup_user: int) -> None:
 
     asyncio.run(_run())
     message.reply_text.assert_awaited_once_with(texts.LLM_FAILED)
-    assert _chunk_rows(tid) == []
+    assert _chunk_rows(user_id) == []
 
 
 def test_handler_send_failure_no_chunks(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update, message = _make_update(tid, f"/prep {TOPIC_OK}")
     message.reply_text = AsyncMock(
         side_effect=[RuntimeError("send failed"), None]
@@ -469,14 +469,14 @@ def test_handler_send_failure_no_chunks(cleanup_user: int) -> None:
             await prep_handler.on_prep_command(update, context)
 
     asyncio.run(_run())
-    assert _chunk_rows(tid) == []
+    assert _chunk_rows(user_id) == []
     assert message.reply_text.await_count == 2
     assert message.reply_text.await_args.args[0] == texts.PREP_FAILED
 
 
 def test_cefr_and_work_domain_reach_prompt(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, cefr="C1", domain="product design")
+    user_id = _onboard(tid, cefr="C1", domain="product design")
     update, message = _make_update(tid, f"/prep {TOPIC_OK}")
     context = MagicMock()
     context.args = TOPIC_OK.split()

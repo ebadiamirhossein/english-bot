@@ -41,7 +41,8 @@ ACTIVE_LOOKBACK_DAYS = 7
 
 @dataclass(frozen=True)
 class MotivationUser:
-    telegram_user_id: int
+    id: int
+    telegram_address: int | None
     timezone: str
     evening_time: time
     paused_until: date | None
@@ -81,14 +82,17 @@ def list_motivation_users() -> list[MotivationUser]:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT telegram_user_id, timezone, evening_time, paused_until,
+            SELECT id, telegram_user_id, timezone, evening_time, paused_until,
                    why_statement
               FROM approved_onboarded_users
             """
         ).fetchall()
     return [
         MotivationUser(
-            telegram_user_id=int(r["telegram_user_id"]),
+            id=int(r["id"]),
+            telegram_address=(
+                None if r["telegram_user_id"] is None else int(r["telegram_user_id"])
+            ),
             timezone=str(r["timezone"] or "Europe/Vilnius"),
             evening_time=r["evening_time"] or time(21, 0),
             paused_until=r["paused_until"],
@@ -114,13 +118,13 @@ def sessions_due_for_nudge(
         return []
 
     due: list[NudgeableSession] = []
-    for session in list_open_nudgeable_sessions(user.telegram_user_id):
+    for session in list_open_nudgeable_sessions(user.id):
         if not task_still_open(session.date, user.timezone, now):
             continue
         # Daily budget keys off the session's delivery local date (PRD: max 2
         # nudges per day) so Monday's quiz nudges count on Monday even before
         # Tuesday 03:00 close.
-        if daily_nudges_sent(user.telegram_user_id, session.date) >= MAX_NUDGES_PER_DAY:
+        if daily_nudges_sent(user.id, session.date) >= MAX_NUDGES_PER_DAY:
             continue
         due_at = next_nudge_due_at(session)
         if due_at is None:
@@ -227,9 +231,9 @@ def is_user_due_for_sunday_report(user: MotivationUser, now: datetime) -> bool:
         return False
     if not _time_reached(local_time_hhmm(user.timezone, now), user.evening_time):
         return False
-    if has_sunday_report_session_on(user.telegram_user_id, day):
+    if has_sunday_report_session_on(user.id, day):
         return False
-    if not under_message_ceiling(user.telegram_user_id, day):
+    if not under_message_ceiling(user.id, day):
         return False
     return True
 

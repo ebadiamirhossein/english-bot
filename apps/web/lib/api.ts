@@ -19,7 +19,7 @@ export type Health = {
 };
 
 export type Session = {
-  telegram_user_id: number;
+  user_id: number;
   name: string;
   expires_at: string;
 };

@@ -388,12 +388,12 @@ def list_registered_user_ids() -> list[int]:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT telegram_user_id
+            SELECT id
               FROM approved_onboarded_users
-             ORDER BY telegram_user_id
+             ORDER BY id
             """
         ).fetchall()
-    return [int(r["telegram_user_id"]) for r in rows]
+    return [int(r["id"]) for r in rows]
 
 
 def ensure_all_user_layouts(root: Path) -> None:

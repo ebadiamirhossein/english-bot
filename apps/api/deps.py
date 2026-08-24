@@ -130,7 +130,7 @@ def get_current_user(
         set_session_cookie(response, settings, raw)
     # Picked up by the exception handler's log line (PRD §10: route names and
     # user ids, never bodies).
-    request.state.user_id = user.telegram_user_id
+    request.state.user_id = user.id
     return user
 
 

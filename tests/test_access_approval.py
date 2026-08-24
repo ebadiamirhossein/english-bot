@@ -28,6 +28,7 @@ from apps.bot.handlers.admin import on_admin_command, s18d_button_labels
 from apps.bot.handlers.onboarding import start
 from apps.bot.main import register_handlers
 from core.services.access_control import (
+    is_approved_telegram,
     MAX_OPERATOR_DECLINES,
     approve_access,
     decline_access,
@@ -38,7 +39,8 @@ from core.services.access_control import (
     revoke_access,
 )
 from core.services.admin_panel import format_admin_home, list_admin_users
-from core.services.users import is_registered, save_onboarding
+from core.services.identity import save_onboarding
+from core.services.users import is_registered
 from apps.bot.scheduler import (
     EligibleUser,
     is_user_due_for_anki,
@@ -54,6 +56,7 @@ from core.services.motivation import (
 from core.services.users import get_paused_until, set_paused_until
 
 FAKE_TELEGRAM_ID_BASE = 9_610_000_000
+_TG_ADDRESS_BASE = 9_000_000_000
 OPERATOR_ID = 9_610_999_001
 
 SECRET_ERROR = "ZZZSECRET_ERROR_PHRASE_S18D"
@@ -97,8 +100,8 @@ def cleanup_operator():
     _delete_user(OPERATOR_ID)
 
 
-def _onboard(tid: int, *, name: str = "Learner") -> None:
-    save_onboarding(
+def _onboard(tid: int, *, name: str = "Learner") -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": name,
@@ -112,6 +115,7 @@ def _onboard(tid: int, *, name: str = "Learner") -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _message_update(
@@ -193,7 +197,7 @@ def test_unknown_start_no_users_row(cleanup_user: int) -> None:
             "SELECT 1 FROM users WHERE telegram_user_id = %s", (tid,)
         ).fetchone()
     assert row is None
-    assert not is_approved(tid)
+    assert not is_approved_telegram(tid)
 
 
 def test_request_notifies_operator_approve_onboard(
@@ -250,7 +254,7 @@ def test_request_notifies_operator_approve_onboard(
         settings.operator_telegram_id = OPERATOR_ID
         load_settings.return_value = settings
         asyncio.run(on_access_decide(op_update, op_context))
-    assert is_approved(tid)
+    assert is_approved_telegram(tid)
     op_context.bot.send_message.assert_awaited_with(
         chat_id=tid, text=texts.ACCESS_APPROVED
     )
@@ -338,7 +342,7 @@ def test_operator_unset_stores_no_crash(cleanup_user: int) -> None:
 
 def test_approved_start_profile_unchanged(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _message_update(tid, "/start")
     context = MagicMock()
     context.user_data = {}
@@ -366,27 +370,35 @@ def test_migration_backfill_keeps_existing_approved(cleanup_user: int) -> None:
                 "DELETE FROM access_requests WHERE telegram_user_id = %s",
                 (tid,),
             )
-    assert not is_approved(tid)
+    assert not is_approved_telegram(tid)
     with connection() as conn:
         conn.execute(
             """
             INSERT INTO access_requests (
-                telegram_user_id, display_name, status, requested_at, resolved_at
+                telegram_user_id, user_id, display_name, status,
+                requested_at, resolved_at
             )
-            SELECT telegram_user_id, name, 'approved', created_at, created_at
+            SELECT telegram_user_id, id, name, 'approved', created_at, created_at
               FROM users
              WHERE telegram_user_id = %s
             ON CONFLICT DO NOTHING
             """,
             (tid,),
         )
-    assert is_approved(tid)
-    assert is_registered(tid)
+    assert is_approved_telegram(tid)
+    # `user_id` in the backfill above is not decoration: since W4b the delivery
+    # view joins on it, so a row without it is approved and invisible.
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM users WHERE telegram_user_id = %s", (tid,)
+        ).fetchone()
+    assert row is not None
+    assert is_registered(int(row["id"]))
 
 
 def test_revoke_deletes_nothing_reapprove(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     with connection() as conn:
         with conn.transaction():
             conn.execute(
@@ -398,7 +410,7 @@ def test_revoke_deletes_nothing_reapprove(cleanup_user: int) -> None:
                     %s, 'text', %s, 'ok', 'quantifier_modifier', 'x', CURRENT_DATE
                 )
                 """,
-                (tid, SECRET_ERROR),
+                (user_id, SECRET_ERROR),
             )
             conn.execute(
                 """
@@ -406,7 +418,7 @@ def test_revoke_deletes_nothing_reapprove(cleanup_user: int) -> None:
                     user_id, chunk, full_sentence, meaning, source, track
                 ) VALUES (%s, %s, 'full', 'm', 'capture', 'life')
                 """,
-                (tid, SECRET_CHUNK),
+                (user_id, SECRET_CHUNK),
             )
             conn.execute(
                 """
@@ -414,7 +426,7 @@ def test_revoke_deletes_nothing_reapprove(cleanup_user: int) -> None:
                     user_id, date, task_type, completed
                 ) VALUES (%s, CURRENT_DATE, 'quiz', TRUE)
                 """,
-                (tid,),
+                (user_id,),
             )
             conn.execute(
                 """
@@ -425,56 +437,56 @@ def test_revoke_deletes_nothing_reapprove(cleanup_user: int) -> None:
                     %s, 'diary', %s, 'fixed', 'verb_tense_past', 'y', CURRENT_DATE
                 )
                 """,
-                (tid, SECRET_DIARY),
+                (user_id, SECRET_DIARY),
             )
 
     def _counts() -> tuple[int, int, int, int]:
         with connection() as conn:
             e = conn.execute(
                 "SELECT COUNT(*)::int AS n FROM errors WHERE user_id = %s",
-                (tid,),
+                (user_id,),
             ).fetchone()["n"]
             c = conn.execute(
                 "SELECT COUNT(*)::int AS n FROM chunks WHERE user_id = %s",
-                (tid,),
+                (user_id,),
             ).fetchone()["n"]
             s = conn.execute(
                 "SELECT COUNT(*)::int AS n FROM sessions WHERE user_id = %s",
-                (tid,),
+                (user_id,),
             ).fetchone()["n"]
             st = conn.execute(
                 "SELECT COUNT(*)::int AS n FROM streaks WHERE user_id = %s",
-                (tid,),
+                (user_id,),
             ).fetchone()["n"]
         return int(e), int(c), int(s), int(st)
 
     before = _counts()
     revoke_access(tid)
-    assert not is_approved(tid)
-    assert not is_registered(tid)
+    assert not is_approved(user_id)
+    assert not is_registered(user_id)
     assert _counts() == before
 
     approve_access(tid)
-    assert is_approved(tid)
-    assert is_registered(tid)
+    assert is_approved(user_id)
+    assert is_registered(user_id)
     assert _counts() == before
 
 
 def test_delivery_listers_exclude_revoked(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     revoke_access(tid)
     listers = delivery_lister_ids()
     assert len(listers) == 7
     assert "list_recipients" in listers
     for name, fn in listers.items():
         ids = fn()
-        assert tid not in ids, f"{name} still includes revoked user"
+        assert user_id not in ids, f"{name} still includes revoked user"
 
 
 def test_admin_ignores_non_operator(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _message_update(tid, "/admin")
     context = MagicMock()
     context.user_data = {}
@@ -489,7 +501,7 @@ def test_admin_ignores_non_operator(cleanup_user: int) -> None:
 
 def test_admin_never_shows_content(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, name="ContentGuard")
+    user_id = _onboard(tid, name="ContentGuard")
     with connection() as conn:
         with conn.transaction():
             conn.execute(
@@ -501,7 +513,7 @@ def test_admin_never_shows_content(cleanup_user: int) -> None:
                     %s, 'text', %s, 'ok', 'quantifier_modifier', 'x', CURRENT_DATE
                 )
                 """,
-                (tid, SECRET_ERROR),
+                (user_id, SECRET_ERROR),
             )
             conn.execute(
                 """
@@ -509,7 +521,7 @@ def test_admin_never_shows_content(cleanup_user: int) -> None:
                     user_id, chunk, full_sentence, meaning, source, track
                 ) VALUES (%s, %s, %s, 'm', 'capture', 'life')
                 """,
-                (tid, SECRET_CHUNK, SECRET_DIARY),
+                (user_id, SECRET_CHUNK, SECRET_DIARY),
             )
             conn.execute(
                 """
@@ -520,7 +532,7 @@ def test_admin_never_shows_content(cleanup_user: int) -> None:
                     %s, 'diary', %s, 'fixed', 'verb_tense_past', 'y', CURRENT_DATE
                 )
                 """,
-                (tid, SECRET_DIARY),
+                (user_id, SECRET_DIARY),
             )
     users = list_admin_users(now_day=date(2026, 8, 11))
     body = format_admin_home(users)
@@ -533,12 +545,14 @@ def test_admin_never_shows_content(cleanup_user: int) -> None:
 
 def test_admin_pause_skips_senders(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 10)
-    set_paused_until(tid, day)
-    assert get_paused_until(tid) == day
+    set_paused_until(user_id, day)
+    assert get_paused_until(user_id) == day
     user = EligibleUser(
-        telegram_user_id=tid,
+        id=user_id,
+        # Deliberately not equal to `id`.
+        telegram_address=_TG_ADDRESS_BASE + user_id,
         timezone="Europe/Vilnius",
         morning_time=__import__("datetime").time(8, 0),
         evening_time=__import__("datetime").time(21, 0),
@@ -550,7 +564,9 @@ def test_admin_pause_skips_senders(cleanup_user: int) -> None:
     assert not is_user_due_for_anki(user, now)
     assert not is_user_due_for_diary(user, now)
     mot = MotivationUser(
-        telegram_user_id=tid,
+        id=user_id,
+        # Deliberately not equal to `id`.
+        telegram_address=_TG_ADDRESS_BASE + user_id,
         timezone="Europe/Vilnius",
         evening_time=__import__("datetime").time(21, 0),
         paused_until=day,
@@ -558,8 +574,8 @@ def test_admin_pause_skips_senders(cleanup_user: int) -> None:
     )
     assert sessions_due_for_nudge(mot, now) == []
     assert not is_user_due_for_sunday_report(mot, now)
-    set_paused_until(tid, None)
-    assert get_paused_until(tid) is None
+    set_paused_until(user_id, None)
+    assert get_paused_until(user_id) is None
 
 
 def test_s18d_button_labels_max_20() -> None:
@@ -616,7 +632,7 @@ def test_no_onboarding_bot_data_exports() -> None:
 def test_gate_surface_regression_approved_user(cleanup_user: int) -> None:
     """Approved user traffic must reach handlers with the gate active."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
 
     correction_spy = AsyncMock()
     quiz_cb_spy = AsyncMock()

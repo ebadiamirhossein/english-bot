@@ -24,6 +24,7 @@ from telegram.ext import (
 from apps.bot import texts
 from apps.bot.handlers.onboarding import layout_buttons
 from core.services.users import is_registered
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,8 @@ async def on_guide_command(
 ) -> int:
     if update.effective_user is None or update.message is None:
         return ConversationHandler.END
-    if not is_registered(update.effective_user.id):
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None or not is_registered(user_id):
         return ConversationHandler.END
 
     _clear_wizard(context)

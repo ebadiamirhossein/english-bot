@@ -36,14 +36,17 @@ TEST_USER = -940_402
 
 @pytest.fixture
 def user(conn):
-    conn.execute(
+    # Internal id, not the invented Telegram id: they differ since W4b.
+    row = conn.execute(
         """
         INSERT INTO users (telegram_user_id, name, native_language, onboarded)
         VALUES (%s, 'W4a fixture', 'lt', TRUE)
+        RETURNING id
         """,
         (TEST_USER,),
-    )
-    return TEST_USER
+    ).fetchone()
+    assert row is not None
+    return int(row[0])
 
 
 # ── the sets are related, and are not the same thing ────────────────────────

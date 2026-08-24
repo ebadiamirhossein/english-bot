@@ -21,11 +21,13 @@ from telegram.ext import (
 )
 
 from apps.bot import texts
-from core.services.access_control import is_approved
+from core.services.access_control import is_approved_telegram
 from apps.bot.alerts import operator_send
 from core.services.alerts import notify_operator
 from core.services.shared_content import try_backfill_soft
-from core.services.users import User, efset_to_cefr, get_user, save_onboarding
+from core.services.identity import save_onboarding
+from core.services.users import User, efset_to_cefr, get_user
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -646,13 +648,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.effective_user is None or update.message is None:
         return ConversationHandler.END
 
-    user_id = update.effective_user.id
-    if not is_approved(user_id):
+    # The pre-account predicate, deliberately. /start is reached by strangers
+    # and by approved learners who have not onboarded yet: neither has a `users`
+    # row, so asking approval of an internal id would refuse everyone who most
+    # needs this handler to work.
+    telegram_user_id = update.effective_user.id
+    if not is_approved_telegram(telegram_user_id):
         kb = _keyboard([[(texts.BTN_REQUEST_ACCESS, "access:request")]])
         await update.message.reply_text(texts.ACCESS_PRIVATE_BOT, reply_markup=kb)
         return ConversationHandler.END
 
-    existing = get_user(user_id)
+    # May legitimately be None: an approved stranger who has never onboarded.
+    # That is the path into the wizard, not an error.
+    user_id = bot_identity.bot_user_id(update, context)
+    existing = None if user_id is None else get_user(user_id)
     if existing is not None and existing.onboarded:
         context.user_data.pop("wizard_message_id", None)
         context.user_data.pop("wizard_chat_id", None)
@@ -696,8 +705,9 @@ async def profile_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
 
     if query.data == "profile:change":
-        if update.effective_user is not None:
-            user = get_user(update.effective_user.id)
+        resolved = bot_identity.bot_user_id(update, context)
+        if resolved is not None:
+            user = get_user(resolved)
             if user is not None:
                 context.user_data.pop("onboarding", None)
                 _load_user_into_answers(context, user)
@@ -865,7 +875,13 @@ async def wizard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return CONFIRM
         data_answers = _answers(context)
         try:
-            save_onboarding(update.effective_user.id, data_answers)
+            new_user_id = save_onboarding(
+                update.effective_user.id, data_answers
+            )
+            # The learner now has a users row for the first time. Refresh the
+            # gate's stash, or every later handler in this same update would
+            # still see the None it resolved before onboarding finished.
+            context.user_data[bot_identity.USER_ID_KEY] = new_user_id
         except Exception:
             logger.exception(
                 "save_onboarding failed user_id=%s", update.effective_user.id
@@ -884,7 +900,9 @@ async def wizard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return ConversationHandler.END
 
         # S24: convergent backfill after Save commits — soft-fail only.
-        uid = update.effective_user.id
+        # The id save_onboarding just returned, not a Telegram id: the backfill
+        # writes shared_content_deliveries, which is keyed on users.id.
+        uid = new_user_id
         if not try_backfill_soft(uid):
             await notify_operator(
                 operator_send(context.bot),

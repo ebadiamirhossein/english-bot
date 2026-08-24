@@ -18,9 +18,11 @@ from apps.bot.scheduler import (
     users_due_for_morning,
 )
 from core.services.sessions import insert_session, local_today
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_320_000_000
+
+
+_TG_ADDRESS_BASE = 9_000_000_000
 
 
 @pytest.fixture
@@ -54,8 +56,8 @@ def _onboard(
     *,
     morning: str = "07:00",
     tz: str = "Europe/Vilnius",
-) -> None:
-    save_onboarding(
+) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Sched Test",
@@ -74,12 +76,16 @@ def _onboard(
             "UPDATE users SET timezone = %s WHERE telegram_user_id = %s",
             (tz, tid),
         )
+    return user_id
 
 
-def _eligible(tid: int, tz: str, morning: str) -> EligibleUser:
+def _eligible(user_id: int, tz: str, morning: str) -> EligibleUser:
     h, m = map(int, morning.split(":"))
     return EligibleUser(
-        telegram_user_id=tid,
+        id=user_id,
+        # Deliberately not equal to `id`: nothing may rely on the two
+        # being the same number again.
+        telegram_address=_TG_ADDRESS_BASE + user_id,
         timezone=tz,
         morning_time=time(h, m),
         paused_until=None,
@@ -88,33 +94,33 @@ def _eligible(tid: int, tz: str, morning: str) -> EligibleUser:
 
 def test_before_morning_not_selected(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="08:00", tz="Europe/Vilnius")
+    user_id = _onboard(tid, morning="08:00", tz="Europe/Vilnius")
     # 07:30 Vilnius on a fixed day
     now = datetime(2026, 8, 3, 4, 30, tzinfo=timezone.utc)  # 07:30 EEST (UTC+3)
     # Wait — Aug 3 2026: Lithuania is EEST UTC+3, so 04:30 UTC = 07:30 local.
     # morning is 08:00 → should NOT be selected.
-    user = _eligible(tid, "Europe/Vilnius", "08:00")
+    user = _eligible(user_id, "Europe/Vilnius", "08:00")
     assert local_today("Europe/Vilnius", now) == date(2026, 8, 3)
     assert is_user_due_for_morning(user, now) is False
 
 
 def test_past_morning_no_session_selected(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="08:00", tz="Europe/Vilnius")
+    user_id = _onboard(tid, morning="08:00", tz="Europe/Vilnius")
     now = datetime(2026, 8, 3, 5, 15, tzinfo=timezone.utc)  # 08:15 Vilnius
-    user = _eligible(tid, "Europe/Vilnius", "08:00")
+    user = _eligible(user_id, "Europe/Vilnius", "08:00")
     assert is_user_due_for_morning(user, now) is True
-    due_ids = [u.telegram_user_id for u in users_due_for_morning(now)]
-    assert tid in due_ids
+    due_ids = [u.id for u in users_due_for_morning(now)]
+    assert user_id in due_ids
 
 
 def test_not_selected_twice_same_local_day(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="08:00", tz="Europe/Vilnius")
+    user_id = _onboard(tid, morning="08:00", tz="Europe/Vilnius")
     now = datetime(2026, 8, 3, 5, 15, tzinfo=timezone.utc)
     day = local_today("Europe/Vilnius", now)
-    insert_session(tid, "quiz", day, completed=False)
-    user = _eligible(tid, "Europe/Vilnius", "08:00")
+    insert_session(user_id, "quiz", day, completed=False)
+    user = _eligible(user_id, "Europe/Vilnius", "08:00")
     assert is_user_due_for_morning(user, now) is False
     later = now + timedelta(hours=3)
     assert is_user_due_for_morning(user, later) is False
@@ -124,8 +130,8 @@ def test_two_timezones_own_local_morning() -> None:
     tid_vil = FAKE_TELEGRAM_ID_BASE + (uuid.uuid4().int % 1_000_000_000)
     tid_tok = FAKE_TELEGRAM_ID_BASE + (uuid.uuid4().int % 1_000_000_000)
     try:
-        _onboard(tid_vil, morning="07:00", tz="Europe/Vilnius")
-        _onboard(tid_tok, morning="07:00", tz="Asia/Tokyo")
+        tid_vil_id = _onboard(tid_vil, morning="07:00", tz="Europe/Vilnius")
+        tid_tok_id = _onboard(tid_tok, morning="07:00", tz="Asia/Tokyo")
 
         # 07:00 Tokyo = 22:00 previous day UTC (JST=UTC+9)
         tokyo_morning = datetime(2026, 8, 3, 22, 0, tzinfo=timezone.utc)
@@ -137,9 +143,9 @@ def test_two_timezones_own_local_morning() -> None:
             .strftime("%Y-%m-%d %H:%M")
             == "2026-08-04 07:00"
         )
-        due = {u.telegram_user_id for u in users_due_for_morning(tokyo_morning)}
-        assert tid_tok in due
-        assert tid_vil not in due  # Vilnius is 01:00 on Aug 4
+        due = {u.id for u in users_due_for_morning(tokyo_morning)}
+        assert tid_tok_id in due
+        assert tid_vil_id not in due  # Vilnius is 01:00 on Aug 4
 
         # 07:00 Vilnius = 04:00 UTC in summer (EEST UTC+3)
         vilnius_morning = datetime(2026, 8, 4, 4, 0, tzinfo=timezone.utc)
@@ -153,14 +159,14 @@ def test_two_timezones_own_local_morning() -> None:
         # at this instant is 16:00, so past morning; without a session they'd
         # also be due. Insert Tokyo's morning delivery first to isolate.
         insert_session(
-            tid_tok,
+            tid_tok_id,
             "quiz",
             local_today("Asia/Tokyo", tokyo_morning),
             completed=False,
         )
-        due2 = {u.telegram_user_id for u in users_due_for_morning(vilnius_morning)}
-        assert tid_vil in due2
-        assert tid_tok not in due2
+        due2 = {u.id for u in users_due_for_morning(vilnius_morning)}
+        assert tid_vil_id in due2
+        assert tid_tok_id not in due2
     finally:
         _delete_user(tid_vil)
         _delete_user(tid_tok)
@@ -171,32 +177,32 @@ def test_tokyo_vilnius_24h_five_minute_polls() -> None:
     tid_vil = FAKE_TELEGRAM_ID_BASE + (uuid.uuid4().int % 1_000_000_000)
     tid_tok = FAKE_TELEGRAM_ID_BASE + (uuid.uuid4().int % 1_000_000_000)
     try:
-        _onboard(tid_vil, morning="07:00", tz="Europe/Vilnius")
-        _onboard(tid_tok, morning="07:00", tz="Asia/Tokyo")
+        tid_vil_id = _onboard(tid_vil, morning="07:00", tz="Europe/Vilnius")
+        tid_tok_id = _onboard(tid_tok, morning="07:00", tz="Asia/Tokyo")
 
         # Start just before Tokyo's 07:00 on 2026-08-04 (21:55 UTC Aug 3)
         start = datetime(2026, 8, 3, 21, 55, tzinfo=timezone.utc)
         end = start + timedelta(hours=24)
 
-        selections: dict[int, list[datetime]] = {tid_vil: [], tid_tok: []}
+        selections: dict[int, list[datetime]] = {tid_vil_id: [], tid_tok_id: []}
         tick = start
         while tick <= end:
             due = users_due_for_morning(tick)
             for u in due:
-                if u.telegram_user_id in selections:
-                    selections[u.telegram_user_id].append(tick)
+                if u.id in selections:
+                    selections[u.id].append(tick)
                     # Claim the slot the way delivery would
                     day = local_today(u.timezone, tick)
                     insert_session(
-                        u.telegram_user_id, "quiz", day, completed=False
+                        u.id, "quiz", day, completed=False
                     )
             tick += timedelta(minutes=5)
 
-        assert len(selections[tid_tok]) == 1
-        assert len(selections[tid_vil]) == 1
+        assert len(selections[tid_tok_id]) == 1
+        assert len(selections[tid_vil_id]) == 1
 
-        tok_local = selections[tid_tok][0].astimezone(ZoneInfo("Asia/Tokyo"))
-        vil_local = selections[tid_vil][0].astimezone(ZoneInfo("Europe/Vilnius"))
+        tok_local = selections[tid_tok_id][0].astimezone(ZoneInfo("Asia/Tokyo"))
+        vil_local = selections[tid_vil_id][0].astimezone(ZoneInfo("Europe/Vilnius"))
         assert (tok_local.hour, tok_local.minute) >= (7, 0)
         assert (vil_local.hour, vil_local.minute) >= (7, 0)
         # First selection should be the first poll at or after 07:00 local

@@ -42,10 +42,12 @@ from core.services.sessions import (
     save_voice_exchange,
 )
 from core.services.streaks import get_streak, roll_over_day
-from core.services.users import save_onboarding, set_paused_until
+from core.services.identity import save_onboarding
+from core.services.users import set_paused_until
 from core.speech import SpeechError
 
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
+_TG_ADDRESS_BASE = 9_000_000_000
 
 # Personal detail that must not appear unquoted in logs / session payload.
 PERSONAL_FIXTURE = (
@@ -96,8 +98,8 @@ def _onboard(
     evening: str = "21:00",
     morning: str = "07:00",
     tz: str = "Europe/Vilnius",
-) -> None:
-    save_onboarding(
+) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Diary Test",
@@ -116,10 +118,11 @@ def _onboard(
             "UPDATE users SET timezone = %s WHERE telegram_user_id = %s",
             (tz, tid),
         )
+    return user_id
 
 
 def _eligible(
-    tid: int,
+    user_id: int,
     *,
     tz: str = "Europe/Vilnius",
     evening: str = "21:00",
@@ -129,7 +132,9 @@ def _eligible(
     eh, em = map(int, evening.split(":"))
     mh, mm = map(int, morning.split(":"))
     return EligibleUser(
-        telegram_user_id=tid,
+        id=user_id,
+        # Deliberately not equal to `id`.
+        telegram_address=_TG_ADDRESS_BASE + user_id,
         timezone=tz,
         morning_time=time(mh, mm),
         paused_until=paused_until,
@@ -259,8 +264,8 @@ def test_diary_weekdays_disjoint_from_reading() -> None:
 
 def test_eligibility_tue_thu_not_reading_evenings(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    user = _eligible(tid)
+    user_id = _onboard(tid)
+    user = _eligible(user_id)
     assert is_user_due_for_diary(user, _TUESDAY_EVENING_UTC) is True
     assert is_user_due_for_evening(user, _TUESDAY_EVENING_UTC) is False
     assert is_user_due_for_diary(user, _THURSDAY_EVENING_UTC) is True
@@ -271,12 +276,12 @@ def test_eligibility_tue_thu_not_reading_evenings(cleanup_user: int) -> None:
 
 def test_eligibility_once_per_day(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    user = _eligible(tid)
+    user_id = _onboard(tid)
+    user = _eligible(user_id)
     day = local_today("Europe/Vilnius", _TUESDAY_EVENING_UTC)
     assert is_user_due_for_diary(user, _TUESDAY_EVENING_UTC) is True
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
-    assert has_diary_session_on(tid, day) is True
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
+    assert has_diary_session_on(user_id, day) is True
     assert is_user_due_for_diary(user, _TUESDAY_EVENING_UTC) is False
 
 
@@ -284,39 +289,39 @@ def test_ceiling_reached_skips_prompt_no_session(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", _TUESDAY_EVENING_UTC)
     for _ in range(3):
-        increment_bot_messages(tid, day)
-    app = _mock_app(tid)
+        increment_bot_messages(user_id, day)
+    app = _mock_app(user_id)
     with caplog.at_level(logging.WARNING):
         action = asyncio.run(
-            deliver_diary(app, tid, now=_TUESDAY_EVENING_UTC)
+            deliver_diary(app, user_id, now=_TUESDAY_EVENING_UTC)
         )
     assert action == "skipped_ceiling"
-    assert has_diary_session_on(tid, day) is False
+    assert has_diary_session_on(user_id, day) is False
     app.bot.send_message.assert_not_awaited()
     assert any("ceiling" in r.message for r in caplog.records)
 
 
 def test_paused_user_not_due(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", _TUESDAY_EVENING_UTC)
-    set_paused_until(tid, day)
-    user = _eligible(tid, paused_until=day)
+    set_paused_until(user_id, day)
+    user = _eligible(user_id, paused_until=day)
     assert is_user_due_for_diary(user, _TUESDAY_EVENING_UTC) is False
 
 
 def test_deliver_increments_ceiling(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", _TUESDAY_EVENING_UTC)
-    app = _mock_app(tid)
-    action = asyncio.run(deliver_diary(app, tid, now=_TUESDAY_EVENING_UTC))
+    app = _mock_app(user_id)
+    action = asyncio.run(deliver_diary(app, user_id, now=_TUESDAY_EVENING_UTC))
     assert action == "diary"
-    assert bot_initiated_count(tid, day) == 1
-    assert get_open_diary_session(tid, day) is not None
+    assert bot_initiated_count(user_id, day) == 1
+    assert get_open_diary_session(user_id, day) is not None
     sent = app.bot.send_message.await_args.kwargs["text"]
     assert len(sent) < 400
     assert sent in texts.DIARY_PROMPTS
@@ -327,10 +332,10 @@ def test_deliver_increments_ceiling(cleanup_user: int) -> None:
 
 def test_diary_command_opens_session_no_ceiling(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
     for _ in range(3):
-        increment_bot_messages(tid, day)
+        increment_bot_messages(user_id, day)
     update = MagicMock()
     update.effective_user = MagicMock(id=tid)
     message = MagicMock()
@@ -340,15 +345,15 @@ def test_diary_command_opens_session_no_ceiling(cleanup_user: int) -> None:
     update.message = message
     with patch("apps.bot.handlers.diary.local_today", return_value=day):
         asyncio.run(on_diary_command(update, MagicMock()))
-    assert get_open_diary_session(tid, day) is not None
-    assert bot_initiated_count(tid, day) == 3  # unchanged
+    assert get_open_diary_session(user_id, day) is not None
+    assert bot_initiated_count(user_id, day) == 3  # unchanged
 
 
 def test_diary_command_reuses_open(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
     update = MagicMock()
     update.effective_user = MagicMock(id=tid)
     message = MagicMock()
@@ -360,20 +365,20 @@ def test_diary_command_reuses_open(cleanup_user: int) -> None:
     with connection() as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM sessions WHERE user_id = %s AND task_type = 'diary'",
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert int(row["n"]) == 1
 
 
 def test_diary_command_already_done(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
     sid = insert_session(
-        tid, "diary", day, payload={"source": "command"}, completed=False
+        user_id, "diary", day, payload={"source": "command"}, completed=False
     )
     complete_session(sid, None)
-    assert has_completed_diary_on(tid, day) is True
+    assert has_completed_diary_on(user_id, day) is True
     update = MagicMock()
     update.effective_user = MagicMock(id=tid)
     message = MagicMock()
@@ -389,9 +394,9 @@ def test_diary_command_already_done(cleanup_user: int) -> None:
 
 def test_six_corrections_become_two_diary_errors(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
     six = [
         {
             "you_said": f"err{i}",
@@ -420,17 +425,17 @@ def test_six_corrections_become_two_diary_errors(cleanup_user: int) -> None:
         patch("core.speech.synthesize") as synth,
     ):
         asyncio.run(handle_voice(update, context))
-    assert _error_count(tid) == 2
-    assert has_completed_diary_on(tid, day) is True
+    assert _error_count(user_id) == 2
+    assert has_completed_diary_on(user_id, day) is True
     synth.assert_not_called()
     update.message.reply_voice.assert_not_awaited()
 
 
 def test_zero_corrections_still_names_did_well(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
     update = _make_voice_update(tid)
     context = _make_context()
     with (
@@ -449,7 +454,7 @@ def test_zero_corrections_still_names_did_well(cleanup_user: int) -> None:
         ),
     ):
         asyncio.run(handle_voice(update, context))
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
     replies = [
         c.args[0] for c in update.message.reply_text.await_args_list if c.args
     ]
@@ -460,9 +465,9 @@ def test_full_transcript_absent_from_payload_and_logs(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
     update = _make_voice_update(tid)
     context = _make_context()
     with (
@@ -489,7 +494,7 @@ def test_full_transcript_absent_from_payload_and_logs(
         ),
     ):
         asyncio.run(handle_voice(update, context))
-    payload = _session_payload(tid, day)
+    payload = _session_payload(user_id, day)
     assert payload is not None
     assert PERSONAL_FIXTURE not in str(payload)
     for record in caplog.records:
@@ -498,7 +503,7 @@ def test_full_transcript_absent_from_payload_and_logs(
     with connection() as conn:
         rows = conn.execute(
             "SELECT you_said FROM errors WHERE user_id = %s AND source = 'diary'",
-            (tid,),
+            (user_id,),
         ).fetchall()
     for row in rows:
         assert PERSONAL_FIXTURE not in str(row["you_said"])
@@ -506,10 +511,10 @@ def test_full_transcript_absent_from_payload_and_logs(
 
 def test_no_chunks_from_diary(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
-    before = _chunk_count(tid)
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
+    before = _chunk_count(user_id)
     update = _make_voice_update(tid)
     context = _make_context()
     with (
@@ -526,14 +531,14 @@ def test_no_chunks_from_diary(cleanup_user: int) -> None:
         ),
     ):
         asyncio.run(handle_voice(update, context))
-    assert _chunk_count(tid) == before
+    assert _chunk_count(user_id) == before
 
 
 def test_over_length_declined_before_download(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
     update = _make_voice_update(tid, duration=91)
     context = _make_context()
     with (
@@ -554,9 +559,9 @@ def test_stt_failure_warm_degrade(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
     update = _make_voice_update(tid)
     context = _make_context()
     with (
@@ -573,25 +578,25 @@ def test_stt_failure_warm_degrade(
         ),
     ):
         asyncio.run(handle_voice(update, context))
-    assert get_open_diary_session(tid, day) is not None  # still open
-    assert has_completed_diary_on(tid, day) is False
+    assert get_open_diary_session(user_id, day) is not None  # still open
+    assert has_completed_diary_on(user_id, day) is False
     assert any("STT failed" in r.message for r in caplog.records)
 
 
 def test_diary_does_not_block_morning_quiz(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning="07:00")
+    user_id = _onboard(tid, morning="07:00")
     now = datetime(2026, 8, 5, 4, 10, tzinfo=timezone.utc)  # Wed morning
     day = local_today("Europe/Vilnius", now)
-    insert_session(tid, "diary", day, payload={"source": "command"}, completed=True)
-    assert has_session_on(tid, day) is False
-    user = _eligible(tid)
+    insert_session(user_id, "diary", day, payload={"source": "command"}, completed=True)
+    assert has_session_on(user_id, day) is False
+    user = _eligible(user_id)
     assert is_user_due_for_morning(user, now) is True
 
 
 def test_completed_diary_makes_day_active(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
     with connection() as conn:
         conn.execute(
@@ -605,21 +610,21 @@ def test_completed_diary_makes_day_active(cleanup_user: int) -> None:
                    last_evaluated_date = %s
              WHERE user_id = %s
             """,
-            (date(2026, 8, 3), date(2026, 8, 3), tid),
+            (date(2026, 8, 3), date(2026, 8, 3), user_id),
         )
     sid = insert_session(
-        tid, "diary", day, payload={"source": "poll"}, completed=False
+        user_id, "diary", day, payload={"source": "poll"}, completed=False
     )
     complete_session(sid, None)
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
     assert result.outcome == "active"
     assert streak.last_active_date == day
 
 
 def test_incomplete_diary_alone_is_neutral(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 4)
     with connection() as conn:
         conn.execute(
@@ -633,11 +638,11 @@ def test_incomplete_diary_alone_is_neutral(cleanup_user: int) -> None:
                    last_evaluated_date = %s
              WHERE user_id = %s
             """,
-            (date(2026, 8, 3), date(2026, 8, 3), tid),
+            (date(2026, 8, 3), date(2026, 8, 3), user_id),
         )
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
     assert result.outcome == "neutral"
     assert streak.current_streak == 3
 
@@ -658,11 +663,11 @@ def test_s13_button_labels_max_20() -> None:
 def test_live_m3_wins_over_open_diary_unit(cleanup_user: int) -> None:
     """Unit pin: with live M3 + open diary, M3 path runs (not diary)."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today("Europe/Vilnius", datetime.now(timezone.utc))
     save_voice_exchange(
         None,
-        tid,
+        user_id,
         day,
         {
             "messages": [
@@ -672,7 +677,7 @@ def test_live_m3_wins_over_open_diary_unit(cleanup_user: int) -> None:
             "turn_count": 2,
         },
     )
-    insert_session(tid, "diary", day, payload={"source": "poll"}, completed=False)
+    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
     update = _make_voice_update(tid)
     context = _make_context()
     diary_spy = AsyncMock()

@@ -58,6 +58,8 @@ from core.services.sessions import (
     utc_now_iso,
 )
 from core.services.users import User, get_user, is_registered
+from apps.bot import identity as bot_identity
+from core.services import identity
 
 logger = logging.getLogger(__name__)
 
@@ -180,10 +182,16 @@ class OpenConversationFilter(filters.MessageFilter):
         if chat is None or chat.type != ChatType.PRIVATE:
             return False
         try:
-            return open_conversation_awaits_text(user.id)
+            # A PTB filter gets no `context`, so it cannot read the gate's
+            # stash and resolves through the core resolver directly. Still one
+            # translation module, which is what the rule is about.
+            resolved = identity.user_id_for_telegram(user.id)
+            if resolved is None:
+                return False
+            return open_conversation_awaits_text(resolved)
         except Exception:
             logger.exception(
-                "OpenConversationFilter failed user_id=%s",
+                "OpenConversationFilter failed telegram_user_id=%s",
                 user.id,
             )
             return False
@@ -381,7 +389,7 @@ def _gap_blocks_talk(user_id: int) -> bool:
 def _user_timezone(user_id: int) -> str:
     with connection() as conn:
         row = conn.execute(
-            "SELECT timezone FROM users WHERE telegram_user_id = %s",
+            "SELECT timezone FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
     if row is None:
@@ -561,7 +569,9 @@ async def on_talk_command(
     user_tg = update.effective_user
     if message is None or user_tg is None:
         return
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if not is_registered(user_id):
         return
 
@@ -672,7 +682,10 @@ async def on_talk_callback(
     query = update.callback_query
     if query is None or query.from_user is None:
         return
-    user_id = query.from_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        await query.answer()
+        return
     if not is_registered(user_id):
         await query.answer()
         return
@@ -766,7 +779,9 @@ async def on_conversation_text(
     user_tg = update.effective_user
     if message is None or user_tg is None or not message.text:
         return
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if not is_registered(user_id):
         return
 

@@ -32,8 +32,7 @@ from core.services.sessions import (
     get_reading_session_by_message,
     insert_session,
 )
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
 
 
@@ -63,8 +62,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Reading S9c",
@@ -78,6 +77,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _mcq_list() -> list[dict[str, Any]]:
@@ -134,6 +134,9 @@ def _insert_reading_session(
     day: date | None = None,
     payload_extra: dict[str, Any] | None = None,
 ) -> int:
+    # Defaults to the learner's own Telegram chat. Before W4b `tid` was both
+    # the user id and the chat id; they are different numbers now, so a caller
+    # that drives a fabricated Update must pass the Telegram id explicitly.
     chat = chat_id if chat_id is not None else tid
     payload: dict[str, Any] = {
         "reading_id": reading_id,
@@ -263,37 +266,37 @@ def test_all_s9c_button_labels_within_20() -> None:
 
 def test_rating_map_and_clamps(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _seed_interest(tid, "apartments", "life", weight=1.0)
+    user_id = _onboard(tid)
+    _seed_interest(user_id, "apartments", "life", weight=1.0)
 
-    assert adjust_weight_for_rating(tid, "apartments", 5) == pytest.approx(1.30)
-    assert adjust_weight_for_rating(tid, "apartments", 1) == pytest.approx(1.00)
-    assert adjust_weight_for_rating(tid, "apartments", 2) == pytest.approx(0.85)
-    assert adjust_weight_for_rating(tid, "apartments", 3) == pytest.approx(0.85)
-    assert adjust_weight_for_rating(tid, "apartments", 4) == pytest.approx(1.00)
+    assert adjust_weight_for_rating(user_id, "apartments", 5) == pytest.approx(1.30)
+    assert adjust_weight_for_rating(user_id, "apartments", 1) == pytest.approx(1.00)
+    assert adjust_weight_for_rating(user_id, "apartments", 2) == pytest.approx(0.85)
+    assert adjust_weight_for_rating(user_id, "apartments", 3) == pytest.approx(0.85)
+    assert adjust_weight_for_rating(user_id, "apartments", 4) == pytest.approx(1.00)
 
     with connection() as conn:
         conn.execute(
             "UPDATE interests SET weight = 0.30 WHERE user_id = %s",
-            (tid,),
+            (user_id,),
         )
-    assert adjust_weight_for_rating(tid, "apartments", 1) == pytest.approx(0.25)
+    assert adjust_weight_for_rating(user_id, "apartments", 1) == pytest.approx(0.25)
 
     with connection() as conn:
         conn.execute(
             "UPDATE interests SET weight = 2.90 WHERE user_id = %s",
-            (tid,),
+            (user_id,),
         )
-    assert adjust_weight_for_rating(tid, "apartments", 5) == pytest.approx(3.00)
+    assert adjust_weight_for_rating(user_id, "apartments", 5) == pytest.approx(3.00)
 
 
 def test_missing_topic_does_not_raise(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     with caplog.at_level(logging.WARNING):
-        assert adjust_weight_for_rating(tid, "nope", 1) is None
+        assert adjust_weight_for_rating(user_id, "nope", 1) is None
     assert any("missing topic" in r.message for r in caplog.records)
 
 
@@ -302,23 +305,23 @@ def test_missing_topic_does_not_raise(
 
 def test_resolve_by_message_id_not_orphan(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    orphan_rid = _insert_reading(tid, topic="orphan-topic")
+    user_id = _onboard(tid)
+    orphan_rid = _insert_reading(user_id, topic="orphan-topic")
     insert_session(
-        tid,
+        user_id,
         "reading",
         date(2026, 8, 6),
         payload={"reading_id": orphan_rid},
         completed=False,
     )
-    good_rid = _insert_reading(tid, topic="apartments")
-    _insert_reading_session(tid, good_rid, message_id=777)
+    good_rid = _insert_reading(user_id, topic="apartments")
+    _insert_reading_session(user_id, good_rid, message_id=777)
 
-    found = get_reading_session_by_message(tid, tid, 777)
+    found = get_reading_session_by_message(user_id, user_id, 777)
     assert found is not None
     assert found.payload is not None
     assert found.payload["reading_id"] == good_rid
-    assert get_reading_session_by_message(tid, tid, 1) is None
+    assert get_reading_session_by_message(user_id, tid, 1) is None
 
 
 # --- Handler flows ------------------------------------------------------------
@@ -326,12 +329,13 @@ def test_resolve_by_message_id_not_orphan(cleanup_user: int) -> None:
 
 def test_progress_survives_restart_and_stale_is_noop(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _seed_interest(tid, "apartments", "life", 1.0)
-    rid = _insert_reading(tid)
+    user_id = _onboard(tid)
+    _seed_interest(user_id, "apartments", "life", 1.0)
+    rid = _insert_reading(user_id)
     sid = _insert_reading_session(
-        tid,
+        user_id,
         rid,
+        chat_id=tid,
         message_id=500,
         payload_extra={
             "phase": "questions",
@@ -374,8 +378,8 @@ def test_legacy_skip_to_rating_score_null(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _seed_interest(tid, "apartments", "life", 1.0)
+    user_id = _onboard(tid)
+    _seed_interest(user_id, "apartments", "life", 1.0)
     legacy = [
         {
             "question": "Q?",
@@ -384,8 +388,8 @@ def test_legacy_skip_to_rating_score_null(
         }
         for _ in range(5)
     ]
-    rid = _insert_reading(tid, questions=legacy)
-    sid = _insert_reading_session(tid, rid, message_id=500)
+    rid = _insert_reading(user_id, questions=legacy)
+    sid = _insert_reading_session(user_id, rid, chat_id=tid, message_id=500)
     ctx = _context_with_bot(chat_id=tid)
 
     async def _run() -> None:
@@ -418,17 +422,17 @@ def test_legacy_skip_to_rating_score_null(
             assert reading["score"] is None
             assert sess["completed"] is True
             assert sess["score"] is None
-            assert list_interests(tid)[0].weight == pytest.approx(1.15)
+            assert list_interests(user_id)[0].weight == pytest.approx(1.15)
 
     asyncio.run(_run())
 
 
 def test_full_qa_then_rating_writes_score(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _seed_interest(tid, "apartments", "life", 1.0)
-    rid = _insert_reading(tid)
-    sid = _insert_reading_session(tid, rid, message_id=500)
+    user_id = _onboard(tid)
+    _seed_interest(user_id, "apartments", "life", 1.0)
+    rid = _insert_reading(user_id)
+    sid = _insert_reading_session(user_id, rid, chat_id=tid, message_id=500)
     ctx = _context_with_bot(chat_id=tid)
 
     async def _run() -> None:
@@ -466,7 +470,7 @@ def test_full_qa_then_rating_writes_score(cleanup_user: int) -> None:
             assert reading["rating"] == 5
             assert reading["score"] == pytest.approx(1.0)
             assert sess["score"] == pytest.approx(1.0)
-            assert list_interests(tid)[0].weight == pytest.approx(1.30)
+            assert list_interests(user_id)[0].weight == pytest.approx(1.30)
 
     asyncio.run(_run())
 
@@ -475,9 +479,9 @@ def test_edit_failure_resends_and_updates_message_id(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    rid = _insert_reading(tid)
-    sid = _insert_reading_session(tid, rid, message_id=500)
+    user_id = _onboard(tid)
+    rid = _insert_reading(user_id)
+    sid = _insert_reading_session(user_id, rid, chat_id=tid, message_id=500)
     payload = {
         "reading_id": rid,
         "chat_id": tid,
@@ -494,7 +498,7 @@ def test_edit_failure_resends_and_updates_message_id(
         with caplog.at_level(logging.WARNING):
             new_payload = await _edit_or_resend(
                 ctx,
-                user_id=tid,
+                user_id=user_id,
                 reading_id=rid,
                 session_id=sid,
                 payload=payload,
@@ -504,7 +508,7 @@ def test_edit_failure_resends_and_updates_message_id(
         assert new_payload["message_id"] == 888
         assert ctx.bot.send_message.await_count == 1
         assert any("edit failed" in r.message for r in caplog.records)
-        found = get_reading_session_by_message(tid, tid, 888)
+        found = get_reading_session_by_message(user_id, tid, 888)
         assert found is not None
         assert found.id == sid
 
@@ -513,9 +517,9 @@ def test_edit_failure_resends_and_updates_message_id(
 
 def test_message_not_modified_swallowed(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    rid = _insert_reading(tid)
-    sid = _insert_reading_session(tid, rid, message_id=500)
+    user_id = _onboard(tid)
+    rid = _insert_reading(user_id)
+    sid = _insert_reading_session(user_id, rid, chat_id=tid, message_id=500)
     payload = {
         "reading_id": rid,
         "chat_id": tid,
@@ -529,7 +533,7 @@ def test_message_not_modified_swallowed(cleanup_user: int) -> None:
     async def _run() -> None:
         out = await _edit_or_resend(
             ctx,
-            user_id=tid,
+            user_id=user_id,
             reading_id=rid,
             session_id=sid,
             payload=payload,

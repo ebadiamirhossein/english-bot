@@ -22,8 +22,7 @@ from core.services.streaks import (
     reset_monthly_freezes,
     roll_over_day,
 )
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_340_000_000
 
 
@@ -53,8 +52,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int, *, tz: str = "Europe/Vilnius") -> None:
-    save_onboarding(
+def _onboard(tid: int, *, tz: str = "Europe/Vilnius") -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Streak Test",
@@ -73,6 +72,7 @@ def _onboard(tid: int, *, tz: str = "Europe/Vilnius") -> None:
             "UPDATE users SET timezone = %s WHERE telegram_user_id = %s",
             (tz, tid),
         )
+    return user_id
 
 
 def _set_streak(
@@ -129,13 +129,13 @@ def _free_practice(tid: int, day: date) -> int:
 
 def test_completed_day_increments_streak(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
-    _set_streak(tid, current=5, longest=5, total_active=5, last_active=date(2026, 7, 9), last_eval=date(2026, 7, 9))
-    _quiz(tid, day, completed=True)
+    _set_streak(user_id, current=5, longest=5, total_active=5, last_active=date(2026, 7, 9), last_eval=date(2026, 7, 9))
+    _quiz(user_id, day, completed=True)
 
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
 
     assert result.outcome == "active"
     assert streak.current_streak == 6
@@ -146,20 +146,20 @@ def test_completed_day_increments_streak(cleanup_user: int) -> None:
 
 def test_longest_streak_updates_only_when_exceeded(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
-    _set_streak(tid, current=3, longest=10, total_active=3, last_eval=date(2026, 7, 9))
-    _quiz(tid, day, completed=True)
+    _set_streak(user_id, current=3, longest=10, total_active=3, last_eval=date(2026, 7, 9))
+    _quiz(user_id, day, completed=True)
 
-    roll_over_day(tid, day)
-    assert get_streak(tid).current_streak == 4
-    assert get_streak(tid).longest_streak == 10
+    roll_over_day(user_id, day)
+    assert get_streak(user_id).current_streak == 4
+    assert get_streak(user_id).longest_streak == 10
 
     day2 = date(2026, 7, 11)
-    _quiz(tid, day2, completed=True)
+    _quiz(user_id, day2, completed=True)
     # Push current past longest
     _set_streak(
-        tid,
+        user_id,
         current=10,
         longest=10,
         total_active=10,
@@ -167,27 +167,27 @@ def test_longest_streak_updates_only_when_exceeded(cleanup_user: int) -> None:
         last_active=day,
         tokens=2,
     )
-    roll_over_day(tid, day2)
-    assert get_streak(tid).current_streak == 11
-    assert get_streak(tid).longest_streak == 11
+    roll_over_day(user_id, day2)
+    assert get_streak(user_id).current_streak == 11
+    assert get_streak(user_id).longest_streak == 11
 
 
 def test_missed_with_tokens_consumes_freeze(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
     _set_streak(
-        tid,
+        user_id,
         current=6,
         longest=6,
         tokens=2,
         last_active=date(2026, 7, 9),
         last_eval=date(2026, 7, 9),
     )
-    _quiz(tid, day, completed=False)
+    _quiz(user_id, day, completed=False)
 
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
 
     assert result.outcome == "missed"
     assert result.freeze_consumed is True
@@ -199,20 +199,20 @@ def test_missed_with_tokens_consumes_freeze(cleanup_user: int) -> None:
 
 def test_missed_without_tokens_resets_streak(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
     _set_streak(
-        tid,
+        user_id,
         current=6,
         longest=6,
         tokens=0,
         last_active=date(2026, 7, 9),
         last_eval=date(2026, 7, 9),
     )
-    _quiz(tid, day, completed=False)
+    _quiz(user_id, day, completed=False)
 
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
 
     assert result.outcome == "missed"
     assert result.freeze_consumed is False
@@ -223,10 +223,10 @@ def test_missed_without_tokens_resets_streak(cleanup_user: int) -> None:
 
 def test_no_session_is_neutral(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
     _set_streak(
-        tid,
+        user_id,
         current=4,
         longest=4,
         tokens=2,
@@ -235,8 +235,8 @@ def test_no_session_is_neutral(cleanup_user: int) -> None:
         total_active=4,
     )
 
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
 
     assert result.outcome == "neutral"
     assert streak.current_streak == 4
@@ -248,14 +248,14 @@ def test_no_session_is_neutral(cleanup_user: int) -> None:
 
 def test_roll_over_day_idempotent(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
-    _set_streak(tid, current=2, longest=2, tokens=2, last_eval=date(2026, 7, 9))
-    _quiz(tid, day, completed=True)
+    _set_streak(user_id, current=2, longest=2, tokens=2, last_eval=date(2026, 7, 9))
+    _quiz(user_id, day, completed=True)
 
-    first = roll_over_day(tid, day)
-    second = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    first = roll_over_day(user_id, day)
+    second = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
 
     assert first.outcome == "active"
     assert second.outcome == "skipped"
@@ -266,68 +266,68 @@ def test_roll_over_day_idempotent(cleanup_user: int) -> None:
 
 def test_three_misses_set_rescue(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     d1, d2, d3 = date(2026, 7, 8), date(2026, 7, 9), date(2026, 7, 10)
-    _set_streak(tid, current=5, tokens=2, last_eval=date(2026, 7, 7))
+    _set_streak(user_id, current=5, tokens=2, last_eval=date(2026, 7, 7))
     for d in (d1, d2, d3):
-        _quiz(tid, d, completed=False)
+        _quiz(user_id, d, completed=False)
 
-    roll_over_day(tid, d1)
-    assert get_streak(tid).rescue_mode_until is None
-    roll_over_day(tid, d2)
-    assert get_streak(tid).rescue_mode_until is None
-    result = roll_over_day(tid, d3)
+    roll_over_day(user_id, d1)
+    assert get_streak(user_id).rescue_mode_until is None
+    roll_over_day(user_id, d2)
+    assert get_streak(user_id).rescue_mode_until is None
+    result = roll_over_day(user_id, d3)
     assert result.rescue_started is True
-    assert get_streak(tid).rescue_mode_until == d3 + timedelta(days=7)
-    assert is_in_rescue(tid, d3 + timedelta(days=3))
-    assert not is_in_rescue(tid, d3 + timedelta(days=8))
+    assert get_streak(user_id).rescue_mode_until == d3 + timedelta(days=7)
+    assert is_in_rescue(user_id, d3 + timedelta(days=3))
+    assert not is_in_rescue(user_id, d3 + timedelta(days=8))
 
 
 def test_freeze_covered_miss_counts_toward_rescue(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     d1, d2, d3 = date(2026, 7, 8), date(2026, 7, 9), date(2026, 7, 10)
-    _set_streak(tid, current=5, tokens=2, last_eval=date(2026, 7, 7))
+    _set_streak(user_id, current=5, tokens=2, last_eval=date(2026, 7, 7))
     for d in (d1, d2, d3):
-        _quiz(tid, d, completed=False)
+        _quiz(user_id, d, completed=False)
 
-    roll_over_day(tid, d1)  # freeze
-    roll_over_day(tid, d2)  # freeze
-    assert get_streak(tid).current_streak == 5
-    assert get_streak(tid).freeze_tokens == 0
-    roll_over_day(tid, d3)  # no tokens → streak 0, but rescue from 3 misses
-    streak = get_streak(tid)
+    roll_over_day(user_id, d1)  # freeze
+    roll_over_day(user_id, d2)  # freeze
+    assert get_streak(user_id).current_streak == 5
+    assert get_streak(user_id).freeze_tokens == 0
+    roll_over_day(user_id, d3)  # no tokens → streak 0, but rescue from 3 misses
+    streak = get_streak(user_id)
     assert streak.current_streak == 0
     assert streak.rescue_mode_until == d3 + timedelta(days=7)
 
 
 def test_completing_during_rescue_does_not_clear(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     until = date(2026, 7, 17)
     day = date(2026, 7, 12)
     _set_streak(
-        tid,
+        user_id,
         current=0,
         tokens=2,
         last_eval=date(2026, 7, 11),
         rescue_until=until,
     )
-    _quiz(tid, day, completed=True)
+    _quiz(user_id, day, completed=True)
 
-    roll_over_day(tid, day)
-    assert get_streak(tid).rescue_mode_until == until
-    assert get_streak(tid).current_streak == 1
-    assert is_in_rescue(tid, day)
+    roll_over_day(user_id, day)
+    assert get_streak(user_id).rescue_mode_until == until
+    assert get_streak(user_id).current_streak == 1
+    assert is_in_rescue(user_id, day)
 
 
 def test_offline_seven_days_evaluated_in_order(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     # Start: streak 3, 2 freezes, last evaluated Sun Jul 5
     start = date(2026, 7, 5)
     _set_streak(
-        tid,
+        user_id,
         current=3,
         longest=3,
         tokens=2,
@@ -338,14 +338,14 @@ def test_offline_seven_days_evaluated_in_order(cleanup_user: int) -> None:
     # Mon–Sun Jul 6–12: incomplete quizzes
     days = [start + timedelta(days=i) for i in range(1, 8)]
     for d in days:
-        _quiz(tid, d, completed=False)
+        _quiz(user_id, d, completed=False)
 
     # Local Mon Jul 13 04:00 Vilnius — window closed through Jul 12
     now = datetime(2026, 7, 13, 1, 0, tzinfo=timezone.utc)  # 04:00 Vilnius (UTC+3)
-    results = evaluate_pending(tid, timezone="Europe/Vilnius", now=now)
+    results = evaluate_pending(user_id, timezone="Europe/Vilnius", now=now)
 
     assert [r.day for r in results] == days
-    streak = get_streak(tid)
+    streak = get_streak(user_id)
     # 2 freezes consumed on first two misses; then streak resets; rescue on day 3
     assert streak.freeze_tokens == 0
     assert streak.current_streak == 0
@@ -356,29 +356,29 @@ def test_offline_seven_days_evaluated_in_order(cleanup_user: int) -> None:
 
 def test_monthly_reset_sets_tokens_idempotent(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _set_streak(tid, tokens=0, freeze_reset_on=None)
+    user_id = _onboard(tid)
+    _set_streak(user_id, tokens=0, freeze_reset_on=None)
     # 1 Aug 2026 00:30 Vilnius
     now = datetime(2026, 7, 31, 21, 30, tzinfo=timezone.utc)
     assert local_date(now, "Europe/Vilnius") == date(2026, 8, 1)
 
     reset_monthly_freezes(now=now)
-    assert get_streak(tid).freeze_tokens == 2
-    assert get_streak(tid).freeze_reset_on == date(2026, 8, 1)
+    assert get_streak(user_id).freeze_tokens == 2
+    assert get_streak(user_id).freeze_reset_on == date(2026, 8, 1)
 
     reset_monthly_freezes(now=now)
-    assert get_streak(tid).freeze_tokens == 2
-    assert get_streak(tid).freeze_reset_on == date(2026, 8, 1)
+    assert get_streak(user_id).freeze_tokens == 2
+    assert get_streak(user_id).freeze_reset_on == date(2026, 8, 1)
 
 
 def test_unused_tokens_do_not_carry_over(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _set_streak(tid, tokens=2, freeze_reset_on=date(2026, 7, 1))
+    user_id = _onboard(tid)
+    _set_streak(user_id, tokens=2, freeze_reset_on=date(2026, 7, 1))
     now = datetime(2026, 7, 31, 21, 30, tzinfo=timezone.utc)
     reset_monthly_freezes(now=now)
-    assert get_streak(tid).freeze_tokens == 2
-    assert get_streak(tid).freeze_reset_on == date(2026, 8, 1)
+    assert get_streak(user_id).freeze_tokens == 2
+    assert get_streak(user_id).freeze_reset_on == date(2026, 8, 1)
 
 
 def test_monthly_reset_per_user_timezone() -> None:
@@ -387,10 +387,10 @@ def test_monthly_reset_per_user_timezone() -> None:
     _delete_user(tokyo_id)
     _delete_user(vilnius_id)
     try:
-        _onboard(tokyo_id, tz="Asia/Tokyo")
-        _onboard(vilnius_id, tz="Europe/Vilnius")
-        _set_streak(tokyo_id, tokens=0, freeze_reset_on=None)
-        _set_streak(vilnius_id, tokens=0, freeze_reset_on=None)
+        user_id = _onboard(tokyo_id, tz="Asia/Tokyo")
+        vilnius_id_id = _onboard(vilnius_id, tz="Europe/Vilnius")
+        _set_streak(user_id, tokens=0, freeze_reset_on=None)
+        _set_streak(vilnius_id_id, tokens=0, freeze_reset_on=None)
 
         # 1 Aug 2026 00:30 Tokyo = 31 Jul 15:30 UTC — Vilnius still 31 Jul
         now_tokyo_first = datetime(2026, 7, 31, 15, 30, tzinfo=timezone.utc)
@@ -398,26 +398,26 @@ def test_monthly_reset_per_user_timezone() -> None:
         assert local_date(now_tokyo_first, "Europe/Vilnius") == date(2026, 7, 31)
 
         reset_monthly_freezes(now=now_tokyo_first)
-        assert get_streak(tokyo_id).freeze_tokens == 2
-        assert get_streak(tokyo_id).freeze_reset_on == date(2026, 8, 1)
-        assert get_streak(vilnius_id).freeze_tokens == 0
-        assert get_streak(vilnius_id).freeze_reset_on is None
+        assert get_streak(user_id).freeze_tokens == 2
+        assert get_streak(user_id).freeze_reset_on == date(2026, 8, 1)
+        assert get_streak(vilnius_id_id).freeze_tokens == 0
+        assert get_streak(vilnius_id_id).freeze_reset_on is None
 
         # Same tick again — Tokyo not reset twice
         reset_monthly_freezes(now=now_tokyo_first)
-        assert get_streak(tokyo_id).freeze_reset_on == date(2026, 8, 1)
-        assert get_streak(tokyo_id).freeze_tokens == 2
+        assert get_streak(user_id).freeze_reset_on == date(2026, 8, 1)
+        assert get_streak(user_id).freeze_tokens == 2
 
         # Later: Vilnius 1 Aug 00:30
         now_vilnius_first = datetime(2026, 7, 31, 21, 30, tzinfo=timezone.utc)
         assert local_date(now_vilnius_first, "Europe/Vilnius") == date(2026, 8, 1)
         reset_monthly_freezes(now=now_vilnius_first)
-        assert get_streak(vilnius_id).freeze_tokens == 2
-        assert get_streak(vilnius_id).freeze_reset_on == date(2026, 8, 1)
+        assert get_streak(vilnius_id_id).freeze_tokens == 2
+        assert get_streak(vilnius_id_id).freeze_reset_on == date(2026, 8, 1)
         # Tokyo still once
-        assert get_streak(tokyo_id).freeze_reset_on == date(2026, 8, 1)
+        assert get_streak(user_id).freeze_reset_on == date(2026, 8, 1)
         reset_monthly_freezes(now=now_vilnius_first)
-        assert get_streak(vilnius_id).freeze_reset_on == date(2026, 8, 1)
+        assert get_streak(vilnius_id_id).freeze_reset_on == date(2026, 8, 1)
     finally:
         _delete_user(tokyo_id)
         _delete_user(vilnius_id)
@@ -425,14 +425,14 @@ def test_monthly_reset_per_user_timezone() -> None:
 
 def test_free_practice_with_correction_is_active(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
-    _set_streak(tid, current=4, longest=4, tokens=2, last_eval=date(2026, 7, 9), total_active=4)
-    _free_practice(tid, day)
-    assert complete_open_free_practice(tid, day) is True
+    _set_streak(user_id, current=4, longest=4, tokens=2, last_eval=date(2026, 7, 9), total_active=4)
+    _free_practice(user_id, day)
+    assert complete_open_free_practice(user_id, day) is True
 
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
     assert result.outcome == "active"
     assert streak.current_streak == 5
     assert streak.freeze_tokens == 2
@@ -441,13 +441,13 @@ def test_free_practice_with_correction_is_active(cleanup_user: int) -> None:
 
 def test_free_practice_without_messages_is_neutral(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
-    _set_streak(tid, current=4, longest=4, tokens=2, last_eval=date(2026, 7, 9), total_active=4)
-    _free_practice(tid, day)
+    _set_streak(user_id, current=4, longest=4, tokens=2, last_eval=date(2026, 7, 9), total_active=4)
+    _free_practice(user_id, day)
 
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
     assert result.outcome == "neutral"
     assert streak.current_streak == 4
     assert streak.freeze_tokens == 2
@@ -456,14 +456,14 @@ def test_free_practice_without_messages_is_neutral(cleanup_user: int) -> None:
 
 def test_free_practice_never_consumes_freeze(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
-    _set_streak(tid, current=4, tokens=1, last_eval=date(2026, 7, 9))
-    _free_practice(tid, day)
+    _set_streak(user_id, current=4, tokens=1, last_eval=date(2026, 7, 9))
+    _free_practice(user_id, day)
 
-    roll_over_day(tid, day)
-    assert get_streak(tid).freeze_tokens == 1
-    assert get_streak(tid).pending_freeze_notice is False
+    roll_over_day(user_id, day)
+    assert get_streak(user_id).freeze_tokens == 1
+    assert get_streak(user_id).pending_freeze_notice is False
 
 
 def test_incomplete_quiz_plus_completed_voice_is_active(cleanup_user: int) -> None:
@@ -472,10 +472,10 @@ def test_incomplete_quiz_plus_completed_voice_is_active(cleanup_user: int) -> No
     Voice-then-ignored-quiz (or ignore-quiz-then-voice) must not burn a freeze.
     """
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
     _set_streak(
-        tid,
+        user_id,
         current=5,
         longest=5,
         tokens=2,
@@ -486,16 +486,16 @@ def test_incomplete_quiz_plus_completed_voice_is_active(cleanup_user: int) -> No
     # Voice first (completed), then incomplete quiz with higher id — the
     # dangerous insert order after morning delivery is no longer blocked by voice.
     insert_session(
-        tid,
+        user_id,
         "voice",
         day,
         payload={"messages": [], "turn_count": 1},
         completed=True,
     )
-    _quiz(tid, day, completed=False)
+    _quiz(user_id, day, completed=False)
 
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
 
     assert result.outcome == "active"
     assert result.freeze_consumed is False
@@ -509,10 +509,10 @@ def test_incomplete_quiz_plus_completed_voice_is_active(cleanup_user: int) -> No
 def test_incomplete_reading_only_is_neutral(cleanup_user: int) -> None:
     """S9c pin: incomplete reading (never tapped Questions) is Neutral, not Missed."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
     _set_streak(
-        tid,
+        user_id,
         current=4,
         longest=4,
         tokens=2,
@@ -520,15 +520,15 @@ def test_incomplete_reading_only_is_neutral(cleanup_user: int) -> None:
         last_eval=date(2026, 7, 9),
     )
     insert_session(
-        tid,
+        user_id,
         "reading",
         day,
         payload={"reading_id": 1, "chat_id": tid, "message_id": 1},
         completed=False,
     )
 
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
 
     assert result.outcome == "neutral"
     assert result.freeze_consumed is False
@@ -541,10 +541,10 @@ def test_incomplete_reading_only_is_neutral(cleanup_user: int) -> None:
 def test_completed_reading_plus_incomplete_quiz_is_active(cleanup_user: int) -> None:
     """S9c pin: completed reading makes the day Active even with incomplete quiz."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
     _set_streak(
-        tid,
+        user_id,
         current=5,
         longest=5,
         tokens=2,
@@ -553,16 +553,16 @@ def test_completed_reading_plus_incomplete_quiz_is_active(cleanup_user: int) -> 
         last_eval=date(2026, 7, 9),
     )
     insert_session(
-        tid,
+        user_id,
         "reading",
         day,
         payload={"reading_id": 1, "chat_id": tid, "message_id": 1},
         completed=True,
     )
-    _quiz(tid, day, completed=False)
+    _quiz(user_id, day, completed=False)
 
-    result = roll_over_day(tid, day)
-    streak = get_streak(tid)
+    result = roll_over_day(user_id, day)
+    streak = get_streak(user_id)
 
     assert result.outcome == "active"
     assert result.freeze_consumed is False
@@ -575,20 +575,20 @@ def test_completed_reading_plus_incomplete_quiz_is_active(cleanup_user: int) -> 
 
 def test_completing_quiz_does_not_change_last_evaluated(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 7, 10)
-    _set_streak(tid, current=5, last_eval=date(2026, 7, 9), last_active=date(2026, 7, 9))
-    sid = _quiz(tid, day, completed=False)
-    before = get_streak(tid).last_evaluated_date
+    _set_streak(user_id, current=5, last_eval=date(2026, 7, 9), last_active=date(2026, 7, 9))
+    sid = _quiz(user_id, day, completed=False)
+    before = get_streak(user_id).last_evaluated_date
 
     complete_session(sid, 0.8)
     # Optimistic display only — no roll_over_day on completion.
     msg = format_completion_message(
-        correct_count=4, total=5, streak_days=get_streak(tid).current_streak + 1
+        correct_count=4, total=5, streak_days=get_streak(user_id).current_streak + 1
     )
     assert "🔥 6-day streak" in msg
-    assert get_streak(tid).last_evaluated_date == before
-    assert get_streak(tid).current_streak == 5
+    assert get_streak(user_id).last_evaluated_date == before
+    assert get_streak(user_id).current_streak == 5
 
 
 def local_date(now: datetime, tz: str) -> date:

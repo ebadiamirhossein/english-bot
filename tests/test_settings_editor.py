@@ -25,9 +25,9 @@ from apps.bot.handlers.settings import (
     parse_settings_time_callback,
     s18a_button_labels,
 )
+from core.services.identity import save_onboarding
 from core.services.users import (
     get_user,
-    save_onboarding,
     update_cefr_level,
 )
 
@@ -60,7 +60,7 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int, **overrides: object) -> None:
+def _onboard(tid: int, **overrides: object) -> int:
     data: dict[str, object] = {
         "name": "Settings Test",
         "native_language": "fa",
@@ -73,10 +73,11 @@ def _onboard(tid: int, **overrides: object) -> None:
         "evening_time": "21:00",
     }
     data.update(overrides)
-    save_onboarding(tid, data)
+    user_id = save_onboarding(tid, data)
+    return user_id
 
 
-def _row(tid: int) -> dict:
+def _row(user_id: int) -> dict:
     with connection() as conn:
         row = conn.execute(
             """
@@ -84,9 +85,9 @@ def _row(tid: int) -> dict:
                    explanation_language_fallback, cefr_level,
                    work_domain, why_statement, name
               FROM users
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert row is not None
     return dict(row)
@@ -134,8 +135,8 @@ def test_weight_preset_writes_only_track_weights(
     cleanup_user: int, key: str
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    before = _row(tid)
+    user_id = _onboard(tid)
+    before = _row(user_id)
     expected = _WEIGHT_PRESETS[key]
 
     update = _callback_update(tid, f"set:weights:{key}")
@@ -143,7 +144,7 @@ def test_weight_preset_writes_only_track_weights(
     result = asyncio.run(field_callback(update, context))
 
     assert result == MENU
-    after = _row(tid)
+    after = _row(user_id)
     assert dict(after["track_weights"]) == expected
     assert after["morning_time"] == before["morning_time"]
     assert after["evening_time"] == before["evening_time"]
@@ -159,7 +160,7 @@ def test_weight_preset_writes_only_track_weights(
 
 def test_morning_evening_round_trip_preserves_07_00(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, morning_time="08:00", evening_time="21:00")
+    user_id = _onboard(tid, morning_time="08:00", evening_time="21:00")
 
     assert parse_settings_time_callback("set:morning:07:00") == "07:00"
     assert parse_settings_time_callback("set:evening:19:00") == "19:00"
@@ -171,46 +172,46 @@ def test_morning_evening_round_trip_preserves_07_00(cleanup_user: int) -> None:
     update = _callback_update(tid, "set:morning:07:00")
     context = _ctx()
     asyncio.run(field_callback(update, context))
-    user = get_user(tid)
+    user = get_user(user_id)
     assert user is not None
     assert user.morning_time == time(7, 0)
 
     update = _callback_update(tid, "set:evening:19:00")
     context = _ctx()
     asyncio.run(field_callback(update, context))
-    user = get_user(tid)
+    user = get_user(user_id)
     assert user is not None
     assert user.evening_time == time(19, 0)
 
 
 def test_fallback_toggle_flips_and_persists(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     with connection() as conn:
         conn.execute(
             """
             UPDATE users
                SET explanation_language_fallback = TRUE
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (tid,),
+            (user_id,),
         )
-    assert get_user(tid).explanation_language_fallback is True
+    assert get_user(user_id).explanation_language_fallback is True
 
     update = _callback_update(tid, "set:fallback:off")
     context = _ctx()
     asyncio.run(field_callback(update, context))
-    assert get_user(tid).explanation_language_fallback is False
+    assert get_user(user_id).explanation_language_fallback is False
 
     update = _callback_update(tid, "set:fallback:on")
     context = _ctx()
     asyncio.run(field_callback(update, context))
-    assert get_user(tid).explanation_language_fallback is True
+    assert get_user(user_id).explanation_language_fallback is True
 
 
 def test_menu_shows_current_values_before_choice(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(
+    user_id = _onboard(
         tid,
         track_weights={"work": 60, "life": 25, "curiosity": 15},
         morning_time="07:00",
@@ -222,9 +223,9 @@ def test_menu_shows_current_values_before_choice(cleanup_user: int) -> None:
             """
             UPDATE users
                SET explanation_language_fallback = FALSE
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (tid,),
+            (user_id,),
         )
 
     msg = MagicMock()
@@ -254,7 +255,7 @@ def test_menu_shows_current_values_before_choice(cleanup_user: int) -> None:
 
 def test_weights_screen_shows_current_mix(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, track_weights={"work": 25, "life": 60, "curiosity": 15})
+    user_id = _onboard(tid, track_weights={"work": 25, "life": 60, "curiosity": 15})
     update = _callback_update(tid, "set:menu:weights")
     context = _ctx()
     result = asyncio.run(menu_callback(update, context))
@@ -265,8 +266,8 @@ def test_weights_screen_shows_current_mix(cleanup_user: int) -> None:
 
 def test_cefr_level_displayed_but_never_written(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, cefr_level="B1")
-    update_cefr_level(tid, "B1")
+    user_id = _onboard(tid, cefr_level="B1")
+    update_cefr_level(user_id, "B1")
 
     msg = MagicMock()
     msg.reply_text = AsyncMock(
@@ -292,7 +293,7 @@ def test_cefr_level_displayed_but_never_written(cleanup_user: int) -> None:
         "set:fallback:off",
     ):
         asyncio.run(field_callback(_callback_update(tid, data), _ctx()))
-    assert _row(tid)["cefr_level"] == "B1"
+    assert _row(user_id)["cefr_level"] == "B1"
 
     handler = build_settings_editor_handler()
     patterns: list[str] = []
@@ -308,7 +309,7 @@ def test_cefr_level_displayed_but_never_written(cleanup_user: int) -> None:
 
 def test_double_tap_does_not_raise(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _callback_update(tid, "set:weights:balanced")
     context = _ctx()
     context.bot.edit_message_text = AsyncMock(
@@ -325,13 +326,13 @@ def test_writes_scoped_second_user_untouched(cleanup_user: int) -> None:
         tid_b = FAKE_TELEGRAM_ID_BASE + (uuid.uuid4().int % 1_000_000_000)
     _delete_user(tid_b)
     try:
-        _onboard(tid_a)
-        _onboard(
+        user_id = _onboard(tid_a)
+        user_b_id = _onboard(
             tid_b,
             track_weights={"work": 40, "life": 40, "curiosity": 20},
             morning_time="08:00",
         )
-        before_b = _row(tid_b)
+        before_b = _row(user_b_id)
 
         asyncio.run(
             field_callback(
@@ -344,12 +345,12 @@ def test_writes_scoped_second_user_untouched(cleanup_user: int) -> None:
             )
         )
 
-        after_b = _row(tid_b)
+        after_b = _row(user_b_id)
         assert dict(after_b["track_weights"]) == dict(
             before_b["track_weights"]
         )
         assert after_b["morning_time"] == before_b["morning_time"]
-        assert dict(_row(tid_a)["track_weights"]) == _WEIGHT_PRESETS["mostly"]
+        assert dict(_row(user_id)["track_weights"]) == _WEIGHT_PRESETS["mostly"]
     finally:
         _delete_user(tid_b)
 
@@ -358,7 +359,7 @@ def test_stale_callback_cleared_user_data_no_exception(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _callback_update(tid, "set:menu:weights")
     context = MagicMock()
     context.user_data = {}  # restart wiped in-flight state
@@ -370,7 +371,7 @@ def test_stale_callback_cleared_user_data_no_exception(
     update.callback_query.message.edit_text.assert_awaited()
     body = update.callback_query.message.edit_text.await_args.args[0]
     assert texts.SETTINGS_STALE in body
-    assert get_user(tid).track_weights == {
+    assert get_user(user_id).track_weights == {
         "work": 40,
         "life": 40,
         "curiosity": 20,
@@ -379,7 +380,7 @@ def test_stale_callback_cleared_user_data_no_exception(
 
 def test_orphan_set_callback_degrades_warmly(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _callback_update(tid, "set:menu:weights")
     context = MagicMock()
     context.user_data = {}

@@ -36,7 +36,7 @@ from core.services.shared_content import (
     record_and_fanout_chunks,
     try_backfill_soft,
 )
-from core.services.users import save_onboarding
+from core.services.identity import save_onboarding
 from core.services.watch_import import (
     classify_csv_format,
     format_meaning,
@@ -109,8 +109,8 @@ def two_users(fake_telegram_id: int):
     _delete_user(b)
 
 
-def _onboard(tid: int, *, name: str = "Shared Test") -> None:
-    save_onboarding(
+def _onboard(tid: int, *, name: str = "Shared Test") -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": name,
@@ -124,6 +124,7 @@ def _onboard(tid: int, *, name: str = "Shared Test") -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _slang_items() -> list[dict[str, str]]:
@@ -211,59 +212,59 @@ def test_slang_sample_maps_and_phonetic() -> None:
 
 def test_fanout_n_users_n_copies(two_users: tuple[int, int]) -> None:
     a, b = two_users
-    _onboard(a, name="A")
-    _onboard(b, name="B")
+    a_id = _onboard(a, name="A")
+    b_id = _onboard(b, name="B")
     items = _slang_items()
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a_id, b_id]
     ):
         stats = record_and_fanout_chunks(
-            items, created_by=a, source="slang", rejected=0
+            items, created_by=a_id, source="slang", rejected=0
         )
     assert stats.imported == 2
     assert stats.duplicates == 0
     assert stats.users_reached == 2
-    assert _count_chunks(a, source="slang") == 2
-    assert _count_chunks(b, source="slang") == 2
-    assert _count_errors(a) == 0
-    assert _count_errors(b) == 0
+    assert _count_chunks(a_id, source="slang") == 2
+    assert _count_chunks(b_id, source="slang") == 2
+    assert _count_errors(a_id) == 0
+    assert _count_errors(b_id) == 0
 
 
 def test_reimport_zero_new_rows(two_users: tuple[int, int]) -> None:
     a, b = two_users
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     items = _slang_items()
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a_id, b_id]
     ):
-        record_and_fanout_chunks(items, created_by=a, source="slang")
-        stats = record_and_fanout_chunks(items, created_by=a, source="slang")
+        record_and_fanout_chunks(items, created_by=a_id, source="slang")
+        stats = record_and_fanout_chunks(items, created_by=a_id, source="slang")
     assert stats.imported == 0
     assert stats.duplicates == 2
     assert stats.users_reached == 0
-    assert _count_chunks(a, source="slang") == 2
-    assert _count_chunks(b, source="slang") == 2
+    assert _count_chunks(a_id, source="slang") == 2
+    assert _count_chunks(b_id, source="slang") == 2
 
 
 def test_sender_exactly_one_copy_on_share(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     items = _slang_items()
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[user_id]
     ):
         stats = record_and_fanout_chunks(
-            items, created_by=tid, source="slang", rejected=1
+            items, created_by=user_id, source="slang", rejected=1
         )
-    assert _count_chunks(tid, source="slang") == 2
+    assert _count_chunks(user_id, source="slang") == 2
     with connection() as conn:
         n = conn.execute(
             """
             SELECT COUNT(*) AS n FROM chunks
              WHERE user_id = %s AND chunk = %s
             """,
-            (tid, "mid"),
+            (user_id, "mid"),
         ).fetchone()
     assert int(n["n"]) == 1
     # Reply fields: sender imported/duplicates, file-level rejected, users_reached.
@@ -288,13 +289,13 @@ def test_per_user_dedupe_writes_skipped_owned(
     two_users: tuple[int, int],
 ) -> None:
     a, b = two_users
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     with connection() as conn:
         with conn.transaction():
             insert_chunks(
                 conn,
-                b,
+                b_id,
                 source="capture",
                 track=None,
                 chunks=[
@@ -307,11 +308,11 @@ def test_per_user_dedupe_writes_skipped_owned(
             )
     items = _slang_items()
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a_id, b_id]
     ):
-        record_and_fanout_chunks(items, created_by=a, source="slang")
-    assert _count_chunks(b, source="capture") == 1
-    assert _count_chunks(b, source="slang") == 1  # mid only
+        record_and_fanout_chunks(items, created_by=a_id, source="slang")
+    assert _count_chunks(b_id, source="capture") == 1
+    assert _count_chunks(b_id, source="slang") == 1  # mid only
     with connection() as conn:
         row = conn.execute(
             """
@@ -320,24 +321,24 @@ def test_per_user_dedupe_writes_skipped_owned(
               JOIN shared_content sc ON sc.id = d.shared_content_id
              WHERE d.user_id = %s AND sc.content_key = %s
             """,
-            (b, normalize_for_match("no cap")),
+            (b_id, normalize_for_match("no cap")),
         ).fetchone()
     assert row["outcome"] == OUTCOME_SKIPPED_OWNED
 
 
 def test_revoked_user_receives_nothing(two_users: tuple[int, int]) -> None:
     a, b = two_users
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     revoke_access(b)
-    assert b not in list_recipients()
+    assert b_id not in list_recipients()
     items = _slang_items()
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[a]
+        "core.services.shared_content.list_recipients", return_value=[a_id]
     ):
-        record_and_fanout_chunks(items, created_by=a, source="slang")
-    assert _count_chunks(a, source="slang") == 2
-    assert _count_chunks(b, source="slang") == 0
+        record_and_fanout_chunks(items, created_by=a_id, source="slang")
+    assert _count_chunks(a_id, source="slang") == 2
+    assert _count_chunks(b_id, source="slang") == 0
 
 
 def _has_chunk(user_id: int, chunk: str) -> bool:
@@ -355,82 +356,82 @@ def _has_chunk(user_id: int, chunk: str) -> bool:
 
 def test_backfill_at_onboarding(two_users: tuple[int, int]) -> None:
     a, b = two_users
-    _onboard(a)
+    a_id = _onboard(a)
     items = _slang_items()
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[a]
+        "core.services.shared_content.list_recipients", return_value=[a_id]
     ):
-        record_and_fanout_chunks(items, created_by=a, source="slang")
-    _onboard(b)
-    n = backfill_shared_library(b)
+        record_and_fanout_chunks(items, created_by=a_id, source="slang")
+    b_id = _onboard(b)
+    n = backfill_shared_library(b_id)
     assert n >= 2
-    assert _has_chunk(b, "mid")
-    assert _has_chunk(b, "no cap")
+    assert _has_chunk(b_id, "mid")
+    assert _has_chunk(b_id, "no cap")
 
 
 def test_backfill_idempotent_redo_onboarding(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     items = _slang_items()
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[user_id]
     ):
-        record_and_fanout_chunks(items, created_by=tid, source="slang")
-    before = _count_chunks(tid, source="slang")
-    _onboard(tid)  # redo
-    assert backfill_shared_library(tid) == 0
-    assert _count_chunks(tid, source="slang") == before
+        record_and_fanout_chunks(items, created_by=user_id, source="slang")
+    before = _count_chunks(user_id, source="slang")
+    _onboard(user_id)  # redo
+    assert backfill_shared_library(user_id) == 0
+    assert _count_chunks(user_id, source="slang") == before
 
 
 def test_backfill_idempotent_revoke_reapprove(
     two_users: tuple[int, int],
 ) -> None:
     a, b = two_users
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     items = _slang_items()
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a_id, b_id]
     ):
-        record_and_fanout_chunks(items, created_by=a, source="slang")
-    before = _count_chunks(b, source="slang")
+        record_and_fanout_chunks(items, created_by=a_id, source="slang")
+    before = _count_chunks(b_id, source="slang")
     revoke_access(b)
-    approve_access(b)
-    assert backfill_shared_library(b) == 0
-    assert _count_chunks(b, source="slang") == before
+    approve_access(b_id)
+    assert backfill_shared_library(b_id) == 0
+    assert _count_chunks(b_id, source="slang") == before
 
 
 def test_import_then_new_user_same_day(two_users: tuple[int, int]) -> None:
     a, b = two_users
-    _onboard(a)
+    a_id = _onboard(a)
     items = _slang_items()
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[a]
+        "core.services.shared_content.list_recipients", return_value=[a_id]
     ):
-        record_and_fanout_chunks(items, created_by=a, source="slang")
-    _onboard(b)
-    backfill_shared_library(b)
-    assert _has_chunk(b, "mid")
-    assert _has_chunk(b, "no cap")
-    before = _count_chunks(b, source="slang")
+        record_and_fanout_chunks(items, created_by=a_id, source="slang")
+    b_id = _onboard(b)
+    backfill_shared_library(b_id)
+    assert _has_chunk(b_id, "mid")
+    assert _has_chunk(b_id, "no cap")
+    before = _count_chunks(b_id, source="slang")
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a_id, b_id]
     ):
-        stats = record_and_fanout_chunks(items, created_by=a, source="slang")
+        stats = record_and_fanout_chunks(items, created_by=a_id, source="slang")
     assert stats.users_reached == 0
-    assert _count_chunks(b, source="slang") == before
+    assert _count_chunks(b_id, source="slang") == before
 
 
 def test_shared_chunks_enter_ladder_and_cap(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     items = _slang_items()
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[user_id]
     ):
-        record_and_fanout_chunks(items, created_by=tid, source="slang")
+        record_and_fanout_chunks(items, created_by=user_id, source="slang")
     # S25: fan-out rows are unpresented — present before graded due selection.
     tomorrow = FIXED_TODAY + timedelta(days=1)
     with connection() as conn:
@@ -440,17 +441,17 @@ def test_shared_chunks_enter_ladder_and_cap(
                SET presented_at = NOW(), next_review = %s
              WHERE user_id = %s
             """,
-            (tomorrow, tid),
+            (tomorrow, user_id),
         )
-    selected = due_chunks(tid, 2, now=tomorrow)
+    selected = due_chunks(user_id, 2, now=tomorrow)
     assert len(selected) == 2
     assert all(c.source == "slang" for c in selected)
-    assert _count_errors(tid) == 0
+    assert _count_errors(user_id) == 0
 
 
 def test_chunk_first_write_wins(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     word = f"zwid_{uuid.uuid4().hex[:8]}"
     first = [
         {
@@ -467,10 +468,10 @@ def test_chunk_first_write_wins(cleanup_user: int) -> None:
         }
     ]
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[user_id]
     ):
-        record_and_fanout_chunks(first, created_by=tid, source="slang")
-        record_and_fanout_chunks(second, created_by=tid, source="slang")
+        record_and_fanout_chunks(first, created_by=user_id, source="slang")
+        record_and_fanout_chunks(second, created_by=user_id, source="slang")
     with connection() as conn:
         row = conn.execute(
             """
@@ -482,7 +483,7 @@ def test_chunk_first_write_wins(cleanup_user: int) -> None:
         ).fetchone()
         chunk = conn.execute(
             "SELECT full_sentence FROM chunks WHERE user_id = %s AND chunk = %s",
-            (tid, word),
+            (user_id, word),
         ).fetchone()
     assert "fell asleep" in row["s"]
     assert "fell asleep" in chunk["full_sentence"]
@@ -493,7 +494,7 @@ def test_chunk_first_write_wins(cleanup_user: int) -> None:
 
 def test_book_ledger_key_round_trip(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     unit = MergedUnit(
         unit_number="12",
         unit_title="Articles",
@@ -503,9 +504,9 @@ def test_book_ledger_key_round_trip(cleanup_user: int) -> None:
     assert "\x00" not in key
     assert key == book_content_key("murphy", "12")
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[user_id]
     ):
-        record_and_fanout_book_units("murphy", [unit], created_by=tid)
+        record_and_fanout_book_units("murphy", [unit], created_by=user_id)
     with connection() as conn:
         row = conn.execute(
             """
@@ -524,13 +525,13 @@ def test_book_refresh_preserves_studied_at(
     two_users: tuple[int, int],
 ) -> None:
     a, b = two_users
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     unit = MergedUnit("5", "Past simple", ["went", "saw"])
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a_id, b_id]
     ):
-        record_and_fanout_book_units("murphy", [unit], created_by=a)
+        record_and_fanout_book_units("murphy", [unit], created_by=a_id)
     fixed = date(2026, 7, 1)
     with connection() as conn:
         conn.execute(
@@ -538,13 +539,13 @@ def test_book_refresh_preserves_studied_at(
             UPDATE book_units SET studied_at = %s
              WHERE user_id = %s AND book = %s AND unit_number = %s
             """,
-            (fixed, b, "murphy", "5"),
+            (fixed, b_id, "murphy", "5"),
         )
     refreshed = MergedUnit("5", "Past simple (revised)", ["went", "saw", "did"])
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[a, b]
+        "core.services.shared_content.list_recipients", return_value=[a_id, b_id]
     ):
-        record_and_fanout_book_units("murphy", [refreshed], created_by=a)
+        record_and_fanout_book_units("murphy", [refreshed], created_by=a_id)
     with connection() as conn:
         row = conn.execute(
             """
@@ -553,7 +554,7 @@ def test_book_refresh_preserves_studied_at(
              WHERE user_id = %s AND book = %s AND unit_number = %s
              ORDER BY id LIMIT 1
             """,
-            (b, "murphy", "5"),
+            (b_id, "murphy", "5"),
         ).fetchone()
     assert row["studied_at"] == fixed
     assert "revised" in (row["unit_title"] or "")
@@ -577,8 +578,8 @@ def test_s24_button_labels_max_20() -> None:
 
 def test_share_orphan_warm_line(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    before = _count_chunks(tid)
+    user_id = _onboard(tid)
+    before = _count_chunks(user_id)
     user = User(id=tid, first_name="A", is_bot=False)
     chat = Chat(id=tid, type="private")
     msg = MagicMock(spec=Message)
@@ -598,15 +599,15 @@ def test_share_orphan_warm_line(cleanup_user: int) -> None:
     assert texts.IMPORT_SHARE_STALE in str(
         query.edit_message_text.await_args
     )
-    assert _count_chunks(tid) == before  # no partial import
+    assert _count_chunks(user_id) == before  # no partial import
 
 
 def test_zero_errors_on_fanout(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    before = _count_errors(tid)
+    user_id = _onboard(tid)
+    before = _count_errors(user_id)
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[user_id]
     ):
-        record_and_fanout_chunks(_slang_items(), created_by=tid, source="slang")
-    assert _count_errors(tid) == before == 0
+        record_and_fanout_chunks(_slang_items(), created_by=user_id, source="slang")
+    assert _count_errors(user_id) == before == 0

@@ -413,7 +413,7 @@ def assume_top_frequency_known(conn, user_id: int, top_n: int) -> WriteCounts:
 def onboarded_user_ids(conn) -> list[int]:
     """Who the seed command applies the floor and the harvest to."""
     with conn.cursor(row_factory=tuple_row) as cur:
-        cur.execute("SELECT telegram_user_id FROM approved_onboarded_users")
+        cur.execute("SELECT id FROM approved_onboarded_users")
         return [row[0] for row in cur.fetchall()]
 
 

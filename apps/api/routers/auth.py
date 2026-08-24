@@ -56,7 +56,7 @@ def _now() -> datetime:
 
 def _session_body(user: auth.AuthenticatedUser) -> Session:
     return Session(
-        telegram_user_id=user.telegram_user_id,
+        user_id=user.id,
         name=user.name,
         expires_at=user.expires_at,
     )
@@ -180,7 +180,7 @@ def list_passkeys(
             last_used_at=p.last_used_at,
             backed_up=p.backed_up,
         )
-        for p in auth.list_passkeys(user_id=user.telegram_user_id)
+        for p in auth.list_passkeys(user_id=user.id)
     ]
 
 
@@ -200,7 +200,7 @@ def add_passkey_begin(
     """
     return _options(
         auth.begin_add_passkey(
-            user_id=user.telegram_user_id, now=_now(), settings=settings
+            user_id=user.id, now=_now(), settings=settings
         )
     )
 
@@ -217,7 +217,7 @@ def add_passkey_finish(
     """Attach the new credential to **this session's** user and no other."""
     try:
         credential_id = auth.finish_add_passkey(
-            user_id=user.telegram_user_id,
+            user_id=user.id,
             credential=body.credential,
             now=_now(),
             settings=settings,
@@ -246,7 +246,7 @@ def delete_passkey(
     except PasskeyError:
         raise HTTPException(status_code=404, detail="not_found") from None
 
-    outcome = auth.delete_passkey(user_id=user.telegram_user_id, credential_id=raw)
+    outcome = auth.delete_passkey(user_id=user.id, credential_id=raw)
     if outcome == "missing":
         raise HTTPException(status_code=404, detail="not_found")
     if outcome == "last":

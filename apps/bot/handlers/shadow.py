@@ -44,6 +44,7 @@ from core.services.shadow import (
 )
 from core.services.users import is_registered
 from core.speech import SpeechError, synthesize, transcribe
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def _user_timezone(user_id: int) -> str:
 
     with connection() as conn:
         row = conn.execute(
-            "SELECT timezone FROM users WHERE telegram_user_id = %s",
+            "SELECT timezone FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
     if row is None:
@@ -92,7 +93,9 @@ async def on_shadow_command(
     user_tg = update.effective_user
     if message is None or user_tg is None:
         return
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if not is_registered(user_id):
         return
 
@@ -162,8 +165,8 @@ async def on_shadow_retry(
         return
     await query.answer()
 
-    user_id = query.from_user.id
-    if not is_registered(user_id):
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None or not is_registered(user_id):
         return
 
     try:
@@ -228,7 +231,9 @@ async def handle_shadow_voice(
     assert message is not None and message.voice is not None
     user_tg = update.effective_user
     assert user_tg is not None
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
 
     now = datetime.now(timezone.utc)
     tz = _user_timezone(user_id)

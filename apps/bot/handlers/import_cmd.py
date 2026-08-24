@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from telegram.ext import ContextTypes
 
+from apps.bot import identity as bot_identity
 from apps.bot import texts
 from core.services.users import is_registered
 from core.services.watch_import import (
@@ -40,7 +41,9 @@ async def handle_import_command(update, context: ContextTypes.DEFAULT_TYPE) -> N
     user = update.effective_user
     if message is None or user is None:
         return
-    user_id = int(user.id)
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if not is_registered(user_id):
         return
 

@@ -161,7 +161,7 @@ def _user_context(
             """
             SELECT cefr_level, timezone, paused_until
               FROM approved_onboarded_users
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
             (user_id,),
         ).fetchone()
@@ -179,12 +179,12 @@ def list_calibration_user_ids() -> list[int]:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT telegram_user_id
+            SELECT id
               FROM approved_onboarded_users
-             ORDER BY telegram_user_id
+             ORDER BY id
             """
         ).fetchall()
-    return [int(r["telegram_user_id"]) for r in rows]
+    return [int(r["id"]) for r in rows]
 
 
 def _is_paused(paused_until: date | None, day: date) -> bool:

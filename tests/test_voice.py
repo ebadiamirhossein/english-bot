@@ -24,11 +24,12 @@ from core.services.sessions import (
     local_today,
     save_voice_exchange,
 )
-from core.services.users import save_onboarding
+from core.services.identity import save_onboarding
 from core.speech import SpeechError
 from telegram.error import BadRequest
 
 FAKE_TELEGRAM_ID_BASE = 9_350_000_000
+_TG_ADDRESS_BASE = 9_000_000_000
 
 
 @pytest.fixture
@@ -63,8 +64,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int, *, morning: str = "07:00", tz: str = "Europe/Vilnius") -> None:
-    save_onboarding(
+def _onboard(tid: int, *, morning: str = "07:00", tz: str = "Europe/Vilnius") -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Voice Test",
@@ -83,6 +84,7 @@ def _onboard(tid: int, *, morning: str = "07:00", tz: str = "Europe/Vilnius") ->
             "UPDATE users SET timezone = %s WHERE telegram_user_id = %s",
             (tz, tid),
         )
+    return user_id
 
 
 def _settings(**overrides: object) -> Settings:
@@ -161,22 +163,24 @@ def _llm_payload(*, reply: str = "How was your day?", errors: list | None = None
 def test_voice_session_does_not_block_quiz_delivery(cleanup_user: int) -> None:
     """Regression: a morning voice message must not cancel that day's quiz."""
     tid = cleanup_user
-    _onboard(tid, morning="07:00", tz="Europe/Vilnius")
+    user_id = _onboard(tid, morning="07:00", tz="Europe/Vilnius")
     now = datetime(2026, 8, 3, 4, 40, tzinfo=timezone.utc)
     day = local_today("Europe/Vilnius", now)
     assert day == date(2026, 8, 3)
 
     insert_session(
-        tid,
+        user_id,
         "voice",
         day,
         payload={"messages": [], "turn_count": 1},
         completed=True,
     )
 
-    assert has_session_on(tid, day) is False
+    assert has_session_on(user_id, day) is False
     user = EligibleUser(
-        telegram_user_id=tid,
+        id=user_id,
+        # Deliberately not equal to `id`.
+        telegram_address=_TG_ADDRESS_BASE + user_id,
         timezone="Europe/Vilnius",
         morning_time=time(7, 0),
         paused_until=None,
@@ -186,25 +190,25 @@ def test_voice_session_does_not_block_quiz_delivery(cleanup_user: int) -> None:
 
 def test_completed_quiz_does_not_block_voice(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
-    insert_session(tid, "quiz", day, payload={"questions": []}, completed=True)
+    insert_session(user_id, "quiz", day, payload={"questions": []}, completed=True)
     now = datetime(2026, 8, 3, 18, 0, tzinfo=timezone.utc)
     assert (
         get_continuable_voice_session(
-            tid, now=now, context_minutes=120, max_turns=10
+            user_id, now=now, context_minutes=120, max_turns=10
         )
         is None
     )
     sid = save_voice_exchange(
         None,
-        tid,
+        user_id,
         day,
         {"messages": [{"role": "user", "content": "hi"}], "turn_count": 1},
     )
     assert sid > 0
     row = get_continuable_voice_session(
-        tid, now=now, context_minutes=120, max_turns=10
+        user_id, now=now, context_minutes=120, max_turns=10
     )
     assert row is not None
     assert row.task_type == "voice"
@@ -213,7 +217,7 @@ def test_completed_quiz_does_not_block_voice(cleanup_user: int) -> None:
 def test_voice_while_open_quiz_does_not_consume_answers(cleanup_user: int) -> None:
     """Voice must not grade quiz answers; quiz stays open afterwards."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
     quiz_payload = {
         "questions": [
@@ -227,8 +231,8 @@ def test_voice_while_open_quiz_does_not_consume_answers(cleanup_user: int) -> No
         "index": 0,
         "answers": [],
     }
-    insert_session(tid, "quiz", day, payload=quiz_payload, completed=False)
-    open_before = get_open_quiz_session(tid, day)
+    insert_session(user_id, "quiz", day, payload=quiz_payload, completed=False)
+    open_before = get_open_quiz_session(user_id, day)
     assert open_before is not None
     assert open_before.completed is False
     assert open_before.payload == quiz_payload
@@ -250,7 +254,7 @@ def test_voice_while_open_quiz_does_not_consume_answers(cleanup_user: int) -> No
         mock_grade.assert_not_called()
         mock_quiz_text.assert_not_called()
 
-    open_after = get_open_quiz_session(tid, day)
+    open_after = get_open_quiz_session(user_id, day)
     assert open_after is not None
     assert open_after.completed is False
     assert open_after.payload == quiz_payload
@@ -261,7 +265,7 @@ def test_voice_exchange_does_not_increment_bot_message_counts(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = local_today(
         "Europe/Vilnius", datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc)
     )
@@ -283,17 +287,17 @@ def test_voice_exchange_does_not_increment_bot_message_counts(
     ):
         asyncio.run(handle_voice(update, context))
 
-    assert bot_initiated_count(tid, day) == 0
+    assert bot_initiated_count(user_id, day) == 0
 
 
 def test_conversation_continues_inside_window(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     now = datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc)
     day = local_today("Europe/Vilnius", now)
     save_voice_exchange(
         None,
-        tid,
+        user_id,
         day,
         {
             "messages": [
@@ -304,7 +308,7 @@ def test_conversation_continues_inside_window(cleanup_user: int) -> None:
         },
     )
     row = get_continuable_voice_session(
-        tid, now=now, context_minutes=120, max_turns=10
+        user_id, now=now, context_minutes=120, max_turns=10
     )
     assert row is not None
     assert row.payload is not None
@@ -313,11 +317,11 @@ def test_conversation_continues_inside_window(cleanup_user: int) -> None:
 
 def test_conversation_starts_fresh_outside_window(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
     sid = save_voice_exchange(
         None,
-        tid,
+        user_id,
         day,
         {"messages": [{"role": "user", "content": "hi"}], "turn_count": 1},
     )
@@ -334,7 +338,7 @@ def test_conversation_starts_fresh_outside_window(cleanup_user: int) -> None:
     now = datetime.now(timezone.utc)
     assert (
         get_continuable_voice_session(
-            tid, now=now, context_minutes=120, max_turns=10
+            user_id, now=now, context_minutes=120, max_turns=10
         )
         is None
     )
@@ -342,14 +346,14 @@ def test_conversation_starts_fresh_outside_window(cleanup_user: int) -> None:
 
 def test_turn_10_final_then_next_opens_new_session(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
     messages: list[dict] = []
     for i in range(9):
         messages.append({"role": "user", "content": f"u{i}"})
         messages.append({"role": "assistant", "content": f"a{i}"})
     save_voice_exchange(
-        None, tid, day, {"messages": messages, "turn_count": 9}
+        None, user_id, day, {"messages": messages, "turn_count": 9}
     )
 
     update = _make_voice_update(tid)
@@ -375,7 +379,7 @@ def test_turn_10_final_then_next_opens_new_session(cleanup_user: int) -> None:
     # After turn 10, continuable session is exhausted.
     assert (
         get_continuable_voice_session(
-            tid, now=now, context_minutes=120, max_turns=10
+            user_id, now=now, context_minutes=120, max_turns=10
         )
         is None
     )
@@ -396,7 +400,7 @@ def test_turn_10_final_then_next_opens_new_session(cleanup_user: int) -> None:
              WHERE user_id = %s AND task_type = 'voice'
              ORDER BY id
             """,
-            (tid,),
+            (user_id,),
         ).fetchall()
     assert len(rows) == 2
     assert int(rows[0]["payload"]["turn_count"]) == 10
@@ -405,7 +409,7 @@ def test_turn_10_final_then_next_opens_new_session(cleanup_user: int) -> None:
 
 def test_errors_written_with_source_voice_capped_at_3(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
     update = _make_voice_update(tid)
     context = _make_context()
@@ -436,7 +440,7 @@ def test_errors_written_with_source_voice_capped_at_3(cleanup_user: int) -> None
             """
             SELECT source FROM errors WHERE user_id = %s ORDER BY id
             """,
-            (tid,),
+            (user_id,),
         ).fetchall()
     assert len(rows) == 3
     assert all(r["source"] == "voice" for r in rows)
@@ -444,7 +448,7 @@ def test_errors_written_with_source_voice_capped_at_3(cleanup_user: int) -> None
 
 def test_over_length_voice_declined_without_transcribe(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _make_voice_update(tid, duration=180)
     context = _make_context()
 
@@ -461,7 +465,7 @@ def test_over_length_voice_declined_without_transcribe(cleanup_user: int) -> Non
 
 def test_tts_failure_delivers_text_and_records_errors(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
     update = _make_voice_update(tid)
     context = _make_context()
@@ -496,7 +500,7 @@ def test_tts_failure_delivers_text_and_records_errors(cleanup_user: int) -> None
     with connection() as conn:
         rows = conn.execute(
             "SELECT source FROM errors WHERE user_id = %s",
-            (tid,),
+            (user_id,),
         ).fetchall()
     assert len(rows) == 1
     assert rows[0]["source"] == "voice"
@@ -508,7 +512,7 @@ def test_tts_failure_delivers_text_and_records_errors(cleanup_user: int) -> None
 def test_s5a_happy_path_status_order(cleanup_user: int) -> None:
     """Status created once, edited twice, deleted before voice send."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
     update = _make_voice_update(tid)
     context = _make_context()
@@ -554,7 +558,7 @@ def test_s5a_happy_path_status_order(cleanup_user: int) -> None:
 
 def test_s5a_empty_transcript_edits_status(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _make_voice_update(tid)
     context = _make_context()
 
@@ -582,7 +586,7 @@ def test_s5a_empty_transcript_edits_status(cleanup_user: int) -> None:
 
 def test_s5a_llm_failure_ends_as_failure_text(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
     update = _make_voice_update(tid)
     context = _make_context()
@@ -616,7 +620,7 @@ def test_s5a_exception_clears_status_and_cancels_action(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _make_voice_update(tid)
     context = _make_context()
     cancelled: dict[str, bool] = {"seen": False}
@@ -652,7 +656,7 @@ def test_s5a_exception_clears_status_and_cancels_action(
 
 def test_s5a_over_length_no_status_no_chat_action(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _make_voice_update(tid, duration=180)
     context = _make_context()
 
@@ -673,7 +677,7 @@ def test_s5a_status_does_not_increment_bot_message_counts(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
     update = _make_voice_update(tid)
     context = _make_context()
@@ -687,12 +691,12 @@ def test_s5a_status_does_not_increment_bot_message_counts(
     ):
         asyncio.run(handle_voice(update, context))
 
-    assert bot_initiated_count(tid, day) == 0
+    assert bot_initiated_count(user_id, day) == 0
 
 
 def test_s5a_failed_delete_still_sends_voice(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day = date(2026, 8, 3)
     update = _make_voice_update(tid)
     context = _make_context()

@@ -32,25 +32,31 @@ def db():
 
 @pytest.fixture
 def user_id(db) -> int:
-    """A throwaway learner row, removed afterwards."""
+    """A throwaway learner row, removed afterwards.
+
+    Yields the INTERNAL id, which since W4b is not the invented Telegram id.
+    """
     made = -secrets.randbelow(1_000_000_000) - 1
-    db.execute(
+    row = db.execute(
         """
         INSERT INTO users (telegram_user_id, name, native_language, onboarded,
                            auth_email)
         VALUES (%s, 'Claim Test', 'lt', TRUE, %s)
+        RETURNING id
         """,
         (made, f"claim-{abs(made)}@example.test"),
-    )
+    ).fetchone()
+    internal = int(row[0])
     db.execute(
         """
-        INSERT INTO access_requests (telegram_user_id, display_name, status)
-        VALUES (%s, 'Claim Test', 'approved')
+        INSERT INTO access_requests (telegram_user_id, user_id, display_name,
+                                     status)
+        VALUES (%s, %s, 'Claim Test', 'approved')
         """,
-        (made,),
+        (made, internal),
     )
     db.commit()
-    yield made
+    yield internal
     db.execute("DELETE FROM users WHERE telegram_user_id = %s", (made,))
     db.execute("DELETE FROM access_requests WHERE telegram_user_id = %s", (made,))
     db.commit()
@@ -140,7 +146,7 @@ def test_listing_never_reveals_a_token_or_an_address(db, user_id, capsys) -> Non
 
 def test_issue_prints_the_token_once_with_its_terms(db, user_id, capsys) -> None:
     """The operator runs `claim issue` with the learner in front of them."""
-    assert claim.main(["issue", "--telegram-user-id", str(user_id)]) == 0
+    assert claim.main(["issue", "--user-id", str(user_id)]) == 0
     printed = capsys.readouterr().out
     row = db.execute(
         "SELECT token_hash FROM auth_claim_tokens WHERE user_id = %s", (user_id,)
@@ -155,8 +161,8 @@ def test_issue_prints_the_token_once_with_its_terms(db, user_id, capsys) -> None
 def test_issue_addresses_the_learner_by_id_not_by_email(db, user_id) -> None:
     """No address may enter shell history or a terminal scrollback."""
     parser = claim.build_parser()
-    args = parser.parse_args(["issue", "--telegram-user-id", str(user_id)])
-    assert args.telegram_user_id == user_id
+    args = parser.parse_args(["issue", "--user-id", str(user_id)])
+    assert args.user_id == user_id
     assert not hasattr(args, "email")
     with pytest.raises(SystemExit):
         parser.parse_args(["issue", "--email", "someone@example.test"])
@@ -167,7 +173,7 @@ def test_revoke_spends_every_outstanding_token(db, user_id, capsys) -> None:
     now = datetime.now(timezone.utc)
     auth.issue_claim_token(user_id=user_id, now=now)
     auth.issue_claim_token(user_id=user_id, now=now)
-    assert claim.main(["revoke", "--telegram-user-id", str(user_id)]) == 0
+    assert claim.main(["revoke", "--user-id", str(user_id)]) == 0
     assert "Spent 2" in capsys.readouterr().out
     remaining = db.execute(
         """
@@ -202,7 +208,7 @@ def test_revoking_all_sessions_is_the_recovery_runbooks_step(db, user_id) -> Non
     """
     now = datetime.now(timezone.utc)
     db.execute(
-        "UPDATE users SET auth_user_id = %s WHERE telegram_user_id = %s",
+        "UPDATE users SET auth_user_id = %s WHERE id = %s",
         (str(uuid.uuid4()), user_id),
     )
     db.execute(

@@ -42,8 +42,7 @@ from core.services.books import (
     union_target_items,
     upsert_unit,
 )
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKE_TELEGRAM_ID_BASE = 9_460_000_000
 
@@ -74,8 +73,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Book Test",
@@ -89,8 +88,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
-
-
+    return user_id
 # --- Fake JobQueue -----------------------------------------------------------
 
 
@@ -364,23 +362,23 @@ def test_summary_collapse_over_four_failed_pages() -> None:
 
 def test_upsert_reingest_unions_items(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     day1 = date.today() - timedelta(days=3)
     upsert_unit(
-        tid,
+        user_id,
         "murphy",
         MergedUnit("12A", "Modals", ["can", "could"]),
         studied_at=day1,
     )
-    assert count_units_for_user(tid, "murphy", "12A") == 1
+    assert count_units_for_user(user_id, "murphy", "12A") == 1
     upsert_unit(
-        tid,
+        user_id,
         "murphy",
         MergedUnit("12A", "Modals", ["could", "might"]),
         studied_at=date.today(),
     )
-    assert count_units_for_user(tid, "murphy", "12A") == 1
-    row = get_unit_row(tid, "murphy", "12A")
+    assert count_units_for_user(user_id, "murphy", "12A") == 1
+    row = get_unit_row(user_id, "murphy", "12A")
     assert row is not None
     items = row["target_items"]
     if isinstance(items, str):
@@ -465,8 +463,8 @@ def test_single_non_album_photo_schedules() -> None:
 def test_reentrancy_no_duplicate_rows(cleanup_user: int) -> None:
     async def _run() -> None:
         tid = cleanup_user
-        _onboard(tid)
-        context = _make_context(tid)
+        user_id = _onboard(tid)
+        context = _make_context(user_id)
         context.user_data["book"]["pages"] = [
             {
                 "batch_index": 1,
@@ -475,7 +473,7 @@ def test_reentrancy_no_duplicate_rows(cleanup_user: int) -> None:
                 "media_group_id": None,
             }
         ]
-        context.job = MagicMock(data={"user_id": tid, "chat_id": 42})
+        context.job = MagicMock(data={"user_id": user_id, "chat_id": 42})
 
         async def fake_get_file(file_id: str) -> MagicMock:
             tg = MagicMock()
@@ -498,7 +496,7 @@ def test_reentrancy_no_duplicate_rows(cleanup_user: int) -> None:
             await process_pages(context)
             await process_pages(context)
 
-        assert count_units_for_user(tid, "murphy", "12A") == 1
+        assert count_units_for_user(user_id, "murphy", "12A") == 1
 
     asyncio.run(_run())
 
@@ -508,8 +506,8 @@ def test_partial_batch_names_page_six(
 ) -> None:
     async def _run() -> None:
         tid = cleanup_user
-        _onboard(tid)
-        context = _make_context(tid)
+        user_id = _onboard(tid)
+        context = _make_context(user_id)
         context.user_data["book"]["pages"] = [
             {
                 "batch_index": i,
@@ -519,7 +517,7 @@ def test_partial_batch_names_page_six(
             }
             for i in range(1, 7)
         ]
-        context.job = MagicMock(data={"user_id": tid, "chat_id": 42})
+        context.job = MagicMock(data={"user_id": user_id, "chat_id": 42})
 
         async def fake_get_file(file_id: str) -> MagicMock:
             tg = MagicMock()
@@ -549,9 +547,9 @@ def test_partial_batch_names_page_six(
         with patch("apps.bot.handlers.book.ocr_one_page", side_effect=fake_ocr):
             await process_pages(context)
 
-        assert count_units_for_user(tid, "murphy", "1") == 1
-        assert count_units_for_user(tid, "murphy", "5") == 1
-        assert count_units_for_user(tid, "murphy", "6") == 0
+        assert count_units_for_user(user_id, "murphy", "1") == 1
+        assert count_units_for_user(user_id, "murphy", "5") == 1
+        assert count_units_for_user(user_id, "murphy", "6") == 0
         sent = context.bot.send_message.call_args_list[-1]
         summary = sent.kwargs.get("text") or sent.args[1]
         assert "Page 6" in summary
@@ -572,8 +570,8 @@ def test_prose_vision_response_soft_skips_page(
 
     async def _run() -> None:
         tid = cleanup_user
-        _onboard(tid)
-        context = _make_context(tid)
+        user_id = _onboard(tid)
+        context = _make_context(user_id)
         context.user_data["book"]["pages"] = [
             {
                 "batch_index": 1,
@@ -582,7 +580,7 @@ def test_prose_vision_response_soft_skips_page(
                 "media_group_id": None,
             }
         ]
-        context.job = MagicMock(data={"user_id": tid, "chat_id": 42})
+        context.job = MagicMock(data={"user_id": user_id, "chat_id": 42})
 
         async def fake_get_file(file_id: str) -> MagicMock:
             tg = MagicMock()

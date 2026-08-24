@@ -7,6 +7,8 @@ quoted fragments may land in errors.you_said via record_errors.
 
 from __future__ import annotations
 
+from apps.bot import identity as bot_identity
+
 import asyncio
 import logging
 from datetime import date, datetime, timezone
@@ -111,7 +113,7 @@ def _user_timezone(user_id: int) -> str:
 
     with connection() as conn:
         row = conn.execute(
-            "SELECT timezone FROM users WHERE telegram_user_id = %s",
+            "SELECT timezone FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
     if row is None:
@@ -126,6 +128,15 @@ async def deliver_diary(
     now: datetime,
 ) -> str:
     """Bot-initiated diary prompt. Counts toward the 3-message ceiling."""
+    # Where this learner is reached, which since W4b is not the same number as
+    # who they are. None means no Telegram account at all: skipping is correct
+    # (this bot cannot reach them) but silent, which is known issue #95.
+    address = bot_identity.telegram_address_or_none(user_id)
+    if address is None:
+        logger.info(
+            "deliver_diary skipped user_id=%s reason=no_telegram_channel", user_id
+        )
+        return "skipped_no_channel"
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     tz = _user_timezone(user_id)
@@ -149,7 +160,7 @@ async def deliver_diary(
 
     prompt = diary_prompt_for(day)
     try:
-        msg = await app.bot.send_message(chat_id=user_id, text=prompt)
+        msg = await app.bot.send_message(chat_id=address, text=prompt)
     except Exception:
         logger.exception("diary send failed user_id=%s", user_id)
         return "skipped_send_failed"
@@ -179,7 +190,9 @@ async def on_diary_command(
     user_tg = update.effective_user
     if message is None or user_tg is None:
         return
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if not is_registered(user_id):
         return
 
@@ -223,7 +236,9 @@ async def handle_diary_voice(
     assert message is not None and message.voice is not None
     user_tg = update.effective_user
     assert user_tg is not None
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
 
     user = get_user(user_id)
     if user is None:

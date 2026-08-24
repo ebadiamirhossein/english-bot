@@ -20,7 +20,7 @@ from apps.bot.handlers.csv_import import (
 )
 from core.services.anki import fetch_unexported_chunks
 from core.services.chunks import due_chunks
-from core.services.users import save_onboarding
+from core.services.identity import save_onboarding
 from core.services.vocab_import import (
     SKIP_LIST_CAP,
     VOCAB_BATCH_SIZE,
@@ -94,8 +94,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int, *, cefr: str = "B1") -> None:
-    save_onboarding(
+def _onboard(tid: int, *, cefr: str = "B1") -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Vocab Test",
@@ -109,6 +109,7 @@ def _onboard(tid: int, *, cefr: str = "B1") -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _error_count(user_id: int) -> int:
@@ -274,7 +275,7 @@ def test_sentence_missing_word_rejected() -> None:
 
 def test_long_translation_stored_intact(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     headers = _VOCAB
     rows = [
         {
@@ -294,7 +295,7 @@ def test_long_translation_stored_intact(cleanup_user: int) -> None:
     chunks, counts = prepare_vocabulary_import(
         headers,
         rows,
-        user_id=tid,
+        user_id=user_id,
         cefr_level="B1",
         work_domain="marketing",
         now=date(2026, 8, 14),
@@ -361,7 +362,7 @@ def test_generate_failure_raises_vocab_error() -> None:
 def test_generation_completes_before_transaction_opens(cleanup_user: int) -> None:
     """Generate must not open a write transaction / hold a pool connection."""
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     items = [{"chunk": "tier", "meaning": "سطح"}]
     conn_calls: list[str] = []
 
@@ -385,7 +386,7 @@ def test_generation_completes_before_transaction_opens(cleanup_user: int) -> Non
     # persist opens connection only after generation finished.
     async def _run() -> None:
         await persist_vocabulary_and_send(
-            user_id=tid,
+            user_id=user_id,
             chunks=[
                 {
                     "chunk": "tier",
@@ -405,7 +406,7 @@ def test_generation_completes_before_transaction_opens(cleanup_user: int) -> Non
 
 def test_reimport_makes_zero_chat_calls(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     headers, rows = parse_csv_bytes(_REAL_VOCAB_CSV.encode("utf-8"))
     chat_fn = MagicMock(return_value=_fake_sentences(["tier", "notch"]))
     fixed_now = date(2026, 8, 14)
@@ -413,7 +414,7 @@ def test_reimport_makes_zero_chat_calls(cleanup_user: int) -> None:
     chunks, counts = prepare_vocabulary_import(
         headers,
         rows,
-        user_id=tid,
+        user_id=user_id,
         cefr_level="B1",
         work_domain="marketing",
         now=fixed_now,
@@ -427,7 +428,7 @@ def test_reimport_makes_zero_chat_calls(cleanup_user: int) -> None:
 
     asyncio.run(
         persist_vocabulary_and_send(
-            user_id=tid, chunks=chunks, send=_send
+            user_id=user_id, chunks=chunks, send=_send
         )
     )
 
@@ -435,7 +436,7 @@ def test_reimport_makes_zero_chat_calls(cleanup_user: int) -> None:
     chunks2, counts2 = prepare_vocabulary_import(
         headers,
         rows,
-        user_id=tid,
+        user_id=user_id,
         cefr_level="B1",
         work_domain="marketing",
         now=fixed_now,
@@ -445,7 +446,7 @@ def test_reimport_makes_zero_chat_calls(cleanup_user: int) -> None:
     assert chunks2 == []
     assert counts2.imported == 0
     assert counts2.duplicates == 2
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_within_file_dedupe_before_llm() -> None:
@@ -466,7 +467,7 @@ def test_folder_path_refuses_vocabulary_without_llm(
     cleanup_user: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     root = tmp_path / "watch"
     root.mkdir()
     monkeypatch.setattr(
@@ -477,8 +478,8 @@ def test_folder_path_refuses_vocabulary_without_llm(
         "core.services.watch_import.assert_path_outside_repo",
         lambda path, label="WATCH_DIR": Path(path).resolve(),
     )
-    ensure_user_layout(root, tid)
-    csv_path = root / "inbox" / str(tid) / "trancy" / "vocab.csv"
+    ensure_user_layout(root, user_id)
+    csv_path = root / "inbox" / str(user_id) / "trancy" / "vocab.csv"
     csv_path.write_bytes(_REAL_VOCAB_CSV.encode("utf-8"))
     # Age file without wall-clock sleep — touch mtime far in the past.
     import os
@@ -494,7 +495,7 @@ def test_folder_path_refuses_vocabulary_without_llm(
     ):
         result = process_csv_file(
             csv_path,
-            user_id=tid,
+            user_id=user_id,
             tool="trancy",
             root=root,
             now=datetime(2026, 8, 14, tzinfo=timezone.utc),
@@ -504,14 +505,14 @@ def test_folder_path_refuses_vocabulary_without_llm(
     chat_spy.assert_not_called()
     assert "refuse_vocabulary" in caplog.text
     assert "Telegram" in caplog.text
-    failed_dir = root / "failed" / str(tid)
+    failed_dir = root / "failed" / str(user_id)
     assert any(failed_dir.iterdir())
     with connection() as conn:
         n = conn.execute(
-            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (tid,)
+            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (user_id,)
         ).fetchone()
     assert int(n["n"]) == 0
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 # --- Handler path ------------------------------------------------------------
@@ -519,7 +520,7 @@ def test_folder_path_refuses_vocabulary_without_llm(
 
 def test_handler_vocabulary_uses_to_thread_no_share(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _doc_update(tid, file_name="VOCABULARY_LIST.csv")
     context = _context_with_download(_REAL_VOCAB_CSV.encode("utf-8"))
 
@@ -562,16 +563,16 @@ def test_handler_vocabulary_uses_to_thread_no_share(cleanup_user: int) -> None:
         rows = conn.execute(
             "SELECT chunk, source, meaning FROM chunks WHERE user_id = %s "
             "ORDER BY chunk",
-            (tid,),
+            (user_id,),
         ).fetchall()
     assert len(rows) == 2
     assert {r["source"] for r in rows} == {VOCAB_SOURCE}
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_handler_vocab_llm_failure_zero_rows(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _doc_update(tid)
     context = _context_with_download(_REAL_VOCAB_CSV.encode("utf-8"))
 
@@ -598,15 +599,15 @@ def test_handler_vocab_llm_failure_zero_rows(cleanup_user: int) -> None:
     assert "VOCABULARY" in alert or "vocab" in alert.lower() or "Vocabulary" in alert
     with connection() as conn:
         n = conn.execute(
-            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (tid,)
+            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (user_id,)
         ).fetchone()
     assert int(n["n"]) == 0
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_handler_failed_headers_prose_alert(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _doc_update(tid, file_name="weird.csv")
     context = _context_with_download(b"alpha,beta\n1,2\n")
     with (
@@ -621,7 +622,7 @@ def test_handler_failed_headers_prose_alert(cleanup_user: int) -> None:
     reply.assert_awaited_once()
     assert "Forward" in reply.await_args.args[0]
     alert = notify.await_args.kwargs["text"]
-    assert str(tid) in alert
+    assert str(user_id) in alert
     assert "weird.csv" in alert
     assert "alpha" in alert
     assert "Expected" in alert
@@ -630,13 +631,13 @@ def test_handler_failed_headers_prose_alert(cleanup_user: int) -> None:
 
 def test_non_operator_vocabulary_sender_only(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid, cefr="A2")
+    user_id = _onboard(tid, cefr="A2")
     headers, rows = parse_csv_bytes(_REAL_VOCAB_CSV.encode("utf-8"))
     chat_fn = MagicMock(return_value=_fake_sentences(["tier", "notch"]))
     chunks, _ = prepare_vocabulary_import(
         headers,
         rows,
-        user_id=tid,
+        user_id=user_id,
         cefr_level="A2",
         work_domain="marketing",
         now=date(2026, 8, 14),
@@ -644,7 +645,7 @@ def test_non_operator_vocabulary_sender_only(cleanup_user: int) -> None:
     )
     asyncio.run(
         persist_vocabulary_and_send(
-            user_id=tid, chunks=chunks, send=AsyncMock()
+            user_id=user_id, chunks=chunks, send=AsyncMock()
         )
     )
     with connection() as conn:
@@ -656,10 +657,10 @@ def test_non_operator_vocabulary_sender_only(cleanup_user: int) -> None:
         mine = conn.execute(
             "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s "
             "AND source = %s",
-            (tid, VOCAB_SOURCE),
+            (user_id, VOCAB_SOURCE),
         ).fetchone()
     assert int(mine["n"]) == 2
-    assert all(int(r["user_id"]) == tid for r in owners if int(r["user_id"]) == tid)
+    assert all(int(r["user_id"]) == user_id for r in owners if int(r["user_id"]) == user_id)
     sc, sd = _shared_counts()
     # No new shared rows from this import — at least zero for this content_key.
     with connection() as conn:
@@ -668,18 +669,18 @@ def test_non_operator_vocabulary_sender_only(cleanup_user: int) -> None:
             "WHERE content_key IN ('tier', 'notch')"
         ).fetchone()
     assert int(shared_for["n"]) == 0
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_vocabulary_due_and_anki(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     headers, rows = parse_csv_bytes(_REAL_VOCAB_CSV.encode("utf-8"))
     chat_fn = MagicMock(return_value=_fake_sentences(["tier", "notch"]))
     chunks, _ = prepare_vocabulary_import(
         headers,
         rows,
-        user_id=tid,
+        user_id=user_id,
         cefr_level="B1",
         work_domain="marketing",
         now=date(2026, 8, 14),
@@ -687,7 +688,7 @@ def test_vocabulary_due_and_anki(cleanup_user: int) -> None:
     )
     asyncio.run(
         persist_vocabulary_and_send(
-            user_id=tid, chunks=chunks, send=AsyncMock()
+            user_id=user_id, chunks=chunks, send=AsyncMock()
         )
     )
     # insert_chunks writes next_review = CURRENT_DATE + 1 server-side, so the
@@ -697,12 +698,12 @@ def test_vocabulary_due_and_anki(cleanup_user: int) -> None:
     # midnight in between, next_review is the earlier day and stays due.
     with connection() as conn:
         tomorrow = conn.execute("SELECT CURRENT_DATE + 1 AS d").fetchone()["d"]
-    due = due_chunks(tid, limit=10, now=tomorrow)
+    due = due_chunks(user_id, limit=10, now=tomorrow)
     assert {c.chunk for c in due} >= {"tier", "notch"}
     with connection() as conn:
-        export_rows = fetch_unexported_chunks(conn, tid)
+        export_rows = fetch_unexported_chunks(conn, user_id)
     assert {r.chunk for r in export_rows} >= {"tier", "notch"}
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_s24a_share_button_labels_le_20() -> None:
@@ -730,7 +731,7 @@ def _vocab_csv_bytes(*words: tuple[str, str]) -> bytes:
 
 def test_s24b_clean_import_exactly_one_chat_call(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     headers, rows = parse_csv_bytes(
         _vocab_csv_bytes(("tier", "سطح"), ("notch", "شکاف"))
     )
@@ -738,7 +739,7 @@ def test_s24b_clean_import_exactly_one_chat_call(cleanup_user: int) -> None:
     chunks, counts = prepare_vocabulary_import(
         headers,
         rows,
-        user_id=tid,
+        user_id=user_id,
         cefr_level="B1",
         work_domain="Ai engineer",
         now=date(2026, 8, 14),
@@ -748,12 +749,12 @@ def test_s24b_clean_import_exactly_one_chat_call(cleanup_user: int) -> None:
     assert counts.imported == 2
     assert counts.named_skips == ()
     assert len(chunks) == 2
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_s24b_gate_failure_retries_only_failed_word(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     headers, rows = parse_csv_bytes(
         _vocab_csv_bytes(("tier", "سطح"), ("frustrate", "ناامید کردن"))
     )
@@ -791,7 +792,7 @@ def test_s24b_gate_failure_retries_only_failed_word(cleanup_user: int) -> None:
     chunks, counts = prepare_vocabulary_import(
         headers,
         rows,
-        user_id=tid,
+        user_id=user_id,
         cefr_level="B1",
         work_domain="Ai engineer",
         now=date(2026, 8, 14),
@@ -801,14 +802,14 @@ def test_s24b_gate_failure_retries_only_failed_word(cleanup_user: int) -> None:
     assert counts.imported == 2
     assert counts.named_skips == ()
     assert {c["chunk"] for c in chunks} == {"tier", "frustrate"}
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_s24b_fail_both_passes_named_skip_not_written(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     headers, rows = parse_csv_bytes(
         _vocab_csv_bytes(("frustrate", "ناامید کردن"))
     )
@@ -828,7 +829,7 @@ def test_s24b_fail_both_passes_named_skip_not_written(
         chunks, counts = prepare_vocabulary_import(
             headers,
             rows,
-            user_id=tid,
+            user_id=user_id,
             cefr_level="B1",
             work_domain="marketing",
             now=date(2026, 8, 14),
@@ -843,12 +844,12 @@ def test_s24b_fail_both_passes_named_skip_not_written(
     assert "frustrate" not in caplog.text
     assert "gate_skips" in caplog.text
     assert "count=1" in caplog.text
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_s24b_retry_llm_error_keeps_first_pass(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     headers, rows = parse_csv_bytes(
         _vocab_csv_bytes(("tier", "سطح"), ("frustrate", "ناامید"))
     )
@@ -876,7 +877,7 @@ def test_s24b_retry_llm_error_keeps_first_pass(cleanup_user: int) -> None:
     chunks, counts = prepare_vocabulary_import(
         headers,
         rows,
-        user_id=tid,
+        user_id=user_id,
         cefr_level="B1",
         work_domain="marketing",
         now=date(2026, 8, 14),
@@ -888,22 +889,22 @@ def test_s24b_retry_llm_error_keeps_first_pass(cleanup_user: int) -> None:
     assert counts.named_skips[0][0] == "frustrate"
     asyncio.run(
         persist_vocabulary_and_send(
-            user_id=tid, chunks=chunks, send=AsyncMock()
+            user_id=user_id, chunks=chunks, send=AsyncMock()
         )
     )
     with connection() as conn:
         rows_db = conn.execute(
-            "SELECT chunk FROM chunks WHERE user_id = %s", (tid,)
+            "SELECT chunk FROM chunks WHERE user_id = %s", (user_id,)
         ).fetchall()
     assert [r["chunk"] for r in rows_db] == ["tier"]
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_s24b_skipped_words_in_reply_not_log(
     cleanup_user: int, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     headers, rows = parse_csv_bytes(
         _vocab_csv_bytes(("frustrate", "x"), ("tier", "y"))
     )
@@ -921,7 +922,7 @@ def test_s24b_skipped_words_in_reply_not_log(
         chunks, counts = prepare_vocabulary_import(
             headers,
             rows,
-            user_id=tid,
+            user_id=user_id,
             cefr_level="B1",
             work_domain="marketing",
             now=date(2026, 8, 14),
@@ -932,7 +933,7 @@ def test_s24b_skipped_words_in_reply_not_log(
     assert "no sentence used the exact word" in reply
     assert "tier" in {c["chunk"] for c in chunks}
     assert "frustrate" not in caplog.text
-    assert _error_count(tid) == 0
+    assert _error_count(user_id) == 0
 
 
 def test_s24b_long_skip_list_truncated() -> None:

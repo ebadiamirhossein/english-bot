@@ -247,14 +247,14 @@ def correct(
         raw = call_model(user, text)
     except LLMError as exc:
         raise CorrectionUnavailable("model call failed") from exc
-    return apply_result(user.telegram_user_id, raw, source=source)
+    return apply_result(user.id, raw, source=source)
 
 
 def _complete_free_practice_if_open(user_id: int) -> None:
     """S4: a processed correction makes today's free_practice day Active."""
     with connection() as conn:
         row = conn.execute(
-            "SELECT timezone FROM users WHERE telegram_user_id = %s",
+            "SELECT timezone FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
     tz = str(row["timezone"] or "Europe/Vilnius") if row else "Europe/Vilnius"

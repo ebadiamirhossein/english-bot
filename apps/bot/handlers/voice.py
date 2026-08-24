@@ -42,6 +42,7 @@ from core.services.sessions import (
 )
 from core.services.users import User, get_user, is_registered
 from core.speech import SpeechError, synthesize, transcribe
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,9 @@ async def handle_voice(
     if message is None or user_tg is None or message.voice is None:
         return
 
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if not is_registered(user_id):
         return
 
@@ -217,7 +220,9 @@ async def _handle_voice_locked(
     assert message is not None and message.voice is not None
     user_tg = update.effective_user
     assert user_tg is not None
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
 
     user = get_user(user_id)
     if user is None:
@@ -396,7 +401,7 @@ def _user_timezone(user_id: int) -> str:
 
     with connection() as conn:
         row = conn.execute(
-            "SELECT timezone FROM users WHERE telegram_user_id = %s",
+            "SELECT timezone FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
     if row is None:

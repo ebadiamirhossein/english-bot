@@ -41,8 +41,7 @@ from core.services.sessions import (
 )
 from core.services.shared_content import record_and_fanout_chunks
 from core.services.stats import collect_stats
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_520_000_000
 FIXED_TODAY = date(2026, 8, 14)
 
@@ -73,8 +72,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int, *, morning: str = "00:00", tz: str = "UTC") -> None:
-    save_onboarding(
+def _onboard(tid: int, *, morning: str = "00:00", tz: str = "UTC") -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "S25 Test",
@@ -93,6 +92,7 @@ def _onboard(tid: int, *, morning: str = "00:00", tz: str = "UTC") -> None:
             "UPDATE users SET timezone = %s WHERE telegram_user_id = %s",
             (tz, tid),
         )
+    return user_id
 
 
 def _insert_chunk(
@@ -226,48 +226,48 @@ def test_s25_button_labels_max_20() -> None:
 
 def test_due_chunks_excludes_unpresented(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    hidden = _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
-    shown = _insert_chunk(tid, chunk="cut costs", presented=True)
-    selected = due_chunks(tid, 10, now=FIXED_TODAY)
+    user_id = _onboard(tid)
+    hidden = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
+    shown = _insert_chunk(user_id, chunk="cut costs", presented=True)
+    selected = due_chunks(user_id, 10, now=FIXED_TODAY)
     ids = [c.id for c in selected]
     assert shown in ids
     assert hidden not in ids
-    assert count_due_chunks(tid, now=FIXED_TODAY) == 1
+    assert count_due_chunks(user_id, now=FIXED_TODAY) == 1
 
 
 def test_due_chunks_includes_after_presented(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     cid = _insert_chunk(
-        tid,
+        user_id,
         chunk="delulu",
         presented=False,
         source="slang",
         next_review=FIXED_TODAY,
     )
-    assert due_chunks(tid, 5, now=FIXED_TODAY) == []
+    assert due_chunks(user_id, 5, now=FIXED_TODAY) == []
     mark_presented(cid, now=FIXED_TODAY)
-    assert due_chunks(tid, 5, now=FIXED_TODAY) == []
+    assert due_chunks(user_id, 5, now=FIXED_TODAY) == []
     tomorrow = FIXED_TODAY + timedelta(days=1)
-    selected = due_chunks(tid, 5, now=tomorrow)
+    selected = due_chunks(user_id, 5, now=tomorrow)
     assert [c.id for c in selected] == [cid]
 
 
 def test_unpresented_still_exports_to_anki(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    cid = _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
+    user_id = _onboard(tid)
+    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
     with connection() as conn:
-        rows = fetch_unexported_chunks(conn, tid)
+        rows = fetch_unexported_chunks(conn, user_id)
     assert any(r.id == cid for r in rows)
 
 
 def test_fanout_insert_leaves_presented_null(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     with patch(
-        "core.services.shared_content.list_recipients", return_value=[tid]
+        "core.services.shared_content.list_recipients", return_value=[user_id]
     ):
         record_and_fanout_chunks(
             [
@@ -277,7 +277,7 @@ def test_fanout_insert_leaves_presented_null(cleanup_user: int) -> None:
                     "meaning": "delusional",
                 }
             ],
-            created_by=tid,
+            created_by=user_id,
             source="slang",
         )
     with connection() as conn:
@@ -286,7 +286,7 @@ def test_fanout_insert_leaves_presented_null(cleanup_user: int) -> None:
             SELECT presented_at, source FROM chunks
              WHERE user_id = %s AND chunk = 'delulu'
             """,
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert row is not None
     assert row["source"] == "slang"
@@ -295,12 +295,12 @@ def test_fanout_insert_leaves_presented_null(cleanup_user: int) -> None:
 
 def test_user_sourced_insert_sets_presented(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     with connection() as conn:
         with conn.transaction():
             insert_chunks(
                 conn,
-                tid,
+                user_id,
                 source="capture",
                 track="life",
                 chunks=[
@@ -317,7 +317,7 @@ def test_user_sourced_insert_sets_presented(cleanup_user: int) -> None:
             SELECT presented_at FROM chunks
              WHERE user_id = %s AND chunk = 'circle back'
             """,
-            (tid,),
+            (user_id,),
         ).fetchone()
     assert row is not None
     assert row["presented_at"] is not None
@@ -327,12 +327,12 @@ def test_migration_backfill_slang_null_nonsource_presented(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     slang_id = _insert_chunk(
-        tid, chunk="rizz", source="slang", presented=False
+        user_id, chunk="rizz", source="slang", presented=False
     )
     capture_id = _insert_chunk(
-        tid, chunk="cut costs", source="capture", presented=False
+        user_id, chunk="cut costs", source="capture", presented=False
     )
     with connection() as conn:
         with conn.transaction():
@@ -344,7 +344,7 @@ def test_migration_backfill_slang_null_nonsource_presented(
                    AND (source <> 'slang' OR source IS NULL)
                    AND presented_at IS NULL
                 """,
-                (tid,),
+                (user_id,),
             )
     assert _chunk_row(slang_id)["presented_at"] is None
     assert _chunk_row(capture_id)["presented_at"] is not None
@@ -352,48 +352,48 @@ def test_migration_backfill_slang_null_nonsource_presented(
 
 def test_unpresented_cap_two_oldest_first(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     t0 = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
     t1 = datetime(2026, 8, 2, 10, 0, tzinfo=timezone.utc)
     t2 = datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc)
     a = _insert_chunk(
-        tid, chunk="alpha", presented=False, source="slang", created_at=t0
+        user_id, chunk="alpha", presented=False, source="slang", created_at=t0
     )
     b = _insert_chunk(
-        tid, chunk="bravo", presented=False, source="slang", created_at=t1
+        user_id, chunk="bravo", presented=False, source="slang", created_at=t1
     )
     _insert_chunk(
-        tid, chunk="charlie", presented=False, source="slang", created_at=t2
+        user_id, chunk="charlie", presented=False, source="slang", created_at=t2
     )
-    rows = unpresented_chunks(tid, limit=2)
+    rows = unpresented_chunks(user_id, limit=2)
     assert [c.id for c in rows] == [a, b]
 
 
 def test_presentation_fifo_across_days(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     t0 = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
     t1 = datetime(2026, 8, 2, 10, 0, tzinfo=timezone.utc)
     t2 = datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc)
     a = _insert_chunk(
-        tid, chunk="alpha", presented=False, source="slang", created_at=t0
+        user_id, chunk="alpha", presented=False, source="slang", created_at=t0
     )
     b = _insert_chunk(
-        tid, chunk="bravo", presented=False, source="slang", created_at=t1
+        user_id, chunk="bravo", presented=False, source="slang", created_at=t1
     )
     c = _insert_chunk(
-        tid, chunk="charlie", presented=False, source="slang", created_at=t2
+        user_id, chunk="charlie", presented=False, source="slang", created_at=t2
     )
     mark_presented(a, now=FIXED_TODAY)
     mark_presented(b, now=FIXED_TODAY)
-    rows = unpresented_chunks(tid, limit=2)
+    rows = unpresented_chunks(user_id, limit=2)
     assert [r.id for r in rows] == [c]
 
 
 def test_mark_presented_leaves_ladder_unchanged(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    cid = _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
+    user_id = _onboard(tid)
+    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
     mark_presented(cid, now=FIXED_TODAY)
     after = _chunk_row(cid)
     assert after["presented_at"] is not None
@@ -405,8 +405,8 @@ def test_mark_presented_leaves_ladder_unchanged(cleanup_user: int) -> None:
 
 def test_mark_presented_idempotent(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    cid = _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
+    user_id = _onboard(tid)
+    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
     assert mark_presented(cid, now=FIXED_TODAY) is True
     first = _chunk_row(cid)
     assert mark_presented(cid, now=FIXED_TODAY + timedelta(days=3)) is False
@@ -416,22 +416,22 @@ def test_mark_presented_idempotent(cleanup_user: int) -> None:
 
 def test_presentations_only_no_quiz_sent(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
+    user_id = _onboard(tid)
+    _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
     app = MagicMock()
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
-    action = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+    action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action == "free_practice"
-    assert unpresented_chunks(tid, limit=1)
-    assert _chunk_row(unpresented_chunks(tid, limit=1)[0].id)["presented_at"] is None
+    assert unpresented_chunks(user_id, limit=1)
+    assert _chunk_row(unpresented_chunks(user_id, limit=1)[0].id)["presented_at"] is None
 
 
 def test_morning_quiz_attaches_presentations(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _insert_due_error(tid)
-    cid = _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
+    user_id = _onboard(tid)
+    _insert_due_error(user_id)
+    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
 
     def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
         return (
@@ -454,9 +454,9 @@ def test_morning_quiz_attaches_presentations(cleanup_user: int) -> None:
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
     with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action == "quiz"
-    session = get_open_quiz_session(tid)
+    session = get_open_quiz_session(user_id)
     assert session is not None
     payload = session.payload or {}
     assert len(payload.get("presentations") or []) == 1
@@ -468,9 +468,9 @@ def test_morning_quiz_attaches_presentations(cleanup_user: int) -> None:
 
 def test_rescue_skips_presentations(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _insert_due_error(tid)
-    _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
+    user_id = _onboard(tid)
+    _insert_due_error(user_id)
+    _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
     with connection() as conn:
         with conn.transaction():
             conn.execute(
@@ -479,7 +479,7 @@ def test_rescue_skips_presentations(cleanup_user: int) -> None:
                    SET rescue_mode_until = %s
                  WHERE user_id = %s
                 """,
-                (FIXED_TODAY + timedelta(days=3), tid),
+                (FIXED_TODAY + timedelta(days=3), user_id),
             )
 
     def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
@@ -505,18 +505,18 @@ def test_rescue_skips_presentations(cleanup_user: int) -> None:
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
     with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action == "quiz"
-    session = get_open_quiz_session(tid)
+    session = get_open_quiz_session(user_id)
     assert session is not None
     assert session.payload.get("presentations") == []
 
 
 def test_weekly_skips_presentations(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _insert_due_error(tid)
-    _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
+    user_id = _onboard(tid)
+    _insert_due_error(user_id)
+    _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
 
     def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
         assert list(chunks or []) == []
@@ -540,9 +540,9 @@ def test_weekly_skips_presentations(cleanup_user: int) -> None:
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc)
     with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert action == "quiz"
-    session = get_open_quiz_session(tid)
+    session = get_open_quiz_session(user_id)
     assert session is not None
     assert session.payload.get("weekly_test") is True
     assert session.payload.get("presentations") == []
@@ -550,10 +550,10 @@ def test_weekly_skips_presentations(cleanup_user: int) -> None:
 
 def test_unpresented_not_in_morning_graded_chunks(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _insert_due_error(tid)
+    user_id = _onboard(tid)
+    _insert_due_error(user_id)
     hidden = _insert_chunk(
-        tid,
+        user_id,
         chunk="delulu",
         presented=False,
         source="slang",
@@ -583,14 +583,14 @@ def test_unpresented_not_in_morning_graded_chunks(cleanup_user: int) -> None:
     app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
     now = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
     with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        asyncio.run(quiz_handler.deliver_morning(app, tid, now=now))
+        asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
     assert all(c.id != hidden for c in captured["chunks"])
 
 
 def test_book_test_has_no_presentations(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
+    user_id = _onboard(tid)
+    _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
     update = MagicMock()
     update.effective_user = User(id=tid, first_name="A", is_bot=False)
     update.message = MagicMock()
@@ -598,7 +598,7 @@ def test_book_test_has_no_presentations(cleanup_user: int) -> None:
     context = MagicMock()
     context.args = ["unit", "12"]
     asyncio.run(handle_test_command(update, context))
-    session = get_open_quiz_session(tid)
+    session = get_open_quiz_session(user_id)
     if session is not None and session.payload:
         assert not session.payload.get("presentations")
 
@@ -648,10 +648,10 @@ def _open_quiz_with_presentations(
 
 def test_present_ack_sets_presented_and_advances(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    cid = _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
-    _open_quiz_with_presentations(tid, [cid])
-    errors_before = _error_count(tid)
+    user_id = _onboard(tid)
+    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
+    _open_quiz_with_presentations(user_id, [cid])
+    errors_before = _error_count(user_id)
 
     context = MagicMock()
     context.bot.edit_message_text = AsyncMock()
@@ -665,9 +665,9 @@ def test_present_ack_sets_presented_and_advances(cleanup_user: int) -> None:
     assert row["presented_at"] is not None
     assert row["next_review"] == FIXED_TODAY + timedelta(days=1)
     assert row["streak_right"] == 0
-    assert _error_count(tid) == errors_before
+    assert _error_count(user_id) == errors_before
 
-    session = get_open_quiz_session(tid)
+    session = get_open_quiz_session(user_id)
     assert session is not None
     assert int(session.payload["present_index"]) == 1
     assert not presentation_pending(session.payload)
@@ -675,9 +675,9 @@ def test_present_ack_sets_presented_and_advances(cleanup_user: int) -> None:
 
 def test_present_ack_repeated_is_noop(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    cid = _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
-    _open_quiz_with_presentations(tid, [cid])
+    user_id = _onboard(tid)
+    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
+    _open_quiz_with_presentations(user_id, [cid])
     context = MagicMock()
     context.bot.edit_message_text = AsyncMock()
     update = _callback_update(tid, f"present:ack:{cid}")
@@ -688,29 +688,29 @@ def test_present_ack_repeated_is_noop(cleanup_user: int) -> None:
         edits_after_first = context.bot.edit_message_text.await_count
         asyncio.run(on_present_ack_callback(update, context))
     assert context.bot.edit_message_text.await_count == edits_after_first
-    session = get_open_quiz_session(tid)
+    session = get_open_quiz_session(user_id)
     assert session is not None
     assert int(session.payload["present_index"]) == 1
 
 
 def test_present_ack_out_of_order_is_noop(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     a = _insert_chunk(
-        tid,
+        user_id,
         chunk="alpha",
         presented=False,
         source="slang",
         created_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
     )
     b = _insert_chunk(
-        tid,
+        user_id,
         chunk="bravo",
         presented=False,
         source="slang",
         created_at=datetime(2026, 8, 2, tzinfo=timezone.utc),
     )
-    _open_quiz_with_presentations(tid, [a, b])
+    _open_quiz_with_presentations(user_id, [a, b])
     context = MagicMock()
     context.bot.edit_message_text = AsyncMock()
     with patch(
@@ -724,7 +724,7 @@ def test_present_ack_out_of_order_is_noop(cleanup_user: int) -> None:
     assert context.bot.edit_message_text.await_count == 0
     assert _chunk_row(a)["presented_at"] is None
     assert _chunk_row(b)["presented_at"] is None
-    session = get_open_quiz_session(tid)
+    session = get_open_quiz_session(user_id)
     assert session is not None
     assert int(session.payload["present_index"]) == 0
 
@@ -733,10 +733,10 @@ def test_present_ack_does_not_affect_score_or_early_limit(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    cid = _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
-    sid = _open_quiz_with_presentations(tid, [cid])
-    session = get_open_quiz_session(tid)
+    user_id = _onboard(tid)
+    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
+    sid = _open_quiz_with_presentations(user_id, [cid])
+    session = get_open_quiz_session(user_id)
     assert session is not None
     payload = dict(session.payload)
     payload["early_limit"] = 2
@@ -752,7 +752,7 @@ def test_present_ack_does_not_affect_score_or_early_limit(
                 _callback_update(tid, f"present:ack:{cid}"), context
             )
         )
-    session = get_open_quiz_session(tid)
+    session = get_open_quiz_session(user_id)
     assert session is not None
     p = session.payload
     assert int(p.get("answered", 0)) == 0
@@ -763,7 +763,7 @@ def test_present_ack_does_not_affect_score_or_early_limit(
 
 def test_present_orphan_warm_line(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _callback_update(tid, "present:ack:999")
     context = MagicMock()
     asyncio.run(on_present_orphan_callback(update, context))
@@ -777,25 +777,25 @@ def test_open_quiz_awaits_gap_false_during_presentation(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    cid = _insert_chunk(tid, chunk="delulu", presented=False, source="slang")
-    _open_quiz_with_presentations(tid, [cid])
-    session = get_open_quiz_session(tid)
+    user_id = _onboard(tid)
+    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
+    _open_quiz_with_presentations(user_id, [cid])
+    session = get_open_quiz_session(user_id)
     assert session is not None
     payload = dict(session.payload)
     payload["questions"][0]["format"] = "gap"
     update_session_payload(session.id, payload)
-    assert open_quiz_awaits_gap_answer(tid) is False
+    assert open_quiz_awaits_gap_answer(user_id) is False
 
 
 def test_stats_due_matches_count_due_chunks(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _insert_chunk(tid, chunk="shown", presented=True, next_review=None)
+    user_id = _onboard(tid)
+    _insert_chunk(user_id, chunk="shown", presented=True, next_review=None)
     _insert_chunk(
-        tid, chunk="hidden", presented=False, source="slang", next_review=None
+        user_id, chunk="hidden", presented=False, source="slang", next_review=None
     )
     now = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
-    stats = collect_stats(tid, now=now)
+    stats = collect_stats(user_id, now=now)
     assert stats is not None
-    assert stats.chunk_due == count_due_chunks(tid, now=FIXED_TODAY) == 1
+    assert stats.chunk_due == count_due_chunks(user_id, now=FIXED_TODAY) == 1

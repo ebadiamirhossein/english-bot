@@ -17,6 +17,7 @@ from telegram.ext import ContextTypes
 from apps.bot import texts
 from core.config import load_settings
 from core.services.alerts import format_alert, notify_operator
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,10 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = None
     if isinstance(update, Update):
         if update.effective_user is not None:
+            # The Telegram id on purpose. This is the error path: it must report
+            # even for somebody with no users row -- which is exactly when
+            # things break -- so it cannot depend on a lookup succeeding.
+            # PRD §10: logs carry ids and route names, never message bodies.
             user_id = update.effective_user.id
         chat = update.effective_chat
 

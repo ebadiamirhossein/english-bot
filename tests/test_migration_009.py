@@ -97,9 +97,10 @@ def test_a_mixed_case_auth_email_is_refused(conn) -> None:
     failure discovered on a phone. This makes it a loud one at UPDATE time.
     """
     user_id = _seed_user(conn, name="Case Test")
+    # `_seed_user` returns the internal id since W4b
     with pytest.raises(psycopg.errors.CheckViolation):
         conn.execute(
-            "UPDATE users SET auth_email = %s WHERE telegram_user_id = %s",
+            "UPDATE users SET auth_email = %s WHERE id = %s",
             ("Mixed.Case@example.test", user_id),
         )
     conn.rollback()
@@ -212,12 +213,16 @@ def test_the_view_still_filters_on_approval_and_onboarding(conn) -> None:
 
 
 def _seed_user(conn, *, name: str) -> int:
-    """A throwaway users row. Callers roll back."""
+    """A throwaway users row. Callers roll back.
+
+    Returns the INTERNAL id: since W4b that is what identifies a learner, and
+    it is not the invented Telegram id above.
+    """
     row = conn.execute(
         """
         INSERT INTO users (telegram_user_id, name, native_language)
         VALUES (%s, %s, 'fa')
-        RETURNING telegram_user_id
+        RETURNING id
         """,
         (-abs(hash(name)) % 1_000_000_000, name),
     ).fetchone()

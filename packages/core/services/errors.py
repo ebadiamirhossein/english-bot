@@ -333,12 +333,12 @@ def list_fossil_sweep_user_ids() -> list[int]:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT telegram_user_id
+            SELECT id
               FROM approved_onboarded_users
-             ORDER BY telegram_user_id
+             ORDER BY id
             """
         ).fetchall()
-    return [int(r["telegram_user_id"]) for r in rows]
+    return [int(r["id"]) for r in rows]
 
 
 def run_monthly_fossil_sweep(*, now: datetime) -> int:
@@ -353,14 +353,14 @@ def run_monthly_fossil_sweep(*, now: datetime) -> int:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT telegram_user_id, timezone, paused_until
+            SELECT id, timezone, paused_until
               FROM approved_onboarded_users
             """
         ).fetchall()
 
     created = 0
     for row in rows:
-        user_id = int(row["telegram_user_id"])
+        user_id = int(row["id"])
         tz = str(row["timezone"] or "Europe/Vilnius")
         local_day = local_today(tz, now)
         if local_day.day != 1:

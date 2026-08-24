@@ -13,8 +13,7 @@ from core.db import close_pool, connection
 from apps.bot.handlers import quiz as quiz_handler
 from core.services.errors import due_errors
 from core.services.streaks import get_streak
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_341_000_000
 
 
@@ -44,8 +43,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Rescue Test",
@@ -59,6 +58,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _insert_errors(tid: int, n: int) -> None:
@@ -106,15 +106,15 @@ def _fake_questions(n: int) -> list[dict]:
 
 def test_rescue_quiz_is_three_questions(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _insert_errors(tid, 8)
+    user_id = _onboard(tid)
+    _insert_errors(user_id, 8)
     day = date(2026, 7, 15)
-    _set_rescue(tid, day + timedelta(days=3))
-    assert get_streak(tid).rescue_mode_until is not None
+    _set_rescue(user_id, day + timedelta(days=3))
+    assert get_streak(user_id).rescue_mode_until is not None
 
-    due = due_errors(tid, limit=3)
+    due = due_errors(user_id, limit=3)
     assert len(due) == 3
-    assert len(due_errors(tid, limit=5)) == 5
+    assert len(due_errors(user_id, limit=5)) == 5
 
     app = MagicMock()
     app.bot = AsyncMock()
@@ -131,7 +131,7 @@ def test_rescue_quiz_is_three_questions(cleanup_user: int) -> None:
         ):
             with patch.object(quiz_handler, "local_today", return_value=day):
                 action = asyncio.run(
-                    quiz_handler.deliver_morning(app, tid, now=now)
+                    quiz_handler.deliver_morning(app, user_id, now=now)
                 )
 
     assert action == "quiz"
@@ -142,8 +142,8 @@ def test_rescue_quiz_is_three_questions(cleanup_user: int) -> None:
 
 def test_non_rescue_quiz_is_five_questions(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _insert_errors(tid, 8)
+    user_id = _onboard(tid)
+    _insert_errors(user_id, 8)
     day = date(2026, 7, 15)
 
     app = MagicMock()
@@ -161,7 +161,7 @@ def test_non_rescue_quiz_is_five_questions(cleanup_user: int) -> None:
         ):
             with patch.object(quiz_handler, "local_today", return_value=day):
                 action = asyncio.run(
-                    quiz_handler.deliver_morning(app, tid, now=now)
+                    quiz_handler.deliver_morning(app, user_id, now=now)
                 )
 
     assert action == "quiz"
@@ -171,11 +171,11 @@ def test_non_rescue_quiz_is_five_questions(cleanup_user: int) -> None:
 
 def test_rescue_never_returns_more_than_three_due_errors(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _insert_errors(tid, 10)
+    user_id = _onboard(tid)
+    _insert_errors(user_id, 10)
     day = date(2026, 7, 15)
-    _set_rescue(tid, day + timedelta(days=5))
+    _set_rescue(user_id, day + timedelta(days=5))
 
     # due_errors already caps — rescue is a limit change, not new logic.
-    assert len(due_errors(tid, limit=3)) <= 3
-    assert len(due_errors(tid, limit=3)) == 3
+    assert len(due_errors(user_id, limit=3)) <= 3
+    assert len(due_errors(user_id, limit=3)) == 3

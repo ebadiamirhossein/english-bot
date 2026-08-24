@@ -16,7 +16,7 @@ import pytest
 from core.db import close_pool, connection
 from core.services.anki import export_and_send, fetch_unexported_chunks
 from core.services.paths import PathSafetyError, assert_path_outside_repo
-from core.services.users import save_onboarding
+from core.services.identity import save_onboarding
 from core.services.watch_import import (
     IMPORT_STABLE_AFTER,
     clear_orphan_warnings,
@@ -63,8 +63,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Watch Test",
@@ -78,6 +78,7 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _age_file(path: Path, *, older_than: timedelta = IMPORT_STABLE_AFTER) -> None:
@@ -256,9 +257,9 @@ def test_import_happy_path_moves_processed(
     cleanup_user: int, watch_root: Path
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    ensure_user_layout(watch_root, tid)
-    csv_path = watch_root / "inbox" / str(tid) / "trancy" / "export.csv"
+    user_id = _onboard(tid)
+    ensure_user_layout(watch_root, user_id)
+    csv_path = watch_root / "inbox" / str(user_id) / "trancy" / "export.csv"
     _write_csv(
         csv_path,
         "Word,Sentence,Translation,Title",
@@ -270,20 +271,20 @@ def test_import_happy_path_moves_processed(
     _age_file(csv_path)
     now = datetime.now(timezone.utc)
     result = process_csv_file(
-        csv_path, user_id=tid, tool="trancy", root=watch_root, now=now
+        csv_path, user_id=user_id, tool="trancy", root=watch_root, now=now
     )
     assert result.status == "imported"
     assert result.imported == 2
     assert result.duplicates == 0
     assert result.invalid == 0
     assert not csv_path.exists()
-    processed = list((watch_root / "processed" / str(tid)).glob("*.csv"))
+    processed = list((watch_root / "processed" / str(user_id)).glob("*.csv"))
     assert len(processed) == 1
     with connection() as conn:
         rows = conn.execute(
             "SELECT chunk, source, next_review, (CURRENT_DATE + 1) AS tomorrow "
             "FROM chunks WHERE user_id = %s ORDER BY id",
-            (tid,),
+            (user_id,),
         ).fetchall()
     assert len(rows) == 2
     assert rows[0]["next_review"] == rows[0]["tomorrow"]
@@ -294,15 +295,15 @@ def test_unrecognisable_headers_to_failed(
     cleanup_user: int, watch_root: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    ensure_user_layout(watch_root, tid)
-    csv_path = watch_root / "inbox" / str(tid) / "bad.csv"
+    user_id = _onboard(tid)
+    ensure_user_layout(watch_root, user_id)
+    csv_path = watch_root / "inbox" / str(user_id) / "bad.csv"
     _write_csv(csv_path, "alpha,beta,gamma", [f"a,{DISTINCTIVE},c"])
     _age_file(csv_path)
     with caplog.at_level(logging.WARNING):
         result = process_csv_file(
             csv_path,
-            user_id=tid,
+            user_id=user_id,
             tool="csv",
             root=watch_root,
             now=datetime.now(timezone.utc),
@@ -310,35 +311,35 @@ def test_unrecognisable_headers_to_failed(
     assert result.status == "failed_headers"
     assert result.imported == 0
     assert not csv_path.exists()
-    failed = list((watch_root / "failed" / str(tid)).glob("*.csv"))
+    failed = list((watch_root / "failed" / str(user_id)).glob("*.csv"))
     assert len(failed) == 1
     assert "failed_headers" in caplog.text
     assert DISTINCTIVE not in caplog.text
     with connection() as conn:
         n = conn.execute(
-            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (tid,)
+            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (user_id,)
         ).fetchone()
     assert int(n["n"]) == 0
 
 
 def test_row_level_dedupe(cleanup_user: int, watch_root: Path) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    ensure_user_layout(watch_root, tid)
+    user_id = _onboard(tid)
+    ensure_user_layout(watch_root, user_id)
     header = "Phrase,Context,Definition"
     rows = [
         'cut costs,"We need to cut costs this quarter",reduce spending',
     ]
-    p1 = watch_root / "inbox" / str(tid) / "a.csv"
+    p1 = watch_root / "inbox" / str(user_id) / "a.csv"
     _write_csv(p1, header, rows)
     _age_file(p1)
     now = datetime.now(timezone.utc)
     r1 = process_csv_file(
-        p1, user_id=tid, tool="language_reactor", root=watch_root, now=now
+        p1, user_id=user_id, tool="language_reactor", root=watch_root, now=now
     )
     assert r1.imported == 1
 
-    p2 = watch_root / "inbox" / str(tid) / "b.csv"
+    p2 = watch_root / "inbox" / str(user_id) / "b.csv"
     _write_csv(
         p2,
         header,
@@ -349,13 +350,13 @@ def test_row_level_dedupe(cleanup_user: int, watch_root: Path) -> None:
     )
     _age_file(p2)
     r2 = process_csv_file(
-        p2, user_id=tid, tool="language_reactor", root=watch_root, now=now
+        p2, user_id=user_id, tool="language_reactor", root=watch_root, now=now
     )
     assert r2.imported == 1
     assert r2.duplicates == 1
     with connection() as conn:
         n = conn.execute(
-            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (tid,)
+            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (user_id,)
         ).fetchone()
     assert int(n["n"]) == 2
 
@@ -364,9 +365,9 @@ def test_chunk_not_in_sentence_skipped(
     cleanup_user: int, watch_root: Path
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    ensure_user_layout(watch_root, tid)
-    p = watch_root / "inbox" / str(tid) / "x.csv"
+    user_id = _onboard(tid)
+    ensure_user_layout(watch_root, user_id)
+    p = watch_root / "inbox" / str(user_id) / "x.csv"
     _write_csv(
         p,
         "Word,Sentence,Translation",
@@ -378,7 +379,7 @@ def test_chunk_not_in_sentence_skipped(
     _age_file(p)
     r = process_csv_file(
         p,
-        user_id=tid,
+        user_id=user_id,
         tool="csv",
         root=watch_root,
         now=datetime.now(timezone.utc),
@@ -391,16 +392,16 @@ def test_young_file_not_processed(
     cleanup_user: int, watch_root: Path
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    ensure_user_layout(watch_root, tid)
-    p = watch_root / "inbox" / str(tid) / "fresh.csv"
+    user_id = _onboard(tid)
+    ensure_user_layout(watch_root, user_id)
+    p = watch_root / "inbox" / str(user_id) / "fresh.csv"
     _write_csv(
         p,
         "Word,Sentence,Translation",
         ['cut costs,"We must cut costs now.",reduce'],
     )
     now = datetime.now(timezone.utc)
-    result = scan_user_inbox(watch_root, tid, now=now)
+    result = scan_user_inbox(watch_root, user_id, now=now)
     assert result.settling == 1
     assert result.files == []
     assert p.exists()
@@ -410,11 +411,11 @@ def test_collision_safe_processed(
     cleanup_user: int, watch_root: Path
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    ensure_user_layout(watch_root, tid)
-    processed = watch_root / "processed" / str(tid)
+    user_id = _onboard(tid)
+    ensure_user_layout(watch_root, user_id)
+    processed = watch_root / "processed" / str(user_id)
     (processed / "export.csv").write_text("prior", encoding="utf-8")
-    p = watch_root / "inbox" / str(tid) / "export.csv"
+    p = watch_root / "inbox" / str(user_id) / "export.csv"
     _write_csv(
         p,
         "Word,Sentence,Translation",
@@ -423,7 +424,7 @@ def test_collision_safe_processed(
     _age_file(p)
     process_csv_file(
         p,
-        user_id=tid,
+        user_id=user_id,
         tool="csv",
         root=watch_root,
         now=datetime.now(timezone.utc),
@@ -438,8 +439,8 @@ def test_root_orphan_not_imported(
     cleanup_user: int, watch_root: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    ensure_user_layout(watch_root, tid)
+    user_id = _onboard(tid)
+    ensure_user_layout(watch_root, user_id)
     orphan = watch_root / "inbox" / "orphan.csv"
     _write_csv(
         orphan,
@@ -456,7 +457,7 @@ def test_root_orphan_not_imported(
     assert again == []
     assert orphan.exists()
     assert DISTINCTIVE not in caplog.text
-    scan = scan_user_inbox(watch_root, tid, now=datetime.now(timezone.utc))
+    scan = scan_user_inbox(watch_root, user_id, now=datetime.now(timezone.utc))
     assert scan.total_imported == 0
 
 
@@ -464,12 +465,12 @@ def test_imported_appears_in_anki_export(
     cleanup_user: int, watch_root: Path
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    ensure_user_layout(watch_root, tid)
+    user_id = _onboard(tid)
+    ensure_user_layout(watch_root, user_id)
     p = (
         watch_root
         / "inbox"
-        / str(tid)
+        / str(user_id)
         / "language_reactor"
         / "lr.csv"
     )
@@ -483,13 +484,13 @@ def test_imported_appears_in_anki_export(
     _age_file(p)
     process_csv_file(
         p,
-        user_id=tid,
+        user_id=user_id,
         tool="language_reactor",
         root=watch_root,
         now=datetime.now(timezone.utc),
     )
     with connection() as conn:
-        rows = fetch_unexported_chunks(conn, tid)
+        rows = fetch_unexported_chunks(conn, user_id)
     assert len(rows) == 1
     assert rows[0].source is not None
     assert rows[0].source.startswith("subtitle_language_reactor_")
@@ -499,7 +500,7 @@ def test_anki_outbox_write_and_failure_tolerant(
     cleanup_user: int, watch_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     with connection() as conn:
         with conn.transaction():
             conn.execute(
@@ -512,7 +513,7 @@ def test_anki_outbox_write_and_failure_tolerant(
                     'capture', NULL, FALSE, CURRENT_DATE + 1
                 )
                 """,
-                (tid,),
+                (user_id,),
             )
 
     sent: list[tuple[bytes, str, str]] = []
@@ -522,7 +523,7 @@ def test_anki_outbox_write_and_failure_tolerant(
 
     n = asyncio.run(
         export_and_send(
-            user_id=tid,
+            user_id=user_id,
             local_date=datetime.now(timezone.utc).date(),
             send_document=_send,
             claim_session=False,
@@ -531,7 +532,7 @@ def test_anki_outbox_write_and_failure_tolerant(
     )
     assert n == 1
     assert sent
-    out = list((watch_root / "outbox" / str(tid)).glob("*.tsv"))
+    out = list((watch_root / "outbox" / str(user_id)).glob("*.tsv"))
     assert len(out) == 1
 
     with connection() as conn:
@@ -546,7 +547,7 @@ def test_anki_outbox_write_and_failure_tolerant(
                     'capture', NULL, FALSE, CURRENT_DATE + 1
                 )
                 """,
-                (tid,),
+                (user_id,),
             )
     sent.clear()
 
@@ -559,7 +560,7 @@ def test_anki_outbox_write_and_failure_tolerant(
     )
     n2 = asyncio.run(
         export_and_send(
-            user_id=tid,
+            user_id=user_id,
             local_date=datetime.now(timezone.utc).date(),
             send_document=_send,
             claim_session=False,
@@ -569,7 +570,7 @@ def test_anki_outbox_write_and_failure_tolerant(
     assert n2 == 1
     assert sent
     with connection() as conn:
-        pending = fetch_unexported_chunks(conn, tid)
+        pending = fetch_unexported_chunks(conn, user_id)
     assert pending == []
 
 

@@ -50,6 +50,7 @@ from core.services.sessions import (
     update_session_payload,
 )
 from core.services.users import get_user
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ def _user_timezone(user_id: int) -> str:
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT timezone FROM users WHERE telegram_user_id = %s
+            SELECT timezone FROM users WHERE id = %s
             """,
             (user_id,),
         ).fetchone()
@@ -353,7 +354,9 @@ async def handle_test_command(
 ) -> None:
     if update.message is None or update.effective_user is None:
         return
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if get_user(user_id) is None:
         return
 
@@ -427,7 +430,9 @@ async def on_book_test_callback(
     data = query.data or ""
     if not data.startswith("btest:"):
         return
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     chat_id = query.message.chat_id
     message_id = query.message.message_id
 

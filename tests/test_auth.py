@@ -94,23 +94,37 @@ class Learner:
 
 
 def _make_learner(db, *, status: str = "approved", enrolled: bool = False) -> Learner:
-    """Insert a throwaway learner. Negative ids keep them out of real data."""
-    user_id = -secrets.randbelow(1_000_000_000) - 1
-    email = f"w2-test-{abs(user_id)}@example.test"
-    db.execute(
+    """Insert a throwaway learner. Negative ids keep them out of real data.
+
+    Since W4b the Telegram id and the internal id are different numbers: the
+    first is invented here, the second is assigned by the identity column and
+    read back. Nothing may assume they are equal -- that assumption is exactly
+    what this slice removed.
+    """
+    telegram_user_id = -secrets.randbelow(1_000_000_000) - 1
+    email = f"w2-test-{abs(telegram_user_id)}@example.test"
+    row = db.execute(
         """
         INSERT INTO users (telegram_user_id, name, native_language, onboarded,
                            auth_email, auth_user_id)
         VALUES (%s, %s, 'fa', TRUE, %s, %s)
+        RETURNING id
         """,
-        (user_id, "Test Learner", email, str(uuid.uuid4()) if enrolled else None),
-    )
+        (
+            telegram_user_id,
+            "Test Learner",
+            email,
+            str(uuid.uuid4()) if enrolled else None,
+        ),
+    ).fetchone()
+    user_id = int(row[0])
     db.execute(
         """
-        INSERT INTO access_requests (telegram_user_id, display_name, status)
-        VALUES (%s, %s, %s)
+        INSERT INTO access_requests (telegram_user_id, user_id, display_name,
+                                     status)
+        VALUES (%s, %s, %s, %s)
         """,
-        (user_id, "Test Learner", status),
+        (telegram_user_id, user_id, "Test Learner", status),
     )
     db.commit()
     return Learner(user_id, email)
@@ -122,10 +136,10 @@ def learner(db):
     made = _make_learner(db)
     yield made
     db.execute(
-        "DELETE FROM users WHERE telegram_user_id = %s", (made.user_id,)
+        "DELETE FROM users WHERE id = %s", (made.user_id,)
     )
     db.execute(
-        "DELETE FROM access_requests WHERE telegram_user_id = %s", (made.user_id,)
+        "DELETE FROM access_requests WHERE user_id = %s", (made.user_id,)
     )
     db.commit()
 
@@ -136,9 +150,9 @@ def cleanup(db):
     made: list[int] = []
     yield made
     for user_id in made:
-        db.execute("DELETE FROM users WHERE telegram_user_id = %s", (user_id,))
+        db.execute("DELETE FROM users WHERE id = %s", (user_id,))
         db.execute(
-            "DELETE FROM access_requests WHERE telegram_user_id = %s", (user_id,)
+            "DELETE FROM access_requests WHERE user_id = %s", (user_id,)
         )
     db.commit()
 
@@ -182,7 +196,7 @@ def _challenge_of(response: httpx.Response) -> bytes:
 
 def _handle_of(db, user_id: int) -> bytes:
     row = db.execute(
-        "SELECT auth_user_id FROM users WHERE telegram_user_id = %s", (user_id,)
+        "SELECT auth_user_id FROM users WHERE id = %s", (user_id,)
     ).fetchone()
     assert row is not None and row[0] is not None
     return uuid.UUID(str(row[0])).bytes
@@ -269,7 +283,7 @@ def test_a_full_enrolment_binds_the_account_and_starts_a_session(
     """The learner completes /enrol; the account is claimed and they are in."""
     _, cookie = enrol(app, db, learner)
     row = db.execute(
-        "SELECT auth_user_id FROM users WHERE telegram_user_id = %s",
+        "SELECT auth_user_id FROM users WHERE id = %s",
         (learner.user_id,),
     ).fetchone()
     assert row is not None and row[0] is not None, "auth_user_id was not bound"
@@ -281,7 +295,7 @@ def test_a_full_enrolment_binds_the_account_and_starts_a_session(
     me = request(
         app, "GET", "/health/auth", cookies={SESSION_COOKIE_SECURE: cookie}
     )
-    assert me.json()["telegram_user_id"] == learner.user_id
+    assert me.json()["user_id"] == learner.user_id
 
 
 def test_a_full_sign_in_works_without_typing_an_identifier(app, db, learner) -> None:
@@ -290,7 +304,7 @@ def test_a_full_sign_in_works_without_typing_an_identifier(app, db, learner) -> 
     device, _ = enrol(app, db, learner)
     response = sign_in(app, db, learner, device)
     assert response.status_code == 200, response.text
-    assert response.json()["telegram_user_id"] == learner.user_id
+    assert response.json()["user_id"] == learner.user_id
     assert _session_cookie(response)
 
 
@@ -708,7 +722,7 @@ def test_revoking_a_user_ends_their_session_on_the_next_request(
         is not None
     )
     db.execute(
-        "UPDATE access_requests SET status = 'revoked' WHERE telegram_user_id = %s",
+        "UPDATE access_requests SET status = 'revoked' WHERE user_id = %s",
         (learner.user_id,),
     )
     db.commit()
@@ -1159,6 +1173,6 @@ def test_the_session_json_is_the_shape_the_frontend_expects(
     body = request(
         app, "GET", "/health/auth", cookies={SESSION_COOKIE_SECURE: cookie}
     ).json()
-    assert set(body) == {"telegram_user_id", "name", "expires_at"}
-    assert isinstance(body["telegram_user_id"], int)
+    assert set(body) == {"user_id", "name", "expires_at"}
+    assert isinstance(body["user_id"], int)
     json.dumps(body)  # must be serialisable as-is

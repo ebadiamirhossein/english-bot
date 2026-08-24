@@ -7,9 +7,8 @@ import uuid
 import pytest
 
 from core.db import close_pool, connection
-from core.services.users import efset_to_cefr, get_user, save_onboarding
-
-
+from core.services.identity import save_onboarding
+from core.services.users import efset_to_cefr, get_user
 FAKE_TELEGRAM_ID_BASE = 9_000_000_000
 
 
@@ -72,9 +71,9 @@ def test_save_onboarding_creates_user_and_streak(cleanup_user: int) -> None:
         "morning_time": "08:00",
         "evening_time": "21:00",
     }
-    save_onboarding(tid, data)
+    user_id = save_onboarding(tid, data)
 
-    user = get_user(tid)
+    user = get_user(user_id)
     assert user is not None
     assert user.name == "Test User"
     assert user.native_language == "fa"
@@ -90,7 +89,7 @@ def test_save_onboarding_creates_user_and_streak(cleanup_user: int) -> None:
     with connection() as conn:
         streak = conn.execute(
             "SELECT freeze_tokens, current_streak FROM streaks WHERE user_id = %s",
-            (tid,),
+            (user_id,),
         ).fetchone()
         user_count = conn.execute(
             "SELECT count(*) AS n FROM users WHERE telegram_user_id = %s",
@@ -98,7 +97,7 @@ def test_save_onboarding_creates_user_and_streak(cleanup_user: int) -> None:
         ).fetchone()
         streak_count = conn.execute(
             "SELECT count(*) AS n FROM streaks WHERE user_id = %s",
-            (tid,),
+            (user_id,),
         ).fetchone()
 
     assert streak is not None
@@ -120,11 +119,11 @@ def test_save_onboarding_twice_no_duplicates(cleanup_user: int) -> None:
         "morning_time": "07:00",
         "evening_time": "19:00",
     }
-    save_onboarding(tid, data)
+    user_id = save_onboarding(tid, data)
     data["name"] = "Second"
     data["efset_baseline"] = None
     data["cefr_level"] = "B1"
-    save_onboarding(tid, data)
+    user_id = save_onboarding(tid, data)
 
     with connection() as conn:
         user_count = conn.execute(
@@ -133,12 +132,12 @@ def test_save_onboarding_twice_no_duplicates(cleanup_user: int) -> None:
         ).fetchone()
         streak_count = conn.execute(
             "SELECT count(*) AS n FROM streaks WHERE user_id = %s",
-            (tid,),
+            (user_id,),
         ).fetchone()
 
     assert user_count["n"] == 1
     assert streak_count["n"] == 1
-    user = get_user(tid)
+    user = get_user(user_id)
     assert user is not None
     assert user.name == "Second"
     assert user.efset_baseline is None
@@ -158,22 +157,22 @@ def test_redo_does_not_reset_streak(cleanup_user: int) -> None:
         "morning_time": "09:00",
         "evening_time": "20:00",
     }
-    save_onboarding(tid, data)
+    user_id = save_onboarding(tid, data)
 
     with connection() as conn:
         with conn.transaction():
             conn.execute(
                 "UPDATE streaks SET current_streak = 5 WHERE user_id = %s",
-                (tid,),
+                (user_id,),
             )
 
     data["name"] = "Streaky Redo"
-    save_onboarding(tid, data)
+    user_id = save_onboarding(tid, data)
 
     with connection() as conn:
         streak = conn.execute(
             "SELECT current_streak FROM streaks WHERE user_id = %s",
-            (tid,),
+            (user_id,),
         ).fetchone()
 
     assert streak is not None

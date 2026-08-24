@@ -70,7 +70,7 @@ async function post<T>(path: string, body?: Json): Promise<T> {
 }
 
 export type SessionUser = {
-  telegram_user_id: number;
+  user_id: number;
   name: string;
   expires_at: string;
 };

@@ -43,7 +43,20 @@ ANKI_WEEKDAY = 5
 
 @dataclass(frozen=True)
 class EligibleUser:
-    telegram_user_id: int
+    """A learner the scheduler may act on.
+
+    ``id`` is who they are; ``telegram_address`` is where a Telegram message
+    goes, and is ``None`` for a web-only learner who has no Telegram account at
+    all. Kept as two fields since W4b precisely so a caller cannot use one as the
+    other -- which is what ``chat_id=user_id`` did throughout the bot.
+
+    A ``None`` address means this bot cannot reach them; delivery skips them.
+    See known issue #95 -- that skip is silent by construction and W20 must make
+    it loud once the web has a channel of its own.
+    """
+
+    id: int
+    telegram_address: int | None
     timezone: str
     morning_time: time
     paused_until: date | None
@@ -61,14 +74,19 @@ def list_candidate_users() -> list[EligibleUser]:
     with connection() as conn:
         rows = conn.execute(
             """
-            SELECT telegram_user_id, timezone, morning_time, evening_time,
+            SELECT id, telegram_user_id, timezone, morning_time, evening_time,
                    paused_until
               FROM approved_onboarded_users
             """
         ).fetchall()
     return [
         EligibleUser(
-            telegram_user_id=int(row["telegram_user_id"]),
+            id=int(row["id"]),
+            telegram_address=(
+                None
+                if row["telegram_user_id"] is None
+                else int(row["telegram_user_id"])
+            ),
             timezone=str(row["timezone"] or "Europe/Vilnius"),
             morning_time=row["morning_time"],
             paused_until=row["paused_until"],
@@ -87,9 +105,9 @@ def is_user_due_for_morning(user: EligibleUser, now: datetime) -> bool:
         return False
     if not _time_reached(local_time_hhmm(user.timezone, now), user.morning_time):
         return False
-    if has_session_on(user.telegram_user_id, day):
+    if has_session_on(user.id, day):
         return False
-    if not under_message_ceiling(user.telegram_user_id, day):
+    if not under_message_ceiling(user.id, day):
         return False
     return True
 
@@ -106,9 +124,9 @@ def is_user_due_for_evening(user: EligibleUser, now: datetime) -> bool:
         return False
     if not _time_reached(local_time_hhmm(user.timezone, now), user.evening_time):
         return False
-    if has_reading_session_on(user.telegram_user_id, day):
+    if has_reading_session_on(user.id, day):
         return False
-    if not under_message_ceiling(user.telegram_user_id, day):
+    if not under_message_ceiling(user.id, day):
         return False
     return True
 
@@ -125,9 +143,9 @@ def is_user_due_for_diary(user: EligibleUser, now: datetime) -> bool:
         return False
     if not _time_reached(local_time_hhmm(user.timezone, now), user.evening_time):
         return False
-    if has_diary_session_on(user.telegram_user_id, day):
+    if has_diary_session_on(user.id, day):
         return False
-    if not under_message_ceiling(user.telegram_user_id, day):
+    if not under_message_ceiling(user.id, day):
         return False
     return True
 
@@ -144,9 +162,9 @@ def is_user_due_for_anki(user: EligibleUser, now: datetime) -> bool:
         return False
     if not _time_reached(local_time_hhmm(user.timezone, now), user.evening_time):
         return False
-    if has_anki_session_on(user.telegram_user_id, day):
+    if has_anki_session_on(user.id, day):
         return False
-    if not under_message_ceiling(user.telegram_user_id, day):
+    if not under_message_ceiling(user.id, day):
         return False
     return True
 

@@ -25,6 +25,7 @@ from core.services.prep import (
     validate_prep_payload,
 )
 from core.services.users import User, get_user, is_registered
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,9 @@ async def on_prep_command(
     if message is None or user_tg is None:
         return
 
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if not is_registered(user_id):
         return
 
@@ -100,7 +103,9 @@ async def _run_prep(
     if message is None or user_tg is None:
         return
 
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     user = get_user(user_id)
     if user is None:
         return

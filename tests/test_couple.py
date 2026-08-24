@@ -41,8 +41,7 @@ from apps.bot.services.couple import (
 )
 from core.services.sessions import has_session_on
 from core.services.streaks import evaluate_pending, get_streak, roll_over_day
-from core.services.users import save_onboarding
-
+from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_490_000_000
 COUPLE_CHAT = -100999888777
 VILNIUS = ZoneInfo("Europe/Vilnius")
@@ -67,16 +66,29 @@ def _close_pool_after_test() -> None:
 
 
 def _delete_user(telegram_user_id: int) -> None:
+    """Tear down by Telegram id, but clear the children by internal id.
+
+    ``couple_challenges.winner_user_id`` is the one user key that does NOT
+    cascade, so a leftover challenge makes the DELETE below fail rather than
+    quietly succeed. Since W4b the child rows are keyed on ``users.id``, which is
+    not the Telegram id the fixture holds -- hence the lookup.
+    """
     with connection() as conn:
         with conn.transaction():
-            conn.execute(
-                "DELETE FROM couple_challenges WHERE winner_user_id = %s",
+            row = conn.execute(
+                "SELECT id FROM users WHERE telegram_user_id = %s",
                 (telegram_user_id,),
-            )
-            conn.execute(
-                "DELETE FROM couple_scores WHERE user_id = %s",
-                (telegram_user_id,),
-            )
+            ).fetchone()
+            if row is not None:
+                user_id = int(row["id"])
+                conn.execute(
+                    "DELETE FROM couple_challenges WHERE winner_user_id = %s",
+                    (user_id,),
+                )
+                conn.execute(
+                    "DELETE FROM couple_scores WHERE user_id = %s",
+                    (user_id,),
+                )
             conn.execute(
                 "DELETE FROM users WHERE telegram_user_id = %s",
                 (telegram_user_id,),
@@ -99,8 +111,8 @@ def cleanup_pair(fake_ids: tuple[int, int]):
         _delete_user(tid)
 
 
-def _onboard(tid: int, *, name: str = "Couple Test") -> None:
-    save_onboarding(
+def _onboard(tid: int, *, name: str = "Couple Test") -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": name,
@@ -114,6 +126,7 @@ def _onboard(tid: int, *, name: str = "Couple Test") -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
 def _settings(*, couple_chat_id: int | None = COUPLE_CHAT) -> Settings:
@@ -207,15 +220,15 @@ def test_feature_ready_requires_chat_and_two_users(
 ) -> None:
     a, b = cleanup_pair
     assert feature_ready(_settings(couple_chat_id=None)) is False
-    _onboard(a, name="A")
+    a_id = _onboard(a, name="A")
     with patch(
-        "apps.bot.services.couple.registered_user_ids", return_value=[a]
+        "apps.bot.services.couple.registered_user_ids", return_value=[a_id]
     ):
         assert feature_ready(_settings()) is False
-    _onboard(b, name="B")
+    b_id = _onboard(b, name="B")
     with patch(
         "apps.bot.services.couple.registered_user_ids",
-        return_value=sorted([a, b]),
+        return_value=sorted([a_id, b_id]),
     ):
         assert feature_ready(_settings()) is True
 
@@ -224,12 +237,12 @@ def test_pick_source_error_from_journal(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a, name="A")
-    _onboard(b, name="B")
-    ids = sorted([a, b])
+    a_id = _onboard(a, name="A")
+    b_id = _onboard(b, name="B")
+    ids = sorted([a_id, b_id])
     day = date(2026, 8, 10)
     primary = ids[day.toordinal() % 2]
-    other = b if primary == a else a
+    other = b_id if primary == a_id else a_id
     eid = _insert_error(
         primary, you_said="primary-only-form", times_wrong=5
     )
@@ -247,22 +260,22 @@ def test_atomic_claim_race_one_winner(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a, name="A")
-    _onboard(b, name="B")
+    a_id = _onboard(a, name="A")
+    b_id = _onboard(b, name="B")
     day = date(2026, 8, 11)
     _delete_challenge_day(day)
     cid = insert_challenge_if_absent(day, "Fill: ___", "very")
     assert cid is not None
-    assert claim_win(cid, a) is True
-    assert claim_win(cid, b) is False
+    assert claim_win(cid, a_id) is True
+    assert claim_win(cid, b_id) is False
     ch = get_challenge_for_date(day)
     assert ch is not None
-    assert ch.winner_user_id == a
+    assert ch.winner_user_id == a_id
     week = week_start(day)
-    add_point(a, week)
-    # Second claim must not add a second point for B
-    assert points_for(a, week) == 1
-    assert points_for(b, week) == 0
+    add_point(a_id, week)
+    # Second claim must not add a_id second point for B
+    assert points_for(a_id, week) == 1
+    assert points_for(b_id, week) == 0
     _delete_challenge_day(day)
 
 
@@ -270,8 +283,8 @@ def test_wrong_answer_warm_reply_no_point(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a, name="A")
-    _onboard(b, name="B")
+    a_id = _onboard(a, name="A")
+    b_id = _onboard(b, name="B")
     day = couple_local_today(datetime.now(timezone.utc))
     _delete_challenge_day(day)
     insert_challenge_if_absent(day, "Fill ___", "very")
@@ -291,7 +304,7 @@ def test_wrong_answer_warm_reply_no_point(
             texts.COUPLE_TRY_AGAIN
         )
         assert get_open_challenge(day) is not None
-        assert points_for(a, week) == 0
+        assert points_for(a_id, week) == 0
 
     asyncio.run(_run())
     _delete_challenge_day(day)
@@ -301,15 +314,15 @@ def test_already_claimed_no_second_point(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a, name="A")
-    _onboard(b, name="B")
+    a_id = _onboard(a, name="A")
+    b_id = _onboard(b, name="B")
     day = couple_local_today(datetime.now(timezone.utc))
     _delete_challenge_day(day)
     cid = insert_challenge_if_absent(day, "Fill ___", "very")
     assert cid is not None
-    assert claim_win(cid, a) is True
+    assert claim_win(cid, a_id) is True
     week = week_start(day)
-    add_point(a, week)
+    add_point(a_id, week)
     ch = get_challenge_for_date(day)
     assert ch is not None
     # Simulate the race window: handler still sees an "open" row, but the
@@ -344,8 +357,8 @@ def test_already_claimed_no_second_point(
         update_b.message.reply_text.assert_awaited_once_with(
             texts.COUPLE_ALREADY_CLAIMED
         )
-        assert points_for(a, week) == 1
-        assert points_for(b, week) == 0
+        assert points_for(a_id, week) == 1
+        assert points_for(b_id, week) == 0
 
     asyncio.run(_run())
     _delete_challenge_day(day)
@@ -355,18 +368,18 @@ def test_scores_reset_on_week_boundary(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     w1 = date(2026, 8, 3)
     w2 = date(2026, 8, 10)
-    add_point(a, w1)
-    add_point(a, w1)
-    add_point(b, w1)
-    assert scores_for_week(w1)[a] == 2
-    assert scores_for_week(w2).get(a, 0) == 0
-    add_point(a, w2)
-    assert points_for(a, w2) == 1
-    assert points_for(a, w1) == 2
+    add_point(a_id, w1)
+    add_point(a_id, w1)
+    add_point(b_id, w1)
+    assert scores_for_week(w1)[a_id] == 2
+    assert scores_for_week(w2).get(a_id, 0) == 0
+    add_point(a_id, w2)
+    assert points_for(a_id, w2) == 1
+    assert points_for(a_id, w1) == 2
 
 
 # --- poll --------------------------------------------------------------------
@@ -376,8 +389,8 @@ def test_poll_inert_when_chat_unset(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     app = MagicMock()
     app.bot.send_message = AsyncMock()
     now = datetime(2026, 8, 10, 15, 10, tzinfo=timezone.utc)  # 18:10 Vilnius
@@ -394,9 +407,9 @@ def test_poll_inert_when_chat_unset(
 
 def test_poll_inert_with_one_user(cleanup_pair: tuple[int, int]) -> None:
     a, _b = cleanup_pair
-    _onboard(a)
+    a_id = _onboard(a)
     # Only one of the pair onboarded; other users may exist in DB — gate on
-    # feature_ready for *exactly* our chat with a settings mock that still
+    # feature_ready for *exactly* our chat with a_id settings mock that still
     # needs >=2 users globally. If the shared DB already has ≥2 users this
     # still posts; so assert via registered count for our fixtures alone by
     # patching registered_user_ids.
@@ -419,9 +432,9 @@ def test_poll_inert_with_one_user(cleanup_pair: tuple[int, int]) -> None:
 
 def test_one_user_feature_ready_false(cleanup_pair: tuple[int, int]) -> None:
     a, _b = cleanup_pair
-    _onboard(a)
+    a_id = _onboard(a)
     with patch(
-        "apps.bot.services.couple.registered_user_ids", return_value=[a]
+        "apps.bot.services.couple.registered_user_ids", return_value=[a_id]
     ):
         assert feature_ready(_settings()) is False
 
@@ -430,12 +443,12 @@ def test_question_posts_from_real_error(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a, name="A")
-    _onboard(b, name="B")
+    a_id = _onboard(a, name="A")
+    b_id = _onboard(b, name="B")
     day = date(2026, 8, 10)  # Monday
     _delete_challenge_day(day)
-    _insert_error(a, you_said="so much good", correct_form="very good")
-    _insert_error(b, you_said="I go yesterday", correct_form="I went yesterday")
+    _insert_error(a_id, you_said="so much good", correct_form="very good")
+    _insert_error(b_id, you_said="I go yesterday", correct_form="I went yesterday")
 
     app = MagicMock()
     app.bot.send_message = AsyncMock(
@@ -455,11 +468,11 @@ def test_question_posts_from_real_error(
             patch("apps.bot.handlers.couple.chat", side_effect=_fake_chat),
             patch(
                 "apps.bot.handlers.couple.registered_user_ids",
-                return_value=sorted([a, b]),
+                return_value=sorted([a_id, b_id]),
             ),
             patch(
                 "apps.bot.services.couple.registered_user_ids",
-                return_value=sorted([a, b]),
+                return_value=sorted([a_id, b_id]),
             ),
         ):
             actions = await run_couple_poll(
@@ -491,16 +504,16 @@ def test_sunday_leaderboard_once(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a, name="Alex")
-    _onboard(b, name="Sam")
+    a_id = _onboard(a, name="Alex")
+    b_id = _onboard(b, name="Sam")
     # Sunday 2026-08-09 18:10 Vilnius = 15:10 UTC
     sunday = date(2026, 8, 9)
     _delete_challenge_day(sunday)
     insert_challenge_if_absent(sunday, "already", "x")  # skip question path
     week = week_start(sunday)
-    add_point(a, week)
-    add_point(a, week)
-    add_point(b, week)
+    add_point(a_id, week)
+    add_point(a_id, week)
+    add_point(b_id, week)
 
     app = MagicMock()
     app.bot.send_message = AsyncMock()
@@ -511,11 +524,11 @@ def test_sunday_leaderboard_once(
             patch("apps.bot.handlers.couple.feature_ready", return_value=True),
             patch(
                 "apps.bot.handlers.couple.registered_user_ids",
-                return_value=sorted([a, b]),
+                return_value=sorted([a_id, b_id]),
             ),
             patch(
                 "apps.bot.services.couple.registered_user_ids",
-                return_value=sorted([a, b]),
+                return_value=sorted([a_id, b_id]),
             ),
         ):
             first = await run_couple_poll(
@@ -533,7 +546,7 @@ def test_sunday_leaderboard_once(
             if "This week's challenge" in (c.kwargs.get("text") or "")
         ]
         assert len(lb_calls) == 1
-        marker = leaderboard_marker_row(min(a, b), sunday)
+        marker = leaderboard_marker_row(min(a_id, b_id), sunday)
         assert marker is not None
         assert marker["completed"] is False
 
@@ -548,18 +561,18 @@ def test_leaderboard_marker_rollover_neutral(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     sunday = date(2026, 8, 9)
-    assert claim_sunday_leaderboard(sunday, a) is True
-    marker = leaderboard_marker_row(a, sunday)
+    assert claim_sunday_leaderboard(sunday, a_id) is True
+    marker = leaderboard_marker_row(a_id, sunday)
     assert marker is not None
     assert marker["completed"] is False
-    _set_last_evaluated(a, sunday - timedelta(days=1))
-    result = roll_over_day(a, sunday)
+    _set_last_evaluated(a_id, sunday - timedelta(days=1))
+    result = roll_over_day(a_id, sunday)
     assert result.outcome == "neutral"
     # Still incomplete
-    marker2 = leaderboard_marker_row(a, sunday)
+    marker2 = leaderboard_marker_row(a_id, sunday)
     assert marker2 is not None
     assert marker2["completed"] is False
 
@@ -568,13 +581,14 @@ def test_leaderboard_marker_does_not_block_morning(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     sunday = date(2026, 8, 9)
-    assert claim_sunday_leaderboard(sunday, a) is True
-    assert has_session_on(a, sunday) is False
+    assert claim_sunday_leaderboard(sunday, a_id) is True
+    assert has_session_on(a_id, sunday) is False
     user = EligibleUser(
-        telegram_user_id=a,
+        id=a,
+        telegram_address=a_id,
         timezone="Europe/Vilnius",
         morning_time=__import__("datetime").time(7, 0),
         paused_until=None,
@@ -588,13 +602,13 @@ def test_leaderboard_marker_not_in_calibration(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     sunday = date(2026, 8, 9)
-    assert claim_sunday_leaderboard(sunday, a) is True
-    before = compute_accuracy_window(a)
+    assert claim_sunday_leaderboard(sunday, a_id) is True
+    before = compute_accuracy_window(a_id)
     # Marker incomplete and wrong type — window unchanged (still empty)
-    after = compute_accuracy_window(a)
+    after = compute_accuracy_window(a_id)
     assert after.answered == before.answered == 0
 
 
@@ -602,22 +616,22 @@ def test_leaderboard_marker_backfill_neutral(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a)
-    _onboard(b)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
     sunday = date(2026, 8, 9)
-    assert claim_sunday_leaderboard(sunday, a) is True
-    # Walk a range including Sunday via evaluate_pending
-    _set_last_evaluated(a, date(2026, 8, 6))  # before Fri
+    assert claim_sunday_leaderboard(sunday, a_id) is True
+    # Walk a_id range including Sunday via evaluate_pending
+    _set_last_evaluated(a_id, date(2026, 8, 6))  # before Fri
     # now = Monday 2026-08-10 10:00 Vilnius → closed_through = Aug 9 (after 03:00)
     now = datetime(2026, 8, 10, 7, 0, tzinfo=timezone.utc)
-    results = evaluate_pending(a, timezone="Europe/Vilnius", now=now)
+    results = evaluate_pending(a_id, timezone="Europe/Vilnius", now=now)
     by_day = {r.day: r.outcome for r in results}
     assert by_day.get(sunday) == "neutral"
     # Neighbouring days without sessions also Neutral
     for d in (date(2026, 8, 7), date(2026, 8, 8)):
         if d in by_day:
             assert by_day[d] == "neutral"
-    streak = get_streak(a)
+    streak = get_streak(a_id)
     assert streak.freeze_tokens == 2  # no freeze from Neutral days
 
 
@@ -625,12 +639,12 @@ def test_wrap_error_includes_journal_forms(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a)
-    _onboard(b)
-    eid = _insert_error(a, you_said="so much good", correct_form="very good")
+    a_id = _onboard(a)
+    b_id = _onboard(b)
+    eid = _insert_error(a_id, you_said="so much good", correct_form="very good")
     from core.services.errors import get_error_for_user
 
-    err = get_error_for_user(a, eid)
+    err = get_error_for_user(a_id, eid)
     assert err is not None
     wrapped = wrap_error_row(err)
     assert "so much good" in wrapped
@@ -641,12 +655,12 @@ def test_generate_question_uses_to_thread(
     cleanup_pair: tuple[int, int],
 ) -> None:
     a, b = cleanup_pair
-    _onboard(a)
-    _onboard(b)
-    eid = _insert_error(a)
+    a_id = _onboard(a)
+    b_id = _onboard(b)
+    eid = _insert_error(a_id)
     from core.services.errors import get_error_for_user
 
-    err = get_error_for_user(a, eid)
+    err = get_error_for_user(a_id, eid)
     assert err is not None
 
     async def _run() -> None:

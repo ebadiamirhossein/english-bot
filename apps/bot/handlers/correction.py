@@ -27,6 +27,7 @@ from core.services.correction import (
     wrap_user_text,
 )
 from core.services.users import get_user, is_registered
+from apps.bot import identity as bot_identity
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,9 @@ async def correct_text(
     if message is None or user_tg is None or not message.text:
         return
 
-    user_id = user_tg.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     if not is_registered(user_id):
         return
 

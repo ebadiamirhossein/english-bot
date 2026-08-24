@@ -18,7 +18,8 @@ from apps.bot.handlers.correction import (
     murphy_lookup,
 )
 from core.services.errors import record_errors
-from core.services.users import get_user, save_onboarding
+from core.services.identity import save_onboarding
+from core.services.users import get_user
 from apps.bot import texts
 
 
@@ -51,8 +52,8 @@ def cleanup_user(fake_telegram_id: int):
     _delete_user(fake_telegram_id)
 
 
-def _onboard(tid: int) -> None:
-    save_onboarding(
+def _onboard(tid: int) -> int:
+    user_id = save_onboarding(
         tid,
         {
             "name": "Corr Test",
@@ -66,17 +67,18 @@ def _onboard(tid: int) -> None:
             "evening_time": "21:00",
         },
     )
+    return user_id
 
 
-def _set_fallback(tid: int, value: bool) -> None:
+def _set_fallback(user_id: int, value: bool) -> None:
     with connection() as conn:
         conn.execute(
             """
             UPDATE users
                SET explanation_language_fallback = %s
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (value, tid),
+            (value, user_id),
         )
 
 
@@ -127,7 +129,7 @@ def _init_prompt() -> None:
 
 def test_record_two_corrections_writes_two_rows(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     corrections = [
         {
             "you_said": "her english is not so much good",
@@ -142,9 +144,9 @@ def test_record_two_corrections_writes_two_rows(cleanup_user: int) -> None:
             "explanation": "Use the past form for yesterday.",
         },
     ]
-    written = record_errors(tid, "text", corrections)
+    written = record_errors(user_id, "text", corrections)
     assert written == 2
-    rows = _fetch_errors(tid)
+    rows = _fetch_errors(user_id)
     assert len(rows) == 2
     assert all(r["source"] == "text" for r in rows)
     tomorrow = date.today() + timedelta(days=1)
@@ -153,7 +155,7 @@ def test_record_two_corrections_writes_two_rows(cleanup_user: int) -> None:
 
 def test_invalid_error_type_dropped(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     corrections = [
         {
             "you_said": "bad invent",
@@ -168,16 +170,16 @@ def test_invalid_error_type_dropped(cleanup_user: int) -> None:
             "explanation": "Past form.",
         },
     ]
-    written = record_errors(tid, "text", corrections)
+    written = record_errors(user_id, "text", corrections)
     assert written == 1
-    rows = _fetch_errors(tid)
+    rows = _fetch_errors(user_id)
     assert len(rows) == 1
     assert rows[0]["error_type"] == "verb_tense_past"
 
 
 def test_has_errors_false_writes_zero_rows(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _make_update(tid, "This sentence is perfectly fine.")
     context = _make_context()
     payload = {
@@ -188,13 +190,13 @@ def test_has_errors_false_writes_zero_rows(cleanup_user: int) -> None:
     }
     with patch("core.services.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
-    assert _count_errors(tid) == 0
+    assert _count_errors(user_id) == 0
     update.message.reply_text.assert_awaited_with("👍 Natural word order.")
 
 
 def test_is_english_false_writes_zero_rows(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _make_update(tid, "این یک جمله فارسی است حتما")
     context = _make_context()
     payload = {
@@ -205,13 +207,13 @@ def test_is_english_false_writes_zero_rows(cleanup_user: int) -> None:
     }
     with patch("core.services.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
-    assert _count_errors(tid) == 0
+    assert _count_errors(user_id) == 0
     update.message.reply_text.assert_awaited_with(texts.NOT_ENGLISH)
 
 
 def test_rendered_message_matches_prd_shape(cleanup_user: int) -> None:
     tid = cleanup_user
-    _onboard(tid)
+    user_id = _onboard(tid)
     update = _make_update(tid, "her english is not so much good today")
     context = _make_context()
     payload = {
@@ -238,7 +240,7 @@ def test_rendered_message_matches_prd_shape(cleanup_user: int) -> None:
     with patch("core.services.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
 
-    assert _count_errors(tid) == 2
+    assert _count_errors(user_id) == 2
     reply = update.message.reply_text.await_args.args[0]
     expected_first = texts.format_correction_block(
         you_said="her english is not so much good",
@@ -266,9 +268,9 @@ def test_system_prompt_fallback_true_includes_native_rule(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _set_fallback(tid, True)
-    user = get_user(tid)
+    user_id = _onboard(tid)
+    _set_fallback(user_id, True)
+    user = get_user(user_id)
     assert user is not None
     assert user.explanation_language_fallback is True
     prompt = build_system_prompt(user)
@@ -281,9 +283,9 @@ def test_system_prompt_fallback_false_omits_native_rule(
     cleanup_user: int,
 ) -> None:
     tid = cleanup_user
-    _onboard(tid)
-    _set_fallback(tid, False)
-    user = get_user(tid)
+    user_id = _onboard(tid)
+    _set_fallback(user_id, False)
+    user = get_user(user_id)
     assert user is not None
     assert user.explanation_language_fallback is False
     prompt = build_system_prompt(user)
@@ -295,8 +297,8 @@ def test_system_prompt_fallback_false_omits_native_rule(
 def test_short_single_error_includes_nonempty_did_well(cleanup_user: int) -> None:
     """Short inputs still get a present, non-empty did_well line (not filler about the error)."""
     tid = cleanup_user
-    _onboard(tid)
-    user = get_user(tid)
+    user_id = _onboard(tid)
+    user = get_user(user_id)
     assert user is not None
     prompt = build_system_prompt(user)
     assert "Never restate, paraphrase, or reference the error being corrected" in prompt
@@ -320,7 +322,7 @@ def test_short_single_error_includes_nonempty_did_well(cleanup_user: int) -> Non
     with patch("core.services.correction.chat", return_value=payload):
         asyncio.run(correction_handler.correct_text(update, context))
 
-    assert _count_errors(tid) == 1
+    assert _count_errors(user_id) == 1
     reply = update.message.reply_text.await_args.args[0]
     assert "\n\n👍 " in reply
     did_well = reply.split("\n\n👍 ", 1)[1].strip()

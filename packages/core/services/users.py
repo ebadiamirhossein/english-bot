@@ -1,7 +1,14 @@
-"""User reads/writes and onboarding persistence.
+"""User reads and writes, all scoped by the internal ``users.id``.
 
-All queries are scoped by telegram_user_id. Handlers must not talk to
-the database directly — call these helpers instead.
+Since W4b, ``user_id`` here means ``users.id`` and never a Telegram id. The
+translation happens once, at the bot edge, through ``core.services.identity`` --
+this module does not do it and its SQL may not name ``telegram_user_id``
+(``tests/test_identity_boundary.py`` enforces that by parsing the tree).
+
+``save_onboarding`` moved to ``identity`` for the same reason: it is the one
+write that creates identity *from* a Telegram id.
+
+Handlers must not talk to the database directly — call these helpers instead.
 """
 
 from __future__ import annotations
@@ -9,9 +16,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, time
-from typing import Any
 
 from psycopg.types.json import Jsonb
+
 
 from core.db import connection
 
@@ -20,7 +27,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class User:
-    telegram_user_id: int
+    id: int
+    # Nullable since W4b: a web-only learner has no Telegram account. Read it as
+    # a delivery address, never as an identity.
+    telegram_user_id: int | None
     name: str
     native_language: str
     cefr_level: str
@@ -51,27 +61,29 @@ def efset_to_cefr(score: int) -> str:
     return "C2"
 
 
-def get_user(telegram_user_id: int) -> User | None:
-    """Return the user row, or None if this telegram id is unknown."""
+def get_user(user_id: int) -> User | None:
+    """Return the user row, or None if this user id is unknown."""
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT telegram_user_id, name, native_language, cefr_level,
+            SELECT id, telegram_user_id, name, native_language, cefr_level,
                    explanation_language_fallback,
                    efset_baseline, work_domain, why_statement, track_weights,
                    morning_time, evening_time, onboarded
               FROM users
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (telegram_user_id,),
+            (user_id,),
         ).fetchone()
     if row is None:
         return None
     weights = row["track_weights"]
     if not isinstance(weights, dict):
         weights = dict(weights)
+    tg = row["telegram_user_id"]
     return User(
-        telegram_user_id=int(row["telegram_user_id"]),
+        id=int(row["id"]),
+        telegram_user_id=None if tg is None else int(tg),
         name=row["name"],
         native_language=row["native_language"],
         cefr_level=row["cefr_level"],
@@ -86,7 +98,7 @@ def get_user(telegram_user_id: int) -> User | None:
     )
 
 
-def is_registered(telegram_user_id: int) -> bool:
+def is_registered(user_id: int) -> bool:
     """True when a users row exists and access is currently approved.
 
     Revoked users keep their ``users`` row (and learning history) but are
@@ -98,107 +110,107 @@ def is_registered(telegram_user_id: int) -> bool:
             SELECT 1
               FROM users u
               INNER JOIN access_requests ar
-                      ON ar.telegram_user_id = u.telegram_user_id
-             WHERE u.telegram_user_id = %s
+                      ON ar.user_id = u.id
+             WHERE u.id = %s
                AND ar.status = 'approved'
             """,
-            (telegram_user_id,),
+            (user_id,),
         ).fetchone()
     return row is not None
 
 
-def update_cefr_level(telegram_user_id: int, new_level: str) -> None:
-    """Set users.cefr_level for this telegram id only."""
+def update_cefr_level(user_id: int, new_level: str) -> None:
+    """Set users.cefr_level for this user only."""
     with connection() as conn:
         conn.execute(
             """
             UPDATE users
                SET cefr_level = %s
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (new_level, telegram_user_id),
+            (new_level, user_id),
         )
     logger.info(
         "Updated cefr_level user_id=%s level=%s",
-        telegram_user_id,
+        user_id,
         new_level,
     )
 
 
 def update_track_weights(
-    telegram_user_id: int, weights: dict[str, int]
+    user_id: int, weights: dict[str, int]
 ) -> None:
-    """Set users.track_weights for this telegram id only."""
+    """Set users.track_weights for this user only."""
     with connection() as conn:
         conn.execute(
             """
             UPDATE users
                SET track_weights = %s
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (Jsonb(weights), telegram_user_id),
+            (Jsonb(weights), user_id),
         )
     logger.info(
         "Updated track_weights user_id=%s weights=%s",
-        telegram_user_id,
+        user_id,
         weights,
     )
 
 
-def update_morning_time(telegram_user_id: int, morning: time | str) -> None:
-    """Set users.morning_time for this telegram id only."""
+def update_morning_time(user_id: int, morning: time | str) -> None:
+    """Set users.morning_time for this user only."""
     value = _as_time(morning)
     with connection() as conn:
         conn.execute(
             """
             UPDATE users
                SET morning_time = %s
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (value, telegram_user_id),
+            (value, user_id),
         )
     logger.info(
         "Updated morning_time user_id=%s time=%s",
-        telegram_user_id,
+        user_id,
         value.strftime("%H:%M"),
     )
 
 
-def update_evening_time(telegram_user_id: int, evening: time | str) -> None:
-    """Set users.evening_time for this telegram id only."""
+def update_evening_time(user_id: int, evening: time | str) -> None:
+    """Set users.evening_time for this user only."""
     value = _as_time(evening)
     with connection() as conn:
         conn.execute(
             """
             UPDATE users
                SET evening_time = %s
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (value, telegram_user_id),
+            (value, user_id),
         )
     logger.info(
         "Updated evening_time user_id=%s time=%s",
-        telegram_user_id,
+        user_id,
         value.strftime("%H:%M"),
     )
 
 
 def update_explanation_language_fallback(
-    telegram_user_id: int, enabled: bool
+    user_id: int, enabled: bool
 ) -> None:
-    """Set users.explanation_language_fallback for this telegram id only."""
+    """Set users.explanation_language_fallback for this user only."""
     with connection() as conn:
         conn.execute(
             """
             UPDATE users
                SET explanation_language_fallback = %s
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (enabled, telegram_user_id),
+            (enabled, user_id),
         )
     logger.info(
         "Updated explanation_language_fallback user_id=%s enabled=%s",
-        telegram_user_id,
+        user_id,
         enabled,
     )
 
@@ -213,16 +225,16 @@ def _as_time(value: time | str) -> time:
     return time(hour, minute)
 
 
-def get_paused_until(telegram_user_id: int) -> date | None:
+def get_paused_until(user_id: int) -> date | None:
     """Return users.paused_until for this telegram id, or None."""
     with connection() as conn:
         row = conn.execute(
             """
             SELECT paused_until
               FROM users
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (telegram_user_id,),
+            (user_id,),
         ).fetchone()
     if row is None:
         return None
@@ -230,94 +242,22 @@ def get_paused_until(telegram_user_id: int) -> date | None:
 
 
 def set_paused_until(
-    telegram_user_id: int, paused_until: date | None
+    user_id: int, paused_until: date | None
 ) -> None:
-    """Set or clear users.paused_until for this telegram id only."""
+    """Set or clear users.paused_until for this user only."""
     with connection() as conn:
         conn.execute(
             """
             UPDATE users
                SET paused_until = %s
-             WHERE telegram_user_id = %s
+             WHERE id = %s
             """,
-            (paused_until, telegram_user_id),
+            (paused_until, user_id),
         )
     logger.info(
         "Updated paused_until user_id=%s until=%s",
-        telegram_user_id,
+        user_id,
         paused_until,
     )
 
 
-def save_onboarding(telegram_user_id: int, data: dict[str, Any]) -> None:
-    """Persist onboarding answers and ensure a streaks row exists.
-
-    Writes both rows in one transaction. On conflict, updates the users
-    profile but never touches an existing streak (ON CONFLICT DO NOTHING).
-    Does not overwrite created_at.
-    """
-    weights = data["track_weights"]
-    with connection() as conn:
-        with conn.transaction():
-            conn.execute(
-                """
-                INSERT INTO users (
-                    telegram_user_id,
-                    name,
-                    native_language,
-                    cefr_level,
-                    efset_baseline,
-                    work_domain,
-                    why_statement,
-                    track_weights,
-                    morning_time,
-                    evening_time,
-                    onboarded
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE
-                )
-                ON CONFLICT (telegram_user_id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    native_language = EXCLUDED.native_language,
-                    cefr_level = EXCLUDED.cefr_level,
-                    efset_baseline = EXCLUDED.efset_baseline,
-                    work_domain = EXCLUDED.work_domain,
-                    why_statement = EXCLUDED.why_statement,
-                    track_weights = EXCLUDED.track_weights,
-                    morning_time = EXCLUDED.morning_time,
-                    evening_time = EXCLUDED.evening_time,
-                    onboarded = TRUE
-                """,
-                (
-                    telegram_user_id,
-                    data["name"],
-                    data["native_language"],
-                    data["cefr_level"],
-                    data.get("efset_baseline"),
-                    data["work_domain"],
-                    data["why_statement"],
-                    Jsonb(weights),
-                    data["morning_time"],
-                    data["evening_time"],
-                ),
-            )
-            conn.execute(
-                """
-                INSERT INTO streaks (user_id)
-                VALUES (%s)
-                ON CONFLICT DO NOTHING
-                """,
-                (telegram_user_id,),
-            )
-            # Approved if missing; never un-revokes (ON CONFLICT DO NOTHING).
-            conn.execute(
-                """
-                INSERT INTO access_requests (
-                    telegram_user_id, display_name, status,
-                    requested_at, resolved_at
-                ) VALUES (%s, %s, 'approved', NOW(), NOW())
-                ON CONFLICT (telegram_user_id) DO NOTHING
-                """,
-                (telegram_user_id, data["name"]),
-            )
-    logger.info("Saved onboarding for user_id=%s", telegram_user_id)

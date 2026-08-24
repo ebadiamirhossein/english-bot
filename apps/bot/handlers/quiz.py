@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from apps.bot import identity as bot_identity
+from core.services import identity
+
 import asyncio
 import html
 import json
@@ -265,7 +268,7 @@ def _user_timezone(user_id: int) -> str:
     with connection() as conn:
         row = conn.execute(
             """
-            SELECT timezone FROM users WHERE telegram_user_id = %s
+            SELECT timezone FROM users WHERE id = %s
             """,
             (user_id,),
         ).fetchone()
@@ -330,10 +333,16 @@ class OpenQuizFilter(filters.MessageFilter):
         if user is None:
             return False
         try:
-            return open_quiz_awaits_gap_answer(user.id)
+            # A PTB filter gets no `context`, so it cannot read the gate's
+            # stash and resolves through the core resolver directly. Still one
+            # translation module, which is what the rule is about.
+            resolved = identity.user_id_for_telegram(user.id)
+            if resolved is None:
+                return False
+            return open_quiz_awaits_gap_answer(resolved)
         except Exception:
             logger.exception(
-                "OpenQuizFilter failed user_id=%s",
+                "OpenQuizFilter failed telegram_user_id=%s",
                 user.id,
             )
             return False
@@ -1096,6 +1105,15 @@ async def deliver_morning(
     now: datetime,
 ) -> str:
     """Deliver quiz or free-practice for one user. Returns action taken."""
+    # Where this learner is reached, which since W4b is not the same number as
+    # who they are. None means no Telegram account at all: skipping is correct
+    # (this bot cannot reach them) but silent, which is known issue #95.
+    address = bot_identity.telegram_address_or_none(user_id)
+    if address is None:
+        logger.info(
+            "deliver_morning skipped user_id=%s reason=no_telegram_channel", user_id
+        )
+        return "skipped_no_channel"
     bot = app.bot
     tz = _user_timezone(user_id)
     day = local_today(tz, now)
@@ -1158,7 +1176,7 @@ async def deliver_morning(
         body = texts.QUIZ_FREE_PRACTICE
         if preface:
             body = f"{preface}\n\n{body}"
-        await bot.send_message(chat_id=user_id, text=body)
+        await bot.send_message(chat_id=address, text=body)
         increment_bot_messages(user_id, day)
         return "free_practice"
 
@@ -1186,7 +1204,7 @@ async def deliver_morning(
         )
         try:
             await bot.send_message(
-                chat_id=user_id,
+                chat_id=address,
                 text=texts.LLM_FAILED,
             )
             increment_bot_messages(user_id, day)
@@ -1199,7 +1217,7 @@ async def deliver_morning(
         body = texts.QUIZ_FREE_PRACTICE
         if preface:
             body = f"{preface}\n\n{body}"
-        await bot.send_message(chat_id=user_id, text=body)
+        await bot.send_message(chat_id=address, text=body)
         increment_bot_messages(user_id, day)
         return "free_practice"
 
@@ -1247,7 +1265,7 @@ async def deliver_morning(
     if presentations:
         card = presentations[0]
         msg = await bot.send_message(
-            chat_id=user_id,
+            chat_id=address,
             text=_presentation_text(payload),
             reply_markup=_presentation_keyboard(int(card["chunk_id"])),
             parse_mode=ParseMode.HTML,
@@ -1255,7 +1273,7 @@ async def deliver_morning(
     else:
         q0 = questions[0]
         msg = await bot.send_message(
-            chat_id=user_id,
+            chat_id=address,
             text=_question_text(payload),
             reply_markup=_keyboard_for_question(q0, payload),
             parse_mode=ParseMode.HTML,
@@ -1463,7 +1481,9 @@ async def _advance_after_answer(
 async def on_quiz_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None or update.effective_user is None:
         return
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     session = get_open_quiz_session(user_id)
     if session is None or not session.payload:
         return
@@ -1507,7 +1527,9 @@ async def on_quiz_callback(
     data = query.data or ""
     if not data.startswith("quiz:"):
         return
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     session = get_open_quiz_session(user_id)
     if session is None or not session.payload:
         return
@@ -1618,7 +1640,9 @@ async def on_present_ack_callback(
     except ValueError:
         return
 
-    user_id = update.effective_user.id
+    user_id = bot_identity.bot_user_id(update, context)
+    if user_id is None:
+        return
     session = get_open_quiz_session(user_id)
     if session is None or not session.payload:
         try:

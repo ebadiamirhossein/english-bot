@@ -172,7 +172,7 @@ def test_health_auth_renders_whatever_the_dependency_resolves(
 
     expires = datetime.now(timezone.utc) + timedelta(days=30)
     app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(
-        telegram_user_id=7222549221, name="Test", expires_at=expires
+        id=7222549221, name="Test", expires_at=expires
     )
     try:
         response = _request(app, "GET", "/health/auth")
@@ -180,7 +180,7 @@ def test_health_auth_renders_whatever_the_dependency_resolves(
         app.dependency_overrides.clear()
     assert response.status_code == 200
     body = response.json()
-    assert body["telegram_user_id"] == 7222549221
+    assert body["user_id"] == 7222549221
     assert body["name"] == "Test"
 
 

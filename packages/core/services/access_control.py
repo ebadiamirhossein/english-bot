@@ -47,8 +47,40 @@ class RequestAccessResult:
     capped: bool
 
 
-def is_approved(telegram_user_id: int) -> bool:
-    """True when access_requests.status is approved."""
+def is_approved(user_id: int) -> bool:
+    """True when this **internal** user id has approved access.
+
+    The post-account predicate. ``auth`` re-checks it on every request, which is
+    what makes a revocation take effect on the learner's next call everywhere
+    without anything having to remember to revoke sessions too.
+
+    Split from :func:`is_approved_telegram` at W4b rather than overloaded: two
+    callers ask this question about somebody who has **no users row at all**, so
+    one signature genuinely cannot serve both. Both stay in this module, so
+    ``tests/test_auth.py``'s rule -- approval is answered here and nothing else
+    runs the query -- still holds.
+    """
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT 1
+              FROM access_requests
+             WHERE user_id = %s
+               AND status = 'approved'
+            """,
+            (user_id,),
+        ).fetchone()
+    return row is not None
+
+
+def is_approved_telegram(telegram_user_id: int) -> bool:
+    """True when this Telegram id has approved access.
+
+    The **pre-account** predicate, and the reason ``access_requests`` keeps its
+    ``telegram_user_id`` column. ``gate_unapproved`` and ``/start`` both ask it
+    about a stranger who has requested access but has no ``users`` row yet --
+    exactly the case 005 built this table for.
+    """
     with connection() as conn:
         row = conn.execute(
             """
@@ -234,23 +266,33 @@ def revoke_access(telegram_user_id: int) -> AccessRequest | None:
 
 
 def ensure_approved_row(
-    telegram_user_id: int, *, display_name: str | None = None
+    telegram_user_id: int,
+    *,
+    display_name: str | None = None,
+    user_id: int | None = None,
 ) -> None:
     """Insert approved if missing; never un-revoke or overwrite status.
 
-    Used by save_onboarding so test fixtures and first-time saves keep
-    ``is_registered`` working without granting access to a revoked user.
+    Used by ``identity.save_onboarding`` so test fixtures and first-time saves
+    keep ``is_registered`` working without granting access to a revoked user.
+
+    ``user_id`` is filled in on conflict as well as on insert. A request raised
+    before the ``users`` row existed carries NULL there, and since W4b the
+    delivery view joins on that column -- so leaving it NULL would make an
+    approved learner invisible to every delivery pass while looking approved in
+    ``/admin``.
     """
     with connection() as conn:
         conn.execute(
             """
             INSERT INTO access_requests (
-                telegram_user_id, display_name, status,
+                telegram_user_id, user_id, display_name, status,
                 requested_at, resolved_at
-            ) VALUES (%s, %s, 'approved', NOW(), NOW())
-            ON CONFLICT (telegram_user_id) DO NOTHING
+            ) VALUES (%s, %s, %s, 'approved', NOW(), NOW())
+            ON CONFLICT (telegram_user_id) DO UPDATE SET
+                user_id = COALESCE(access_requests.user_id, EXCLUDED.user_id)
             """,
-            (telegram_user_id, display_name),
+            (telegram_user_id, user_id, display_name),
         )
 
 
@@ -267,7 +309,8 @@ def _row_to_request(row: Any) -> AccessRequest:
 
 
 def _ids_from_rows(rows: list[Any]) -> set[int]:
-    return {int(r["telegram_user_id"]) for r in rows}
+    """Internal user ids since W4b -- the view is keyed on ``users.id`` now."""
+    return {int(r["id"]) for r in rows}
 
 
 def delivery_lister_ids() -> dict[str, Callable[[], set[int]]]:
@@ -287,10 +330,10 @@ def delivery_lister_ids() -> dict[str, Callable[[], set[int]]]:
     )
 
     def _candidate() -> set[int]:
-        return {u.telegram_user_id for u in list_candidate_users()}
+        return {u.id for u in list_candidate_users()}
 
     def _motivation() -> set[int]:
-        return {u.telegram_user_id for u in motivation.list_motivation_users()}
+        return {u.id for u in motivation.list_motivation_users()}
 
     def _fossil() -> set[int]:
         return set(errors.list_fossil_sweep_user_ids())
