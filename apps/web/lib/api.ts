@@ -195,6 +195,70 @@ export type ItemAnswerResult = {
   canonical: string | null;
   explanation: string | null;
   murphy_units: string | null;
+  /**
+   * `match_pairs`' correct bijection, **after grading only** (#118). Null for
+   * every other type.
+   *
+   * Its answer is a mapping, not a string, so `canonical` is null for this type
+   * by schema rule — which is why a wrong answer used to say "Here it is:" and
+   * then show nothing. This is the half W6a could not fix: nothing on the
+   * client had the pairing, and supplying it was an API change.
+   *
+   * It is not a leak. The projection still serves the two columns independently
+   * sorted, so the pairing is destroyed in what arrives *before* answering.
+   */
+  pairs: [string, string][] | null;
+};
+
+/**
+ * One card as the reviewer renders it (PRD §5, §8.5.4).
+ *
+ * `intervals` is what each of the four buttons would schedule, **in days,
+ * computed on the server**. There is no interval arithmetic in this codebase
+ * and nothing here to compute it from — the same rule as grading: the server
+ * owns the calculation, the client renders the number it is handed.
+ */
+export type CardFace = {
+  id: number;
+  card_type: string;
+  front: string;
+  back: string;
+  cue: string | null;
+  context_sentence: string | null;
+  source_ref: string | null;
+  meaning: string | null;
+  register: string;
+  neutral_equivalent: string | null;
+  who_says_this: string | null;
+  intervals: Record<Rating, number>;
+};
+
+/** The four FSRS grades, in the order they are shown. */
+export const RATINGS = ["again", "hard", "good", "easy"] as const;
+export type Rating = (typeof RATINGS)[number];
+
+/**
+ * How much of today's deck is left, **after the caps**.
+ *
+ * Never the raw overdue count. Missed days shrink the task; they never pile up,
+ * and a backlog is never presented (CLAUDE.md §4). A learner who skips a week
+ * comes back to today's deck, not to the week.
+ */
+export type DeckCounts = {
+  new_remaining: number;
+  review_remaining: number;
+  total_remaining: number;
+};
+
+export type ReviewQueue = {
+  cards: CardFace[];
+  counts: DeckCounts;
+};
+
+export type GradeResult = {
+  due: string;
+  interval_days: number;
+  counts: DeckCounts;
 };
 
 /** This learner's validated bank. */
@@ -232,4 +296,37 @@ export function answerItem(
  */
 export function itemAudioUrl(itemId: number): string {
   return `${API_BASE_URL}/items/${itemId}/audio`;
+}
+
+/** Due cards, capped by the two daily budgets. Empty is an ordinary state. */
+export function getReviewQueue(limit = 20): Promise<ReviewQueue> {
+  return request<ReviewQueue>(`/review/queue?limit=${limit}`);
+}
+
+/**
+ * Grade one card. The rating travels by name, never as a number.
+ *
+ * `fsrs.Rating`'s integers are the scheduler's business; putting them on the
+ * wire would let a client hardcode `3` and keep working while the meaning
+ * shifted under it.
+ */
+export function gradeCard(
+  cardId: number,
+  rating: Rating,
+  durationMs?: number,
+): Promise<GradeResult> {
+  return request<GradeResult>(`/review/${cardId}/grade`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rating, duration_ms: durationMs }),
+  });
+}
+
+/**
+ * Where the deck's Anki backup lives. A URL, not a fetch: the browser's own
+ * download handling is what saves a file on a phone, and the session cookie
+ * rides along because it is the same origin the rest of the client uses.
+ */
+export function deckExportUrl(): string {
+  return `${API_BASE_URL}/cards/export.tsv`;
 }

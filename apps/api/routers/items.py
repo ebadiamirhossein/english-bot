@@ -169,6 +169,10 @@ def answer(
         canonical=outcome.canonical,
         explanation=outcome.explanation,
         murphy_units=outcome.murphy_units,
+        # #118: `match_pairs`' correct mapping, after grading. NULL for every
+        # other type. This is the API change W6a was barred from making, and it
+        # is the reason a wrong `match_pairs` answer stopped teaching nothing.
+        pairs=list(outcome.pairs) if outcome.pairs else None,
     )
 
 

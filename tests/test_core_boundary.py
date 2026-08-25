@@ -289,6 +289,14 @@ ITEMS = CORE / "items"
 # else -- in particular they may not carry SQL.
 ITEMS_MODEL_CALLERS = {ITEMS / "gates.py", ITEMS / "verify.py"}
 
+# W7. `core/cards/fsrs.py` is the only door to the scheduler, for the same
+# reason `core/passkeys.py` is the only door to WebAuthn and `core/llm.py` the
+# only door to a model provider: swapping the library must be one file, and
+# duplicated construction drifts where tests cannot see it.
+CARDS = CORE / "cards"
+FSRS_WRAPPER = CARDS / "fsrs.py"
+FSRS_LIBS = frozenset({"fsrs"})
+
 
 def test_items_package_is_pure() -> None:
     """No SQL and no driver anywhere; no `core.llm`/`core.speech` outside two.
@@ -600,4 +608,78 @@ def test_the_api_never_reaches_the_hidden_half_of_an_item() -> None:
     assert offenders == [], (
         "apps/api receives ItemPresentation and bytes; it may not import the "
         "modules that carry an answer or reach a provider: " + "; ".join(offenders)
+    )
+
+
+def test_only_the_fsrs_wrapper_imports_the_scheduler() -> None:
+    """W7: one door for py-fsrs.
+
+    A service or a route that imported `fsrs` directly would put the library's
+    `Card` and `Rating` objects into the layer above it, and PRD §5's scheduler
+    would stop having a single place to review — or to replace. It would also
+    make `enable_fuzzing=False` a per-call-site convention rather than a
+    property of the system: one forgotten flag and every due date that call site
+    produces becomes irreproducible, which no test would catch because the fuzz
+    is small.
+    """
+    offenders: list[str] = []
+    for root in (CORE, APPS):
+        for path in _python_files(root):
+            if path == FSRS_WRAPPER:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            hit = _imported_roots(tree) & FSRS_LIBS
+            if hit:
+                rel = path.relative_to(REPO_ROOT)
+                offenders.append(f"{rel}: {', '.join(sorted(hit))}")
+    assert offenders == [], (
+        "only packages/core/cards/fsrs.py may import py-fsrs: " + "; ".join(offenders)
+    )
+
+
+def test_cards_package_is_pure() -> None:
+    """No SQL and no driver in `core/cards/`; every query is in the service.
+
+    `migrate_chunks.py` is the human-run module of this package — the same
+    standing `core.items.seed_fixtures` has — and it reaches the database only
+    through `core.db.connection` and `core.services.cards.create_card`, never by
+    holding a query of its own. So the purity rule stays unexempted and #59
+    remains the only boundary exemption in the project.
+    """
+    offenders: list[str] = []
+    for path in _python_files(CARDS):
+        rel = path.relative_to(REPO_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if _imported_roots(tree) & {"psycopg", "psycopg_pool"}:
+            offenders.append(f"{rel}: imports a database driver")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if _looks_like_sql(node.value):
+                    offenders.append(f"{rel}:{node.lineno}: SQL")
+    assert offenders == [], (
+        "core/cards/ is pure: every query lives in core/services/cards.py "
+        "(CLAUDE.md §2): " + "; ".join(offenders)
+    )
+
+
+def test_the_api_holds_no_scheduler_state_of_its_own() -> None:
+    """`apps/api` may build a `CardState` for display, never a schedule.
+
+    The route computes the four intervals through `core.cards.fsrs.review`,
+    which copies the card before touching it — so asking "what would Easy do"
+    cannot advance anything. What it must not do is write one: every persisted
+    schedule goes through `core.services.cards.grade_card`, so there is exactly
+    one place where a due date is decided and logged together.
+    """
+    offenders: list[str] = []
+    for path in _python_files(APPS / "api"):
+        rel = path.relative_to(REPO_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if "UPDATE cards" in node.value or "INSERT INTO card_reviews" in node.value:
+                    offenders.append(f"{rel}:{node.lineno}")
+    assert offenders == [], (
+        "apps/api must not write a schedule; grade_card is the only writer: "
+        + "; ".join(offenders)
     )

@@ -20,10 +20,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from apps.api.routers import auth as auth_router
+from apps.api.routers import cards as cards_router
 from apps.api.routers import correct as correct_router
 from apps.api.routers import health as health_router
 from apps.api.routers import items as items_router
 from core.config import Settings, load_settings
+from core.logging import configure_console_logging
 from core.services.alerts import format_alert, should_send_alert
 
 logger = logging.getLogger(__name__)
@@ -152,6 +154,23 @@ def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the application. A factory so tests can pass their own settings."""
     cfg = settings or load_settings()
+    # #117: the `API built origins=… routes=…` line below did not appear in
+    # `journalctl` on the 2026-08-25 deploy, and a deployment step must not cite
+    # evidence that does not exist. The cause is that `apps/api` was the only
+    # one of the three apps that never configured logging — the bot and the
+    # worker both call `core.logging.configure_logging` at start-up. uvicorn's
+    # own config attaches handlers to the `uvicorn.*` loggers only and leaves
+    # the ROOT logger bare, so every INFO record from `apps.*` and `core.*`
+    # propagated to a root with no handler and fell through to
+    # `logging.lastResort`, which emits WARNING and above. The line was being
+    # produced and dropped.
+    #
+    # Console only, and deliberately not `configure_logging`: that installs a
+    # RotatingFileHandler, and the API runs `--workers 2` — two processes
+    # rotating one file is the hazard `apps/worker/main.py` already gives its
+    # own log path to avoid. systemd captures stdout, which is where journalctl
+    # reads from, so a stream handler is all this needs.
+    configure_console_logging(cfg)
     init_monitoring(cfg)
 
     app = FastAPI(title=API_TITLE, version=API_VERSION)
@@ -167,6 +186,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router.router)
     app.include_router(correct_router.router)
     app.include_router(items_router.router)
+    app.include_router(cards_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -178,6 +198,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     auth_router.router,
                     correct_router.router,
                     items_router.router,
+                    cards_router.router,
                 )
                 for route in router.routes
             )

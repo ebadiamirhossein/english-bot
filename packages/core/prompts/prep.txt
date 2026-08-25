@@ -43,6 +43,12 @@ Rules for frames:
 - frames are for speaking/writing in the moment, not dictionary entries
 - keep them short enough to glance at on a phone
 
+Register — this list is used under pressure, often with a client:
+- NEVER include slang or taboo language. Not one item, not one frame.
+- Prefer neutral phrasing, or the formal register if the situation is formal.
+- Slang used slightly wrong sounds worse than plain English used correctly,
+  and this list is exactly where that would be expensive.
+
 track: one of "work", "life", "curiosity", or null if unsure. Do not guess.
 
 Reply with only the JSON object, no markdown fences or commentary.

@@ -264,6 +264,59 @@ def test_the_discriminator_stays_hidden_where_the_answer_is_on_screen(
             assert fold(BY_TYPE["error_spot"]["correction"]) not in fold(blob)
 
 
+# ── #116: value-level, where key-level was all there was ───────────────────
+#
+# The two tests above assert **key names**. For `word_bank_order` and
+# `match_pairs` that is the weakest possible check exactly where the answer is
+# on screen: tiles arriving pre-sorted into the correct order would pass both,
+# and the item would be unanswerable-by-being-trivial rather than by leaking a
+# field. `checks._word_bank`'s `bank_already_ordered` failure covers the
+# generator's side; nothing covered the serving side. Verified not happening on
+# production 2026-08-25 — the tiles came shuffled — but nothing enforced it.
+
+
+def _projection(app, learner, bank, item_type: str) -> dict:
+    cookies, _ = _as(learner)
+    response = request(app, "GET", f"/items/{bank[item_type]}", cookies=cookies)
+    assert response.status_code == 200
+    return response.json()["projection"]
+
+
+def test_the_word_bank_is_not_served_in_the_answer_order(app, learner, bank) -> None:
+    """The whole task is ordering, so serving the order IS serving the answer.
+
+    Asserted against the value the browser receives, not against the function
+    that produced it — the route is where a second serialiser would appear.
+    """
+    bank_tokens = _projection(app, learner, bank, "word_bank_order")["bank"]
+    answer = BY_TYPE["word_bank_order"]["answer"]
+    assert bank_tokens != answer.rstrip(".?!").split(), (
+        "the word bank arrived already in the correct order"
+    )
+    assert " ".join(bank_tokens) != answer
+
+
+def test_the_match_pairs_columns_are_not_served_index_aligned(
+    app, learner, bank
+) -> None:
+    """Two columns in the same order ARE the bijection, key or no key.
+
+    `visible_projection` sorts each column independently, which destroys the
+    pairing. This asserts the destruction rather than trusting the sort — a
+    payload whose pairs happen to be alphabetical in both columns would be
+    served solved, and only a value-level check sees it.
+    """
+    projection = _projection(app, learner, bank, "match_pairs")
+    left, right = projection["left"], projection["right"]
+    true_pairs = {l: r for l, r in BY_TYPE["match_pairs"]["pairs"]}
+    if len(left) < 2:
+        pytest.skip("a one-pair fixture cannot be mis-ordered")
+    aligned = [true_pairs[l] for l in left]
+    assert right != aligned, (
+        "the two columns arrived index-aligned — the pairing was served intact"
+    )
+
+
 def test_another_learners_item_is_not_found(app, db, learner, bank) -> None:
     """User action: typing someone else's item id into the URL.
 

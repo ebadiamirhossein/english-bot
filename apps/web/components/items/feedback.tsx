@@ -98,7 +98,13 @@ export function Feedback({ result }: { result: ItemAnswerResult }) {
   // string — so `canonical` is empty and the lead-in was writing a cheque the
   // box could not cash. Telling a learner the answer is coming and then not
   // showing it is worse than not offering, because they wait for it.
-  const showsAnswer = Boolean(result.canonical);
+  //
+  // **W7 supplies the missing half (#118).** The answer route now returns the
+  // correct pairing after grading, with exactly `canonical`'s standing — so the
+  // box can show it, and `match_pairs` stops being the one type where getting
+  // it wrong taught nothing.
+  const pairs = result.pairs ?? null;
+  const showsAnswer = Boolean(result.canonical) || Boolean(pairs?.length);
 
   return (
     <div
@@ -121,6 +127,22 @@ export function Feedback({ result }: { result: ItemAnswerResult }) {
         >
           {result.canonical}
         </p>
+      ) : null}
+      {pairs?.length ? (
+        // A bijection is not a sentence, so it is not set as one. Each row is
+        // the pair as a pair; reading it back is the whole lesson, and a
+        // comma-joined string would make the learner re-parse what they just
+        // got wrong.
+        <ul className="mt-1.5 space-y-1" data-testid="feedback-pairs">
+          {pairs.map(([left, right]) => (
+            <li
+              key={`${left}\u0000${right}`}
+              className="font-heading text-lg leading-snug text-primary"
+            >
+              {left} <span aria-hidden className="opacity-50">→</span> {right}
+            </li>
+          ))}
+        </ul>
       ) : null}
     </div>
   );

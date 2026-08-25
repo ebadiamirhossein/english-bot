@@ -435,6 +435,22 @@ class AnswerOutcome:
     canonical: str | None
     explanation: str | None
     murphy_units: str | None
+    #: `match_pairs`' correct bijection, and **only** for that type (#118).
+    #:
+    #: Its answer is a mapping rather than a string, so `canonical` is NULL for
+    #: it by migration 012's `items_answer_present_iff_type_has_one` CHECK. W6a
+    #: could only stop the result box promising an answer it could not produce;
+    #: nothing on the client had the pairing, so a wrong answer taught nothing.
+    #:
+    #: **The standing is `canonical`'s exactly**: returned after the attempt is
+    #: recorded, from the stored item, by the answer route. It is not a
+    #: projection leak — `visible_projection` is untouched and still serves the
+    #: two columns independently sorted, so the pairing is destroyed in what the
+    #: learner is shown *before* answering.
+    #:
+    #: `speak_answer` has the same NULL canonical and needs nothing here: an
+    #: open production task has no single correct answer to reveal.
+    pairs: tuple[tuple[str, str], ...] | None = None
 
 
 def _present(stored: StoredItem) -> ItemPresentation:
@@ -570,7 +586,20 @@ def answer_item(
         canonical=stored.answer,
         explanation=stored.payload.get("explanation"),
         murphy_units=stored.murphy_units,
+        pairs=_pairs_after_grading(item),
     )
+
+
+def _pairs_after_grading(item) -> tuple[tuple[str, str], ...] | None:
+    """The correct bijection, for `match_pairs` and nothing else (#118).
+
+    Keyed on the item's own type rather than on "does the payload have pairs",
+    so a twelfth type that happened to carry a `pairs` key could not start
+    leaking one by accident.
+    """
+    if item.item_type != "match_pairs":
+        return None
+    return tuple((str(left), str(right)) for left, right in item.pairs)
 
 
 def item_audio(user_id: int, item_id: int) -> bytes | None:

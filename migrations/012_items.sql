@@ -272,8 +272,21 @@ CREATE TABLE item_attempts (
     -- PRD §3: the checkpoint is 80% of *correct*.
     correct         BOOLEAN NOT NULL,
 
-    -- FSRS Again / Hard / Good / Easy. W7 fills it; the column ships at 012 so
-    -- the history in between is not blank where FSRS most needs it.
+    -- FSRS Again / Hard / Good / Easy. The column ships at 012 so the history
+    -- in between is not blank where FSRS most needs it.
+    --
+    -- CORRECTED AT W7, 2026-08-25: this comment read "W7 fills it", and W7 does
+    -- not. W7's four-button UI reviews CARDS, and its grades land in
+    -- `card_reviews.rating` (migration 013). Cards and items are different
+    -- objects with different schedulers: a card carries FSRS state, an item is
+    -- a validated exercise served from a bank. No item attempt reaches a
+    -- scheduler at W7, so a `grade` written here would be a number with no
+    -- consumer — and deriving one from the `correct` boolean is exactly what W6
+    -- refused, because a made-up number is worse than a blank one.
+    --
+    -- **W10 is the writer.** Its Review block delivers a due card INSIDE a
+    -- session, which is the first moment an attempt and a review genuinely
+    -- coincide. Until then this column stays NULL, deliberately.
     grade           SMALLINT CHECK (grade IS NULL OR grade BETWEEN 1 AND 4),
 
     -- Render → submit. Not derivable from timestamps later.

@@ -14,9 +14,9 @@ maintained parser, and a mismatch would reach the learner as "it didn't work".
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.services.correction import MAX_CHARS as CORRECTION_MAX_CHARS
 from core.services.correction import MIN_CHARS as CORRECTION_MIN_CHARS
@@ -173,9 +173,103 @@ class ItemAnswerResult(BaseModel):
     canonical: str | None
     explanation: str | None
     murphy_units: str | None
+    #: `match_pairs`' correct bijection, **after grading only** (#118).
+    #:
+    #: Its answer is a mapping, not a string, so `canonical` is NULL for this
+    #: type by migration 012's `items_answer_present_iff_type_has_one` CHECK —
+    #: which meant a learner who got it wrong was told "Here it is:" and shown
+    #: nothing. W6a could only stop the box promising what it could not produce;
+    #: this is the half that needed an API change.
+    #:
+    #: **Not a projection leak.** It has exactly the same standing as
+    #: `canonical`: it is returned by the answer route, after the attempt is
+    #: recorded, and `core.items.projection.visible_projection` is untouched.
+    #: `tests/test_items_projection.py` still asserts the pairing appears
+    #: nowhere in what the learner is served *before* answering.
+    pairs: list[tuple[str, str]] | None = None
+
+
+class CardFace(BaseModel):
+    """One card as the reviewer renders it (PRD §5, §8.5.4).
+
+    There is no hidden half to withhold, unlike an item: the `back` IS what the
+    learner asks to see, and not showing it before the reveal is client-side
+    sequencing rather than serialisation. So this is not a second learner-visible
+    serialiser and `core.items.projection`'s cross-slice contract is unaffected.
+
+    The four §8.5.4 fields are guaranteed present for an `informal`/`slang` card
+    by migration 013's `cards_informal_shows_the_four_things` CHECK, so the
+    component has no "if missing" branch to get wrong.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: int
+    card_type: str
+    front: str
+    back: str
+    cue: str | None
+    context_sentence: str | None
+    source_ref: str | None
+    meaning: str | None
+    #: Aliased, not renamed. `register` is PRD §8.5.1's word and it is what
+    #: goes on the wire; the Python attribute avoids it only because pydantic's
+    #: metaclass already carries a `register` method (from `ABCMeta`) and warns
+    #: about the shadow on every import. FastAPI serialises by alias, so the
+    #: client contract is unchanged.
+    register_tag: str = Field(
+        validation_alias="register", serialization_alias="register"
+    )
+    neutral_equivalent: str | None
+    who_says_this: str | None
+    #: What each of the four buttons would schedule, in days, computed
+    #: server-side. **There is no interval arithmetic in TypeScript** — the same
+    #: rule W6 established for grading, and a scan over the deck tree fails the
+    #: commit that adds one.
+    intervals: dict[str, int]
+
+
+class DeckCountsOut(BaseModel):
+    """How much of today's deck is left, after the caps.
+
+    Never the raw overdue count: CLAUDE.md §4 — missed days shrink the task,
+    they never pile up, and a backlog is never presented.
+    """
+
+    new_remaining: int
+    review_remaining: int
+    total_remaining: int
+
+
+class ReviewQueueOut(BaseModel):
+    cards: list[CardFace]
+    counts: DeckCountsOut
+
+
+class GradeRequest(BaseModel):
+    """One grade. `rating` is named, never numeric, on the wire.
+
+    The client sends `good`, not `3`. `fsrs.Rating`'s integers are an
+    implementation detail of the scheduler; putting them on the wire would mean
+    a client that hardcoded them keeps working while the meaning shifts under it.
+    """
+
+    rating: Literal["again", "hard", "good", "easy"]
+    duration_ms: int | None = None
+
+
+class GradeResult(BaseModel):
+    due: datetime
+    interval_days: int
+    counts: DeckCountsOut
 
 
 __all__ = [
+    "CardFace",
+    "DeckCountsOut",
+    "GradeRequest",
+    "GradeResult",
+    "ReviewQueueOut",
     "CorrectRequest",
     "ItemAnswerRequest",
     "ItemAnswerResult",

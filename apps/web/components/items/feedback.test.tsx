@@ -12,6 +12,7 @@ function result(over: Partial<ItemAnswerResult> = {}): ItemAnswerResult {
     canonical: "went",
     explanation: null,
     murphy_units: null,
+    pairs: null,
     ...over,
   };
 }

@@ -31,6 +31,7 @@ function graded(over: Partial<ItemAnswerResult> = {}): ItemAnswerResult {
     canonical: null,
     explanation: null,
     murphy_units: null,
+    pairs: null,
     ...over,
   };
 }

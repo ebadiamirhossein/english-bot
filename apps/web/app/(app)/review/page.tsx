@@ -1,6 +1,12 @@
-import { ComingLater } from "@/components/coming-later";
+import { Reviewer } from "@/components/cards/reviewer";
 import { PageHeader } from "@/components/page-header";
 
+/**
+ * The deck. Replaces W2's `ComingLater` placeholder, whose four bullets were
+ * this slice's brief: a deck seeded from what the bot already taught, four
+ * grades with a daily cap, provenance on every card face, and the Anki export
+ * kept so the existing deck is not orphaned.
+ */
 export default function ReviewPage() {
   return (
     <>
@@ -9,16 +15,7 @@ export default function ReviewPage() {
         them.
       </PageHeader>
 
-      <ComingLater
-        slice="W7"
-        title="What will live here"
-        items={[
-          "An FSRS deck seeded from every phrase the bot has already taught you.",
-          "Four grades per card, and a daily cap so it never becomes a chore.",
-          "Each card shows where the phrase came from and who says it to whom.",
-          "Anki export stays — the deck you already have is not orphaned.",
-        ]}
-      />
+      <Reviewer />
     </>
   );
 }

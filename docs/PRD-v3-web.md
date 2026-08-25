@@ -246,7 +246,9 @@ Work English appears in exactly three places: the 20% Work track, `/prep` before
 
 Anki failed here for the obvious reason: it is a second app with its own sync, its own UI, and no knowledge of the rest of the system.
 
-**Scheduler:** FSRS-5 (`py-fsrs` server-side). Not SM-2, not the v2 fixed ladder. FSRS models per-card difficulty/stability/retrievability and hits a target retention rate (set 0.90) with materially fewer reviews.
+**Scheduler:** FSRS-6 (`py-fsrs` server-side, pinned `fsrs>=6.3.2,<7`). Not SM-2, not the v2 fixed ladder. FSRS models per-card difficulty/stability/retrievability and hits a target retention rate (set 0.90) with materially fewer reviews.
+
+*This line read **FSRS-5** until W7 and is corrected there rather than quietly reconciled.* `py-fsrs` 6.x implements FSRS-6, which carries 21 parameters where FSRS-5 had 19; the 5.x line is still installable but is no longer maintained upstream. Pinning the deck's first day to an unmaintained line would have bought a document match and cost its own upgrade slice later, with a re-seed question attached. The wrapper is `core/cards/fsrs.py` — the only module in the repository permitted to `import fsrs` — and it runs with `enable_fuzzing=False`, because fuzz exists to spread thousand-card decks and here it would only make every due date irreproducible.
 
 **The v2 fixed ladder (1→3→7→21→60) is retained for `errors` only** — error types are not cards and their spacing is tied to the resolution rule. Do not merge these two systems.
 

@@ -174,6 +174,25 @@ def _make_update(tid: int, text: str) -> tuple[Update, MagicMock]:
 # --- Source / slug ------------------------------------------------------------
 
 
+def test_the_prep_prompt_forbids_slang_and_taboo() -> None:
+    """PRD §8.5.2: "`/prep` and any work-context generation filters out `slang`
+    and `taboo` entirely. A client-call prep sheet must never suggest *that's a
+    hard pass*."
+
+    Deterministic, in the shape W3's "all five templates contain the shared
+    rule" test takes. It asserts the instruction is present — **it does not
+    claim a model always complies**, which is why the deck-side refusal in
+    `core.services.cards.refuse_forbidden_prep_register` exists as well. That
+    half is the durable one: `/prep` dies at W22 and the deck does not.
+    """
+    from apps.bot.handlers.prep import _PROMPT_PATH
+
+    text = _PROMPT_PATH.read_text(encoding="utf-8").lower()
+    assert "slang" in text, "prep.txt does not mention slang at all"
+    assert "taboo" in text
+    assert "never include slang" in text
+
+
 def test_prep_source_marker_format() -> None:
     assert prep_source("marketing budget meeting") == (
         "prep_marketing_budget_meeting"

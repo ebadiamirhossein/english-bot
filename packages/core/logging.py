@@ -39,3 +39,34 @@ def configure_logging(settings: Any) -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("apscheduler").setLevel(logging.WARNING)
+
+
+def configure_console_logging(settings: Any) -> None:
+    """Console handler only, idempotent. For processes systemd already captures.
+
+    ``apps/api`` runs under uvicorn with ``--workers 2``. It must not use
+    :func:`configure_logging`, which installs a ``RotatingFileHandler``: two
+    worker processes rotating one file is the hazard ``apps/worker`` already
+    gives itself a separate log path to avoid.
+
+    It must configure *something*, though, and that is #117. uvicorn attaches
+    handlers to the ``uvicorn.*`` loggers and leaves the **root** logger bare, so
+    every ``INFO`` record from ``apps.*`` and ``core.*`` propagated to a root
+    with no handler and fell through to ``logging.lastResort``, which emits
+    ``WARNING`` and above. The API's start-up line was being produced and
+    silently dropped, and a deployment step cited it as evidence.
+
+    Idempotent because ``create_app`` is a factory that tests call repeatedly:
+    a second call must not add a second handler and double every line.
+    """
+    level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    root = logging.getLogger()
+    root.setLevel(level)
+    if not any(getattr(h, "_english_console", False) for h in root.handlers):
+        console = logging.StreamHandler()
+        console.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        console._english_console = True  # type: ignore[attr-defined]
+        root.addHandler(console)
+
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)

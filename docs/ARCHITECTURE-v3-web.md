@@ -120,8 +120,8 @@ Existing 15 tables are untouched. New:
 | `user_lexemes` | user × lemma: state, strength, first_seen, source |
 | `syllabus_units` | the 24-unit map: stage, can-do, grammar targets, murphy refs, target lexemes |
 | `user_unit_state` | user × unit: state, attempts, checkpoint scores, mastered_at |
-| `cards` | user card: type, front/back, source_ref, sentence, audio_key |
-| `card_reviews` | FSRS state: difficulty, stability, due, lapses, last_review |
+| `cards` | user card: type, front/back, source_ref, sentence, register — **and its current FSRS state** (stability, difficulty, due, state, lapses, last_review) |
+| `card_reviews` | **the append-only review log** — one row per grade, with the state before and after (corrected at W7; see below) |
 | `items` | validated exercise items + their validation record (§PRD 4.3) |
 | `item_attempts` | per-question outcome log — **closes v2 known-issue #20** (calibration was an approximation because per-question outcomes were never logged) |
 | `videos` | youtube_id, channel, captions_type, duration, transcript_ref, coverage cache |
@@ -132,7 +132,32 @@ Existing 15 tables are untouched. New:
 | `subtitle_ladder` | user × source_type (`youtube_curated` / `native_series`): current step, check history, reveal counts |
 | `sessions` | **extended**, not replaced: block breakdown, minutes, XP |
 
+**W7 corrected this section on 2026-08-25, and the correction is named rather
+than quietly reconciled** — the same way W6 corrected §6.
+
+This table gave `card_reviews` the FSRS state ("difficulty, stability, due,
+lapses, last_review"), which describes **one mutable row per card** and leaves
+nowhere for the individual reviews to live. Migration 013 puts the state on
+`cards`, where it belongs — it is one row per card and it is rewritten on every
+grade — and makes `card_reviews` the append-only log.
+
+The reason is `item_attempts`' reason one table later. The state is derivable and
+rewritable; the individual grades are not. Without the log, `py-fsrs`' optimiser
+can never be fitted to these two learners' own data (a review log is its only
+input), W19 has no review history to show, and a mis-seeded stability can never
+be re-derived from what actually happened.
+
 **Migration of `chunks` → `cards`:** every existing chunk becomes a cloze card + a production card, seeded into FSRS with an initial stability derived from its v2 review history. Nothing is lost; the deck is populated on day one rather than empty.
+
+**What "v2 review history" actually is, established at W7:** four aggregate
+columns on `chunks` — `next_review`, `times_right`, `times_wrong`,
+`streak_right` (migration 004) — and nothing else. **No table logs an individual
+chunk review.** So the seeding is a stated mapping from four numbers, versioned
+in `core.cards.seeding`, and a chunk with no graded review at all produces a
+genuinely new FSRS card with a NULL stability rather than an invented one. The
+migration never modifies `chunks` and every seeded card carries its inputs in
+`cards.seed_basis`, so a wrong mapping is an UPDATE with a formula rather than a
+reconstruction.
 
 ---
 
@@ -151,8 +176,9 @@ DELETE /auth/passkeys/{id}         409 on the last credential, 404 if not yours
 GET  /health/auth                  the resolved session, or literal null
 GET  /session/today                → the 5 blocks, fully hydrated
 POST /session/{id}/block/{n}/complete
-GET  /review/queue?limit=          → FSRS due cards
+GET  /review/queue?limit=          → FSRS due cards, capped by the daily budgets
 POST /review/{card_id}/grade       → {again|hard|good|easy} → next due
+GET  /cards/export.tsv             → the whole deck as an Anki TSV (PRD §5's backup)
 GET  /items?limit=&item_type=      → the validated bank, learner-visible halves only
 GET  /items/{id}                   → one item, learner-visible half only (404 if not yours)
 POST /items/{id}/answer            → correctness + the canonical + explanation. **No journal write**
