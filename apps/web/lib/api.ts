@@ -321,12 +321,3 @@ export function gradeCard(
     body: JSON.stringify({ rating, duration_ms: durationMs }),
   });
 }
-
-/**
- * Where the deck's Anki backup lives. A URL, not a fetch: the browser's own
- * download handling is what saves a file on a phone, and the session cookie
- * rides along because it is the same origin the rest of the client uses.
- */
-export function deckExportUrl(): string {
-  return `${API_BASE_URL}/cards/export.tsv`;
-}

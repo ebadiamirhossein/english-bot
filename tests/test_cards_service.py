@@ -597,54 +597,70 @@ def test_promote_to_production_is_the_only_writer_of_the_promotion_column() -> N
     assert "neutral_mastered_at = %s" in body
 
 
-# ── the export ─────────────────────────────────────────────────────────────
+# ── the cloze reader, W8a's measurement ────────────────────────────────────
+#
+# `export_rows` and its four tests stood here from W7 until 2026-08-25. The
+# route they served is gone, so they are gone. `cloze_cards` replaces neither
+# the function nor the tests: it answers a different question, for a human-run
+# measurement rather than for a route.
 
 
-def test_the_export_survives_a_tab_a_newline_and_non_ascii(db, learner) -> None:
-    """The failure `sanitize_tsv_field` exists for, on card text for the first
-    time. One stray tab turns a four-field row into five and every field after
-    it lands in the wrong Anki column."""
-    from core.cards.anki import build_tsv
+def test_the_cloze_reader_returns_only_cloze_cards(db, learner) -> None:
+    """The population under measurement is the gapped cards and nothing else.
 
-    _card(
-        db,
-        learner,
-        front="a\tb",
-        back="c\nd",
-        meaning="naïve — «gloss»",
-        context_sentence="x\r\ny",
-    )
-    body = build_tsv(svc.export_rows(learner))
-    lines = [line for line in body.splitlines() if line]
-    assert len(lines) == 1
-    assert len(lines[0].split("\t")) == 4
-    assert "naïve" in lines[0]
+    W8a's finding is about how a cloze card is *made* — `make_sentence_with_gap`
+    removes the phrase and checks nothing. A `recognition` or `production` card
+    is not gapped and cannot have the defect, so probing one would be
+    money spent on a question that cannot come back interesting.
+    """
+    _card(db, learner, card_type="cloze", front="I _____ to the shops.")
+    _card(db, learner, card_type="recognition", **SLANG)
+    got = svc.cloze_cards()
+    mine = [c for c in got if c.user_id == learner]
+    assert [c.card_type for c in mine] == ["cloze"]
 
 
-def test_the_export_marks_nothing_and_returns_the_whole_deck(db, learner) -> None:
-    """PRD §5 calls it a backup. A backup that only contains what you have not
-    already downloaded is not a backup — which is where it deliberately differs
-    from the v2 chunk exporter."""
-    _card(db, learner, front="one")
-    _card(db, learner, front="two")
-    assert len(svc.export_rows(learner)) == 2
-    assert len(svc.export_rows(learner)) == 2
+def test_the_cloze_reader_is_not_scoped_to_one_learner(db, learner) -> None:
+    """Deliberately unkeyed. The question is about the deck, not about a person.
+
+    `export_rows` took a `user_id` because a backup belongs to whoever downloads
+    it. This does not, and the difference is why one replaced the other rather
+    than being renamed into it.
+    """
+    import inspect
+
+    assert inspect.signature(svc.cloze_cards).parameters == {}
+    _card(db, learner, card_type="cloze", front="She _____ it anyway.")
+    assert any(c.user_id == learner for c in svc.cloze_cards())
 
 
-def test_a_non_neutral_register_rides_on_the_source_field(db, learner) -> None:
-    """§8.5.1's tag reaches Anki without a fifth column that would break every
-    existing note type."""
-    from core.cards.anki import build_tsv
+def test_the_cloze_reader_preserves_the_five_underscore_gap(db, learner) -> None:
+    """The front is read back byte-identical, gap and all.
 
-    _card(db, learner, card_type="recognition", source_ref="himym", **SLANG)
-    line = build_tsv(svc.export_rows(learner)).splitlines()[0]
-    assert line.split("\t")[3] == "himym · slang"
+    `core.services.anki.GAP` is five underscores and `core.items.schema.GAP` is
+    three. The probe is handed the card's own front unmodified, because five is
+    what the learner sees — rewriting it would send the model a sentence nobody
+    is looking at, which is the defect W5b found and W5c fixed.
+    """
+    front = '"I wish someone had warned me to ask about _____ upfront," she said.'
+    card_id = _card(db, learner, card_type="cloze", front=front)
+    got = {c.id: c for c in svc.cloze_cards()}[card_id]
+    assert got.front == front
+    assert "_____" in got.front
 
 
-def test_an_empty_deck_exports_an_empty_body_and_not_a_header(db, learner) -> None:
-    from core.cards.anki import build_tsv
-
-    assert build_tsv(svc.export_rows(learner)) == ""
+def test_the_cloze_reader_writes_nothing(db, learner) -> None:
+    """Read twice, identical both times, and the row is untouched."""
+    card_id = _card(db, learner, card_type="cloze")
+    before = db.execute(
+        "SELECT front, back, due, reps, lapses FROM cards WHERE id = %s", (card_id,)
+    ).fetchone()
+    svc.cloze_cards()
+    svc.cloze_cards()
+    after = db.execute(
+        "SELECT front, back, due, reps, lapses FROM cards WHERE id = %s", (card_id,)
+    ).fetchone()
+    assert before == after
 
 
 # ── the ratings map to the library's integers ─────────────────────────────

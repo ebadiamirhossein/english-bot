@@ -179,7 +179,6 @@ GET  /session/today                → the 5 blocks, fully hydrated
 POST /session/{id}/block/{n}/complete
 GET  /review/queue?limit=          → FSRS due cards, capped by the daily budgets
 POST /review/{card_id}/grade       → {again|hard|good|easy} → next due
-GET  /cards/export.tsv             → the whole deck as an Anki TSV (PRD §5's backup)
 GET  /items?limit=&item_type=      → the validated bank, learner-visible halves only
 GET  /items/{id}                   → one item, learner-visible half only (404 if not yours)
 POST /items/{id}/answer            → correctness + the canonical + explanation. **No journal write**
@@ -196,8 +195,8 @@ POST /placement/start | /answer | /finish
 
 Audio is uploaded, processed in memory, scored, and **discarded within the request**. It never touches disk and never reaches R2.
 
-**W6 corrected three things in this section, on 2026-08-25, and they are named
-rather than quietly reconciled.**
+**W6 corrected three things in this section on 2026-08-25 and W8a a fourth on
+the same day. All four are named rather than quietly reconciled.**
 
 1. **`POST /items/{id}/answer` does not write to the journal.** This row said it
    did. `errors.source` was widened at migration 012 to include `item`, and
@@ -221,6 +220,21 @@ rather than quietly reconciled.**
    `apps/api`, where one exception handler echoing context puts it on the wire —
    so the service returns bytes and `tests/test_core_boundary.py::test_the_api_never_reaches_the_hidden_half_of_an_item`
    keeps `core.speech` out of `apps/api` entirely.
+4. **`GET /cards/export.tsv` is gone, removed by W8a.** This row read *"the whole
+   deck as an Anki TSV (PRD §5's backup)"* and it was accurate: PRD §5's Rules
+   line specified the export, the W7 row in `docs/TASKS-v3-web.md` carried it in
+   both columns, and W7 built it. **The three documents agreed with each other
+   and with the code, so this is a product change and not a drifted row** — a
+   distinction worth the sentence, because the handover note that ordered the
+   removal gave the opposite reason and a reader reaching the same three files
+   will otherwise re-derive it. The judgement changed: a one-click backup is
+   still a hand-off, and §2.4's "replaces Anki" is only true if the deck is the
+   whole system. PRD §5 carries the full reasoning. **The route's absence is now
+   a test, not a convention** —
+   `tests/test_web_shell.py::test_no_anki_export_path_in_the_web_app` scans
+   `apps/api` and `apps/web` and fails the commit that puts it back.
+   `core/services/anki.py`, the **v2 Telegram** chunk exporter, is a different
+   surface, is untouched, and dies at W22.
 
 ---
 

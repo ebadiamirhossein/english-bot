@@ -13,6 +13,8 @@ import re
 import tomllib
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CORE = REPO_ROOT / "packages" / "core"
 APPS = REPO_ROOT / "apps"
@@ -360,6 +362,45 @@ ITEMS_MODEL_CALLERS = {ITEMS / "gates.py", ITEMS / "verify.py"}
 CARDS = CORE / "cards"
 FSRS_WRAPPER = CARDS / "fsrs.py"
 FSRS_LIBS = frozenset({"fsrs"})
+
+# W8a. `core/cards/` was pure of provider calls until now, but only because
+# nothing had wanted one -- there was no rule saying so, where `core/items/` has
+# had `ITEMS_MODEL_CALLERS` since W5 precisely so its impure modules are named
+# rather than guessed. `probe_cloze.py` is the first module here to reach a
+# model, so the package gets the same rule at the same moment: this SET IS A
+# TIGHTENING, not an exemption. Before it, any file in `core/cards/` could have
+# imported `core.llm` and no test would have noticed.
+#
+# `probe_cloze` reaches the model only through `core.items.gates.probe_acceptable`
+# -- W5a's probe, reused rather than reimplemented -- so it never touches
+# `core.llm` directly either. #59 stays the only boundary exemption in the
+# project.
+CARDS_MODEL_CALLERS = {CARDS / "probe_cloze.py"}
+MODEL_REACHING_MODULES = frozenset({"core.llm", "core.speech", "core.items.gates"})
+
+
+def _import_targets(tree: ast.AST) -> set[str]:
+    """Every dotted name an import makes available, submodules included.
+
+    **`_imported_modules` is not enough for a module-level ban, and the gap is
+    invisible until you try to break the rule on purpose.** It records the
+    `ImportFrom` node's `module`, so `from core.items import gates` reports
+    `core.items` and the ban on `core.items.gates` silently never fires —
+    which is exactly the form `probe_cloze.py` uses, so the allow-list above
+    was doing nothing at all when it was first written. It was found by
+    reintroducing the violation by hand (§3 rule 4) rather than by the meta-test
+    below, which had happened to use the one form that did match.
+
+    So each `from X import y` contributes `X.y` as well as `X`. A name that is
+    not a submodule contributes a dotted string nothing bans, which costs
+    nothing.
+    """
+    targets = set(_imported_modules(tree))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            for alias in node.names:
+                targets.add(f"{node.module}.{alias.name}")
+    return targets
 
 
 def test_items_package_is_pure() -> None:
@@ -717,11 +758,18 @@ def test_only_the_fsrs_wrapper_imports_the_scheduler() -> None:
 def test_cards_package_is_pure() -> None:
     """No SQL and no driver in `core/cards/`; every query is in the service.
 
-    `migrate_chunks.py` is the human-run module of this package — the same
-    standing `core.items.seed_fixtures` has — and it reaches the database only
-    through `core.db.connection` and `core.services.cards.create_card`, never by
-    holding a query of its own. So the purity rule stays unexempted and #59
-    remains the only boundary exemption in the project.
+    `migrate_chunks.py` and `probe_cloze.py` are the human-run modules of this
+    package — the same standing `core.items.seed_fixtures` has — and they reach
+    the database only through `core.db.connection` and `core.services.cards`,
+    never by holding a query of their own. So the purity rule stays unexempted
+    and #59 remains the only boundary exemption in the project.
+
+    **W8a added the model-reach half.** Until then this test banned two things
+    and said nothing about a provider, so `core/cards/` was pure by accident
+    rather than by rule. `probe_cloze.py` is the first module here that needs a
+    model, and rather than take an exemption the package gains the boundary
+    `core/items/` has had since W5: exactly one named file may reach one, and
+    every other file in the package fails the commit that tries.
     """
     offenders: list[str] = []
     for path in _python_files(CARDS):
@@ -729,13 +777,81 @@ def test_cards_package_is_pure() -> None:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         if _imported_roots(tree) & {"psycopg", "psycopg_pool"}:
             offenders.append(f"{rel}: imports a database driver")
+        if path not in CARDS_MODEL_CALLERS:
+            reaching = _import_targets(tree) & MODEL_REACHING_MODULES
+            if reaching:
+                offenders.append(f"{rel}: imports {', '.join(sorted(reaching))}")
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 if _looks_like_sql(node.value):
                     offenders.append(f"{rel}:{node.lineno}: SQL")
     assert offenders == [], (
-        "core/cards/ is pure: every query lives in core/services/cards.py "
-        "(CLAUDE.md §2): " + "; ".join(offenders)
+        "core/cards/ is pure: every query lives in core/services/cards.py and "
+        "only probe_cloze.py may reach a model (CLAUDE.md §2): "
+        + "; ".join(offenders)
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # The form `probe_cloze.py` actually uses, and the one the first draft
+        # of this rule silently let through. It is first on purpose.
+        "from core.items import gates",
+        "from core.items import gates as g",
+        "from core.items.gates import probe_acceptable",
+        "import core.items.gates",
+        "from core.llm import chat",
+        "import core.speech",
+    ],
+)
+def test_the_cards_model_rule_catches_every_import_form(source: str) -> None:
+    """The rule is new, so it is proven non-inert on **every** way in.
+
+    A ban that catches three spellings of a violation and not the fourth is
+    worse than no ban, because it reads as coverage. Adding a second model
+    caller to `core/cards/` is precisely option A in W8a's cloze proposal — a
+    decision for the human, never something that drifts in.
+    """
+    tree = ast.parse(source + "\n", filename="<synthetic>")
+    assert _import_targets(tree) & MODEL_REACHING_MODULES, source
+
+
+def test_the_cards_model_rule_passes_an_ordinary_import() -> None:
+    """A ban that fails on everything is not a boundary either."""
+    clean = ast.parse(
+        "from core.db import connection\nfrom core.services import cards\n",
+        filename="<synthetic>",
+    )
+    assert not (_import_targets(clean) & MODEL_REACHING_MODULES)
+
+
+# W8a. PRODUCT-PRINCIPLES §1: no new feature, screen, alert channel or fallback
+# is built for Telegram. The literal half of this ban — links, tokens, env vars
+# — is `tests/test_web_shell.py::test_no_telegram_surface_in_the_web_app`, which
+# strips comments and docstrings because the four hits it found were prose about
+# where a data shape came from. This is the half that makes stripping them safe:
+# a real dependency is an import, and an import cannot be commented out and
+# still run.
+def test_the_apps_import_no_telegram_package() -> None:
+    """`apps/api` and `apps/worker` never import Telegram. Only `apps/bot` may.
+
+    `apps/bot` is the v2 process, is the reason the library is installed at all,
+    and dies at W22 with its ~209 tests. Every other app is a web surface.
+    """
+    offenders: list[str] = []
+    for app in ("api", "worker"):
+        root = APPS / app
+        if not root.is_dir():
+            continue
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            if "telegram" in _imported_roots(tree):
+                offenders.append(str(path.relative_to(REPO_ROOT)))
+    assert offenders == [], (
+        "apps/api and apps/worker may not import Telegram; apps/bot is the only "
+        "process that may, and it dies at W22 (PRODUCT-PRINCIPLES §1): "
+        + "; ".join(offenders)
     )
 
 

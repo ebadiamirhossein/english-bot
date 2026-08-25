@@ -276,7 +276,15 @@ Anki failed here for the obvious reason: it is a second app with its own sync, i
 
 Every card carries **the sentence it came from and where it came from** (video title + timestamp, episode, your own email). Context is what makes a card stick; bare word↔translation cards are why people quit Anki.
 
-**Rules:** daily new-card cap (default 12, from the vocabulary budget in §2.1) · daily review cap (default 80) · leech at 6 lapses → card is rewritten with an easier cue, not suspended · **Anki export stays** as a one-click backup, because the learner should never be locked in.
+**Rules:** daily new-card cap (default 12, from the vocabulary budget in §2.1) · daily review cap (default 80) · leech at 6 lapses → card is rewritten with an easier cue, not suspended.
+
+*This Rules line carried a fourth clause — **"Anki export stays as a one-click backup, because the learner should never be locked in"** — until 2026-08-25, and it is struck at W8a rather than quietly reconciled.*
+
+**The clause was not stale and W7 did not misread it.** W7 built `GET /cards/export.tsv` *because this line specified it*, `ARCHITECTURE-v3-web.md` §6 listed the route as "PRD §5's backup", and the W7 row in `docs/TASKS-v3-web.md` carried it in both its Build and its Accept column. All three documents agreed with each other and with the code. **This is a product change across three consistent documents, not the correction of one drifted row**, and it is written down that way because the handover note that ordered it gave the opposite reason — that the W7 row contradicted the PRD — and the next reader will otherwise re-derive that false premise from the same three files.
+
+**What changed is the judgement, not the facts.** §2.4 and the §0 failure table say the in-app deck *replaces* Anki, and the reason given there is that "a hand-off is a place where habits die". A one-click backup is still a hand-off: it is a second app with its own sync and its own scheduler, and a card exported into it stops being a card this system knows anything about. Keeping the door open cost a route, a module and a link on the one screen whose job is to be the deck. **The in-app reviewer is the flashcard system and there is no export from the web app.** `tests/test_web_shell.py` bans the path from `apps/api` and `apps/web` so it cannot return by someone reading a cached copy of this section.
+
+**The v2 Telegram chunk exporter (`core/services/anki.py`) is a different surface** — a ✅-verified live path both learners use weekly — and it is untouched. It dies at W22 with the rest of the bot.
 
 ---
 

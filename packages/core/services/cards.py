@@ -731,23 +731,33 @@ def promote_to_production(user_id: int, card_id: int, *, now: datetime) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Anki export — added beside the v2 chunk exporter, never replacing it
+# The cloze measurement's reader — read-only, no route behind it
 # ---------------------------------------------------------------------------
+#
+# `export_rows(user_id)` stood here from W7 until 2026-08-25. It returned one
+# learner's whole deck and its only caller was `GET /cards/export.tsv`, which
+# W8a removed — a service function whose reason for existing is a deleted route
+# is dead code no ban test can see, so it went with it.
+#
+# `cloze_cards` arriving in the same commit is not that function renamed. It is
+# narrower (one card type, no faces to serialise), it is keyed on nothing (every
+# learner, because the question is about the deck rather than about a person),
+# and no route calls it or ever will: its one caller is
+# `core.cards.probe_cloze`, a human-run measurement that writes nothing.
 
 
-def export_rows(user_id: int) -> list[Card]:
-    """Every card, oldest first. The export is a backup, so nothing is filtered.
+def cloze_cards() -> list[Card]:
+    """Every `cloze` card in the database, oldest first.
 
-    Unlike the v2 chunk exporter this does **not** mark rows exported and does
-    not carry an `exported_to_anki` flag: PRD §5 calls the export "a one-click
-    backup, because the learner should never be locked in", and a backup that
-    only contains what you have not already downloaded is not a backup.
+    Read-only, and deliberately not scoped to a learner. W8a's finding is about
+    how cloze cards are *made* — `make_sentence_with_gap` removes the phrase and
+    checks nothing — so the population under measurement is the whole deck, not
+    one person's share of it.
     """
     with cursor() as cur:
         cur.row_factory = tuple_row
         cur.execute(
             f"SELECT {_CARD_COLUMNS} FROM cards "
-            "WHERE cards.user_id = %s ORDER BY cards.id ASC",
-            (user_id,),
+            "WHERE cards.card_type = 'cloze' ORDER BY cards.id ASC"
         )
         return [_to_card(r) for r in cur.fetchall()]

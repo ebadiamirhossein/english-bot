@@ -7,7 +7,6 @@ import { GradeButtons } from "@/components/cards/grade-buttons";
 import { Button } from "@/components/ui/button";
 import {
   ApiError,
-  deckExportUrl,
   getReviewQueue,
   gradeCard,
   type CardFace,
@@ -151,7 +150,6 @@ export function Reviewer() {
           Your cards will come back on their own, spaced so they land just
           before you would forget them.
         </p>
-        <DeckExport />
       </div>
     );
   }
@@ -179,30 +177,6 @@ export function Reviewer() {
           Show me
         </Button>
       )}
-
-      <DeckExport />
     </div>
-  );
-}
-
-/**
- * PRD §5: "Anki export stays as a one-click backup, because the learner should
- * never be locked in."
- *
- * A plain link and not a fetch: the browser's own download handling is what
- * saves a file on a phone, and the session cookie rides along because it is the
- * same origin every other call uses.
- */
-function DeckExport() {
-  return (
-    <p className="pt-2 text-sm">
-      <a
-        href={deckExportUrl()}
-        className="text-primary underline underline-offset-4"
-        data-testid="deck-export"
-      >
-        Download your deck for Anki
-      </a>
-    </p>
   );
 }

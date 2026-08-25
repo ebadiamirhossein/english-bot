@@ -820,3 +820,223 @@ def test_today_still_offers_exactly_one_button_after_w6() -> None:
     assert source.count("<Button") == 1
     assert 'href="/practice"' in source
     assert 'href="/write"' in source
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# W8a. Two surface bans, and the rule they share.
+#
+# **A ban test bans surfaces, not words, and therefore never scans comments.**
+# Recorded once here so the next ban inherits the rule rather than deciding it
+# again — the two below were written asymmetrically in the first draft and the
+# asymmetry was the whole defect: one of them would have been satisfied only by
+# deleting a PRD quote that explains why every card carries its source sentence.
+#
+# On the TypeScript side that means `_without_comments()`. On the Python side it
+# means reading string constants out of the AST and skipping docstrings, which
+# is what `test_core_boundary.py` already does and what its own module docstring
+# names: *"a docstring mentioning 'telegram' passes and `import telegram.ext as
+# x` fails — the exact pair a grep gets backwards."*
+#
+# The import half of each ban lives in `test_core_boundary.py`, where import
+# bans live. These two are the literal half.
+# ─────────────────────────────────────────────────────────────────────────────
+
+API = REPO_ROOT / "apps" / "api"
+
+
+def _api_sources() -> dict[str, str]:
+    """Every `apps/api` module, with comments and docstrings removed.
+
+    Docstrings are dropped by walking the AST rather than by a regex, because a
+    regex that strips triple-quoted strings would also strip a SQL literal and
+    the scan would stop seeing the thing it exists to see.
+    """
+    import ast
+
+    out: dict[str, str] = {}
+    for path in sorted(API.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        raw = path.read_text(encoding="utf-8")
+        tree = ast.parse(raw, filename=str(path))
+        docstrings: set[int] = set()
+        for node in ast.walk(tree):
+            if isinstance(
+                node,
+                (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+            ):
+                body = getattr(node, "body", None)
+                if (
+                    body
+                    and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)
+                ):
+                    docstrings.add(id(body[0].value))
+        pieces: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if id(node) not in docstrings:
+                    pieces.append(node.value)
+        # Names as well as literals: `from core.cards.anki import build_tsv` is
+        # neither a string constant nor a comment, and it is exactly the shape a
+        # re-added export takes.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                pieces += [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                pieces.append(node.module)
+            elif isinstance(node, ast.Attribute):
+                pieces.append(node.attr)
+            elif isinstance(node, ast.Name):
+                pieces.append(node.id)
+        out[str(path.relative_to(REPO_ROOT))] = "\n".join(pieces)
+    return out
+
+
+def _stripped_web_sources() -> dict[str, str]:
+    """Shipped `apps/web` sources with comments removed. Tests excluded."""
+    return {rel: _without_comments(raw) for rel, raw in _shipped_sources().items()}
+
+
+def _banned_hits(sources: dict[str, str], terms: tuple[str, ...]) -> list[str]:
+    """``{path: text}`` → one entry per banned term found, sorted by path.
+
+    Takes a mapping rather than paths so the meta-tests can feed it deliberate
+    violations without writing a file, the same shape `tests/support/no_guilt.py`
+    settled on.
+    """
+    offenders: list[str] = []
+    for rel, text in sorted(sources.items()):
+        lowered = text.lower()
+        for term in terms:
+            if term.lower() in lowered:
+                offenders.append(f"{rel}: {term}")
+    return offenders
+
+
+# ── the Anki ban ───────────────────────────────────────────────────────────
+
+#: `export.tsv` is the route path and the client URL; `core.cards.anki` and
+#: `deckExportUrl` are the two identifiers that carried it. `anki` on its own is
+#: deliberately included: the point is that no *code* in either tree mentions it.
+_ANKI = ("export.tsv", "deckExportUrl", "anki")
+
+
+def test_no_anki_export_path_in_the_web_app() -> None:
+    """W8a: the in-app deck is the flashcard system; there is no hand-off.
+
+    PRD §5's Rules line specified a one-click Anki backup until 2026-08-25,
+    ARCHITECTURE §6 listed the route, the TASKS W7 row carried it in both
+    columns, and W7 built all three. **The documents agreed with each other and
+    with the code** — so without this test the export comes back the first time
+    someone reads a cached copy of PRD §5 and implements it in good faith, which
+    is precisely how it arrived.
+
+    `packages/core/services/anki.py` is the **v2 Telegram** chunk exporter, a
+    live path two learners use weekly that dies at W22. It is outside both trees
+    scanned here, so no exclusion is needed and none is taken.
+    """
+    offenders = _banned_hits(_stripped_web_sources(), _ANKI) + _banned_hits(
+        _api_sources(), _ANKI
+    )
+    assert offenders == [], (
+        "no Anki export path may exist in apps/web or apps/api (W8a; PRD §5 as "
+        "corrected 2026-08-25): " + "; ".join(offenders)
+    )
+
+
+def test_the_anki_scan_catches_a_real_violation() -> None:
+    """The meta-test. A ban that fails on nothing is a deleted ban with steps."""
+    assert _banned_hits(
+        {"apps/web/components/cards/reviewer.tsx": 'href={deckExportUrl()}'}, _ANKI
+    ) == ["apps/web/components/cards/reviewer.tsx: deckExportUrl"]
+    assert _banned_hits(
+        {"apps/api/routers/cards.py": '"/cards/export.tsv"'}, _ANKI
+    ) == ["apps/api/routers/cards.py: export.tsv"]
+    assert _banned_hits({"apps/web/lib/api.ts": "const deck = 1;"}, _ANKI) == []
+
+
+def test_the_anki_scan_does_not_read_a_comment_as_a_surface() -> None:
+    """The rule this slice recorded, asserted rather than trusted.
+
+    `card-face.tsx` carries the PRD quote *"bare word↔translation cards are why
+    people quit Anki"* — the sentence that explains why every card ships with its
+    source line. It records where a design came from and it is not a surface, so
+    the scan must not see it. The first draft of this ban did, and the only way
+    to satisfy it was to delete the quote.
+    """
+    commented = {
+        "apps/web/components/cards/card-face.tsx": (
+            "/* ...why people quit Anki. */\nexport function CardFace() {}"
+        )
+    }
+    assert _banned_hits(
+        {rel: _without_comments(raw) for rel, raw in commented.items()}, _ANKI
+    ) == []
+
+
+# ── the Telegram ban ───────────────────────────────────────────────────────
+
+#: Surfaces only. `telegram` itself is in the list because in *code* — an import,
+#: an identifier, a URL — it can only be a surface; the four docstrings in these
+#: two trees that mention Telegram are prose about where a data shape came from,
+#: and they are the record this project keeps deliberately.
+_TELEGRAM = ("t.me/", "tg://", "TELEGRAM_", "bot_token", "telegram")
+
+
+def test_no_telegram_surface_in_the_web_app() -> None:
+    """PRODUCT-PRINCIPLES §1: no new feature, screen, alert channel or fallback
+    is built for Telegram. Every teaching and identity surface is the web app.
+
+    Run at W8a as a confirmation and kept as a check. The grep at the time found
+    four hits and all four were docstrings — `apps/web/lib/api.ts:85`,
+    `apps/api/main.py:88`, `apps/api/routers/correct.py:22` and
+    `apps/api/schemas/__init__.py:87` — each saying that a correction *shape* is
+    the one the learners already read in Telegram. No link, no deep link, no
+    token, no environment variable, no import.
+
+    The exclusion of comments and docstrings is named rather than silent, and it
+    is safe because the import half of this ban is an AST check in
+    `test_core_boundary.py::test_the_apps_import_no_telegram_package`: a real
+    dependency is an import, and an import cannot be commented out and still run.
+    """
+    offenders = _banned_hits(_stripped_web_sources(), _TELEGRAM) + _banned_hits(
+        _api_sources(), _TELEGRAM
+    )
+    assert offenders == [], (
+        "no Telegram surface may exist in apps/web or apps/api "
+        "(PRODUCT-PRINCIPLES §1): " + "; ".join(offenders)
+    )
+
+
+def test_the_telegram_scan_catches_a_real_violation() -> None:
+    """The meta-test."""
+    assert _banned_hits(
+        {"apps/web/app/(app)/page.tsx": 'href="https://t.me/englishbot"'}, _TELEGRAM
+    ) == ["apps/web/app/(app)/page.tsx: t.me/"]
+    assert _banned_hits(
+        {"apps/api/config.py": 'os.environ["TELEGRAM_BOT_TOKEN"]'}, _TELEGRAM
+    ) == [
+        "apps/api/config.py: TELEGRAM_",
+        "apps/api/config.py: bot_token",
+        "apps/api/config.py: telegram",
+    ]
+
+
+def test_the_telegram_scan_keeps_the_four_docstrings_it_found() -> None:
+    """The hits W8a reported are prose, and prose survives the ban.
+
+    A docstring saying "the same shape learners already read in Telegram" is the
+    record of where a contract came from. Deleting it to satisfy a scan would
+    trade a real piece of history for a green test.
+    """
+    prose = {
+        "apps/web/lib/api.ts": (
+            "/** One correction, the same shape learners already read in "
+            "Telegram. */\nexport type Correction = { text: string };"
+        )
+    }
+    assert _banned_hits(
+        {rel: _without_comments(raw) for rel, raw in prose.items()}, _TELEGRAM
+    ) == []

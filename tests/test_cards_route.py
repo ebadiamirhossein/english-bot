@@ -403,37 +403,11 @@ def test_another_learners_card_is_not_found(app, db, learner) -> None:
         db.commit()
 
 
-# ── the export ─────────────────────────────────────────────────────────────
-
-
-def test_the_export_requires_a_session(app) -> None:
-    assert request(app, "GET", "/cards/export.tsv").status_code == 401
-
-
-def test_the_export_returns_a_valid_four_column_tsv(app, db, learner) -> None:
-    """The acceptance criterion, through the route a learner actually taps."""
-    _seed(db, learner, front="one")
-    _seed(db, learner, front="two")
-    cookies, _ = _as(learner)
-    response = request(app, "GET", "/cards/export.tsv", cookies=cookies)
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/tab-separated-values")
-    assert "attachment" in response.headers["content-disposition"]
-    lines = [line for line in response.text.splitlines() if line]
-    assert len(lines) == 2
-    assert all(len(line.split("\t")) == 4 for line in lines)
-
-
-def test_the_export_carries_only_this_learners_deck(app, db, learner) -> None:
-    other_id, other_cookie = _make_learner(db, "W7 Other Export")
-    try:
-        _seed(db, learner, front="mine")
-        cookies = {SESSION_COOKIE_SECURE: other_cookie}
-        assert request(app, "GET", "/cards/export.tsv", cookies=cookies).text == ""
-    finally:
-        db.execute("DELETE FROM access_requests WHERE user_id = %s", (other_id,))
-        db.execute("DELETE FROM users WHERE id = %s", (other_id,))
-        db.commit()
+# The export's three tests stood here from W7 until 2026-08-25. W8a removed
+# `GET /cards/export.tsv`, so they went with it — the route they exercised does
+# not exist. What replaces them is not a test of this router at all but a ban:
+# `tests/test_web_shell.py::test_no_anki_export_path_in_the_web_app` fails the
+# commit that puts the path back into `apps/api` or `apps/web`.
 
 
 # ── the routes are registered, which is #117's real evidence ───────────────
@@ -450,7 +424,6 @@ def test_the_deck_routes_answer_401_and_not_404_without_a_session(app) -> None:
     and the step now cites this, which is a fact a reader can reproduce.
     """
     assert request(app, "GET", "/review/queue").status_code == 401
-    assert request(app, "GET", "/cards/export.tsv").status_code == 401
     assert (
         request(
             app,
@@ -476,4 +449,4 @@ def test_the_startup_line_naming_the_routes_is_emitted(caplog) -> None:
     built = [r for r in caplog.records if r.getMessage().startswith("API built")]
     assert built, "the `API built origins=… routes=…` line was not emitted"
     assert "/review/queue" in built[-1].getMessage()
-    assert "/cards/export.tsv" in built[-1].getMessage()
+    assert "/review/{card_id}/grade" in built[-1].getMessage()

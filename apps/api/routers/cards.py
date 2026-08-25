@@ -1,9 +1,9 @@
-"""The deck's three routes. Each parses, authorises, calls **one** service
+"""The deck's two routes. Each parses, authorises, calls **one** service
 function, and serialises.
 
 Three properties, load-bearing rather than stylistic:
 
-* **Plain `def`, all three.** Every one blocks on a psycopg pool checkout and
+* **Plain `def`, both.** Each blocks on a psycopg pool checkout and
   `/review/{id}/grade` also runs the scheduler. Standing rule 6 (issue #7 with a
   wider blast radius): an `async def` here puts that on the event loop and
   stalls every other request the worker is serving.
@@ -19,20 +19,24 @@ Three properties, load-bearing rather than stylistic:
   `core.cards.fsrs`. The frontend renders numbers it is given, the same rule W6
   established for grading with `grade_text`.
 
-**The export is a GET that returns `text/tab-separated-values`.** Not a POST: it
-creates nothing, changes nothing, and marks nothing exported — PRD §5 calls it
-"a one-click backup, because the learner should never be locked in", and a
-backup that only contains what you have not already downloaded is not a backup.
-That is the one place it deliberately differs from the v2 chunk export, which
-does mark rows.
+**There is no export route.** `GET /cards/export.tsv` lived here from W7 until
+2026-08-25, when W8a ruled the in-app deck is the flashcard system and there is
+no Anki hand-off from the web app at all. PRD §5, ARCHITECTURE §6 and the TASKS
+W7 row all specified it and all three are corrected in the same commit — this
+was a product change, not a stale row. `tests/test_web_shell.py` bans the path
+from `apps/api` and `apps/web` so it cannot come back by someone reading a
+cached copy of PRD §5.
+
+The **v2 Telegram chunk exporter** (`core.services.anki`) is a different surface,
+still live for two learners, and dies at W22. It is untouched.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from apps.api.deps import rate_limit, require_current_user
 from apps.api.schemas import (
@@ -43,7 +47,6 @@ from apps.api.schemas import (
     ReviewQueueOut,
 )
 from core.cards import RATINGS
-from core.cards.anki import build_tsv, filename_for
 from core.cards.fsrs import review as schedule_review
 from core.services import cards as cards_service
 from core.services.auth import AuthenticatedUser
@@ -166,32 +169,4 @@ def grade(
         due=outcome.due,
         interval_days=outcome.interval_days,
         counts=_counts(outcome.counts),
-    )
-
-
-@router.get(
-    "/cards/export.tsv",
-    response_class=Response,
-    responses={200: {"content": {"text/tab-separated-values": {}}}},
-    dependencies=[
-        Depends(rate_limit("cards_export", per_client=20, overall=100, window_seconds=3600))
-    ],
-)
-def export(
-    session: AuthenticatedUser = Depends(require_current_user),
-) -> Response:
-    """The whole deck as an Anki TSV. PRD §5's one-click backup.
-
-    `Content-Disposition: attachment` so a phone offers to save it rather than
-    rendering tab-separated text in a browser tab.
-    """
-    body = build_tsv(cards_service.export_rows(session.id))
-    return Response(
-        content=body,
-        media_type="text/tab-separated-values; charset=utf-8",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="{filename_for(date.today())}"'
-            )
-        },
     )
