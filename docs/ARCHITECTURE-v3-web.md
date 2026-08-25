@@ -118,7 +118,8 @@ Existing 15 tables are untouched. New:
 |---|---|
 | `lexemes` | static: lemma, frequency band, CEFR tag, POS (~15k rows, seeded from `data/`) |
 | `user_lexemes` | user × lemma: state, strength, first_seen, source |
-| `syllabus_units` | the 24-unit map: stage, can-do, grammar targets, murphy refs, target lexemes |
+| `syllabus_units` | the 24-unit map: stage, can-do, grammar targets + murphy refs, **both output-task variants**, and the **checkpoint blueprint**. **Corrected at W8:** this row said "target lexemes", and they are not on it — they live in **`syllabus_unit_lexemes`**, a third table 014 ships, because the per-learner target list is `candidates − known_lemmas(user)` **computed at read time** and a column here could carry no foreign key to `lexemes`. The blueprint and the output tasks were missing from this row entirely |
+| `syllabus_unit_lexemes` | unit × lexeme, **shared, no `user_id`** — the candidate pool the per-learner diff runs against (added W8, migration 014) |
 | `user_unit_state` | user × unit: state, attempts, checkpoint scores, mastered_at |
 | `cards` | user card: type, front/back, source_ref, sentence, register — **and its current FSRS state** (stability, difficulty, due, state, lapses, last_review) |
 | `card_reviews` | **the append-only review log** — one row per grade, with the state before and after (corrected at W7; see below) |

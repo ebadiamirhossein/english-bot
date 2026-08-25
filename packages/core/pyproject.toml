@@ -48,8 +48,10 @@ dependencies = [
 # `core.lexicon` was shipped by W4 and never listed here. The editable install
 # resolves it by filesystem path so nothing has failed, but a wheel build would
 # have dropped the whole lexicon package. W5 adds `core.items` and would have
-# walked into the same hole, so both are declared.
-packages = ["core", "core.services", "core.lexicon", "core.items", "core.cards"]
+# walked into the same hole, so both are declared. W7 added `core.cards` and
+# W8 `core.syllabus` in the same spirit: a package that only works because the
+# install is editable is a package that vanishes the first time it is not.
+packages = ["core", "core.services", "core.lexicon", "core.items", "core.cards", "core.syllabus"]
 
 [tool.setuptools.package-dir]
 core = "."

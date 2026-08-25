@@ -11,6 +11,36 @@ corrected terms are below.
 |---|---|
 | `lexemes.tsv`, `inflections.tsv` — the merged, filtered output | The raw inputs. They are re-downloadable from the URLs below and checked against the SHA-256 digests recorded here |
 | `scripts/build_lexicon.py` — the generator | |
+| `syllabus_lexemes.tsv`, `syllabus_units.json` — W8's syllabus (2026-08-25) | |
+| `scripts/build_syllabus_lexemes.py` — its generator | |
+
+## W8's syllabus content — the gate that ran on 2026-08-25
+
+Run before any code was written, as W4's did and W7's did for `fsrs`.
+
+**`data/syllabus_units.json` is original work.** The 24 units — can-do
+statements, grammar target names, output tasks, checkpoint blueprints — were
+authored for this project against `docs/PRD-v3-web.md` §3. Nothing is
+transcribed from a third party.
+
+**Murphy references are unit NUMBERS, never Murphy's text.** `English Grammar in
+Use` is Cambridge's, and this repository stores pointers into it — the same
+thing `error_types.murphy_units` has stored since migration 001. A page number
+is a reference; a paragraph would be redistribution. **No slice may copy Murphy's
+explanations, examples or exercises into this repository**, and that holds for a
+commercial product and not only for a private one.
+
+**`data/syllabus_lexemes.tsv` inherits `lexemes.tsv`'s terms.** It is a
+projection of it — the same lemmas, filtered to B1/B2 above rank 2000, each
+tagged with the unit that teaches it — so it is a further derivative of
+FrequencyWords and CEFR-J and carries **CC BY-SA 4.0** with them. Known issue
+**#87** (CEFR-J is licensed for use, not explicitly for redistribution) applies
+to it exactly as it does to its parent, and is not made worse or better by it:
+the unit column is ours, the lemma list is not.
+
+The topic assignment itself was produced with `claude-sonnet-5` through
+`core.llm`. Anthropic's terms assign output to the customer, so the unit column
+carries no third-party claim.
 
 That split is deliberate and load-bearing: **the merged file stays
 re-derivable and therefore deletable.** If either licence has to be

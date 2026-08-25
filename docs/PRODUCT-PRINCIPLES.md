@@ -30,13 +30,23 @@ Consequences that hold in every slice from now on:
 A user must be able to sign up, sign in, learn, and pay **without a Telegram
 account**. This is a product requirement, not a preference.
 
-Today the schema does not meet it: `users.telegram_user_id` is the primary
-identity and every user-keyed table references it, including `user_lexemes`
-added at W4. Web auth (W2) was hung onto that same row rather than given an
-identity of its own.
+**Met on 2026-08-24 by migration 011 (W4b); #92 is closed.** `users.id` is a
+surrogate identity, `telegram_user_id` is a nullable unique secondary, and all
+17 user foreign keys point at `users(id)`. Web sign-up exists as
+`identity.create_web_user` plus `python -m core.claim create`.
 
-- Every slice that adds a user-keyed table **enlarges the eventual migration**
-  and must say so in its plan.
+**This section read "Today the schema does not meet it" until 2026-08-25**, when
+W8 — the next slice to add a user-keyed table — found it still describing the
+pre-011 world and would otherwise have written a now-meaningless "this enlarges
+the eventual migration" clause. That is #82's pattern in a fourth document: a
+document written as a plan and read afterwards as a description.
+
+The rules below still stand, re-read against the post-011 schema:
+
+- Every slice that adds a user-keyed table **states its position on this
+  section in its plan.** Before 011 that meant naming the migration it
+  enlarged; now it means confirming the table keys on `users(id)` and saying
+  so in the record either way.
 - No slice may add a *new* dependency on a Telegram id beyond the FK pattern
   that already exists.
 - The fix is a scheduled slice, not something to improvise inside another one.

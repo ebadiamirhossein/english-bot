@@ -277,6 +277,70 @@ def test_lexicon_package_is_pure() -> None:
     )
 
 
+# W8. `core/syllabus/` is the pure half of the 24-week road: constants, the unit
+# state machine, and the validation that decides whether authored content may
+# ship. `core/services/syllabus.py` holds every query. Like `core/lexicon/` and
+# `core/items/` it is NOT under `core/services/`, so `test_no_sql_outside_services`
+# already covers it with zero new exemptions -- #59 stays the only one.
+SYLLABUS = CORE / "syllabus"
+# The single door to the two committed content files, exactly as `normalize.py`
+# is for the lexicon's.
+SYLLABUS_CONTENT = SYLLABUS / "content.py"
+SYLLABUS_DATA_FILES = ("syllabus_units.json", "syllabus_lexemes.tsv")
+
+
+def test_syllabus_package_is_pure() -> None:
+    """No SQL and no driver under `core/syllabus/`."""
+    offenders: list[str] = []
+    for path in _python_files(SYLLABUS):
+        rel = path.relative_to(REPO_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hit = _imported_roots(tree) & ({"psycopg", "psycopg_pool"} | BUILD_ONLY_LIBS)
+        if hit:
+            offenders.append(f"{rel}: imports {', '.join(sorted(hit))}")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if _looks_like_sql(node.value):
+                    offenders.append(f"{rel}:{node.lineno}: SQL")
+    assert offenders == [], (
+        "core/syllabus/ is pure: every query lives in core/services/syllabus.py "
+        "(CLAUDE.md §2): " + "; ".join(offenders)
+    )
+
+
+def test_only_the_content_loader_reads_the_syllabus_data_files() -> None:
+    """`core/syllabus/content.py` is the single door to the two content files.
+
+    The same rule `test_only_the_tokeniser_reads_the_lexicon_data_files` holds
+    for `data/lexemes.tsv`, and for the same reason: what drifts is the PARSE.
+    One module reads the files and every other call site goes through it, so a
+    second reader cannot quietly disagree about what a row means.
+
+    `scripts/build_syllabus_lexemes.py` WRITES one of them and is outside the
+    scanned trees, which is the same position `scripts/build_lexicon.py` holds.
+    """
+    offenders: list[str] = []
+    for root in (CORE, APPS):
+        for path in _python_files(root):
+            if path == SYLLABUS_CONTENT:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            prose = _docstring_ids(tree)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Constant) or id(node) in prose:
+                    continue
+                if not isinstance(node.value, str):
+                    continue
+                if _names_a_data_file(node.value, SYLLABUS_DATA_FILES):
+                    rel = path.relative_to(REPO_ROOT)
+                    offenders.append(f"{rel}:{node.lineno}")
+    assert offenders == [], (
+        "core/syllabus/content.py is the only module that may read the syllabus "
+        "content files -- a second parser is a second answer: "
+        + "; ".join(offenders)
+    )
+
+
 # W5. `core/items/` is the pure half of the item validator, the same shape
 # `core/lexicon/` is: it turns a draft into a verdict without reaching a
 # database. `core/services/items.py` holds every query. Because `core/items/` is
@@ -377,6 +441,19 @@ def _docstring_ids(tree: ast.AST) -> set[int]:
     return ids
 
 
+def _names_a_data_file(text: str, names: tuple[str, ...]) -> bool:
+    """Does this string reference one of `names` as a filename, not as a suffix?
+
+    A plain `in` test is too loose, and W8 found out how: `data/lexemes.tsv` is
+    a substring of `data/syllabus_lexemes.tsv`, so the lexicon rule fired on the
+    syllabus loader for reading its own file. The boundary is what makes the
+    match about a FILENAME rather than about the characters in one.
+    """
+    return any(
+        re.search(r"(?:^|[^0-9A-Za-z_])" + re.escape(name), text) for name in names
+    )
+
+
 def test_only_the_tokeniser_reads_the_lexicon_data_files() -> None:
     """`normalize.py` is the single door to `data/lexemes.tsv`.
 
@@ -403,7 +480,7 @@ def test_only_the_tokeniser_reads_the_lexicon_data_files() -> None:
                     continue
                 if not isinstance(node.value, str):
                     continue
-                if any(name in node.value for name in LEXICON_DATA_FILES):
+                if _names_a_data_file(node.value, LEXICON_DATA_FILES):
                     rel = path.relative_to(REPO_ROOT)
                     offenders.append(f"{rel}:{node.lineno}")
     assert offenders == [], (

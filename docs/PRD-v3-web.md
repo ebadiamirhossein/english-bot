@@ -136,7 +136,19 @@ The thing v2 was missing. This is a visible map on the home screen, with your do
 Each stage = 4 weekly units. Each **unit** ships with:
 
 - one **can-do statement** ("I can describe a change I made and why"),
-- 3–5 **grammar targets** with Murphy references (already in `book_units` from v2's OCR),
+- 3–5 **grammar targets** with Murphy references. **Corrected at W8, 2026-08-25:**
+  this line read *"already in `book_units` from v2's OCR"* and that was wrong.
+  `book_units` is a **per-learner OCR study log** (`user_id NOT NULL`,
+  `unit_number` free TEXT) recording which pages a learner photographed —
+  roughly five units for one learner, deliberately left behind at the S18d
+  re-onboard. It is a different namespace from `items.unit_number`
+  (SMALLINT 1–24) despite the shared column name, and a *shared* syllabus
+  row could not key to a per-learner one in any case. The references are
+  **authored from the stage table above**, stored as TEXT ranges with no
+  foreign key — the convention `error_types.murphy_units` already uses.
+  **Stage 6 gives no range, so 20 of the 24 units carry one** and
+  `murphy_units` is nullable per target, exactly as it is for the six
+  `error_types` rows covering collocation, register and pronunciation,
 - ~40 **target lexemes** chosen by frequency band ∩ topic ∩ *not already in your known-word ledger*,
 - 3 **video/audio items** at 95–98% coverage,
 - 1 **output task** (spoken and written variant),
