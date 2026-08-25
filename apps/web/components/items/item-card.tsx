@@ -101,6 +101,10 @@ export function ItemCard({
         draft={draft}
         onDraft={setDraft}
         disabled={answered || state.kind === "submitting"}
+        // Null until the server answers. The two types whose correct answer is
+        // a structure rather than a string show it themselves (#112); every
+        // other component ignores this.
+        result={state.kind === "graded" ? state.result : null}
       />
 
       <Answer

@@ -21,6 +21,7 @@ export default function MatchPairs({
   draft,
   onDraft,
   disabled,
+  result,
 }: PresentationProps) {
   const left = readStrings(projection, "left");
   const right = readStrings(projection, "right");
@@ -77,6 +78,35 @@ export default function MatchPairs({
           ))}
         </div>
       </div>
+
+      {/*
+        **#118 — this type cannot show its correct answer yet, and says so.**
+
+        `match_pairs` has `answer IS NULL` by schema rule: its correct answer is
+        a bijection living in `items.payload.pairs`, which `visible_projection`
+        withholds because it *is* the answer. Nothing on the client has it, and
+        `AnswerOutcome` carries no field for it — the answer route returns
+        `canonical` and nothing else. Supplying it would be an API change, which
+        this closeout is explicitly barred from making.
+
+        The copy promises nothing either — an earlier draft said the pairing
+        "comes back on the next round", which is a second thing the app cannot
+        currently deliver: item re-delivery under spacing is W7's.
+
+        So the honest thing is to stop pretending. The verdict box no longer
+        promises an answer it cannot produce (#112), and this says what a
+        learner can actually do about it. #118 carries the real fix: the answer
+        route returning the pairing **after grading**, which is not a projection
+        leak for the same reason `canonical` is not.
+      */}
+      {result && !result.correct ? (
+        <p
+          className="text-sm leading-relaxed text-muted-foreground"
+          data-testid="match-pairs-no-answer"
+        >
+          Worth another look at these two columns.
+        </p>
+      ) : null}
     </div>
   );
 }

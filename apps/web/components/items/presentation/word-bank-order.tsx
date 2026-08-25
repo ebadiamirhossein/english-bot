@@ -22,6 +22,7 @@ export default function WordBankOrder({
   draft,
   onDraft,
   disabled,
+  result,
 }: PresentationProps) {
   const bank = readStrings(projection, "bank");
   const chosen = draft.order ?? [];
@@ -75,6 +76,32 @@ export default function WordBankOrder({
           ),
         )}
       </div>
+
+      {/*
+        The correct order, shown in the shape the exercise is in (#112).
+
+        The verdict box already prints the canonical as a sentence, and that is
+        the right thing for a typed item — but the task here was *ordering*, and
+        a sentence does not show which token went where. This does, and it costs
+        nothing: `canonical` is a real string for this type and arrives with the
+        verdict, so there is no second source of truth and nothing to keep in
+        step.
+      */}
+      {result && !result.correct && result.canonical ? (
+        <div className="space-y-2" data-testid="word-bank-answer">
+          <Instruction>In this order:</Instruction>
+          <div className="flex flex-wrap gap-2">
+            {result.canonical.split(/\s+/).map((token, position) => (
+              <span
+                key={`${token}-${position}`}
+                className="rounded-xl border border-primary/40 bg-accent/40 px-3.5 py-2.5 text-base text-accent-foreground"
+              >
+                {token}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

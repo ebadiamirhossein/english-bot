@@ -175,10 +175,20 @@ describe("choosing an input by response mode, never by type", () => {
 
     render(<ItemCard item={BY_TYPE.get("speak_repeat")!} />);
     await userEvent.click(screen.getByRole("button", { name: "Got it" }));
-    await screen.findByTestId("feedback");
+    const feedback = await screen.findByTestId("feedback");
 
     expect(answerItem.mock.calls[0][1].self_marked).toBe(true);
     expect(getUserMedia).not.toHaveBeenCalled();
+
+    // **#113, through the real user path.** Tapping "Got it" must not draw the
+    // confirmation a graded answer gets: the app checked nothing, and
+    // `graded_by` exists so instruments are never silently mixed. Asserted here
+    // as well as in `feedback.test.tsx` because the component can be correct in
+    // isolation while the card passes it the wrong result.
+    expect(feedback).toHaveAttribute("data-graded-by", "self");
+    expect(feedback.textContent ?? "").not.toContain("That’s it.");
+    expect(feedback.textContent ?? "").not.toContain("👍");
+    expect(feedback).toHaveTextContent("Noted.");
   });
 
   it("marking yourself short is recorded and reads without blame", async () => {
