@@ -35,10 +35,21 @@ CARD_TYPES: tuple[str, ...] = (
     "collocation",
 )
 
-#: What an ordinary v2 chunk becomes. The slice row says "cloze + production
-#: cards" and this is that list, so the fan-out is one constant rather than a
-#: shape implied by the loop that builds it.
-CHUNK_CARD_TYPES: tuple[str, ...] = ("cloze", "production")
+#: What an ordinary v2 chunk becomes: ONE production card, and **never a cloze
+#: one**. The fan-out is one constant rather than a shape implied by the loop
+#: that builds it, so this is where the ruling is enforceable.
+#:
+#: **W8b removed `cloze` from this tuple, and it read `("cloze", "production")`
+#: from W7 until 2026-08-25.** `probe_cloze --live` measured the 14 migrated
+#: cloze cards on production: 6 multi-acceptable, **9 not answerable as
+#: authored**, and exactly 2 sound on the uniqueness rule — both of which turned
+#: out to be Work-track content, which §4 caps at 20%. The dominant cause is
+#: structural rather than a bug: a v2 chunk is an idiom, so a chunk cloze gaps a
+#: whole phrase, and a slot that swallows a phrase cannot be reconstructed from
+#: the sentence around it. No cue repairs that and a gate at creation would
+#: reject nearly all of them. See `core.cards.migrate_chunks` for the three
+#: causes and `core.cards.retire_chunk_cloze` for the rows already created.
+CHUNK_CARD_TYPES: tuple[str, ...] = ("production",)
 
 #: What a `slang`-sourced v2 chunk becomes — ONE recognition card, and never a
 #: cloze or a production one.
@@ -54,7 +65,13 @@ SLANG_CHUNK_CARD_TYPES: tuple[str, ...] = ("recognition",)
 #: Every card type this migration can create. The anti-join that makes the pass
 #: idempotent reads this, not `CHUNK_CARD_TYPES` — a slang chunk's recognition
 #: card must count as already-migrated on the second run, and a list that knew
-#: about only two of the three would re-create it every time.
+#: about only one of the two would re-create it every time.
+#:
+#: `cloze` left this tuple with W8b, and dropping it is correct rather than
+#: merely tidy: this is "what the pass can create", and an anti-join for a card
+#: type the pass cannot create is asking the database a question about a row
+#: nobody will write. W13's video cloze cards carry no `source_chunk_id`, which
+#: `migrated_card_keys` filters on, so they are outside this set by construction.
 MIGRATION_CARD_TYPES: tuple[str, ...] = CHUNK_CARD_TYPES + SLANG_CHUNK_CARD_TYPES
 
 #: Card types that ask the learner to PRODUCE the phrase. Mirrors the DDL in

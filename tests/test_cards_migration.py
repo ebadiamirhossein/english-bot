@@ -9,6 +9,12 @@ real table.
 exactly one bucket, so "nothing was silently lost" is checkable rather than
 asserted. The runbook's independent `psql` query computes the same sum from the
 other side, without importing anything from this module.
+
+**W8b: no `cloze` card is created from a chunk, and that is asserted rather than
+merely no longer exercised.** A pass that stopped producing a card type would
+otherwise be indistinguishable from a test file that stopped looking for one —
+which is how a defect survives a rewrite. `test_the_pass_never_plans_a_cloze_card`
+walks the whole decision table and is the criterion.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ from datetime import date
 import psycopg
 import pytest
 
+from core.cards import CHUNK_CARD_TYPES, MIGRATION_CARD_TYPES
 from core.cards.migrate_chunks import plan_for_chunk, run
 from core.cards.slang_glosses import SlangGloss
 from core.config import load_settings
@@ -46,50 +53,89 @@ def _row(**over):
 # ── the fan-out table, pure ────────────────────────────────────────────────
 
 
-def test_a_complete_chunk_becomes_a_cloze_and_a_production_card() -> None:
+def test_a_complete_chunk_becomes_ONE_production_card_and_never_a_cloze() -> None:
     plan = plan_for_chunk(_row(), today=TODAY)
-    assert plan.bucket == "both"
-    assert [c["card_type"] for c in plan.cards] == ["cloze", "production"]
+    assert plan.bucket == "production_with_hint"
+    assert [c["card_type"] for c in plan.cards] == ["production"]
 
 
-def test_the_cloze_front_is_the_sentence_with_the_phrase_gapped() -> None:
-    """Reuses `core.services.anki.make_sentence_with_gap`, which is the same
-    function `due_chunks` already uses to decide a chunk is reviewable at all —
-    so a chunk v2 could gap is a chunk this migration can gap, by construction.
+@pytest.mark.parametrize(
+    "row",
+    [
+        _row(),
+        _row(meaning=None),
+        _row(full_sentence=None),
+        _row(full_sentence="Something else entirely."),
+        _row(meaning=None, full_sentence=None),
+        _row(source="slang"),
+        _row(times_right=9, times_wrong=1, streak_right=4),
+    ],
+    ids=[
+        "complete", "no_meaning", "no_sentence", "phrase_not_in_sentence",
+        "neither", "slang", "with_history",
+    ],
+)
+def test_the_pass_never_plans_a_cloze_card(row) -> None:
+    """**W8b's criterion, over the whole decision table.**
+
+    Every shape a v2 chunk can take, including the glossed-slang route, asserted
+    against a hardcoded card type rather than against whatever `plan_for_chunk`
+    returns (CLAUDE.md §3 rule 5). The constants are checked in the same test
+    because the pass and the anti-join read them, and a creator that no longer
+    writes a card type while `MIGRATION_CARD_TYPES` still claims it would leave
+    the idempotency set describing rows nobody writes.
+
+    The ruling, its three causes and its cost are in the module's docstring.
     """
-    plan = plan_for_chunk(_row(), today=TODAY)
-    cloze = plan.cards[0]
-    assert cloze["front"] == "That's a _____ from me."
-    assert cloze["back"] == "hard pass"
-    assert cloze["context_sentence"] == "That's a hard pass from me."
+    plan = plan_for_chunk(row, today=TODAY, glosses=GLOSSES)
+    assert all(spec["card_type"] != "cloze" for spec in plan.cards)
+    assert "cloze" not in CHUNK_CARD_TYPES
+    assert "cloze" not in MIGRATION_CARD_TYPES
+    assert CHUNK_CARD_TYPES == ("production",)
 
 
 def test_the_production_front_carries_the_gloss_and_the_context_hint() -> None:
-    plan = plan_for_chunk(_row(), today=TODAY)
-    production = plan.cards[1]
-    assert production["front"].startswith("a firm refusal")
-    assert "_____" in production["front"]
+    """The gapped sentence is now a HINT and never a question.
+
+    It is built by `core.services.anki.make_sentence_with_gap`, the same
+    function `due_chunks` uses to decide a chunk is reviewable at all — so a
+    chunk v2 could gap is a chunk this migration can hint with, by construction.
+    The exact string is asserted here because this is the only card that carries
+    it since W8b retired the cloze card that used to.
+    """
+    (production,) = plan_for_chunk(_row(), today=TODAY).cards
+    assert production["front"] == "a firm refusal\nThat's a _____ from me."
     assert production["back"] == "hard pass"
+    assert production["context_sentence"] == "That's a hard pass from me."
 
 
-def test_a_chunk_whose_phrase_is_not_in_its_sentence_makes_no_cloze_card() -> None:
+def test_a_chunk_whose_phrase_is_not_in_its_sentence_still_makes_a_production_card() -> None:
     plan = plan_for_chunk(
         _row(full_sentence="Something else entirely."), today=TODAY
     )
-    assert plan.bucket == "production_only_no_gap"
+    assert plan.bucket == "production_no_hint"
     assert [c["card_type"] for c in plan.cards] == ["production"]
+    assert plan.cards[0]["front"] == "a firm refusal"
 
 
-def test_a_chunk_with_no_sentence_makes_no_cloze_card() -> None:
+def test_a_chunk_with_no_sentence_still_makes_a_production_card() -> None:
     plan = plan_for_chunk(_row(full_sentence=None), today=TODAY)
-    assert plan.bucket == "production_only_no_gap"
+    assert plan.bucket == "production_no_hint"
     assert [c["card_type"] for c in plan.cards] == ["production"]
 
 
-def test_a_chunk_with_no_meaning_makes_no_production_card() -> None:
+def test_a_chunk_with_no_meaning_now_makes_no_card_at_all() -> None:
+    """**The cost of W8b, made falsifiable.** This chunk used to get a cloze card.
+
+    It is `skipped_no_meaning` rather than `skipped_no_face` because the two are
+    worth telling apart in a run's output: this one had a gappable sentence and
+    was served until 2026-08-25. The bucket was empty on production the day the
+    ruling shipped, and #148 records the constraint every future import inherits
+    — a chunk with no gloss now yields nothing.
+    """
     plan = plan_for_chunk(_row(meaning=None), today=TODAY)
-    assert plan.bucket == "cloze_only_no_meaning"
-    assert [c["card_type"] for c in plan.cards] == ["cloze"]
+    assert plan.bucket == "skipped_no_meaning"
+    assert plan.cards == ()
 
 
 def test_a_chunk_that_can_produce_neither_produces_nothing() -> None:
@@ -185,14 +231,17 @@ def test_every_migrated_card_is_tagged_neutral_and_says_why() -> None:
         assert spec["register_source"] == "migration_default"
 
 
-def test_both_cards_from_one_chunk_share_its_seeded_state() -> None:
-    plan = plan_for_chunk(
+def test_the_production_card_carries_the_chunks_seeded_state() -> None:
+    """One card per chunk since W8b, so this is no longer a shared-state test.
+
+    The seeding maths itself is `tests/test_cards_seeding.py`; what is asserted
+    here is that the card the pass builds actually carries it.
+    """
+    (production,) = plan_for_chunk(
         _row(times_right=3, times_wrong=1, streak_right=2), today=TODAY
-    )
-    cloze, production = plan.cards
-    assert cloze["state"] == production["state"]
-    assert cloze["seed_basis"] == production["seed_basis"]
-    assert cloze["state"].stability == pytest.approx(7.0)
+    ).cards
+    assert production["state"].stability == pytest.approx(7.0)
+    assert production["seed_basis"]["times_right"] == 3
 
 
 def test_a_chunk_with_no_history_carries_no_seed_basis() -> None:
@@ -258,29 +307,41 @@ def test_the_buckets_account_for_every_chunk(learner_with_chunks) -> None:
     """**The accounting identity.** Nothing is silently lost."""
     counts = _counts(learner_with_chunks, apply=False)
     buckets = (
-        "both",
-        "cloze_only_no_meaning",
-        "production_only_no_gap",
+        "production_with_hint",
+        "production_no_hint",
+        "skipped_no_meaning",
         "slang_recognition",
         "skipped_slang_no_gloss",
         "skipped_no_face",
     )
     assert sum(counts.get(b, 0) for b in buckets) == counts["chunks_examined"]
     assert counts["skipped_slang_no_gloss"] == 1
-    assert counts["both"] == 2
+    assert counts["production_with_hint"] == 2
 
 
-def test_the_pass_creates_two_cards_per_eligible_chunk(learner_with_chunks) -> None:
+def test_the_pass_creates_ONE_production_card_per_eligible_chunk(
+    learner_with_chunks,
+) -> None:
+    """**This test was `..._creates_two_cards_per_eligible_chunk` until W8b, and
+    that name was true when it was written** — two chunks, a cloze and a
+    production card each. It is renamed because the behaviour changed, not
+    because the name was ever wrong.
+
+    The `cloze_created` counter is asserted absent rather than left unmentioned:
+    a counter that stops being incremented reads identically to a test that
+    stopped looking at it.
+    """
     counts = _counts(learner_with_chunks, apply=True)
-    assert counts["cloze_created"] == 2
     assert counts["production_created"] == 2
+    assert counts.get("cloze_created", 0) == 0
+    assert counts.get("cloze_planned", 0) == 0
     with psycopg.connect(load_settings().database_url) as conn:
         rows = conn.execute(
             "SELECT card_type, count(*) FROM cards WHERE user_id = %s "
             "GROUP BY card_type ORDER BY card_type",
             (learner_with_chunks,),
         ).fetchall()
-    assert [(r[0], int(r[1])) for r in rows] == [("cloze", 2), ("production", 2)]
+    assert [(r[0], int(r[1])) for r in rows] == [("production", 2)]
 
 
 def test_the_second_run_writes_nothing(learner_with_chunks) -> None:
@@ -293,10 +354,9 @@ def test_the_second_run_writes_nothing(learner_with_chunks) -> None:
     """
     _counts(learner_with_chunks, apply=True)
     second = _counts(learner_with_chunks, apply=True)
-    assert second.get("cloze_created", 0) == 0
     assert second.get("production_created", 0) == 0
     assert second.get("refused_by_unique", 0) == 0
-    assert second["already_present"] == 4
+    assert second["already_present"] == 2
 
 
 def test_the_migration_never_touches_chunks(learner_with_chunks) -> None:
@@ -326,7 +386,7 @@ def test_a_seeded_card_carries_its_basis_and_a_new_one_does_not(
             """
             SELECT k.chunk, c.seeded_from_history, c.stability, c.seed_basis
               FROM cards c JOIN chunks k ON k.id = c.source_chunk_id
-             WHERE c.user_id = %s AND c.card_type = 'cloze'
+             WHERE c.user_id = %s AND c.card_type = 'production'
              ORDER BY k.chunk
             """,
             (learner_with_chunks,),

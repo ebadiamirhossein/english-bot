@@ -761,3 +761,78 @@ def cloze_cards() -> list[Card]:
             "WHERE cards.card_type = 'cloze' ORDER BY cards.id ASC"
         )
         return [_to_card(r) for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# W8b's retirement — the two halves of `core.cards.retire_chunk_cloze`
+# ---------------------------------------------------------------------------
+#
+# **The predicate is `card_type = 'cloze' AND source_chunk_id IS NOT NULL`, in
+# both functions, and it is never a date range and never a list of ids.** That
+# is `delete_items_by_hash`' reasoning one module over: a date range sweeps rows
+# nobody looked at, and an id list typed into a file is a claim about the
+# database that stops being true the moment the database changes. A cloze card
+# W13 creates from a video line carries no `source_chunk_id`, so it is outside
+# this command **by construction rather than by timing** — it cannot be reached
+# by running the command at the wrong moment.
+
+#: The one predicate, written once. Both functions below interpolate it, so the
+#: set that is counted and the set that is deleted cannot drift apart into two
+#: WHERE clauses that merely happen to agree today.
+_CHUNK_CLOZE_SQL = "cards.card_type = 'cloze' AND cards.source_chunk_id IS NOT NULL"
+
+
+def chunk_cloze_cards_with_review_counts() -> list[tuple[Card, int]]:
+    """Every chunk-derived cloze card with how many times it has been graded.
+
+    Read-only. The count travels with the card because the decision that needs
+    it — *may this row be deleted at all?* — is per-card: `card_reviews` is
+    append-only by design and cascades from `cards`, so deleting a graded card
+    discards a real learner event and says nothing about it.
+    """
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            f"""
+            SELECT {_CARD_COLUMNS}, count(r.id) AS review_count
+              FROM cards
+              LEFT JOIN card_reviews r ON r.card_id = cards.id
+             WHERE {_CHUNK_CLOZE_SQL}
+             GROUP BY cards.id
+             ORDER BY cards.id ASC
+            """
+        )
+        return [(_to_card(row[:-1]), int(row[-1])) for row in cur.fetchall()]
+
+
+def delete_chunk_cloze_cards() -> list[int]:
+    """Delete the chunk-derived cloze cards W8b retired. Returns the ids.
+
+    **A card that has ever been graded is not deleted**, and that guard lives
+    here as well as in the caller on purpose. `core.cards.retire_chunk_cloze`
+    reads the review counts, prints them and refuses if any is non-zero — but a
+    learner can grade a card between that read and this DELETE, and
+    `card_reviews`' composite foreign key is `ON DELETE CASCADE`, so the review
+    would go with the card and nothing would say so. Two independent guarantees,
+    the shape `migrate_chunks` uses for idempotency, and for the same reason:
+    the guarantee you can demonstrate on the Mac is not always the one that
+    holds on production.
+
+    The caller compares this list against what it previewed and reports a
+    difference as a finding rather than as a success.
+    """
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            f"""
+            DELETE FROM cards
+             WHERE {_CHUNK_CLOZE_SQL}
+               AND NOT EXISTS (
+                   SELECT 1 FROM card_reviews r WHERE r.card_id = cards.id
+               )
+            RETURNING cards.id
+            """
+        )
+        deleted = [int(row[0]) for row in cur.fetchall()]
+    logger.info("chunk cloze cards deleted count=%s", len(deleted))
+    return deleted

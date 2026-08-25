@@ -17,8 +17,62 @@ would make the acceptance criterion unfalsifiable rather than satisfied.
 a flag saying "migrated". Two consequences, both deliberate: the v2 review path
 keeps working unchanged until W22, and the migration's own inputs survive, so a
 wrong seeding mapping is an UPDATE with a stated formula rather than a
-reconstruction from nothing. `tests/test_cards_migration.py` parses this module
-and fails the commit that adds a write.
+reconstruction from nothing. Held by two tests, on two different instruments:
+`tests/test_core_boundary.py::test_cards_package_is_pure` reads this module's
+own AST and fails the commit that adds SQL or a driver import, and
+`tests/test_cards_migration.py::test_the_migration_never_touches_chunks`
+snapshots six `chunks` columns either side of a real `--apply` run. (#145: this
+paragraph named the wrong file for the source scan until 2026-08-25. The
+guarantee was always real and always held by both; only the reference was wrong,
+which is #82's shape — a document describing where something is rather than
+where it is.)
+
+---
+
+## No `cloze` card is created from a chunk, and that is a ruling with a cost
+
+**W8b, 2026-08-25.** This pass created a cloze card per gappable chunk from W7
+until then. It no longer does, and the 14 it had already created were deleted by
+`python -m core.cards.retire_chunk_cloze` — named here because a reader who finds
+a creator that stopped making a card type will next ask what happened to the ones
+it already made, and that answer should be in front of them rather than in the
+record.
+
+`core.cards.probe_cloze --live` measured all 14 on production: **6
+multi-acceptable, 9 not answerable as authored, and 2 sound on the uniqueness
+rule** — and reading those two showed both to be Work-track content (*validation
+set*, *context window*), which CLAUDE.md §4 caps at 20%. **Not one of the
+fourteen survived both rules.** Three causes, in the order of how much they
+decided it:
+
+1. **A v2 chunk is an idiom, so the gap swallows a whole phrase.** *hidden
+   costs*, *add up*, *wear down*. A slot that removes an entire noun or verb
+   phrase cannot be reconstructed from the sentence around it. This is
+   structural and not a bug: an items cloze gaps one word, and a chunk cloze
+   gaps the chunk, which is the whole point of the row. No cue repairs it, and a
+   gate at creation would reject nearly all of them.
+2. **`make_sentence_with_gap` replaces a substring, not a whole word** — it
+   gapped *stage* out of *stages* and left the `s` stranded (`three _____s:`).
+   Filed as **#147** and deliberately **not fixed here**: that function lives in
+   `core.services.anki`, the v2 Telegram exporter and the S7a chunk-review path,
+   live for two learners weekly, and opening it in a slice about the web deck is
+   the scope creep CLAUDE.md §8 bans. It dies at W22 with the bot.
+3. **Three cards drew no answer from the model at all.** Same signature as W5c's
+   arm C on `listening_gap` (#121): the probe is not blind but *deprived*.
+
+**The direction that survives is phrase → meaning.** `recognition` and
+`production` cards are unchanged, including the gapped sentence that rides along
+as §5's context hint — where the gloss carries the answer, so the hint misleads
+rather than blocks. W13 creates real cloze cards from video lines, where the gap
+is one word in a sentence the learner actually heard.
+
+**The cost, written as a cost:** the deck goes **43 → 29**, and a chunk with a
+gappable sentence but no gloss now produces **no card at all** where it used to
+produce a cloze one. That bucket was empty on production the day this shipped
+(`cloze_created` 14 = `production_created` 14, so every gappable chunk also had a
+gloss), which is a fact about today's rows and not a property of the pass — see
+`skipped_no_meaning` below, and **#148**: any path that creates chunks must
+guarantee a gloss, or its chunks silently produce nothing.
 
 **This module holds no SQL.** Its two reads are
 `core.services.cards.chunks_to_migrate` and `.migrated_card_keys`; SQL lives
@@ -35,22 +89,28 @@ demonstrate on the Mac is not always the one that holds on production.
 **Every chunk lands in exactly one bucket**, and the counts are printed so the
 independent verification query can be reconciled against them:
 
-    both                     a cloze card and a production card
-    cloze_only_no_meaning    no `meaning`, so no production front exists
-    production_only_no_gap   the phrase is not locatable in its sentence
+    production_with_hint     a gloss, and the phrase is locatable in its sentence
+    production_no_hint       a gloss, but no gapped sentence to hint with
+    skipped_no_meaning       gappable and no gloss — THIS CHUNK USED TO GET A
+                             CLOZE CARD AND NOW GETS NOTHING (#148)
     slang_recognition        source='slang', and the operator supplied a gloss
     skipped_slang_no_gloss   source='slang' with no entry in --slang-glosses
-    skipped_no_face          neither card is possible
+    skipped_no_face          no gloss and nothing to gap either
 
-so that `both + cloze_only_no_meaning + production_only_no_gap +
+so that `production_with_hint + production_no_hint + skipped_no_meaning +
 slang_recognition + skipped_slang_no_gloss + skipped_no_face ==
 chunks_examined`, for each learner, exactly. That identity is
 what makes "nothing was silently lost" checkable rather than asserted, and the
 independent verification query in the runbook computes the same sum from the
 other side, without importing anything from this module.
 
-Card-level counters run alongside it: `cloze_created` / `production_created` for
-what was written, and `already_present` for what a previous run wrote.
+`skipped_no_meaning` and `skipped_no_face` are kept apart although one condition
+— no gloss — now decides both. The distinction is the cost measurement: the
+first is a chunk this pass used to serve and no longer does, and collapsing them
+would leave that number unreadable in the run output.
+
+Card-level counters run alongside it: `production_created` for what was written,
+and `already_present` for what a previous run wrote.
 
 **Slang-sourced chunks produce no card, and that was ruled on.** PRD §8.5.4
 requires every `informal`/`slang` card to show four things — the line it came
@@ -93,6 +153,12 @@ from core.db import connection
 # Reused, not reimplemented: this is the same function `core.services.chunks.
 # due_chunks` already uses to decide whether a chunk is reviewable at all, so a
 # chunk that v2 could gap is a chunk this migration can gap, by construction.
+#
+# Since W8b its output is a HINT and never a question: no card built here has a
+# gap where its answer should be. It is also the function whose substring
+# matching is #147 — `three _____s:` — so some production hints are malformed
+# even though the gloss beside them carries the answer. Not fixed here: it is
+# `core.services.anki`, the live v2 path, and it dies at W22.
 from core.services.anki import make_sentence_with_gap
 
 logger = logging.getLogger(__name__)
@@ -160,25 +226,26 @@ def plan_for_chunk(
             glosses=glosses or {},
         )
 
-    built: list[dict] = []
-    if gapped is not None:
-        # PRD §5 "Cloze-in-context": the mined sentence with the phrase gapped.
-        built.append(dict(common, card_type="cloze", front=gapped, back=chunk))
-    if meaning is not None:
-        # PRD §5 "Production", with the shortfall named in the module docstring:
-        # the front is an English gloss because v2 recorded no L1 one. The
-        # gapped sentence rides along as the "context hint" §5 asks for, when
-        # there is one.
-        front = meaning if gapped is None else f"{meaning}\n{gapped}"
-        built.append(dict(common, card_type="production", front=front, back=chunk))
-
-    if not built:
-        return Plan(chunk_id, user_id, (), "skipped_no_face")
-    if gapped is None:
-        return Plan(chunk_id, user_id, tuple(built), "production_only_no_gap")
     if meaning is None:
-        return Plan(chunk_id, user_id, tuple(built), "cloze_only_no_meaning")
-    return Plan(chunk_id, user_id, tuple(built), "both")
+        # NO CLOZE CARD IS BUILT HERE, and the gloss is now the only face a
+        # chunk can produce. See the ruling in the module docstring: a chunk
+        # cloze gaps the whole idiom, which is not recoverable from what is left
+        # of the sentence around it. `gapped` is still computed above, because
+        # the production card's context hint is exactly that string.
+        return Plan(
+            chunk_id,
+            user_id,
+            (),
+            "skipped_no_meaning" if gapped is not None else "skipped_no_face",
+        )
+
+    # PRD §5 "Production", with the shortfall named in the module docstring: the
+    # front is an English gloss because v2 recorded no L1 one. The gapped
+    # sentence rides along as the "context hint" §5 asks for, when there is one.
+    front = meaning if gapped is None else f"{meaning}\n{gapped}"
+    card = dict(common, card_type="production", front=front, back=chunk)
+    bucket = "production_no_hint" if gapped is None else "production_with_hint"
+    return Plan(chunk_id, user_id, (card,), bucket)
 
 
 def _slang_plan(

@@ -203,7 +203,16 @@ def test_the_branch_rules_are_applied_by_the_module(multi, expected) -> None:
 #: Every writer in `core.services.cards`, named as a set rather than inferred, so
 #: the guarantee survives a new writer being added to that module.
 WRITERS = frozenset(
-    {"create_card", "grade_card", "promote_to_production", "cursor", "connection"}
+    {
+        "create_card",
+        "grade_card",
+        "promote_to_production",
+        # W8b. A ban set that is not extended when a writer is added is a ban
+        # that silently narrows — the failure #132 keeps producing.
+        "delete_chunk_cloze_cards",
+        "cursor",
+        "connection",
+    }
 )
 
 

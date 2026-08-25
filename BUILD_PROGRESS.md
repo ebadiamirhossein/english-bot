@@ -6,7 +6,9 @@
 **Project:** English Learning System — web app (PWA), 2 users, B1 → B2 in 6 months. Telegram is a notification channel, not the product.
 **Repo:** `english-bot`
 **Last updated:** 2026-08-25
-**Current slice:** W8a
+**Current slice:** W8b
+**Status:** **W8b is code-complete and 🟡. The migrated cloze cards are retired — the pass no longer creates them and a human-run command removes the fourteen that exist. No migration: `schema_version` stays at 14, no `.sql` file added or edited.** `probe_cloze --live` ran on production 2026-08-25: **14 cards, 6 multi-acceptable, 9 not answerable as authored.** The pre-registered prediction (6–11 multi-acceptable) was **MET, and meeting it did not settle the question** — the branch rules were written about ambiguity and the dominant defect was a different one, for which no rule existed. Crossing the two columns leaves **2 sound cards of 14**, and reading those two showed both to be Work-track content, which §4 caps at 20% — **not one of the fourteen survives both rules.** The deck goes **43 → 29**, recorded as a cost. `recognition` and `production` cards are untouched; W13 creates real cloze cards from video lines. **Both halves ship together**: without the creator change, deleting the rows lets the next `migrate_chunks --apply` recreate all fourteen invisibly. The purge matches on `card_type` + `source_chunk_id` and never on a date or an id list, so a W13 video cloze is out of reach **by construction rather than by timing**; it refuses to delete a graded card, and `core.services.cards` refuses again for the read → write race. Three new issues filed — **#147** the substring gapper (live in Telegram today), **#148** the phrase-sized gap as structural, **#149** the `0 classes` signature and its W5c parallel. **#99 gains its first measurement on learner-facing content** (**7 of 14 Work-framed, exactly 50%** — the handover said six and reading the verbatim output found the seventh); **#57 is updated and not closed**; **#145 closes**. Suite **1664 → 1681 passing / 6 skipped / 0 failing**; Vitest 62, unchanged. **Every database number below is a human step on the production host** — Claude Code has no SSH access.
+
 **Status:** **W8a is code-complete and 🟡. Four rulings executed; production stays at `schema_version` 14 and this slice carries no migration** — no `.sql` file added or edited. **Anki is out of the web app**: `GET /cards/export.tsv`, `core/cards/anki.py`, `core.services.cards.export_rows` and the `/review` link are gone, and **the reason the ruling gave was false, which is the more valuable half.** The handover note said the TASKS W7 row contradicted the PRD; it did not — PRD §5 read *"Anki export stays as a one-click backup"*, ARCHITECTURE §6 listed the route, and W7 built exactly what all three specified. **This is a product change across three consistent documents, not a drifted row**, and it is recorded that way so the next reader does not re-derive the false premise. **`core/services/anki.py` — the v2 Telegram exporter two learners use weekly — is byte-identical**, proved by `git diff --name-only`. **#129 closes.** **There is no Telegram surface in either web tree**: the grep's four hits are all docstrings recording where a data shape came from. **Both absences are now permanent tests, and both were demonstrated red by hand** — which found that the new `core/cards/` provider rule was **inert**, because `from core.items import gates` resolves to `core.items`; fixed and now proven on six import forms. **Three typography candidates are live at `/type`, unlinked and `noindex`, and no default changed** — Figtree / Nunito / Newsreader plus a "today" control, all seven faces **OFL 1.1 verified against upstream `OFL.txt`**. **The Farsi check found three defects**, one of which only measuring could catch: a fallback declared *after* a `next/font` Latin family is inert, because `next/font`'s own generated fallback has Arabic coverage — the gloss rendered at 201.54px where Vazirmatn renders it at 250.55px, and nothing on screen said so (#142, #143, #144). **`core.cards.probe_cloze` measures and proposes nothing**: it reuses W5a's probe, sends the learner's own five-underscore sentence unmodified, writes nothing (AST-asserted), configures logging (#140), and carries predictions written before the run. **A and B are proposed; the ruling is the human's.** Suite **1630 → 1664 passing / 6 skipped / 0 failing** (−7 deleted, +41 added, arithmetic closes exactly); **Vitest 62, unchanged.** `docs/RULINGS-2026-08-25.md` is deleted. **W8a stays 🟡 until the human marks it.**
 
 **Status:** **W8 is deployed to production and 🟡 — the 24-week road exists as data.** Migration **014** (`syllabus_units`, `syllabus_unit_lexemes`, `user_unit_state`) was **applied to production on 2026-08-25** and production is at **`schema_version` 14** (`Applied: 001–014, Pending: (none)`; `014` in 0.239s; pre-migration backup **302,116 bytes** to R2). The seed wrote **24 units and 1,560 candidate lexemes**, **0 orphan rows**, `items_unit_number_fkey convalidated: True`; the **second run wrote nothing** (`0 inserted, 0 updated, 1560 unchanged, 0 deleted`), the idempotency criterion met on the real database and not only on the Mac; and `--report` read **min 64 / 64 / 65** across the three learners with **no `BELOW 30`**. **Deployment is not verification** — W8's five content checks are unrun, and the deploy steps are in a superseded block and must not be re-run. **PRD §3 gives six stages and one line — "Each stage = 4 weekly units" — so W8 AUTHORS the 24 units rather than transcribing them.** 82 grammar targets, 1,560 candidate lexemes at 65 a unit. **The central design question is resolved by computing, not storing:** PRD §3's target lexemes are "not already in your known-word ledger", which is per learner on a shared row, so `syllabus_unit_lexemes` carries no `user_id` and the diff runs at read time — PRODUCT-PRINCIPLES §3 asks for exactly that and #93 is the same flag already open. **012's cross-slice contract is discharged** and `items.unit_number` finally points at something. **Three findings came from gates firing rather than from review:** PRD §3's "already in `book_units` from v2's OCR" **does not hold** — it is a per-learner OCR log in a different namespace — which **de-blocks #14/#15**; PRD §3 gives **stage 6 no Murphy range**, so 20 of 24 units carry one; and §3 **double-assigns three Murphy units**, which is legal and is asserted so nobody constrains it away. **The topic tagger was rebuilt and its first ~50 billed calls discarded**: asking which of 24 units owns a word left unit 8 (`a/an/the`) with ONE, because the lexical field is a property of the STAGE and grammar has no vocabulary. **Two acceptance gates fired and were answered by widening the content, never by lowering the bar** — excluding A2 conflated "rated easy" with "already known", the conflation the ledger exists to prevent, and 60 candidates yielded 28 at the top of PRD §2.1's own erosion range, so the target rose to 65, the ceiling the content supports. **The mastery CHECK compares two stored columns and never `NOW()`**, so nothing here can fail on a calendar boundary. **Three source documents corrected in this commit.** Suite **1541 → 1616 passing / 6 skipped / 0 failing** at W8, **1616 → 1630** after W8r's drift check; **Vitest 62, untouched** throughout. **W8 and W8r both stay 🟡 until the human marks them.**
@@ -105,6 +107,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | W8r | Record correction + the drift check | 🟡 code-complete | 2026-08-25 | **Records plus one test. No feature, no migration, no `.sql` file touched, no `packages/core` change, no server step.** W8 was deployed to production on 2026-08-25 and this file said the opposite in **four** places — the header Status paragraph, the W8 slice row, the `014` inventory row, and the Next action opener followed by a nine-step deploy sequence that had already run. **That last one had a live cost**: it presented `core.db migrate` and `core.syllabus.seed` as pending work against a database that already holds them, which is why this landed as its own commit before any W8a work rather than inside a content slice that might stall. **Swept as a class, not line by line** — this is the third occurrence in one day and the first two were both fixed narrowly (#132: caught at W2, *"fixed for that one row rather than as a class"*, after which three more rows drifted identically; #100: three stale Build columns named where there were seven). The sweep found a **fifth** site outside the class it was looking for — W4's slice row asserting *"Local only — not deployed"* forty words before recording its own production deploy — and corrected it to past tense, named rather than silent. **The check is built here rather than deferred a fourth time**: `tests/test_record_consistency.py`, 14 tests, no billed calls, parses the slice table against the file inventory and `docs/TASKS-v3-web.md`'s Build columns against its own authoritative migration table. **Demonstrated red in both halves** before being accepted, per §3 rule 4. **#132 and #130 close**; **#141 is filed as the check's stated limit** — it compares the record against itself, so it catches one half drifting and cannot catch both halves being stale together, which is precisely what happened at W8. **The nine deploy steps are moved to a `## Superseded` block** and the superseded sections are otherwise byte-identical, proved by diff. Suite **1616 → 1630 passing / 6 skipped / 0 failing**; **Vitest 62, untouched**. Stays 🟡 until the human marks it. |
 
 | W8a | Rulings: Anki out, Telegram confirmed, cloze measured | 🟡 code-complete | 2026-08-25 | **Four rulings executed and folded into this file. No migration — `schema_version` stays at 14, no `.sql` file added or edited.** **The most valuable thing here is that a ruling's stated premise was false and it is written down rather than repeated.** The handover note said `docs/TASKS-v3-web.md`'s W7 row (*"Anki export retained"*) **contradicted the PRD**. It does not. `docs/PRD-v3-web.md:279` read *"**Anki export stays** as a one-click backup, because the learner should never be locked in"*, `ARCHITECTURE-v3-web.md:182` listed `GET /cards/export.tsv` as *"PRD §5's backup"*, and W7's row carried it in **both** its Build and its Accept column. **All three documents agreed with each other and with the code, and W7 built exactly what the PRD specified.** So this is a **product change across three consistent documents**, not the correction of one drifted row — the opposite diagnosis to #82's, and recorded as such because the next reader reaching those three files will otherwise re-derive the false premise. The judgement that changed: a one-click backup is still a hand-off, and §2.4's "replaces Anki" is only true if the deck is the whole system. **Removed:** the route, `packages/core/cards/anki.py`, `core.services.cards.export_rows` (its only production caller was the route — a service function whose reason for existing is a deleted route is dead code no ban test can see), the `/review` link and `deckExportUrl`. **`packages/core/services/anki.py` — the v2 Telegram chunk exporter, a ✅-verified path both learners use weekly — is byte-identical**, proved by `git diff --name-only` returning it zero times; the only edge between the two modules was `cards/anki.py:29` and deleting the file removed it. **Three source documents corrected, each naming its correction** in the form PRD §5 used for FSRS-5→FSRS-6 and ARCHITECTURE §6 used at W6; the W7 Build cell keeps `Migration 013`, which `test_record_consistency.py` asserts. **#129 closes** — two export paths became one. **Part 2: there is no Telegram surface.** The `-F` grep found four hits, all docstrings saying a correction *shape* came from v2, plus two literal-substring coincidences (`impor`**`t.me`**`ta.url`, `resul`**`t.me`**`ssage`). Nothing removed. **Both bans are now permanent tests and both were demonstrated red** — four manual reintroductions, not only their meta-tests. **The symmetry rule is recorded once so the next ban inherits it: a ban test bans surfaces, not words, and therefore never scans comments** — which is what keeps the PRD quote at `card-face.tsx:10`, and what makes the Telegram AST import ban load-bearing rather than decorative. **Part 3: three typography candidates live at `/type`, no default changed.** Figtree / Nunito / Newsreader, each a whole token set — ground, ink, scale, leading, weight, radius, spacing — plus a **"today" control**, because three candidates judged against a memory is not a comparison. **Every licence verified against the upstream `OFL.txt` in `google/fonts`, not a summary page: all seven faces are OFL 1.1**, and the two clauses are quoted in the decisions log. **The Farsi check found two real defects and a third that only measuring could catch.** Geist, Geist Mono and Fraunces are all `subsets: ["latin"]` and **none of the three even offers an Arabic subset** (#142); `card-face.tsx` sets no `lang` and no `dir="auto"` where `l1-to-l2-production.tsx` does (#143). And the obvious stack — Latin family first, Vazirmatn behind it — **silently does not work**: `next/font` inserts its own metric-adjusted local fallback directly after each family, that fallback has Arabic coverage, and the browser never reaches Vazirmatn. Measured at 40px: the declared stack and Figtree alone both rendered the gloss at **201.54px** while Vazirmatn renders it at **250.55px** — same glyphs, different face, nothing on screen saying so. Fixed with a `--tp-l1` token that leads with Vazirmatn, and verified: all three candidates now render Farsi at 250.55px and the control at 228.36px, which is the honest depiction of today's problem. **Part 4: `core.cards.probe_cloze` measures and proposes nothing.** It **reuses W5a's probe** — `gates.probe_acceptable` at the existing `_chat` seam, counted by `grading.distinct_answers`, no second prompt and no second call site. A card maps onto a **real** `ClozeCuedItem`: `schema.py` carries **no validators at all** (counted, not assumed), required fields are exactly `track` and `prompt_text`, and both construction routes were run against the production sentence with `prompt_text` byte-identical afterwards. **The five-underscore gap reaches the model unmodified** — `core.services.anki.GAP` is `_____` and `core.items.schema.GAP` is `___` (#144), and normalising one into the other would send the model a sentence the learner never sees, which is precisely the defect W5b found and W5c fixed. Dry by default, `--live` confirms before spending, `logging.basicConfig` at entry (#140), **predictions pre-registered in the docstring before any run** with `--live` evaluating its own branch rules. **It writes nothing, AST-asserted**, with the `core.services.cards` writers named as a set. **`core/cards/` gained a provider boundary it never had**: `CARDS_MODEL_CALLERS`, added rather than an exemption taken — and **the first version of that rule was inert**, because `from core.items import gates` resolves to `core.items`, so the allow-list caught nothing. Found by reintroducing the violation by hand (§3 rule 4) after the meta-test happened to use the one spelling that matched; fixed with `_import_targets` and now proven on all six forms. **#59 stays the only boundary exemption.** **`visible_projection` was also caught**: the first draft imported it to pretty-print the dry run and `test_exactly_one_module_projects_an_item` refused it — the fix was to stop, not to widen the list. **A and B are proposed with their real blast radius and neither is implemented.** Suite **1630 → 1664 passing / 6 skipped / 0 failing** (−7 deleted, +41 added, arithmetic closes exactly); **Vitest 62, unchanged**. `docs/RULINGS-2026-08-25.md` deleted. Stays 🟡 until the human marks it. |
+| W8b | Retire the migrated cloze cards | 🟡 code-complete | 2026-08-25 | **The ruling on what `probe_cloze` measured, executed in both halves. No migration — `schema_version` stays at 14, no `.sql` file added or edited.** **The measurement met its prediction and did not settle the question, and that is the most transferable thing in this slice.** `--live` on production returned **14 probed · 6 multi-acceptable · 9 `not_recoverable`**, and the registered prediction of 6–11 multi-acceptable was **MET**. It is recorded as met and **not edited after the fact**: the branch rules were written about *ambiguity*, and the dominant defect is that **9 of 14 cards are not answerable as authored** — a stronger defect, with a different fix, for which no branch rule was ever registered. A pre-registered prediction constrains honesty about the axis it names and says nothing about an axis it does not. W10 registers predictions of its own. **The number that decided it is the cross, not either column.** not-recoverable {16,20,22,30,34,36,38,40,42} ∪ multi-acceptable {18,28,32,30,40,42} = 12 ids; **2 of 14 are sound — cards 24 and 26** — and reading those two showed both to be Work-track content (*a validation set*, *a context window*), which CLAUDE.md §4 caps at 20%. So the remainder is 2 of 14 on the uniqueness rule and **0 of 14 once the content rule is applied as well**: nothing in the set survives both, which removes the last argument for keeping a subset. **Three causes, all visible in the sentences.** (1) The gapper replaces a **substring, not a whole word** — card 16 reads `into three _____s: dev, staging, and production.`, *stage* cut out of *stages* with the `s` stranded. **Filed as #147 and deliberately not fixed**: `make_sentence_with_gap` lives in `core/services/anki.py`, which is the v2 Telegram exporter *and* `build_chunk_question`'s daily gap question, live for two learners weekly — so the defect is producing Telegram questions today, and opening that file is the W22 boundary W8a spent a slice defending. (2) It gaps **whole phrases**: v2 chunks are idioms, and cards 34, 38, 40, 42 have an entire noun or verb phrase removed. **Structural, not a bug** — an items cloze gaps one word and a chunk cloze gaps the chunk, which is the point of the row (#148). (3) Three cards — 20, 36, 38 — returned **`0 classes`**: the model offered no answer at all. **Same signature as W5c's arm C on `listening_gap`** (#121), where the conclusion was that the probe is not blind but *deprived*; second appearance, filed as #149 so both are findable from either one. **The ruling: retire them.** Cause 2 is structural, so a cue does not repair it and a gate at creation would reject nearly all of them. **The deck goes 43 → 29, and that is a cost, not a cleanup.** The phrase → meaning direction is unaffected: `recognition` and `production` cards are exactly as they were. **Half 1** — `CHUNK_CARD_TYPES` is `('production',)` and `plan_for_chunk` no longer builds a cloze spec, **with the reason in the module rather than only in this file**, because a reader finding a creator that makes two card types where the record says three needs it in front of them. `test_the_pass_never_plans_a_cloze_card` walks the whole decision table, including the glossed-slang route, against hardcoded expectations. **`test_the_pass_creates_two_cards_per_eligible_chunk`'s name was true when it was written** — two chunks × (cloze + production) — and is renamed because the behaviour changed, not because the name was ever wrong. **Without half 1, half 2 undoes itself**: deletion re-satisfies `UNIQUE (user_id, source_chunk_id, card_type)` and the next `--apply` recreates all fourteen, invisibly to whoever ran it. **Half 2** — `python -m core.cards.retire_chunk_cloze`, dry by default, `--purge` after the count is typed back, **printing every row before deleting it**. It matches on `card_type = 'cloze' AND source_chunk_id IS NOT NULL`, never on a date range and never on an id list, so **a W13 cloze card built from a video has no `source_chunk_id` and is out of reach by construction rather than by timing** — asserted by a test that keeps one alive through a full purge. **`card_reviews` cascades from `cards`**, so a graded card cannot be deleted: the module refuses on a review it read, and `delete_chunk_cloze_cards` refuses again on one it did not, closing the read → write race; a preview/delete difference is reported as a **finding**, not absorbed as success. `chunks` is still never modified. **A gloss-less chunk now yields nothing** where it used to yield a cloze card — the new `skipped_no_meaning` bucket, **0 on production** (cloze_created 14 = production_created 14) and a permanent constraint every import slice inherits (#148). **#99 gains its first measurement on learner-facing content**: **7 of 14** sentences — ids 16, 18, 20, 22, 24, 26, 30 — are about deploys, models, training scripts and validation sets. **Exactly 50%**, against §4's 20% cap. The handover counted six; **card 22 was found only by pasting the verbatim output instead of the summary line**, which is also how it emerged that card 38 — the card that motivated the whole probe, quoted in `probe_cloze`'s own docstring as the example of ambiguity — returned **0 classes**, no answer at all. **#57 is updated and not closed** — its question is the v2 corpus, this is 14 cards of one card type. **#140 paid for the first time**: this run's per-call token lines were captured. **#145 closes.** Suite **1664 → 1681 passing / 6 skipped / 0 failing** (−1 deleted, +18 added, 6 renamed; arithmetic closes exactly); **Vitest 62, unchanged**. **`packages/core/services/anki.py` is byte-identical**, `git diff --name-only` returns it zero times. **Every database number here is a human step on the production host.** Stays 🟡 until the human marks it. |
 
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
 
@@ -166,6 +169,18 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-25 | **W8b: the probe output, per card. It exists once and it cost real money — 14 billed calls, ~792 input tokens each, output 20–183.** Summary, verbatim: `14 cloze cards probed · 6 multi-acceptable · 9 not_recoverable` / `Prediction was 6-11 multi-acceptable: MET.` **Per card**, by the two flags the module prints: `16` nr · `18` multi · `20` nr (**0 classes**) · `22` nr · `24` **sound** · `26` **sound** · `28` multi · `30` multi + nr · `32` multi · `34` nr · `36` nr (**0 classes**) · `38` nr (**0 classes**) · `40` multi + nr · `42` multi + nr. Every id is even and they run 16…42, which is what the pass produces writing cloze and production alternately after the fifteen recognition cards — an internal check that the set is the whole set. **The raw `_print_rows` lines are reproduced verbatim at the end of this section**, with each card's `classes` count and its front string, and reading them corrected three things the summary hid: the card that motivated the whole investigation (38) returned **0 classes** rather than many; `1 class` + `NOT RECOVERABLE` on 16, 22 and 34 is the signature of the substring bug and the phrase gap rather than of ambiguity; and **the work bias is 7 of 14, not 6** — card 22 was not counted in the handover. | **A measurement nobody can re-read is a measurement that has to be bought twice.** The module deliberately writes nothing — that is what keeps it a measurement — and the cost of that choice is that this file is the only durable copy: the fourteen rows are now deleted, so the output cannot be re-taken at any price. **Pasting it whole rather than summarising it is what let the three corrections above be found at all** — each of them came from a line the summary had already compressed away, and two of them changed a number that was about to be recorded wrong. |
+| 2026-08-25 | **W8b: the prediction is recorded as MET, and it is recorded that meeting it did not settle the question. The prediction is not edited after the fact.** The registered range was 6–11 multi-acceptable; the run returned 6. | **A pre-registered prediction constrains honesty about the axis it names and says nothing about an axis it does not.** The branch rules in `probe_cloze`'s docstring were written about *ambiguity* and they were met — and the defect that actually decided the slice is that **9 of 14 cards are not answerable as authored**, which is a different failure with a different fix and for which **no branch rule was ever registered**. The registered rules read `4–9 → mixed. B (cue on the face) for the live cards`, and following that recommendation would have put a first-letter cue on cards whose gap swallowed an entire idiom. The mechanism worked exactly as designed and was aimed one axis away from the problem. **W10 registers predictions of its own**, and this is the transferable finding: the value of pre-registration is that it stops you moving the line, not that it guarantees you drew it in the right place. |
+| 2026-08-25 | **W8b: the number that decided it is the cross of the two columns, not either column read alone — 2 of 14 — and reading those two survivors took it to 0.** not-recoverable {16,20,22,30,34,36,38,40,42} ∪ multi-acceptable {18,28,32,30,40,42} = 12 distinct ids; 14 − 12 = **2**, cards **24** and **26**. | Read separately the columns say *6 of 14 are ambiguous* and *9 of 14 are unanswerable*, and either alone leaves an argument for repairing the rest. Crossed, they say **12 of 14 are defective on at least one axis**. Then the two survivors were read: *"We need a _____ validation set before we trust these accuracy numbers."* and *"The model was _____ of handling inputs longer than its context window."* — **both Work-track**, in a deck where §4 caps Work at 20%. So the sound remainder is 2 of 14 on the uniqueness rule and **0 of 14 once the content rule is applied as well.** **Stated as a finding, not as a justification written afterwards**: the cross was computed first, and reading the survivors is what then showed it. It matters because it removes the last argument for keeping a subset — the ruling is not *delete twelve broken cards and two good ones for tidiness*, it is that nothing in this set survives both rules. |
+| 2026-08-25 | **W8b: the migrated cloze cards are retired. The deck goes 43 → 29, and that is written down as a cost.** `recognition` and `production` cards are untouched; W13 creates real cloze cards from video lines, where the gap is one word in a sentence the learner actually heard. | **Cause 2 is structural, so there is nothing to repair.** A v2 chunk is an idiom — *hidden costs*, *add up*, *wear down* — and an items cloze gaps one word while a chunk cloze gaps the chunk, which is the whole point of the row. A slot that swallows a phrase cannot be reconstructed from the sentence around it, so a cue on the face does not help and a gate at creation would reject nearly all of them: option A would have spent a model call per card to learn what reading four sentences established. **43 → 29 is a real loss of practice volume for two learners** and is recorded as such rather than as a cleanup, because a record that reports only the defect removed and not the material removed is reporting half the trade. |
+| 2026-08-25 | **W8b: the creator change and the deletion ship in one commit, and one without the other is worse than neither.** | Deleting the fourteen rows re-satisfies `UNIQUE (user_id, source_chunk_id, card_type)`, so **the next `migrate_chunks --apply` recreates every one of them** — and the person running it would have no way to know: the pass would report `cloze_created 14` as an ordinary success. A fix that a routine command silently undoes is worse than no fix, because the record then claims a state the database does not hold. The converse is the cheaper failure but still a failure: without the deletion, the fourteen stay in two learners' decks forever while the module says they are retired. |
+| 2026-08-25 | **W8b: the substring gapper is filed as #147 and NOT fixed here, and the reason is a boundary rather than effort.** Reproduced on the Mac: `make_sentence_with_gap('We split it into three stages: dev, staging, and production.', 'stage')` → `'…into three _____s: dev, staging, and production.'` | The function lives in `core/services/anki.py`, which is **the v2 Telegram exporter and `build_chunk_question`'s daily gap question** — `apps/bot/handlers/quiz.py:496` — so the same defect is producing Telegram questions for two learners today, not merely sitting in dead legacy code. That is exactly why it is filed rather than fixed: **W8a spent a slice proving that file byte-identical**, it is the W22 boundary, and opening it inside a slice about the web deck is the scope creep CLAUDE.md §8 bans. **Filed with a target and a severity is the alternative to fixing it, not to ignoring it** (PRODUCT-PRINCIPLES §5). The half that survives this slice is named in #147 too: the same gapper builds the *context hint* on all fourteen surviving production cards, where the gloss carries the answer so it misleads rather than blocks — and the count of those malformed hints is a step in the deploy sequence, because a defect live on cards a learner opens tomorrow deserves a number. |
+| 2026-08-25 | **W8b: `0 classes` on three of fourteen is the second appearance of a signature, and it is filed as #149 so both are findable from either one.** Cards 20, 36 and 38 drew no candidate answer at all. | W5c's arm C found the same shape on `listening_gap` (#121) and the conclusion there was that **the probe is not blind but deprived**: `visible_projection` gave it strictly less than the learner has, so it could not answer at all. Here the deprivation is not audio but the phrase itself — an entire idiom removed from a short sentence leaves nothing to reconstruct from. **A single occurrence is an anomaly and two are a pattern**, and the pattern matters for W10: `probe_acceptable` returning nothing is currently read as *not recoverable*, which is true but incomplete — it can also mean the question was unanswerable as posed, which is a fact about the item and not about the learner. |
+| 2026-08-25 | **W8b: the purge matches on `card_type` + `source_chunk_id`, and it carries two independent refusals for a graded card.** New module `core.cards.retire_chunk_cloze`; the SQL is two functions in `core.services.cards`. | **Never a date range and never an id list** — `delete_items_by_hash` states the reason one package over: a date range sweeps rows nobody looked at, and an id list is a claim about the database that stops being true the moment the database changes. **A W13 cloze card built from a video has no `source_chunk_id`, so no run of this command at any moment can reach it** — the guarantee is a property of the predicate, not of when it was run, and *"we ran it before W13"* is a fact about a calendar that the next person to run it cannot check. **The two refusals are for a real race**: `card_reviews` is append-only and its composite foreign key cascades from `cards`, so a learner grading a card between the module's read and the write would have the review deleted with it and nothing would say so. The module refuses on a review it read; the service refuses on one it did not. Same shape as `migrate_chunks`' two idempotency guarantees, and for the same reason W4a established: the guarantee you can demonstrate on the Mac is not always the one that holds on production. |
+| 2026-08-25 | **W8b: the purge is a separate module and not `migrate_chunks --purge`, which overrules the slice prompt — argued rather than quietly done.** The prompt asked for the flag on the creator so a reader could not read it end to end and never learn the purge exists. | **`migrate_chunks` carries a guarantee that it destroys nothing** — no UPDATE, no DELETE, held by an AST scan and by a before/after snapshot of six `chunks` columns — and a deletion path inside it makes that guarantee read as narrower than it is to everyone who opens the file afterwards. The discoverability objection is real and survives the decision, so it is paid directly: **`migrate_chunks`' docstring names `core.cards.retire_chunk_cloze`** as where the existing rows went. A reader who finds a creator that stopped making a card type will next ask what happened to the ones it already made, and one line answers it in front of them rather than sending them to this file. |
+| 2026-08-25 | **W8b: a chunk with no gloss now produces NO card at all, where it used to produce a cloze one. The bucket is `skipped_no_meaning` and it was 0 on production.** | The zero is a fact about today's rows, not a property of the pass: `cloze_created` 14 = `production_created` 14, so every gappable chunk also carried a gloss and **no chunk is left card-less by this change**. The behaviour change is permanent and invisible until an import brings in chunks without glosses — which is why it is recorded in **#148** as a constraint every import slice inherits rather than as a one-off count: **any path that creates chunks must guarantee a gloss, or its chunks silently produce nothing.** Trancy's vocabulary export carries a translation so it is probably safe, and *probably* is how #44 happened. `skipped_no_meaning` and `skipped_no_face` are kept as separate buckets although one condition now decides both, because the first is the cost measurement — a chunk this pass used to serve and no longer does — and collapsing them makes that number unreadable. |
+| 2026-08-25 | **W8b: the work bias is now measured on live learner content for the first time — 7 of 14, exactly 50%, against §4's 20% cap. #99 is updated; #57 is updated and NOT closed.** Ids 16, 18, 20, 22, 24, 26, 30, listed so the count is re-checkable. | Seven of the fourteen are about deployment, staging, production, a training script, a pipeline, a validation set, a context window, pushing to the cloud and model accuracy; the other seven are one documentary sentence, one airport sentence and five about renting a flat. **The handover's reading was six and the measured number is seven** — card 22 (*"a simple script to _____ the whole environment before running the model"*) was not counted until the verbatim output was pasted rather than its summary line. The number is corrected upward with the ids named, because a bias number that cannot be re-checked is an assertion. **This is not a claim about v2's prompts — it is what was in the deck the learners could open today**, which is what makes it different in kind from #99's evidence so far (scenario labels) and from the 7.3% sentence-level reading. **#57 stays open on purpose**: it asks for the work-vocabulary fraction of the v2 corpus as a whole, and this is fourteen cards of one card type — **a sample, not the census #57 asked for**, and closing it on this number would retire the question with the wrong denominator. The `chunks` source census is a step in the deploy sequence for the same reason: if the work-heavy chunks come from one source, that is worth knowing **before** W13 imports more of the same. |
+| 2026-08-25 | **W8b: #140's fix paid for the first time, and the issue still does not close.** `probe_cloze` calls `logging.basicConfig` at entry, so this run's per-call `input_tokens` / `output_tokens` lines were captured live instead of reconstructed. | W8's tagger had its 138 calls and $6.60 rebuilt afterwards against a $1–2 estimate, and one component could only be estimated at 8–16 calls because the log recorded totals rather than batches. This run cost 14 calls at ~792 input tokens each with output 20–183 and **that is known rather than inferred**. It does not close #140: `core/items/judge_observe.py` and `core/items/verify.py` both spend and both still leave the root logger bare. **One row fixed is #132's exact history** — a defect found, fixed in one place, and left to recur — so the row stays open with its offenders named. |
 | 2026-08-25 | **Part 1's ruling was right and its stated premise was false, and the premise is written down because it is the more valuable half.** The handover note said `docs/TASKS-v3-web.md`'s W7 row (*"Anki export retained"*) **contradicted the PRD**, that W7's prompt *"copied that phrase without checking it against the PRD"*, and that the PRD wins. **All three claims are wrong.** Verified in the tree before anything was removed: `docs/PRD-v3-web.md:279` read *"**Anki export stays** as a one-click backup, because the learner should never be locked in"*; `docs/ARCHITECTURE-v3-web.md:182` listed `GET /cards/export.tsv` as *"the whole deck as an Anki TSV (PRD §5's backup)"*; W7's row carried it in **both** its Build and its Accept column. The three documents agreed with each other and with the code, and **W7 built exactly what the PRD specified.** | **The two claims the note collapsed are different claims.** PRD's v2-failure table (`:23`, *"Anki export was a hand-off"*) and §2.4 (`:79`, *"replaces Anki"*) are about **Anki as the flashcard system**, which the in-app deck genuinely replaced. §5's Rules line was about **an export as a backup**, which is a separate product decision the same document made deliberately. Reading one as refuting the other is what produced a false diagnosis. **Why this is the valuable half:** the note's framing made this look like #82 — a document describing intent rather than reality — and the fix for that is to correct the document. It is the opposite: the documents were accurate and the *judgement* changed. Recorded in full because the next reader reaching those three files will find them consistent, will find a slice that deleted what they specified, and will re-derive the same false premise to explain it. **What actually changed:** a one-click backup is still a hand-off — a second app with its own sync and its own scheduler, where an exported card stops being a card this system knows anything about — so §2.4's *"replaces Anki"* is only true if the deck is the whole system. That is a product change across three consistent documents, and it is planned, executed and recorded as one. |
 | 2026-08-25 | **`core.services.cards.export_rows` is deleted with the route, and a narrower reader arrives in the same commit. The pairing is deliberate and is recorded together so it does not read as churn.** | `export_rows` returned one learner's whole deck and its **only** production caller was `GET /cards/export.tsv`. A service function whose reason for existing is a deleted route is dead code, and it is the kind no ban test can see: the Anki scan looks for `export.tsv` and `anki`, and a function called `export_rows` in `core/services/` matches neither. `cloze_cards` is not that function renamed — it is narrower (one card type), it takes **no `user_id` at all** (the question is about the deck, not about a person), and no route calls it or ever will. Its one caller is `core.cards.probe_cloze`, and `core/cards/` is pure by test, so a reader had to exist somewhere: CLAUDE.md §2 puts every query in a service function. |
 | 2026-08-25 | **`packages/core/services/anki.py` is not touched, and the diff proves it rather than the prose promising it.** `git diff --name-only \| grep -c 'packages/core/services/anki.py'` returns **0**. | It is the **v2 Telegram** chunk exporter — a ✅-verified live path both learners use weekly — and it dies at W22 with the rest of the bot. Removing it inside a slice about removing a hand-off *from the web app* would take away the only export either learner actually has, which is the opposite of the ruling. **The boundary was checkable rather than assumed**: the only edge between the two modules was `packages/core/cards/anki.py:29` importing `sanitize_tsv_field`, and deleting that file removed the edge while leaving the function still used internally at `services/anki.py:117-120`, so nothing became dead. Its eleven other importers — `apps/bot/anki_delivery.py`, `apps/bot/handlers/quiz.py`, `core/cards/migrate_chunks.py:96`, `core/services/chunks.py:148` and seven test files — are untouched. |
@@ -866,17 +881,85 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 ---
 
+### `core.cards.probe_cloze --live` — the output, verbatim (production, 2026-08-25)
+
+Reproduced exactly as it was printed. **It exists once and it cost real money** —
+14 billed calls, ~792 input tokens each, output 20–183 — and `probe_cloze` writes
+nothing by design, so this block is the only durable copy. Re-taking it means 14
+more billed calls against rows that no longer exist.
+
+```
+  16 · cloze · 'We split the model deployment into three _____s: dev, staging, and production.' · 1 class  ** NOT RECOVERABLE **
+  18 · cloze · 'This new model is a _____ above the last version in accuracy.' · 5 classes
+  20 · cloze · '_____, the training script caught the error before it crashed the whole pipeline.' · 0 classes  ** NOT RECOVERABLE **
+  22 · cloze · 'We used a simple script to _____ the whole environment before running the model.' · 1 class  ** NOT RECOVERABLE **
+  24 · cloze · 'We need a _____ validation set before we trust these accuracy numbers.' · 1 class
+  26 · cloze · 'The model was _____ of handling inputs longer than its context window.' · 1 class
+  28 · cloze · 'The documentary explained how certain drugs can trigger _____ in vulnerable people.' · 5 classes
+  30 · cloze · "It's _____ to test the model locally before pushing it to the cloud." · 7 classes  ** NOT RECOVERABLE **
+  32 · cloze · 'The constant delays at the airport really started to _____ everyone waiting there.' · 4 classes
+  34 · cloze · "There are deposits, utility bills, furniture, and sometimes a broker's fee that can _____ before you even unpack a single box." · 1 class  ** NOT RECOVERABLE **
+  36 · cloze · 'She found a cozy studio that seemed, at first glance, _____.' · 0 classes  ** NOT RECOVERABLE **
+  38 · cloze · '"I wish someone had warned me to ask about _____ upfront," she said.' · 0 classes  ** NOT RECOVERABLE **
+  40 · cloze · 'Her story is common: many renters sign a lease without reading the fine print, then _____ when unexpected charges appear.' · 4 classes  ** NOT RECOVERABLE **
+  42 · cloze · 'In the end, choosing an apartment is rarely a simple financial decision... while one that feels cramped or noisy can quietly _____.' · 3 classes  ** NOT RECOVERABLE **
+
+14 cloze cards probed · 6 multi-acceptable · 9 not_recoverable
+Prediction was 6-11 multi-acceptable: MET.
+Branch: 4-9 -> mixed. B (cue on the face) for the live cards, A (gate at creation) from W10.
+9 card(s) are not answerable as authored — a stronger defect than ambiguity, with a different fix. Listed above.
+```
+
+**Three things are readable here that are not readable in the summary line, and
+each of them changed something above.**
+
+**1. The card that motivated the entire investigation returned NO answer at all.**
+`probe_cloze`'s own docstring opens with card 38 — *"I wish someone had warned me
+to ask about _____ upfront," she said.* — and states that *hidden costs*, *the
+price*, *fees* and *the terms* all fit, so the learner cannot know which is
+wanted. **The model offered zero candidates.** The founding example of
+*multi-acceptable* is in fact `0 classes` / `not_recoverable`. That reading was a
+person's, and it was reasonable; it was never a measurement, and the measurement
+disagrees. **This is the axis lesson in one card**: the whole probe was built to
+count answer classes because one card looked ambiguous to a human, and that card
+had a different defect.
+
+**2. `1 class` and `NOT RECOVERABLE` together is the signature of the substring
+bug and of the phrase gap** — cards 16, 22 and 34. The model produced exactly one
+confident answer and it was not the card's own. On 16 that is `_____s:` inviting
+a singular noun; on 34 an entire clause (*add up*) is missing from a
+seventy-word sentence. **Neither is ambiguity. A cue on the face — the branch the
+module recommended — would have made both worse**, by adding a first letter to a
+slot whose problem is that it is the wrong size.
+
+**3. The work bias is 7 of 14, not 6.** Cards **16, 18, 20, 22, 24, 26 and 30**
+are model-and-deploy framed: *model deployment · dev, staging, production ·
+accuracy · training script · pipeline · script · environment · validation set ·
+context window · test the model locally · pushing to the cloud*. **Exactly 50%,
+against §4's 20% cap.** The handover counted six and did not count **card 22**
+(*"We used a simple script to _____ the whole environment before running the
+model"*) — found only by reading the verbatim lines rather than the summary. The
+ids are listed so the count is re-checkable by someone who was not there, which
+is the whole reason this block is here. The remaining seven are one documentary
+sentence, one airport sentence and five about renting a flat.
+
+---
+
 ## Known issues
 
 | # | Issue | Severity | Slice | Status |
 |---|---|---|---|---|
+| 150 | **`test_no_sql_outside_services` and `test_cards_package_is_pure` scan docstrings, so prose *about* SQL fails them.** Writing *"not one of the set survived"* into `migrate_chunks`' module docstring made `_looks_like_sql` fire on a pre-existing sentence nine paragraphs away (`" SET "` completing the `UPDATE ` keyword), because a module docstring is one string constant. `tests/test_cards_probe_cloze.py` already solved this — `_docstring_ids` skips prose, with the reasoning *"a scan that read it would be satisfied only by deleting the sentence"* — and the two boundary tests never gained it. **Filed, not fixed:** the sentence was rephrased in seconds, and the boundary machinery is what W8a tightened by hand; changing a ban test to accept more is a decision that should be its own commit, not a side effect of a docstring. The cost today is that documents describing the rule are constrained by the rule's own crude matcher. | low | W8b → W10 | ⬜ open — reuse `_docstring_ids` in `tests/test_core_boundary.py`, or state that the scan is deliberately prose-inclusive |
+| 149 | **`probe_acceptable` returned `0 classes` on 3 of 14 cards, and this is the second time that signature has appeared.** Cards 20, 36 and 38 drew no candidate answer at all — not a wrong one, none. The first was W5c's arm C on `listening_gap`, where **#121**'s conclusion was that the probe is *not blind but deprived*: it was sent strictly less than the learner has. Here the missing thing is not audio but the phrase — an entire idiom removed from a short sentence leaves nothing to reconstruct from. **It matters for W10 because `0 classes` is currently read as `not_recoverable`**, which is true and incomplete: it can also mean the question was unanswerable as posed, which is a fact about the item and not about the model. One occurrence is an anomaly; two is a pattern, and the pattern needs to be findable from either end — hence this row rather than a note inside #121. **Card 38 is the sharpest instance and it is the reason the probe was built**: `probe_cloze`'s own docstring opens with it as the example of ambiguity — *"I wish someone had warned me to ask about _____ upfront"*, where *hidden costs*, *the price*, *fees* and *the terms* were said to all fit. **It returned 0 classes.** A human read the slot as over-full and the model found it empty, which is a stronger warning about reading a card by eye than anything else in this slice. | low | W8b → W10 | ⬜ open — decide whether `gates` should distinguish *no answer offered* from *the canonical was not among the answers* |
+| 148 | **A chunk cloze gaps a whole phrase, and that is structural rather than a bug — closed by W8b's ruling, recorded so W13 does not rediscover it.** v2 chunks are idioms (*hidden costs*, *add up*, *wear down*), so cards 34, 38, 40 and 42 had an entire noun or verb phrase removed. An items cloze gaps **one word**; a chunk cloze gaps **the chunk**, which is the whole point of the row. No cue repairs a slot that swallows a phrase. **The constraint this leaves behind is the part that is still live, and every import slice inherits it: any path that creates chunks must guarantee a gloss, or its chunks silently produce no cards at all.** Since W8b a chunk with no `meaning` lands in `skipped_no_meaning` and yields nothing, where it used to yield a cloze card. That bucket was **0 on production** the day the ruling shipped, so nothing was lost then — but Trancy / Language Reactor import is the next slice on the horizon and *probably carries a translation* is how #44 happened. | low | W8b | ✅ **closed by W8b's ruling** — recorded rather than deleted, because a defect that was ruled on and then forgotten gets rediscovered as a bug. **The gloss constraint above is the live residue and travels with the import slices.** |
+| 147 | **`make_sentence_with_gap` replaces a SUBSTRING, not a whole word, and it is doing it on a live learner path today.** Reproduced on the Mac: `make_sentence_with_gap('We split it into three stages: dev, staging, and production.', 'stage')` → `'…into three _____s: dev, staging, and production.'` — *stage* cut out of *stages*, the `s` left stranded. No learner can answer that and no cue repairs it. **`core/services/anki.py` is not legacy tidiness**: the same function builds `build_chunk_question`'s daily Telegram gap question (`apps/bot/handlers/quiz.py:496`), the weekly Anki TSV prompt field (`anki.py:91`), and `due_chunks`' reviewability filter (`chunks.py:178`) — **so it is producing gap-fill questions for two learners weekly right now.** **Filed rather than fixed because of a boundary, not effort**: W8a spent a slice proving that file byte-identical, it is the W22 deletion boundary, and opening it inside a slice about the web deck is the scope creep CLAUDE.md §8 bans. **The half that survives W8b's purge**: the same gapper builds the *context hint* on the 14 surviving migrated `production` cards, where the gloss carries the answer, so a malformed hint misleads rather than blocks — the count of those is a deploy step (`front ~ '_____[a-z]'`) and goes in this row, because a defect live on cards a learner opens tomorrow deserves a number and not a description. | medium | W8b → W22 | ⬜ open — **malformed-hint count on production: NOT YET RUN** (deploy step 6b). Dies with the bot at W22 unless the count says it cannot wait |
 | 146 | **`/type` is a deliberately created artefact with no owner and no expiry.** W8a ships an unlinked, unauthenticated typography preview at `apps/web/app/type/` — three candidates plus the control — reachable on production Vercel so it can be judged on a phone. It exists to be looked at once and then deleted. **An unlinked page is exactly the kind of thing that survives for years because nobody remembers it is there**, and this one was created on purpose, so it is filed at the moment of creation rather than left to be noticed. Its deletion is three files (`app/type/page.tsx`, `app/type/preview.tsx`, `app/type/candidates.ts`) and it removes four `next/font` families with them. **Stated in the same row so it is not read later as a gap: the page ships with NO Vitest coverage, deliberately.** There is no logic to assert — static samples behind a `useState` switcher, no fetch, no session, no learner data — and the only test that says anything useful about it is a person looking at it. That is a choice about a temporary artefact, not an omission in #67's frontend coverage. | low | W8a → **the slice that ships the chosen typography** | ⬜ open — delete `apps/web/app/type/` in the same commit that changes the default |
-| 145 | **`packages/core/cards/migrate_chunks.py:20-21` points at the wrong test file.** Its docstring says *"`tests/test_cards_migration.py` parses this module and fails the commit that adds a write."* `tests/test_cards_migration.py` contains **no `ast` import at all**; the parse test is `tests/test_core_boundary.py:717::test_cards_package_is_pure`, and the runtime counterpart in `test_cards_migration.py` is `test_the_migration_never_touches_chunks`, which snapshots six `chunks` columns before and after rather than reading source. The guarantee is real and is held by two tests; only the reference is wrong. **Filed rather than fixed** — W8a's scope is the four rulings, and a one-line docstring edit in a module this slice does not otherwise touch is scope it did not ask for (CLAUDE.md §8). It is the same family as #82: a document describing where something is rather than where it is, found only because W8a went looking for the template to copy. | low | W7 → W10 | ⬜ open — one line, in the next slice that touches `core/cards/` |
-| 144 | **There are two gap markers in this repository and nothing reconciles them.** `core.services.anki.GAP` is `"_____"` (**five** underscores) and gaps every cloze *card*; `core.items.schema.GAP` is `"___"` (**three**) and gaps every *item*. `core.items.checks:312` counts occurrences of the three-underscore form and `core.items.repair._is_gapped` tests for it. **It does not bite today and the plan says why**: `probe_cloze` calls `gates.probe_acceptable` directly, which sends `visible_projection` and counts nothing, so the card's front travels byte-identical — and even if it did count, `str.count` is non-overlapping, so `"_____".count("___")` is 1. **It bites the moment a cloze card is put through `validate()`**, which is exactly what option A in W8a's cloze proposal does: `repair._is_gapped` would return True on a five-underscore front while `checks` counted a gap the card renderer does not draw, and the repair ladder would write a cue back into a field whose marker it does not share. **A learner sees the five-underscore form**, so the resolution is not simply "normalise to three" — it is which marker the *product* uses, and that is a decision rather than a rename. | medium | W7 → W10 | ⬜ open — settle before any gate runs a card through `validate()` |
+| 145 | **`packages/core/cards/migrate_chunks.py:20-21` points at the wrong test file.** Its docstring says *"`tests/test_cards_migration.py` parses this module and fails the commit that adds a write."* `tests/test_cards_migration.py` contains **no `ast` import at all**; the parse test is `tests/test_core_boundary.py:717::test_cards_package_is_pure`, and the runtime counterpart in `test_cards_migration.py` is `test_the_migration_never_touches_chunks`, which snapshots six `chunks` columns before and after rather than reading source. The guarantee is real and is held by two tests; only the reference is wrong. **Filed rather than fixed** — W8a's scope is the four rulings, and a one-line docstring edit in a module this slice does not otherwise touch is scope it did not ask for (CLAUDE.md §8). It is the same family as #82: a document describing where something is rather than where it is, found only because W8a went looking for the template to copy. | low | W7 → W8b | ✅ **closed 2026-08-25 by W8b**, which is the next slice that touched `core/cards/`. The docstring now names both holders of the guarantee: `tests/test_core_boundary.py::test_cards_package_is_pure` for the source scan and `test_the_migration_never_touches_chunks` for the runtime snapshot. |
+| 144 | **There are two gap markers in this repository and nothing reconciles them.** `core.services.anki.GAP` is `"_____"` (**five** underscores) and gaps every cloze *card*; `core.items.schema.GAP` is `"___"` (**three**) and gaps every *item*. `core.items.checks:312` counts occurrences of the three-underscore form and `core.items.repair._is_gapped` tests for it. **It does not bite today and the plan says why**: `probe_cloze` calls `gates.probe_acceptable` directly, which sends `visible_projection` and counts nothing, so the card's front travels byte-identical — and even if it did count, `str.count` is non-overlapping, so `"_____".count("___")` is 1. **It bites the moment a cloze card is put through `validate()`**, which is exactly what option A in W8a's cloze proposal does: `repair._is_gapped` would return True on a five-underscore front while `checks` counted a gap the card renderer does not draw, and the repair ladder would write a cue back into a field whose marker it does not share. **A learner sees the five-underscore form**, so the resolution is not simply "normalise to three" — it is which marker the *product* uses, and that is a decision rather than a rename. | medium | W7 → W10 | ⬜ open — settle before any gate runs a card through `validate()`. **W8b removed the immediate trigger and did NOT close this**: option A (gate at creation) is not being built, because the cloze cards it would have gated are retired. The issue is unchanged — **W13's cloze cards will still meet `validate()`**, and the question is still which marker the *product* uses rather than a rename. |
 | 143 | **`card-face.tsx` renders every field with no `lang` and no `dir`, so an L1 gloss will render left-to-right in the wrong script direction.** `apps/web/components/items/presentation/l1-to-l2-production.tsx:22` already does this correctly — `<div dir="auto" lang={language}>` — and the card face does not, on any of `front`, `back` or `meaning`. **No card renders Farsi today**, which is why nothing is visibly broken: `migrate_chunks.py:69-74` records the shortfall that v2 `chunks` carry no L1 gloss and `meaning` is plain English, and `CardFace` (`lib/api.ts:221-234`) has no `l1_gloss` field at all. **PRD §5's card table puts an L1 gloss on the production front and on the recognition back**, so W10 and W13 are the slices that make this visible, and it will present as a Farsi line boxed left-to-right with its punctuation on the wrong end. The fix is two attributes and the API field to drive them. Paired with #142: direction and face are the two halves, and one without the other still fails the learner. | medium | W7 → W10/W13 | ⬜ open — `dir="auto"` plus `lang`, when a card first carries an L1 gloss |
 | 142 | **The web app declares no Arabic-script family and no font fallback, and `next/font`'s own fallback hides it.** Every `next/font` call in `apps/web/app/layout.tsx` is `subsets: ["latin"]`, and Geist, Geist Mono and Fraunces **have no `arabic` subset available at all** — confirmed against `next/font/google`'s generated declarations, not assumed. One of the two learners is a native Farsi speaker and PRD §5 puts an L1 gloss on two of the five card types. **The failure is worse than tofu, because tofu would at least be visible.** W8a measured it on the preview at 40px: with a Latin family first, `next/font` inserts its own metric-adjusted local fallback immediately after it, that fallback resolves to a system face **which has Arabic coverage**, and the browser satisfies the Farsi from it and never reaches the declared companion. The gloss rendered at **201.54px** — identical to the Latin family alone — where Vazirmatn renders it at **250.55px**. **So a declared fallback placed after a `next/font` family is inert, and the page looks fine while one learner reads a face nobody chose.** `/type`'s three candidates fix it with a `--tp-l1` token that leads with Vazirmatn; **the shipped app does not, and the control on that page still shows the defect at 228.36px.** | medium | W1b → W10 | ⬜ open — a Persian companion (Vazirmatn, OFL 1.1) declared **first** on any `lang="fa"` element, not appended after the Latin face |
 | 141 | **Both halves of the record can be stale together, and no test can catch that.** `tests/test_record_consistency.py` asserts the file inventory and the slice table agree about every migration — which catches a half that has drifted, as at W2 (#132's first occurrence) and at W7 (`010`, `011`, `012`). It cannot catch the case that actually occurred at W8: the inventory row said *not applied to production*, the slice row said *nothing is on production*, the two agreed perfectly, and both were false. **The check compares the record against itself; only the world can settle whether a deploy happened.** The only real closer is the human pasting `core.db status` output into the update block, which is already what every deploy step asks for — so the fix is a habit with a check behind it, not a test. Filed so the limit of the new check is written down rather than discovered later by someone who trusted it. | low | W8r → **the deploy runbook** (re-targeted 2026-08-25 by W8a, from W19) | ⬜ open — **narrowed to a runbook step, because no test can close it.** The residue is that both halves of the record can be stale together, and a check comparing two documents to each other cannot catch that: the failure is that both documents are wrong at once. **What does catch it is comparing the record to the database.** W8a's deploy sequence opens with `python -m core.db status` read from the live host, with the record's claim written down as the expected evidence and an explicit stop on mismatch — that is the step that would have caught W8. So this issue is no longer waiting on a test that cannot be written: it closes when *"every deploy opens by reading `core.db status` and comparing it to the record's claim, and stops on mismatch"* lives in `docs/DEPLOYMENT.md` rather than in one slice's prompt |
-| 140 | **A billed dev script's per-call token accounting is dropped on the floor.** `core/llm.py:310` logs `llm call model=… input_tokens=… output_tokens=… cache_read=…` at INFO on every call — exact accounting, already written. But `scripts/build_syllabus_lexemes.py` never configures logging, so under a bare root logger every one of those lines fell through to `logging.lastResort` (WARNING and above) and was discarded. Reconstructing W8's $6.60 needed run logs for the call counts plus **two fresh instrumented calls** to measure the token shapes, and one component (v1's top-up) could only be estimated at 8–16 calls because the log recorded totals rather than batches. **This is #117's shape in a second place** — a process that produces the evidence and drops it for want of a handler — and the fix is the same one line, `logging.basicConfig`, in any script that spends money. W10 generates items and will spend more than this. | low | W8 → W10 | ⬜ **open, and now with the offenders named — 2026-08-25, W8a.** The fix landed in **one** new script (`core.cards.probe_cloze` calls `logging.basicConfig` at entry) and the class is **not** fixed: `core/items/judge_observe.py` and `core/items/verify.py` both make billed calls and both still leave the root logger bare. Naming them rather than closing this row is the point — #132's history is a defect found, fixed for one row, and left to recur three more times. **The axis this was originally filed on is also wrong and is corrected here**: the split in the tree is human-run *write* modules configure logging and human-run *observation* modules do not, but the axis that matters is **whether the module spends money**, and by that axis both files above are on the wrong side of it. W10 generates items and will spend more than W8 did |
+| 140 | **A billed dev script's per-call token accounting is dropped on the floor.** `core/llm.py:310` logs `llm call model=… input_tokens=… output_tokens=… cache_read=…` at INFO on every call — exact accounting, already written. But `scripts/build_syllabus_lexemes.py` never configures logging, so under a bare root logger every one of those lines fell through to `logging.lastResort` (WARNING and above) and was discarded. Reconstructing W8's $6.60 needed run logs for the call counts plus **two fresh instrumented calls** to measure the token shapes, and one component (v1's top-up) could only be estimated at 8–16 calls because the log recorded totals rather than batches. **This is #117's shape in a second place** — a process that produces the evidence and drops it for want of a handler — and the fix is the same one line, `logging.basicConfig`, in any script that spends money. W10 generates items and will spend more than this. | low | W8 → W10 | ⬜ **open, and now with the offenders named — 2026-08-25, W8a. THE FIX PAID FOR THE FIRST TIME on 2026-08-25 (W8b)**: `probe_cloze --live` captured its own per-call token lines live — 14 calls, ~792 input tokens each, output 20–183 — instead of having them reconstructed afterwards. That is the whole value of the one line, demonstrated once. **The row still does not close**: the fix landed in **one** new script (`core.cards.probe_cloze` calls `logging.basicConfig` at entry) and the class is **not** fixed: `core/items/judge_observe.py` and `core/items/verify.py` both make billed calls and both still leave the root logger bare. Naming them rather than closing this row is the point — #132's history is a defect found, fixed for one row, and left to recur three more times. **The axis this was originally filed on is also wrong and is corrected here**: the split in the tree is human-run *write* modules configure logging and human-run *observation* modules do not, but the axis that matters is **whether the module spends money**, and by that axis both files above are on the wrong side of it. W10 generates items and will spend more than W8 did |
 | 139 | **The seed's `--report` prints a line for every onboarded user, and the Mac dev database has thousands.** `report()` loops `onboarded_user_ids`, which returns every approved+onboarded row — on the dev database that is the accumulated test users of 1,600 tests, so the per-learner target counts scroll past unusably. Harmless on production, which has three learners, and the numbers themselves are correct. **The failure mode it hides is real though**: a `BELOW 30` line for one genuine learner is invisible in three thousand lines of noise, and that line is the acceptance criterion. Should take a `--user` filter, or report only the minimum with the offending units. | low | W8 → W9 | ⬜ open — correct on production, unreadable on the Mac |
 | 138 | **A unit's candidate set erodes to exactly the floor by the end of the programme, with no margin.** A unit of 65 candidates tolerates 53.8% of its own words becoming known before it falls below 30 targets. PRD §2.1 budgets **1,500–2,000 new known words** over the 24 weeks against a 3,759-lemma pool, which is **40%–53% erosion** — so the worst case lands on 30 with nothing to spare, and it lands on the units a learner reaches LAST, which are the ones that have eroded longest. **65 is already the ceiling the content supports**: stage 3 yields 263 lemmas and four units at 65 need 260. So this cannot be fixed by raising the target again — it needs either a wider pool (A1 adds 208; untagged lemmas add 9,033 but include proper nouns, which is why the CEFR tag is the filter) or a top-up pass that refills a unit's candidates from the ledger's own gaps at the moment the learner reaches it. **Nothing is wrong today, and this is now measured rather than asserted**: the production `--report` of 2026-08-25 read **min 64 / 64 / 65** across the three learners, so the diff removes **at most one lemma** from any unit for any learner. This row previously claimed *"the real per-learner minimum is 65 of 65"* with nothing behind it; the measurement is 64, and the one-lemma gap is the whole of the erosion after four months of v2 history. That is the month-one number, and it is the baseline the month-six claim below will be read against. This is a claim about month six, filed now because in month six it will present as "the syllabus got thin" with no obvious cause. | medium | W8 → W10 | ⬜ open — measure against a real ledger once a learner has three months of history |
 | 137 | **The topic assignment for 1,560 candidate lexemes is model-produced, and the only automated check on it measures self-consistency rather than correctness.** `scripts/build_syllabus_lexemes.py` assigns each of 3,759 pool lemmas to one of six stages through `core.llm`; the `--audit` pass re-tags a 120-lemma sample with an independently worded prompt and reported **83/120 = 69% agreement**. That is well above the 17% a coin would give on six options, and much of the disagreement is legitimate — many words genuinely sit in two stages and the prompt forces one — but **it cannot tell you a topic is right**. The real checks are the other three layers: the committed TSV is diffable, the mechanical gates stop the script rather than padding, and a person reads a sample. **The count is machine-checkable and the quality is not**, and ">=30 target lexemes" is satisfiable by thirty bad words. | medium | W8 → W9 | ⬜ open — the human sample read is the measurement |
@@ -914,7 +997,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 102 | **`l1_to_l2_production`'s central invariant is reachable by no gate in this slice: that the answer MEANS WHAT THE PROMPT SAYS.** A wrong translation with a plausible canonical passes every deterministic check (the script test only asks that the prompt is in the L1 script and the answer in English), passes the naturalness gate (the English reads perfectly well), and passes the probe — because **the probe asks what a prompt *could* acceptably become, not whether the stored answer is one of them**. The W5a fixture was caught only because the probe's answer set happened to exclude the canonical outright; **a subtler mistranslation whose canonical sits inside the acceptable set would pass silently**, and the learner would be marked wrong for producing a correct translation — or worse, marked right for reproducing a wrong one. This is a first-class entry in "what is not validated", not a footnote: `l1_to_l2_production` is PRD §4's highest-value drill and the only type whose correctness depends on a relation between two languages that nothing in `core/items` examines. **Fixed by a meaning-equivalence check against the L1 prompt — a model call this slice does not make.** Until then, **every `l1_to_l2_production` item's canonical is trusted, not verified.** **W5b makes this worse, not better.** Establishing what each gate is shown revealed that `sentence_of` returns `item.answer` for this type (checks.py:102), so the naturalness judge sees **only the English half** and never the Farsi prompt — it is not merely unable to check the relation, it is never shown both sides of it. The same is true of the deterministic checks and of the probe. The honest statement is therefore stronger than the one filed at W5a: it is not that one gate cannot reach the meaning invariant, it is that **no gate structurally can**, because no gate is ever handed both languages at once. This fixture **passed** the W6 seeding run, which is exactly what the issue predicts a wrong translation would also do. | high | W5a → W5b → **W10** | ⬜ open — **no gate is shown both sides of the relation**; needs a meaning-equivalence call. **Re-targeted at W7 2026-08-25, with a reason and no change in severity.** The fix is a model call inside `core/items/gates.py`, priced per generated item. W7 generates no items and touches no gate — its subject is `cards`. **W10 owns the generator and pays that call**, and must price it alongside the yield question already on its row. Until then every `l1_to_l2_production` canonical remains trusted, not verified |
 | 101 | **W5's acceptance criterion 9 was overstated, and criterion 5's wording was wrong.** (a) Criterion 9 read as though the named PRD-item test proved the gate rejects it; the test fed the solver a hardcoded response, so it proved only that the discard branch is reachable. Corrected at W5a, and the general lesson is in the decisions log. (b) Criterion 5 claimed `item_attempts.user_id → users(id)` was satisfied "transitively and directly". **The catalogue returns exactly one FK from these tables into `users`: `items_user_id_fkey → users(id)`.** `item_attempts` reaches `users` only through the composite FK to `items(id, user_id)`. The constraint is correct; the claim was not, and `test_item_attempts_user_id_references_users_id`'s **name overstates what it checks** — it asserts the composite FK. | low | W5 → W5a | ✅ **closed at W5a.** (a) Criterion 9 reworded for what its recorded response proves, and the general lesson logged in three levels. (b) The test is renamed **`test_item_attempts_reaches_users_only_through_items`** and its docstring states the correction: the catalogue returns exactly one FK from these tables into `users` — `items_user_id_fkey → users(id)` — and `item_attempts` reaches `users` only *through* the composite FK to `items(id, user_id)`. So criterion 5 is satisfied **transitively**, not "transitively and directly". The constraint was always right; the claim was not |
 | 100 | **`docs/TASKS-v3-web.md`'s Build columns for W7, W8 and W10 are stale by one migration number.** W7 reads "Migration 012", which is now W5's; W8 reads 013 and W10 reads 014. The authoritative table at `docs/TASKS-v3-web.md:89` has them at 013 / 014 / 015 and line 124 already rules that the table wins and the Build column is the bug. Only W5's Build column was corrected when W4b renumbered. Identified during W5 planning; **not edited, because a `docs/` rewrite is outside the slice**. | medium | W4b → W7 | ✅ **closed W7 2026-08-25 — and the drift was larger than this row said.** It named three stale columns; there were **seven**: W7 012→013, W8 013→014, W10 014→015, W12 015→016, W13a 016→017, W14 017→018, W18 018→019 — every unwritten slice below W4b, each off by exactly one, because only W5's was corrected when W4b took 011. All seven corrected; the authoritative table untouched. **A partial fix would have left five slices carrying a number that reads correct in isolation**, which is the failure this issue exists to describe. What is still missing is a check: nothing parses both halves and asserts they agree, so the next renumbering can drift the same way — filed separately against W19 |
-| 99 | **The v2 work bias lives in the quiz SCENARIO LABELS, not in the sentences.** Of the 16 surviving quiz scenarios on production, roughly **nine carry work framing** — *"Mina and Pooya texting after a late-night deploy"*, *"Omid and Bahar texting during a Saturday deploy while watching a football match"*, *"Nima and Leila texting through a rainy weekend about a stuck deploy"*, *"Yasmin off sick while Kaveh covers a client deploy"* — in a system where Work is meant to be 20% of the mix. This is a **census, not a sample**: those sixteen are every surviving quiz session, so the small n does not weaken it the way it weakens #57's percentage. It corroborates the sentence-level reading (7.3% work terms) precisely: the sentences are mostly clean while the *framing* is work-saturated, which points at scenario labels, `{work_domain}` injected into 8 of 13 prompts, and the Work-40 schema default (#56). **W5's generator prompt and W10's session mix are where this is fixed. The jargon gate is not.** | medium | W5 → #56 / W10 | ⬜ open — W10 owns the session mix |
+| 99 | **The v2 work bias lives in the quiz SCENARIO LABELS, not in the sentences.** Of the 16 surviving quiz scenarios on production, roughly **nine carry work framing** — *"Mina and Pooya texting after a late-night deploy"*, *"Omid and Bahar texting during a Saturday deploy while watching a football match"*, *"Nima and Leila texting through a rainy weekend about a stuck deploy"*, *"Yasmin off sick while Kaveh covers a client deploy"* — in a system where Work is meant to be 20% of the mix. This is a **census, not a sample**: those sixteen are every surviving quiz session, so the small n does not weaken it the way it weakens #57's percentage. It corroborates the sentence-level reading (7.3% work terms) precisely: the sentences are mostly clean while the *framing* is work-saturated, which points at scenario labels, `{work_domain}` injected into 8 of 13 prompts, and the Work-40 schema default (#56). **W5's generator prompt and W10's session mix are where this is fixed. The jargon gate is not.** | medium | W5 → #56 / W10 | ⬜ open — W10 owns the session mix. **First measurement on LEARNER-FACING CONTENT, 2026-08-25 (W8b): 7 of the 14 migrated cloze cards — cards 16, 18, 20, 22, 24, 26 and 30, exactly 50% — were about deployment, staging, production, a training script, a pipeline, a validation set, a context window, pushing to the cloud and model accuracy**, against §4's 20% cap. **The handover read six; the seventh was found by pasting the probe's verbatim output rather than its summary**, and the ids are named here so the count is re-checkable now that the rows are gone. Every earlier reading here was about v2's *prompts and scenario labels*; this is what was in the deck the learners could open that morning, which is a different kind of evidence and a worse one. **The two cards that survived W8b's uniqueness cross were both Work-track**, which is how the ruling went from *2 of 14 sound* to *0 of 14*. The fourteen are now deleted, so this number is not re-derivable from the database — it lives here |
 | 98 | **An unquoted `.env` value containing a space breaks any shell that sources the file.** `.env` line 28 was `WEBAUTHN_RP_NAME=Everyday English`. Python's `dotenv` parses it correctly, so the application never noticed; a shell sourcing the same file truncates at the space and then tries to **execute `English`**. Observed twice during the W4b deploy. Quoted on production 2026-08-24 — no restart needed, since dotenv strips the quotes. **The fix is not the issue.** Nothing prevents the next unquoted value: `.env.example` does not carry the convention, and no check enforces it. Two readers with different parsing rules share one file, and only one of them complains. | low | W4b | ⬜ open — `.env.example` should carry the quoting convention |
 | 97 | **A web-only learner cannot be approved, declined or revoked by the operator.** `access_control.approve_access` / `decline_access` / `revoke_access` are keyed on `telegram_user_id`, which a web-originated learner does not have. Worse than a missing feature: `revoke_access` is an `INSERT … ON CONFLICT (telegram_user_id) DO UPDATE`, and with a NULL telegram id the conflict target never matches, so it would **insert a second `access_requests` row** (many NULLs are allowed by the unique constraint) rather than revoking the learner — leaving them approved and the operator believing otherwise. Not reachable today because `create_web_user` is operator-only and there is no web sign-up route, but it becomes reachable the moment one exists. Wants `user_id`-keyed variants alongside the Telegram-keyed ones, the same split `is_approved` got at W4b. | medium | W4b → before any web sign-up route | ⬜ open |
 | 96 | **`watch_import` inbox directories are named after the old user ids.** `inbox_path(root, user_id)` builds `inbox/<user_id>/`, so after 011 the code looks for `inbox/1/` while the existing folder on disk is `inbox/7222549221/`. **Production is unaffected — `WATCH_DIR` is unset there and S15a is dormant** (`docs/DEPLOYMENT.md`: "no Drive client on the server; CSV via Telegram only"), so this is a Mac-only orphan and no deploy step is needed. Filed rather than fixed because it must not be rediscovered as a mystery when S15a is turned on. Separately noticed and worth its own look: the Mac's watch folder holds **~900 stray directories** created by the test suite against a real Google Drive path. | low | W4b | ⬜ open — rename or re-create when S15a is enabled |
@@ -983,7 +1066,7 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 | 54 | **`test_scheduler.py` (5 tests) asserts job predicates, never job registration.** After the API/worker split all 5 pass against a worker that registers zero jobs. | medium | W0 → W1 | ✅ closed — W1 adds four tests: every job by name, IntervalTrigger + interval, `start_scheduler` idempotent, `stop_scheduler` clears all twelve. Verified by deleting a `run_repeating` call and watching them fail. |
 | 55 | **The daily 3-message ceiling is a single DB counter (`bot_message_counts`).** W20 adds Web Push; if push and Telegram keep separate counters the combined ceiling silently becomes 6, violating PRD §12 rule 4. | medium | W0 → W20 | ⬜ open — one shared counter, tested |
 | 56 | **The v2 work bias has a fourth source not named in PRD §4.6:** `quiz.txt` lines 17–21 list work topics first (`campaigns, client email, negotiation, standups, interviews, pricing`) and the scenario examples include *"a work chat about a deadline"*. This is content in a prompt; no track-weight change removes it. | medium | W0 → W5 | ⬜ open — rewrite at the source |
-| 57 | **The W0 §6b work-vocabulary fraction could not be measured.** The only reachable DB is the truncated Mac dev instance (2 chunks, 0 quiz sessions, 0 readings); the production corpus is on Hetzner. Read-only SQL is supplied in the W0 plan §6b — the number must be filled in from production before W5 rewrites the prompts. | medium | W0 → W5 | ⬜ open — run the supplied SQL on Hetzner and record the number |
+| 57 | **The W0 §6b work-vocabulary fraction could not be measured.** The only reachable DB is the truncated Mac dev instance (2 chunks, 0 quiz sessions, 0 readings); the production corpus is on Hetzner. Read-only SQL is supplied in the W0 plan §6b — the number must be filled in from production before W5 rewrites the prompts. | medium | W0 → W5 | ⬜ open — run `scripts/w5_57.sql` on Hetzner and record the number. **A partial number arrived 2026-08-25 (W8b) and it does NOT close this row: 7 of 14 migrated cloze cards were work-framed — exactly 50%.** That is **a sample of one card type, not the census this issue asks for** — #57's question is the work-vocabulary fraction of the v2 corpus as a whole (quiz prompts, chunk sentences, reading bodies), and closing it on fourteen cards would retire the question with the wrong denominator. The `chunks` source census (`SELECT source, count(*) …`) is a step in W8b's deploy sequence and is the nearest thing to progress here: if the work-heavy chunks come from one source, that is worth knowing before W13 imports more of the same |
 | 58 | **≈20 `apps/bot` handlers hold SQL directly**, contrary to CLAUDE.md §2 ("SQL lives only in service functions"). Pre-existing, surfaced by W1's `test_no_sql_outside_services`, which excludes `apps/bot` for exactly this reason. | medium | W1 → W22 | ⬜ open — dies with the handlers at W22; **no new SQL may be added to them** |
 | 59 | **`core/scheduling.py::list_candidate_users` carries raw SQL outside `core/services/`.** Lifted with its query from the bot scheduler at W1 per the plan; exempted by name in the boundary test. **Retargeted W1b → W20:** the query serves only the delivery jobs (morning, evening, nudge, Sunday, Anki), and those stay in `apps/bot` until W20. W1b's worker registers `streak_rollover`, `monthly_freeze_reset`, `monthly_reset`, `heartbeat` and `backup_freshness` — none of which touch it. Moving a query for a caller that has not arrived is churn. | low | W1 → W20 | ⬜ open — moves with the delivery jobs at W20 |
 | 60 | **`core.services.access_control.delivery_lister_ids` imports from `apps.bot`** (`scheduler.list_candidate_users`, `services.couple.registered_user_ids`), inverting the dependency direction. It is a function-local import, so nothing cycles at import time. The W1 boundary test bans web frameworks, not `apps.*`, so it does not catch this. | medium | W1 | ⬜ open — invert to a registration hook, then widen the boundary test to ban `apps.*` from core |
@@ -1042,6 +1125,20 @@ Full carried-forward set: #2 · #3 · #5 · #8 · #13 · #14 · #15 · #17 · #1
 Cursor: keep this current so a fresh chat knows what exists without reading the repo.
 
 **What the W3 ticks rest on.** The `packages/core/services/correction.py`, `packages/core/prompt_rules.py` and `apps/bot/handlers/*` rows are evidenced by the startup log line naming `core.services.correction` and by the 08:18–08:20 UTC restart. The `apps/web/*` rows rest on **the human's report** of the `/write` check — no build or deploy log for the web app is in this record.
+
+### W8b — retire the migrated cloze cards (2026-08-25)
+
+**No migration. `schema_version` stays at 14 and no `.sql` file is added or edited** — `git status --porcelain migrations/` is empty and `014_syllabus.sql` is still the last file. **`packages/core/services/anki.py` is byte-identical** — `git diff --name-only` returns it zero times.
+
+| File | Purpose | Status |
+|---|---|---|
+| `packages/core/cards/retire_chunk_cloze.py` | **NEW. The human-run command that removes the fourteen cloze cards `migrate_chunks` already created.** Dry by default; `--purge` deletes after the count is typed back, and every row is printed before anything is deleted — **the dry run is the last record of those fourteen sentences**, so its output belongs in this file before `--purge` is run. Matches on `card_type = 'cloze' AND source_chunk_id IS NOT NULL`, **never a date range and never an id list**, so a W13 cloze card built from a video is out of reach *by construction rather than by timing*. **Refuses to delete a graded card and stops the run**, because `card_reviews` is append-only and cascades from `cards`. Holds no SQL — both queries are `core.services.cards` functions, so `test_cards_package_is_pure` stays unexempted and #59 remains the only boundary exemption. Separate from `migrate_chunks` deliberately: that module carries a guarantee that it destroys nothing, and a deletion path inside it would make the guarantee read as narrower than it is. | 🟡 |
+| `tests/test_cards_retire_chunk_cloze.py` | **NEW. 11 tests, against a real database**, because every property here is about which rows a delete touches. The load-bearing one is `test_a_cloze_card_with_no_source_chunk_survives` — a W13-shaped card kept alive through a full `--purge`. Also: a graded card stops the run with the review log intact (written through the real `grade_card`, not inserted by hand); the service refuses a graded card **with no module check in front of it**, proving the second guarantee on its own; the predicate is read off the service's own source and asserted to name `card_type` and `source_chunk_id` and no date or id form; the wrong count typed back deletes nothing; the default is dry and never prompts; a second run reports nothing to do; `chunks` is untouched. | 🟡 |
+| `packages/core/cards/migrate_chunks.py` | **CHANGED. No `cloze` card is planned from a chunk.** `plan_for_chunk` builds one `production` card or none, and **the ruling, its three causes and its 43 → 29 cost are in the module docstring**, not only in this file — a reader finding a creator that makes two card types where the record says three needs the reason in front of them. The docstring also **names `core.cards.retire_chunk_cloze`**, which is where the rows it used to make have gone. Buckets reworked to `production_with_hint` / `production_no_hint` / `skipped_no_meaning` / `skipped_no_face` (+ the two slang ones), the accounting identity intact. `make_sentence_with_gap` is still imported and still runs: since W8b its output is a **hint and never a question**. **#145's wrong test-file reference corrected** — the write guarantee is held by `test_cards_package_is_pure` (source) and `test_the_migration_never_touches_chunks` (runtime). | 🟡 |
+| `packages/core/cards/__init__.py` | **CHANGED.** `CHUNK_CARD_TYPES` is `("production",)`, with the measurement that decided it stated at the constant; `MIGRATION_CARD_TYPES` follows to `("production", "recognition")`, which is correct rather than merely tidy — it means *what the pass can create*, and an anti-join for a card type nothing writes asks the database about a row that will never exist. | 🟡 |
+| `packages/core/services/cards.py` | **CHANGED. Two new functions and one shared predicate.** `_CHUNK_CLOZE_SQL` is written once so the set that is counted and the set that is deleted cannot drift into two WHERE clauses that merely agree today. `chunk_cloze_cards_with_review_counts()` reads the candidates with their grade counts; `delete_chunk_cloze_cards()` deletes them and **refuses any card carrying a review**, closing the race between the module's read and the write. | 🟡 |
+| `tests/test_cards_migration.py` | **CHANGED.** `test_the_pass_never_plans_a_cloze_card` is the criterion — seven row shapes including the glossed-slang route, asserted against hardcoded card types and against both constants (§3 rule 5). **`test_the_pass_creates_two_cards_per_eligible_chunk` is renamed, and its old name was TRUE when it was written** (two chunks × cloze + production): renamed because the behaviour changed, not because the name was ever wrong. `test_the_cloze_front_is_the_sentence_with_the_phrase_gapped` is **deleted** — it asserted a card that no longer exists — and its live half moved into the production-front test as an exact-string assertion. Five more renamed to match the new buckets. | 🟡 |
+| `tests/test_cards_probe_cloze.py` | **CHANGED, one line of substance.** `delete_chunk_cloze_cards` joins `WRITERS`, the set the probe's "calls no writer" ban reads. A ban set that is not extended when a writer is added is a ban that silently narrows — #132's recurring shape. | 🟡 |
 
 ### W8a — rulings: Anki out, Telegram confirmed, cloze measured (2026-08-25)
 
@@ -1800,6 +1897,403 @@ Commands and taps needing only a running bot.
 ---
 
 ## Next action
+
+**W8b is code-complete and 🟡. It carries no migration: `schema_version` stays at
+14 and no `.sql` file is added or edited** — `git status --porcelain migrations/`
+is empty and `014_syllabus.sql` is still the last file.
+**`packages/core/services/anki.py` is byte-identical**; `git diff --name-only`
+returns it zero times.
+
+Suite **1664 → 1681 passing / 6 skipped / 0 failing** — reported split, because a
+flat total hides a rename as an addition:
+
+- **−1 deleted:** `test_the_cloze_front_is_the_sentence_with_the_phrase_gapped`
+  (it asserted a card that no longer exists; its live half moved into
+  `test_the_production_front_carries_the_gloss_and_the_context_hint` as an
+  exact-string assertion).
+- **+18 added:** 7 parametrised cases of
+  `test_the_pass_never_plans_a_cloze_card` and 11 in
+  `tests/test_cards_retire_chunk_cloze.py`.
+- **6 renamed, no net change:** `..._becomes_ONE_production_card_and_never_a_cloze`,
+  `..._still_makes_a_production_card` (×2), `test_a_chunk_with_no_meaning_now_makes_no_card_at_all`,
+  `test_the_production_card_carries_the_chunks_seeded_state`,
+  `test_the_pass_creates_ONE_production_card_per_eligible_chunk`.
+
+1664 − 1 + 18 = **1681**, which closes exactly. **Vitest 62, unchanged** — nothing
+under `apps/web` was touched, and `reviewer.test.tsx` still renders a `cloze`
+card, which is correct: W13 creates them.
+
+**Nothing in this slice makes a model call**, so no `netguard` exemption was
+taken and none was needed.
+
+---
+
+### The probe output is in the record, and pasting it whole changed three things
+
+The 14 `_print_rows` lines are reproduced verbatim at the end of the decisions
+log section. **This was not bookkeeping.** Reading the lines rather than the
+summary produced three corrections, two of which changed a number that was about
+to be recorded wrong:
+
+- **Card 38 — the card the whole probe was built around — returned `0 classes`.**
+  `probe_cloze`'s docstring opens with it as *the* example of a multi-acceptable
+  gap. The model offered no answer at all. That reading was a person's, and it
+  was reasonable; it was never a measurement.
+- **`1 class` + `NOT RECOVERABLE` on cards 16, 22 and 34** is the substring bug
+  and the phrase gap, not ambiguity — the model gave one confident answer and it
+  was not the card's. **The branch the module recommended (a cue on the face)
+  would have made all three worse.**
+- **The work bias is 7 of 14, not 6.** Card 22 was not counted in the handover.
+  Ids 16, 18, 20, 22, 24, 26, 30 — **exactly 50%** against §4's 20% cap.
+
+**The fourteen rows are deleted, so the output cannot be re-taken at any price.**
+That block is now the only copy.
+
+---
+
+### Deploy — W8b. Run as `bot`. Stop at the first step whose evidence does not match.
+
+**This deploy deletes production rows.** Two steps can stop it: step 1 and step 5.
+
+**Step 1 — status BEFORE anything. This is the step whose mismatch means stop (#141).**
+
+```bash
+cd /home/bot/english-bot && .venv/bin/python -m core.db status
+```
+
+**Evidence:** `Applied: 001–014, Pending: (none)`. Anything else means production
+is not where this file claims it is — **stop and do not continue.**
+
+**Step 2 — backup. Mandatory, and not for the usual reason.**
+
+```bash
+cd /home/bot/english-bot && ./scripts/backup.sh
+```
+
+**Evidence:** a new object under `english_bot/2026/08/`, **at least 302,116
+bytes**. Every earlier slice took a backup because a migration might fail. **This
+one deletes fourteen rows on purpose**, and the backup is the only path back if
+the ruling turns out to be wrong.
+
+**Step 3 — pull and install. This must come BEFORE the purge.**
+
+```bash
+cd /home/bot/english-bot && git pull && .venv/bin/pip install -e packages/core
+```
+
+**Evidence:** the commit hash matches what was pushed; `pip` reports
+`core-0.1.0`. **No new dependency.**
+
+**Why the order is load-bearing:** purging before this leaves a `migrate_chunks
+--apply` able to recreate all fourteen, and it would report `cloze_created 14` as
+an ordinary success.
+
+**Step 4 — status AFTER, unchanged**
+
+```bash
+cd /home/bot/english-bot && .venv/bin/python -m core.db status
+```
+
+**Evidence:** `Applied: 001–014, Pending: (none)`, **identical to Step 1.**
+
+**Step 5 — the `card_reviews` check. THE SECOND STOP STEP.**
+
+```bash
+cd /home/bot/english-bot && psql "$DATABASE_URL" -c "SELECT c.id, count(r.id) FROM cards c LEFT JOIN card_reviews r ON r.card_id = c.id WHERE c.card_type = 'cloze' GROUP BY c.id ORDER BY c.id;"
+```
+
+**Evidence: 14 rows, every count 0.** W7 recorded `card_reviews` 0 and its five
+review checks are still unrun, so it is probably still 0 — but **if any count is
+non-zero, stop and report it.** Deleting the card discards a real learner event;
+`card_reviews` is append-only by design and cascades from `cards`. **The ruling
+assumes these cards have never been reviewed; if that is false the decision
+changes and it is not Claude's to re-make.** (`retire_chunk_cloze` refuses on its
+own if it sees one — this step is the independent read, run before the command
+that would act on it.)
+
+**Step 6 — two read-only censuses, before anything is deleted**
+
+```bash
+cd /home/bot/english-bot && psql "$DATABASE_URL" -c "SELECT source, count(*) FROM chunks GROUP BY source ORDER BY 2 DESC;"
+```
+
+**Evidence:** the breakdown, recorded in this file. **If the work-heavy chunks
+come from one source, that is worth knowing before W13 imports more of the same**
+— and it is the nearest thing to progress on #57, which is not closed by W8b's
+fourteen-card sample.
+
+**Step 6b — #147's count, on the cards that are STAYING**
+
+```bash
+cd /home/bot/english-bot && psql "$DATABASE_URL" -c "SELECT count(*) FROM cards WHERE card_type = 'production' AND source_chunk_id IS NOT NULL AND front ~ '_____[a-z]';"
+```
+
+**Evidence:** a number, recorded in **#147**. These are surviving production
+cards whose context hint was built by the substring gapper — `three _____s:` —
+and they are **not** being deleted. **A defect live on cards a learner opens
+tomorrow deserves a count, not a description; and if it is zero that is worth
+recording too**, because it bounds how often the substring bug actually bites.
+
+**Step 7 — the purge, dry. Paste this output into the record before step 8.**
+
+```bash
+cd /home/bot/english-bot && .venv/bin/python -m core.cards.retire_chunk_cloze
+```
+
+**Evidence:** `14 chunk-derived cloze card(s)`, every row printed with its front
+and `0 reviews`, ending `dry run — nothing was deleted`. **If the count is not
+14, that is itself the finding — record it and stop.**
+**This output is the last record of those fourteen sentences.** After step 8 they
+exist nowhere.
+
+**Step 8 — the purge**
+
+```bash
+cd /home/bot/english-bot && .venv/bin/python -m core.cards.retire_chunk_cloze --purge
+```
+
+Type `14` when asked. **Evidence:** `deleted 14 card(s)` with the ids listed. Any
+`FINDING:` line means a review landed between the read and the write — **that is
+not a successful run; record it.**
+
+**Step 9 — the independent verification. In psql, not from the command that did the work.**
+
+```bash
+cd /home/bot/english-bot && psql "$DATABASE_URL" -c "SELECT count(*) FROM cards;" -c "SELECT count(*) FROM cards WHERE card_type = 'cloze';" -c "SELECT count(*) FROM chunks;" -c "SELECT card_type, count(*) FROM cards GROUP BY 1 ORDER BY 1;"
+```
+
+**Evidence:** `cards` **29** · `cloze` **0** · `chunks` **29** · breakdown
+`production 14`, `recognition 15`. §3 rule 5: a count the deleting command prints
+about its own work is not verification of it.
+
+**Step 10 — run it again**
+
+```bash
+cd /home/bot/english-bot && .venv/bin/python -m core.cards.retire_chunk_cloze
+```
+
+**Evidence:** `0 chunk-derived cloze card(s)` and `Nothing to do.`
+
+**Step 11 — restart `english-api` only. `english-bot` is deliberately left running.**
+
+```bash
+exit   # back to root
+systemctl restart english-api && systemctl status english-api --no-pager | head -5
+```
+
+**Evidence:** `active (running)`.
+
+**Why the bot is not restarted**, stated again because omitting it would read as
+an oversight: nothing it imports changed in behaviour — `core/services/anki.py`
+is byte-identical, the new service functions are additive, and `core/cards/`'s
+constants have no bot reader. PTB polls with `drop_pending_updates=True`, so a
+restart silently discards whatever a learner sent in that window and they get no
+reply and no error. CLAUDE.md §5b's reasoning applied to a restart.
+
+**Do not touch Caddy or PostgreSQL** — the host is shared with `fonderis-worker`.
+
+---
+
+### W8b's own checks
+
+1. **Confirm the deck reads 29 on the phone.** Open `/review` and count what is
+   there. **Catches the case where the rows are gone from the database and the
+   client is serving a cached deck** — which no server query can see.
+2. **Read one migrated `production` card and look at its context hint.** #147's
+   surviving half: if the hint reads `three _____s:`, that is the substring bug on
+   a card that was kept. Step 6b gives the count; this is what it looks like.
+
+### Still unrun, carried forward — every one, named and not silently
+
+**W8's five content checks are still unrun and have now been carried through four
+slices — W8r, W8a, W8b and the record correction before them. They stay first.**
+They are reproduced in full below, after the carried list, exactly as written.
+
+**W7's five phone checks are still unrun**, and W8, W8a and W8b touched none of
+them. The deck is live and is now **29 cards**, so they are still runnable —
+note that `DAILY_NEW_CARD_CAP` is 12 against 29, so check 3 is still reachable in
+one sitting.
+
+1. **A real review session with all four grades.** Grade four cards Again, Hard,
+   Good, Easy in one sitting. **Catches a grade button wired to the wrong
+   rating**, which every server test passes.
+2. **A due date that visibly moves.** Note the interval printed under *Good*
+   before tapping; confirm the card does not return in the same session and the
+   count drops by one. **Catches a schedule computed and not persisted.**
+3. **A daily cap that actually stops.** Review until the deck ends and read the
+   ending copy. **Catches an off-by-one, and any guilt phrasing that exists only
+   in the cap-reached state** — the banned-phrase scan covers the `.tsx`, but a
+   person reads tone.
+4. ~~**The Anki export opened.**~~ **STRUCK 2026-08-25 by W8a, and struck rather
+   than dropped.** The route it exercised no longer exists: `GET
+   /cards/export.tsv` returns 404 and the in-app deck is the flashcard system.
+   **Written out rather than deleted because a check that disappears without a
+   stated reason is indistinguishable from one that was forgotten.** The v2
+   Telegram `/anki` export is untouched and still runs weekly.
+5. **A card face read end to end**, at phone width — **and read a slang card
+   specifically**, since the five `recognition` cards built from the operator's
+   glosses have never been looked at.
+6. **`journalctl -u english-api | grep 'API built'`** — the open half of
+   **#117**. The 401 is recorded; this line is not.
+7. **The `/prep` live call**, read by a human for slang and taboo — W7 step 8 —
+   and W7's two outstanding census queries.
+8. **W6 criterion 2: a typed answer with the correct words, wrong capitalisation
+   and a trailing full stop**, on the phone's own keyboard with autocorrect live.
+   The 2026-08-25 attempt typed a genuinely wrong answer, so it proved the wrong
+   path and said nothing about folding.
+9. **W6: `dictation` audio on a phone, on silent and on mobile data.**
+10. **`python -m core.items.judge_observe --live --runs 3`** — W5c's own, with its
+    pre-registered prediction. **Do NOT re-run `seed_fixtures --live`** (#109).
+11. **The result box read on a phone, right and wrong** — W6a's own; needs real
+    items, so it waits on W10. **#118 is fixed, so re-read the `match_pairs`
+    half specifically.**
+12. **The hand-checked coverage number. Unrun since W4, and still the one that
+    matters.** Run a paragraph the human has actually read through `coverage_for`
+    and judge whether the percentage matches how hard it felt. W12 selects video
+    on this number.
+13. **The 20-item Life sample.** W5's; needs generated items, so W10.
+14. **`/stats` in Telegram on the restructured bot.** W1's.
+15. **The four Telegram explanation paths** — `/diary`, voice, `/capture`,
+    `/talk` close-out. **Deprioritised 2026-08-24**, not declined.
+16. **The S25 pre-flight counts from production.**
+17. **#44 — evening reading**, until a real Mon/Wed/Fri delivery lands.
+18. **S8** — the shared group, `/here`, `COUPLE_CHAT_ID`, then the seven checks.
+19. **The entire v2 desk-check list, unchanged.**
+20. **Pick a typography candidate on the phone**, at
+    `https://app.foundgrant.com/type` — **W8a's, still unrun.** Four settings:
+    **Today** (the control), **A · Soft sans**, **B · Rounded**, **C · Reading
+    serif**. **Look at the `_____` gap in every one** — if it reads as a solid
+    rule at arm's length that candidate is out however good the rest looks — and
+    at the glyph row (`Il1 · rn m · 0O`). **Read the Farsi card in all four**:
+    the three candidates render it in Vazirmatn, the control does not, and that
+    difference is #142 made visible. **Nothing ships until this is picked, and
+    the slice that ships it also deletes `/type` (#146).**
+21. **Confirm `/cards/export.tsv` returns 404 from a real client** — W8a's, still
+    unrun. `curl -si https://api.foundgrant.com/cards/export.tsv | head -1` →
+    `HTTP/2 404`. A `401` means the route is still registered.
+
+### W8's five content checks — unrun through four slices, and still the whole question
+
+**W8 is deployed and nothing in it has been read by a person.** The rows are
+correctly shaped, correctly constrained and correctly counted — that is what the
+queries prove. Whether 24 weeks of authored content is any good is unmeasured,
+and for a content slice that is the whole question. **A criterion of ">=30
+lexemes" is satisfied by thirty bad words: the count is machine-checkable and the
+quality is not.**
+
+1. **Read three units end to end** — one from stage 1, one from stage 3, one from
+   stage 5. Can-do statement, every grammar target, both output tasks, and 20 of
+   the target lexemes. **Judge whether a B1 learner would recognise this as a
+   week's work.** No test can do this and it is the only check that matters here.
+
+   ```bash
+   cd /home/bot/english-bot && .venv/bin/python -c "
+   import json; u=json.load(open('data/syllabus_units.json'))
+   for n in (2, 11, 19):
+       x=u[n-1]; print('=== UNIT', n, '===', x['can_do'])
+       for t in x['grammar_targets']: print('  -', t['target'], '|', t['murphy_units'])
+       print('  spoken:', x['output_task_spoken']); print('  written:', x['output_task_written'])"
+   grep -P "\t(2|11|19)\t" data/syllabus_lexemes.tsv | cut -f1 | tr '\n' ' '
+   ```
+
+2. **Read stage 5's lexical field specifically, and check it has not leaked.**
+   Units 17–20 are the only work units; CLAUDE.md §4 caps Work at 20% and v2's
+   biggest product failure was everything sounding like a Slack message about a
+   deploy. **Work vocabulary appearing in units 1–16 is that failure recurring
+   inside the syllabus itself.** The sample read looked clean — unit 19 is
+   `campaign, agency, bid, quote, proposal, wage, discount, invoice`, and units 1,
+   8 and 22 carry none of it — but that is four units of 24. **W8b's 7-of-14
+   measurement on the deck is the same failure found in live learner content**,
+   which makes this check more urgent rather than less.
+
+3. **Read 30 random rows of `data/syllabus_lexemes.tsv` against their unit's
+   lexical field and say how many are wrong.** That number goes in the record
+   **next to the 69% machine agreement rate** — one measures self-consistency,
+   the other correctness, and the record will not confuse them (#137).
+
+   ```bash
+   cd /home/bot/english-bot && shuf -n 30 <(grep -v '^#' data/syllabus_lexemes.tsv | tail -n +2) | sort -t$'\t' -k2 -n | awk -F'\t' '{print $2"\t"$1}'
+   ```
+
+4. **Open Murphy at three cited units and confirm the grammar target matches.**
+   The one check that needs the book, and **nothing in the repository can
+   substitute for it**: `book_units` is not a catalogue (#133), so the references
+   are validated for format and bounds only. Try unit 1's `5` (past simple), unit
+   11's `33-34` (second conditional) and unit 18's `137-139` (phrasal verbs).
+
+5. **Read the four checkpoint blueprints of one stage** and confirm they test the
+   unit's targets rather than restating them.
+
+### What genuinely remains, in order
+
+1. **Deploy W8b and run the purge.** Step 5 can stop it; nothing else in this
+   slice is reversible without the step 2 backup.
+2. ~~**Paste the probe's 14 per-card lines into the decisions log.**~~ **DONE
+   2026-08-25**, and doing it corrected the work-bias number from 6 to 7 and
+   showed that the card the probe was built around returned no answer at all.
+3. **Pick a typography candidate.** Nothing ships until you do, and the slice
+   that ships it is also the slice that deletes `/type` (#146).
+4. **Nothing in W8 has been read by a person.** Checks 1–5 above, carried through
+   four slices now.
+5. **#147 — the substring gapper is producing Telegram questions today.** Filed
+   against W22, and step 6b's count is what decides whether it can wait that long.
+6. **#142, #143 — the Farsi half of the card face is broken in two independent
+   ways**, and both land at W10/W13 when a card first carries an L1 gloss. #142
+   is the one that hides: the declared fallback is inert and the page looks fine.
+7. **#144 — two gap markers.** W8b removed the immediate trigger (option A is not
+   being built) and did not close it: W13's cloze cards still meet `validate()`.
+8. **#149 — `0 classes` twice now**, and `gates` still cannot distinguish *no
+   answer offered* from *the canonical was not among the answers*. W10.
+9. **#138 — a unit's candidates erode to exactly 30 by the end of the
+   programme**, with no margin. `--report` min 64 / 64 / 65 on production, so the
+   diff removes at most one lemma today. That is the month-one reading; the claim
+   is about month six.
+10. **#137 — 1,560 topic assignments verified only by 69% self-consistency.**
+    Check 3 is the measurement.
+11. **#135 — "retained performance" has no metric**, so `mastered` has no writer
+    and cannot get one until W11 defines it.
+12. **W10's yield is still an open question with no number at all.** The first
+    `assign_daily` run is where the real accept rate comes from, and **rule 7
+    stands: if yield is poor the fix is the generator prompt, not a looser gate.**
+13. **#102** — no gate is shown both sides of the `l1_to_l2_production` relation.
+    `high`, W10.
+14. **#122 and #127** — rule 4 has never run on a gapped item, and nothing tells
+    us which other rules have never executed.
+15. **#120** — `JUDGE_BATCH = 20` declared and never used. Real money; W10.
+16. **#140 paid once and stays open** — `judge_observe` and `verify` both spend
+    and both still drop their token accounting. One line each.
+17. **#141 is re-targeted to the deploy runbook**, and closes when Step 1 above
+    lives in `docs/DEPLOYMENT.md` rather than in one slice's prompt.
+18. **#133 — the Murphy target→range mapping is authored judgement** and nothing
+    in the repository can check it. Human check 4.
+19. **#136 — the CEFR tags stop at B2**, a ceiling for stage 6 and for the stated
+    goal of passing B2.
+20. **#134 — stage 6 has no reference source at all**, which #104's other half
+    also wants.
+21. **#117 is open**; its remaining half is one `journalctl` command.
+22. **#150 — the two boundary scans read docstrings**, so prose about SQL fails
+    them. One line, W10.
+23. **#65, #103, #110, #105, #114, #82, #83, #84, #85, #86, #46, #95, #97, #99,
+    #57, #79, #67, #93, #94, #96, #98, #73, #70, #69, #72, #131, #139, #146** —
+    unchanged, carried. **#14 and #15 are de-blocked from W8** (#133) and stay
+    open against S6.
+
+**Carried issues: the authority is the Status column of each row in the issues
+table**, not the "Closed and not to be reopened" summary line, which is
+incomplete (#111).
+
+**#59 remains the only boundary exemption.** W8b added a module and a writer to
+`core/cards/` and took none: `retire_chunk_cloze` holds no SQL, and
+`delete_chunk_cloze_cards` was added to the probe's `WRITERS` ban set rather than
+left outside it.
+
+**W8b is 🟡, awaiting the human's mark — deployment is not verification and the
+human owns that column. W5, W5a, W5b, W5c, W6, W6a, W7, W8, W8r and W8a are 🟡
+with it. Do not start W9.**
+
+---
+
+## Superseded — the W8a Next action, kept for the record
 
 **W8a is code-complete and 🟡. It carries no migration: `schema_version` stays at
 14 and no `.sql` file is added or edited** — `git status --porcelain migrations/`
