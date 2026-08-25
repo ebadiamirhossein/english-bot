@@ -10,8 +10,8 @@
  * get past CORS before any feature depends on it.
  */
 
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export { API_BASE_URL } from "@/lib/env";
+import { API_BASE_URL } from "@/lib/env";
 
 export type Health = {
   ok: boolean;
@@ -143,4 +143,93 @@ export async function getAuthHealth(): Promise<SessionState> {
   // 200 with a null body is a complete, successful answer: reachable, and
   // nobody is signed in. It is the ordinary state of a first visit.
   return body ? { kind: "signed-in", session: body } : { kind: "anonymous" };
+}
+
+/**
+ * One item as the learner receives it — **the hidden half is not on the wire.**
+ *
+ * `projection` is `Record<string, unknown>` on purpose. Mirroring the eleven
+ * projection shapes here would be a second learner-visible serialiser in
+ * TypeScript, which is the one thing W6 exists to prevent:
+ * `core.items.projection.visible_projection` decides what a learner sees, the
+ * blind-solver probe is shown exactly that, and this type's job is to carry the
+ * decision unaltered. The eleven presentation components narrow it, each for
+ * its own type and nowhere else (`components/items/presentation/index.ts`).
+ *
+ * `response_mode` arrives from the server so this app holds no copy of
+ * `core.items.RESPONSE_MODE`. A mirrored table is a table that drifts.
+ */
+export type ItemPresentation = {
+  id: number;
+  response_mode: string;
+  projection: Record<string, unknown>;
+};
+
+/**
+ * One learner response. The client sends the field its mode produces; the
+ * server decides which one *is* the answer, from the item's own type.
+ */
+export type ItemAnswer = {
+  text?: string;
+  option?: string;
+  tile_index?: number;
+  order?: string[];
+  pairs?: Record<string, string>;
+  self_marked?: boolean;
+  latency_ms?: number;
+};
+
+/**
+ * The verdict and the teaching half — **a different type from
+ * `ItemPresentation`, deliberately.** `canonical` is the answer, and keeping it
+ * in a separate shape is what makes "before grading" and "after grading" two
+ * types rather than one type with a nullable field somebody forgets to check.
+ *
+ * `explanation` is almost always null: the generator prompt never asks for one
+ * (#103). `murphy_units` is present when the item declares an error type
+ * (#104).
+ */
+export type ItemAnswerResult = {
+  correct: boolean;
+  graded_by: string;
+  canonical: string | null;
+  explanation: string | null;
+  murphy_units: string | null;
+};
+
+/** This learner's validated bank. */
+export function getItems(limit = 20): Promise<ItemPresentation[]> {
+  return request<ItemPresentation[]>(`/items?limit=${limit}`);
+}
+
+/**
+ * Submit one response. **All grading happens on the other end of this call.**
+ *
+ * There is no client-side comparison anywhere in this app and there is nothing
+ * to compare against: the projection carries no answer. "Instant feedback" is
+ * one network round trip, because an optimistic check would be a second
+ * definition of "the answer" — and `core/items/grading.py`'s fold is shared
+ * with the uniqueness gate, so a fourth fold here would let an item pass the
+ * gate and then be marked wrong for the identical string.
+ */
+export function answerItem(
+  itemId: number,
+  answer: ItemAnswer,
+): Promise<ItemAnswerResult> {
+  return request<ItemAnswerResult>(`/items/${itemId}/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(answer),
+  });
+}
+
+/**
+ * Where the item's audio lives. Fetched by the browser on tap, never on load.
+ *
+ * A URL rather than a fetch: an `<audio src>` lets the platform handle range
+ * requests, buffering and the lock-screen controls, and the cookie rides along
+ * because the element is same-origin-credentialled by `crossOrigin`.
+ */
+export function itemAudioUrl(itemId: number): string {
+  return `${API_BASE_URL}/items/${itemId}/audio`;
 }

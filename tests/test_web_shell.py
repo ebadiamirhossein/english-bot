@@ -112,6 +112,25 @@ def _web_sources() -> dict[str, str]:
     }
 
 
+def _shipped_sources() -> dict[str, str]:
+    """`_web_sources()` without the Vitest files.
+
+    **A test that asserts a word is absent necessarily contains that word.**
+    `feedback.test.tsx` checks that no wrong-answer copy says "wrong", and
+    `item-card.test.tsx` checks that nothing is struck through — so a copy scan
+    reading them would report both as violations and be satisfied only by
+    deleting the assertions. This is the same trap `_without_comments` exists
+    for, one level up: prose *about* a rule is not a breach of it, and neither
+    is a test *of* it.
+
+    Only the copy and palette scans use this. Everything structural still reads
+    the whole tree.
+    """
+    return {
+        rel: raw for rel, raw in _web_sources().items() if ".test." not in rel
+    }
+
+
 def test_no_browser_storage_except_the_theme() -> None:
     """CLAUDE.md §5 — nothing about a learner is kept in the browser.
 
@@ -214,9 +233,15 @@ def test_today_offers_exactly_one_action() -> None:
 
 
 def test_the_api_client_reads_its_base_url_from_the_environment() -> None:
-    """A hardcoded localhost is a shell that works only on the machine that built it."""
-    source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
+    """A hardcoded localhost is a shell that works only on the machine that built it.
+
+    W6 moved the read from `lib/api.ts` into `lib/env.ts` so the build-time
+    guard and the runtime read sit beside each other (#80). `lib/api.ts`
+    re-exports `API_BASE_URL`, so every existing caller is unchanged.
+    """
+    source = (WEB / "lib" / "env.ts").read_text(encoding="utf-8")
     assert "NEXT_PUBLIC_API_URL" in source
+    assert "API_BASE_URL" in (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
     example = (WEB / ".env.example").read_text(encoding="utf-8")
     assert "NEXT_PUBLIC_API_URL" in example
 
@@ -463,3 +488,335 @@ def test_the_storage_check_reads_code_not_prose() -> None:
     assert "localStorage" in _without_comments(
         'const t = localStorage.getItem("token"); // read the token\n'
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# W6. The frontend renders eleven item types for the first time, so three rules
+# that were previously either theoretical or scoped to one screen become real:
+# nothing may grade in TypeScript, nothing outside one map may branch on item
+# type, and the no-guilt rule now has eleven components' worth of wrong-answer
+# copy to hold. Each check below is meta-tested against a deliberate violation —
+# a check that no longer fails on anything is a deleted check with extra steps.
+# ─────────────────────────────────────────────────────────────────────────────
+
+ITEMS_TREE = ("components/items", "lib/items.ts")
+
+# The files that must NOT name an item type. Presentation is per type and
+# answering is per response mode, so the eleven live in exactly one map
+# (`components/items/presentation/index.ts`) plus the eleven files it points at.
+# Test files are excluded deliberately: `renders.test.tsx` names all eleven on
+# purpose, which is what makes `test_every_item_type_has_a_render_test` possible.
+TYPE_FREE_FILES = (
+    "apps/web/components/items/item-card.tsx",
+    "apps/web/components/items/feedback.tsx",
+    "apps/web/components/items/explanation.tsx",
+    "apps/web/components/items/audio-button.tsx",
+    "apps/web/components/items/answer/index.ts",
+    "apps/web/components/items/answer/types.ts",
+    "apps/web/components/items/answer/tap-answer.tsx",
+    "apps/web/components/items/answer/typed-answer.tsx",
+    "apps/web/components/items/answer/spoken-answer.tsx",
+    "apps/web/lib/items.ts",
+)
+
+
+def _items_sources() -> dict[str, str]:
+    """Every `.ts`/`.tsx` under the items tree, tests excluded."""
+    out: dict[str, str] = {}
+    for entry in ITEMS_TREE:
+        target = WEB / entry
+        paths = (
+            [target]
+            if target.is_file()
+            else [p for p in sorted(target.rglob("*")) if p.is_file()]
+        )
+        for path in paths:
+            if path.suffix not in {".ts", ".tsx"} or ".test." in path.name:
+                continue
+            out[str(path.relative_to(REPO_ROOT))] = path.read_text(encoding="utf-8")
+    return out
+
+
+# Every way TypeScript would fold or compare an answer. Scoped to the items tree
+# rather than the whole app, so the ban means something: `toLowerCase` is a
+# perfectly ordinary call elsewhere, and a blanket ban would be routed around
+# rather than obeyed.
+_COMPARISON = (
+    "toLowerCase",
+    "toLocaleLowerCase",
+    "localeCompare",
+    ".normalize(",
+    "casefold",
+    "replace(/[^",
+)
+
+
+def _comparison_offenders(sources: dict[str, str]) -> list[str]:
+    offenders: list[str] = []
+    for rel, raw in sorted(sources.items()):
+        text = _without_comments(raw)
+        for banned in _COMPARISON:
+            if banned in text:
+                offenders.append(f"{rel}: {banned}")
+    return offenders
+
+
+def test_no_answer_comparison_in_typescript() -> None:
+    """`core/items/grading.py`'s fold is shared by the uniqueness gate and the
+    grader, and a fourth fold here would let an item pass the gate and then be
+    ungradable — the learner types the identical string and is marked wrong.
+
+    The real enforcement is a capability: the projection carries no answer, so
+    there is nothing to compare against. This is the belt: it fails the commit
+    that starts folding a response before sending it, which is how a "just trim
+    it first" convenience becomes a second definition of "the answer".
+    """
+    assert _comparison_offenders(_items_sources()) == [], (
+        "all grading is server-side (core.items.grading.grade_text): "
+        + "; ".join(_comparison_offenders(_items_sources()))
+    )
+
+
+def test_the_comparison_check_catches_a_real_violation() -> None:
+    """CLAUDE.md §3 rule 4, applied to the rule itself."""
+    assert _comparison_offenders(
+        {"apps/web/lib/items.ts": "if (a.toLowerCase() === b) return true;"}
+    )
+    assert _comparison_offenders(
+        {"apps/web/components/items/x.tsx": 'v.normalize("NFC")'}
+    )
+    # Prose about the rule is not a violation of it.
+    assert (
+        _comparison_offenders(
+            {"apps/web/lib/items.ts": "// never call toLowerCase here\nconst a = 1;"}
+        )
+        == []
+    )
+
+
+def test_only_the_presentation_map_branches_on_item_type() -> None:
+    """Presentation is per type; answering is per response mode.
+
+    The W6 task row asks for one component per item type and the W5 contract
+    says render from `RESPONSE_MODE`. Both hold: eleven presentation components
+    over three answer components, with the eleven enumerated in exactly one map.
+    A type string leaking into the shell or into an answer component is the
+    eleven-way switch arriving by the back door.
+
+    The expected values are read from `core.items.ITEM_TYPES` — the other side
+    of the boundary — never from the files under test (rule 5).
+    """
+    from core.items import ITEM_TYPES
+
+    offenders: list[str] = []
+    for rel in TYPE_FREE_FILES:
+        path = REPO_ROOT / rel
+        assert path.is_file(), f"{rel} is listed but does not exist"
+        text = _without_comments(path.read_text(encoding="utf-8"))
+        for item_type in ITEM_TYPES:
+            if item_type in text:
+                offenders.append(f"{rel}: {item_type}")
+    assert offenders == [], (
+        "only components/items/presentation/index.ts and the eleven files it "
+        "maps to may name an item type: " + "; ".join(offenders)
+    )
+
+
+def test_the_presentation_map_covers_exactly_the_eleven() -> None:
+    """A type Python knows about with no component renders a fallback on a
+    phone. This is where that should be caught instead."""
+    from core.items import ITEM_TYPES
+
+    source = _without_comments(
+        (WEB / "components" / "items" / "presentation" / "index.ts").read_text(
+            encoding="utf-8"
+        )
+    )
+    body = source[source.index("PRESENTATIONS") :]
+    body = body[body.index("{") : body.index("};")]
+    mapped = set(re.findall(r"^\s{2}(\w+):\s", body, re.MULTILINE))
+    assert mapped == set(ITEM_TYPES), (
+        f"presentation map and core.items.ITEM_TYPES disagree: "
+        f"only in map {sorted(mapped - set(ITEM_TYPES))}, "
+        f"only in Python {sorted(set(ITEM_TYPES) - mapped)}"
+    )
+
+
+def test_the_response_mode_table_is_not_mirrored_in_typescript() -> None:
+    """`response_mode` travels on the wire from `ItemPresentation`.
+
+    A copy of `core.items.RESPONSE_MODE` here would be a table that drifts, and
+    the drift would surface as an item rendered with the wrong input — which
+    looks like a broken renderer rather than like stale data.
+    """
+    for rel, raw in _items_sources().items():
+        text = _without_comments(raw)
+        assert not re.search(r'"(mcq|cloze_cued)"\s*:\s*"(tap|typed|spoken)"', text), (
+            f"{rel} mirrors RESPONSE_MODE; it belongs on the wire"
+        )
+
+
+def test_every_item_type_has_a_render_test() -> None:
+    """The Vitest suite must actually render all eleven, not merely exist.
+
+    **Deliberately not a file count.** A count is satisfied by splitting files,
+    and #67's whole complaint was coverage that looks real from the outside. A
+    twelfth item type added in Python fails here until somebody renders it.
+    """
+    from core.items import ITEM_TYPES
+
+    tests = [
+        p.read_text(encoding="utf-8")
+        for p in (WEB / "components" / "items").rglob("*.test.tsx")
+    ]
+    assert tests, "apps/web has no item render tests"
+    blob = "\n".join(tests)
+    missing = [t for t in ITEM_TYPES if f'"{t}"' not in blob]
+    assert missing == [], f"no render test names: {', '.join(missing)}"
+
+
+def test_the_frontend_suite_is_runnable() -> None:
+    """`pnpm test` has to exist, or the Python suite is green over nothing.
+
+    A green suite standing in for a deleted one is the trap this project has
+    been bitten by; #67 is open because reading source is not running it.
+    """
+    config = json.loads((WEB / "package.json").read_text(encoding="utf-8"))
+    assert config["scripts"].get("test") == "vitest run"
+    assert (WEB / "vitest.config.ts").is_file()
+    assert (WEB / "vitest.setup.ts").is_file()
+
+
+def test_no_guilt_copy_anywhere_in_the_frontend() -> None:
+    """CLAUDE.md §4, extended from one screen to every `.tsx`.
+
+    Blunt on purpose: the pattern runs over the whole comment-stripped source,
+    so a variable named `failedCount` fails this too. Rename the variable — the
+    cost of that is far below the cost of one banned word reaching a learner,
+    and a scan that tries to tell copy from code is a scan that misses copy.
+
+    **What this cannot reach is item content.** `prompt_text`, `cue_text`,
+    options and tiles come from the database and, from W10, from a model. They
+    are the highest-volume user-facing copy in the app and no check touches them
+    (#110).
+    """
+    from tests.support.no_guilt import offenders
+
+    sources = {
+        rel: _without_comments(raw) for rel, raw in _shipped_sources().items()
+    }
+    assert offenders(sources) == [], (
+        "no user-facing string may blame the learner (CLAUDE.md §4): "
+        + "; ".join(offenders(sources))
+    )
+
+
+def test_the_no_guilt_scan_catches_a_real_violation() -> None:
+    from tests.support.no_guilt import offenders
+
+    assert offenders({"x.tsx": "<p>Wrong — try again</p>"})
+    assert offenders({"x.tsx": "You missed three this week 😞"})
+    assert offenders({"x.tsx": "Incorrect."})
+    assert offenders({"x.tsx": "That’s it."}) == []
+
+
+# `components/ui/` is vendored shadcn. Its `destructive` variant is part of the
+# primitive and is never used by a screen in this app — asserted separately
+# below — so banning the token inside those two files would fail on an unused
+# variant and teach nothing.
+_VENDORED_UI = "apps/web/components/ui/"
+
+_RED = (
+    "text-red",
+    "bg-red",
+    "border-red",
+    "#f00",
+    "rgb(255,0,0)",
+    "text-destructive",
+    "bg-destructive",
+    "line-through",
+)
+
+
+def _red_offenders(sources: dict[str, str]) -> list[str]:
+    offenders: list[str] = []
+    for rel, raw in sorted(sources.items()):
+        if rel.startswith(_VENDORED_UI):
+            continue
+        text = _without_comments(raw)
+        for banned in _RED:
+            if banned in text:
+                offenders.append(f"{rel}: {banned}")
+    return offenders
+
+
+def test_no_red_anywhere_in_the_frontend() -> None:
+    """The W1b palette decision, held across the whole app.
+
+    "Never guilt" is easier to keep to when the colour for failure does not
+    exist in the theme (`apps/web/README.md`). W3 asserted this for the
+    correction screen; W6 adds eleven components whose entire job is telling
+    someone their answer was not the one — which is exactly the screen someone
+    would be tempted to add a red to.
+    """
+    assert _red_offenders(_shipped_sources()) == [], (
+        "nothing in the palette is red by design: "
+        + "; ".join(_red_offenders(_shipped_sources()))
+    )
+
+
+def test_no_screen_uses_the_vendored_destructive_variant() -> None:
+    """The exemption above is bounded: shadcn may define it, we may not use it."""
+    offenders = [
+        rel
+        for rel, raw in _shipped_sources().items()
+        if not rel.startswith(_VENDORED_UI)
+        and 'variant="destructive"' in _without_comments(raw)
+    ]
+    assert offenders == [], f"destructive variant used by: {', '.join(offenders)}"
+
+
+def test_the_build_refuses_an_empty_api_base_url() -> None:
+    """Known issue #80, closed here.
+
+    An *unset* `NEXT_PUBLIC_API_URL` takes the localhost fallback but an
+    **empty** one does not, so `API_BASE_URL` becomes `""`, every request goes
+    to a relative path the deployment does not serve, and the message degrades
+    to "Could not reach the API at ." — indistinguishable from the API being
+    down. Vercel allows saving an empty-string variable, so it is reachable.
+
+    **The check is build-time, and that is the point.** A throw at module load
+    in `lib/env.ts` would fail the build only if that module were evaluated
+    during prerender; evaluated first in the browser it white-screens a phone
+    instead — a worse failure than the one being fixed. So `lib/env.ts` stays a
+    pure read and `prebuild` refuses.
+    """
+    config = json.loads((WEB / "package.json").read_text(encoding="utf-8"))
+    assert config["scripts"].get("prebuild") == "node scripts/check-env.mjs"
+
+    guard = (WEB / "scripts" / "check-env.mjs").read_text(encoding="utf-8")
+    assert "process.exit(1)" in guard
+    assert 'trim() === ""' in guard, "an empty value must fail, not only an unset one"
+
+    env_module = _without_comments((WEB / "lib" / "env.ts").read_text(encoding="utf-8"))
+    assert "throw" not in env_module, (
+        "lib/env.ts must stay a pure read — a module-load throw white-screens "
+        "the browser instead of failing the build"
+    )
+
+
+def test_the_practice_screen_exists_and_is_behind_the_session_guard() -> None:
+    """W6's surface. It writes attempts, so it lives under `(app)` — everything
+    there is behind `RequireSession`."""
+    assert (WEB / "app" / "(app)" / "practice" / "page.tsx").is_file()
+    layout = (WEB / "app" / "(app)" / "layout.tsx").read_text(encoding="utf-8")
+    assert "RequireSession" in layout
+
+
+def test_today_still_offers_exactly_one_button_after_w6() -> None:
+    """W6 adds a link to /practice, not a second action. PRD §4: home resolves
+    to one decision a day, and the session runner is that decision from W10."""
+    source = (WEB / "app" / "(app)" / "page.tsx").read_text(encoding="utf-8")
+    assert source.count("<Button") == 1
+    assert 'href="/practice"' in source
+    assert 'href="/write"' in source

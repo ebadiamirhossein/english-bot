@@ -7,9 +7,14 @@ it is what lets the validator be tested without Postgres and what keeps
 `tests/test_core_boundary.py::test_no_sql_outside_services` unexempted
 (known issue #59 stays the only exemption).
 
-Two modules here are impure by design and are named so nobody has to guess:
-`gates.py` (the model-required gates) and `verify.py` (the human-run
-verification). Everything else is a pure function of its arguments.
+Three modules here are impure by design and are named so nobody has to guess:
+`gates.py` (the model-required gates), `verify.py` (the human-run verification)
+and `seed_fixtures.py` (the human-run seeding, added at W6). Everything else is a
+pure function of its arguments.
+
+`seed_fixtures.py` is the only one that reaches a database, and it does so
+through `core.services.items` rather than by holding a query — so the purity
+test stays unexempted and #59 remains the only boundary exemption.
 
 **PRD names the eleven types and stops.** There is no per-type description
 anywhere in `docs/PRD-v3-web.md` — only a bare list at §4 and one paragraph on

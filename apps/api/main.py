@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from apps.api.routers import auth as auth_router
 from apps.api.routers import correct as correct_router
 from apps.api.routers import health as health_router
+from apps.api.routers import items as items_router
 from core.config import Settings, load_settings
 from core.services.alerts import format_alert, should_send_alert
 
@@ -165,6 +166,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router.router)
     app.include_router(auth_router.router)
     app.include_router(correct_router.router)
+    app.include_router(items_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -175,6 +177,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     health_router.router,
                     auth_router.router,
                     correct_router.router,
+                    items_router.router,
                 )
                 for route in router.routes
             )

@@ -500,3 +500,104 @@ def test_migrations_dir_is_repo_root() -> None:
     assert MIGRATIONS_DIR == MIGRATIONS
     assert MIGRATIONS_DIR.is_dir()
     assert sorted(p.name for p in MIGRATIONS_DIR.glob("*.sql"))[0].startswith("001")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# W6. The single-serialiser contract, in the shape of
+# `test_exactly_one_module_writes_an_item` and for the same reason: the other
+# layers holding it up can each be bypassed by writing new code somewhere else,
+# and nothing would fail. These two are the layer that survives a refactor.
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: The only modules permitted to build a learner-visible view of an item.
+#: `gates.py` shows the projection to the blind solver, `verify.py` prints it in
+#: a dry run, and `core/services/items.py` serves it. A fourth would mean the
+#: probe and the learner are looking at different artefacts.
+PROJECTORS = {
+    "packages/core/items/gates.py",
+    "packages/core/items/verify.py",
+    "packages/core/services/items.py",
+}
+
+#: `apps/api` may not reach any of these. The first three carry the answer; the
+#: last two are the provider wrappers, and a route that calls one is holding the
+#: material it is sending — which for `listening_gap` **is** the answer.
+FORBIDDEN_IN_API = frozenset(
+    {
+        "core.items.projection",
+        "core.items.schema",
+        "core.items.grading",
+        "core.items.response",
+        "core.llm",
+        "core.speech",
+    }
+)
+
+
+def test_exactly_one_module_projects_an_item() -> None:
+    """"Everything learner-visible goes through `visible_projection`", structurally.
+
+    If a second serialiser is written — in a router, in a pydantic response
+    model, in a service — the blind-solver probe stops describing what a learner
+    actually sees, and **every downstream number stays green while the gate
+    silently measures the wrong artefact**. That is the failure the whole item
+    slice exists to prevent, one level up, and it is the one most likely to
+    happen by accident: a renderer that needs one more field is a one-line
+    change in a route.
+
+    W10 inherits this rather than building its own. `GET /session/today`
+    hydrates five blocks through `core.services.items.presentations_for`, which
+    is in the set below; a serialiser of its own would not be.
+    """
+    projectors: set[str] = set()
+    for root in (CORE, APPS):
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            # Prose describing the rule is not a violation of it — the same
+            # trap `test_exactly_one_module_writes_an_item` documents.
+            prose = _docstring_ids(tree)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and id(node) in prose:
+                    continue
+                if isinstance(node, ast.Name) and node.id == "visible_projection":
+                    projectors.add(str(path.relative_to(REPO_ROOT)))
+                elif (
+                    isinstance(node, ast.Attribute)
+                    and node.attr == "visible_projection"
+                ):
+                    projectors.add(str(path.relative_to(REPO_ROOT)))
+    assert projectors == PROJECTORS, (
+        "exactly three modules may build a learner-visible view: "
+        f"unexpected {sorted(projectors - PROJECTORS)}, "
+        f"missing {sorted(PROJECTORS - projectors)}"
+    )
+
+
+def test_the_api_never_reaches_the_hidden_half_of_an_item() -> None:
+    """A route cannot leak what it was never given — but only if it stays that way.
+
+    `core.services.items` hands `apps/api` an `ItemPresentation`, which carries
+    no answer, no accepted variants, no transcript, no rubric, no wrong index
+    and no correction. That is a capability rather than a rule. This test is
+    what stops the capability being routed around by importing the pure modules
+    directly and rebuilding the envelope by hand.
+
+    The two provider wrappers are here for the same reason and it is worth
+    stating, because it looks like a different rule: a route that calls
+    `speech.synthesize` itself must hold the text it is synthesising, and for
+    `dictation` and `listening_gap` that text **is the answer**, in plain Python,
+    inside `apps/api`. One exception handler that echoes context, one debug log
+    line, one 500 body, and it is on the wire. So `item_audio` synthesises in
+    the service and the route receives bytes.
+    """
+    offenders: list[str] = []
+    for path in _python_files(APPS / "api"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hit = _imported_modules(tree) & FORBIDDEN_IN_API
+        if hit:
+            rel = path.relative_to(REPO_ROOT)
+            offenders.append(f"{rel}: {', '.join(sorted(hit))}")
+    assert offenders == [], (
+        "apps/api receives ItemPresentation and bytes; it may not import the "
+        "modules that carry an answer or reach a provider: " + "; ".join(offenders)
+    )

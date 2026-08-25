@@ -1,0 +1,127 @@
+[
+  {
+    "id": 1,
+    "response_mode": "tap",
+    "projection": {
+      "item_type": "mcq",
+      "prompt_text": "I ___ to the shops yesterday.",
+      "options": [
+        "went",
+        "goed",
+        "gone",
+        "going"
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "response_mode": "typed",
+    "projection": {
+      "item_type": "cloze_cued",
+      "prompt_text": "I ___ to the shops yesterday.",
+      "cue": "(past of go)"
+    }
+  },
+  {
+    "id": 3,
+    "response_mode": "tap",
+    "projection": {
+      "item_type": "word_bank_order",
+      "prompt_text": "Put these in order.",
+      "bank": [
+        "shops",
+        "went",
+        "I",
+        "the",
+        "to"
+      ]
+    }
+  },
+  {
+    "id": 4,
+    "response_mode": "tap",
+    "projection": {
+      "item_type": "error_spot",
+      "prompt_text": "Tap the word that is wrong.",
+      "tiles": [
+        "I",
+        "goed",
+        "to",
+        "the",
+        "shops"
+      ]
+    }
+  },
+  {
+    "id": 5,
+    "response_mode": "typed",
+    "projection": {
+      "item_type": "l1_to_l2_production",
+      "prompt_text": "من دیروز به مغازه رفتم",
+      "l1": "fa"
+    }
+  },
+  {
+    "id": 6,
+    "response_mode": "typed",
+    "projection": {
+      "item_type": "dictation",
+      "prompt_text": "Type what you hear."
+    }
+  },
+  {
+    "id": 7,
+    "response_mode": "typed",
+    "projection": {
+      "item_type": "listening_gap",
+      "prompt_text": "She ___ like coffee these days"
+    }
+  },
+  {
+    "id": 8,
+    "response_mode": "spoken",
+    "projection": {
+      "item_type": "speak_repeat",
+      "prompt_text": "I'll call you back in a minute"
+    }
+  },
+  {
+    "id": 9,
+    "response_mode": "spoken",
+    "projection": {
+      "item_type": "speak_answer",
+      "prompt_text": "What did you do last weekend?"
+    }
+  },
+  {
+    "id": 10,
+    "response_mode": "tap",
+    "projection": {
+      "item_type": "match_pairs",
+      "prompt_text": "Match each word to its meaning.",
+      "left": [
+        "gutted",
+        "knackered",
+        "skint"
+      ],
+      "right": [
+        "having no money",
+        "very disappointed",
+        "very tired"
+      ]
+    }
+  },
+  {
+    "id": 11,
+    "response_mode": "tap",
+    "projection": {
+      "item_type": "collocation_pick",
+      "prompt_text": "She ___ a photo of us at the beach.",
+      "options": [
+        "took",
+        "made",
+        "did"
+      ]
+    }
+  }
+]

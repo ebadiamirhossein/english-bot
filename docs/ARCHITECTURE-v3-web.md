@@ -153,7 +153,10 @@ GET  /session/today                → the 5 blocks, fully hydrated
 POST /session/{id}/block/{n}/complete
 GET  /review/queue?limit=          → FSRS due cards
 POST /review/{card_id}/grade       → {again|hard|good|easy} → next due
-POST /items/{id}/answer            → correctness, explanation, journal write
+GET  /items?limit=&item_type=      → the validated bank, learner-visible halves only
+GET  /items/{id}                   → one item, learner-visible half only (404 if not yours)
+POST /items/{id}/answer            → correctness + the canonical + explanation. **No journal write**
+GET  /items/{id}/audio             → audio/mpeg for the three types whose content is sound
 POST /correct                      → free text → correction + journal (v2 M2, ported)
 GET  /video/today                  → assigned video + segment + transcript + coverage
 POST /video/{id}/save-word         → creates cards
@@ -165,6 +168,32 @@ POST /placement/start | /answer | /finish
 ```
 
 Audio is uploaded, processed in memory, scored, and **discarded within the request**. It never touches disk and never reaches R2.
+
+**W6 corrected three things in this section, on 2026-08-25, and they are named
+rather than quietly reconciled.**
+
+1. **`POST /items/{id}/answer` does not write to the journal.** This row said it
+   did. `errors.source` was widened at migration 012 to include `item`, and
+   after W6 that value still has **no writer**. A tapped wrong option is a
+   *selection*, not self-produced English; a spoken response is not captured at
+   all; and a typed miss is not necessarily a grammar error — a missed
+   `dictation` is a listening failure, and an `l1_to_l2_production` canonical is
+   trusted rather than verified (known issue #102), so a `correct_form` written
+   from it could itself be wrong. A wrong journal row is permanent damage; a
+   missing one is recoverable. The evidence lives in `item_attempts` instead.
+   **W11 is the slice that will write the first `source = 'item'` row** (#107).
+2. **The two read routes and the audio route were missing.** This section
+   assumed hydration would arrive with W10's `GET /session/today`. It does — and
+   `/session/today` is built from the same `core.services.items.presentations_for`
+   that `GET /items` uses, so W10 adds a resource rather than replacing one.
+   `item_attempts.session_id` is nullable precisely because migration 012 named
+   free practice as a first-class path.
+3. **`GET /items/{id}/audio` synthesises inside the service, not in the route.**
+   For `listening_gap` the text being spoken *is* the answer. A route that
+   called `core.speech.synthesize` itself would hold that string inside
+   `apps/api`, where one exception handler echoing context puts it on the wire —
+   so the service returns bytes and `tests/test_core_boundary.py::test_the_api_never_reaches_the_hidden_half_of_an_item`
+   keeps `core.speech` out of `apps/api` entirely.
 
 ---
 

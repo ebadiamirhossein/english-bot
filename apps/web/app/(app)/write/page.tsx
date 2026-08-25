@@ -49,7 +49,7 @@ export default function WritePage() {
             ? "That didn’t come back. Give it a moment and try again."
             : error instanceof Error
               ? error.message
-              : "Something went wrong. Try again in a moment.",
+              : "That didn’t work. Try again in a moment.",
       });
     }
   }

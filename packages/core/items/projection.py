@@ -10,10 +10,20 @@ they passed, and nothing fails. `tests/test_items_projection.py` asserts, per
 type, that the answer string appears nowhere in `json.dumps(projection)` — as a
 value or as a substring.
 
-**CROSS-SLICE CONTRACT.** W6's `GET /session/today` must serialise items through
-this function and nothing else. If W6 writes its own serialiser the two drift,
-the gate silently stops describing what learners actually see, and the drift is
-invisible because both halves keep working on their own terms.
+**CROSS-SLICE CONTRACT.** Every learner-visible serialisation goes through this
+function and nothing else. `core.services.items.presentations_for` is the single
+caller outside this package, and W10's `GET /session/today` hydrates its five
+blocks through it rather than building an envelope of its own. If a second
+serialiser is written the two drift, the gate silently stops describing what
+learners actually see, and the drift is invisible because both halves keep
+working on their own terms.
+
+(W5 wrote `GET /session/today` here as W6's. It is W10's — `docs/TASKS-v3-web.md`
+line 42. The contract was right; the slice attribution was not.)
+
+Held up by `tests/test_core_boundary.py::test_exactly_one_module_projects_an_item`,
+which names the three modules permitted to call this, and by
+`::test_the_api_never_reaches_the_hidden_half_of_an_item`.
 """
 
 from __future__ import annotations

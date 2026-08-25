@@ -56,7 +56,7 @@ export default function SignInPage() {
           ? "That passkey isn’t set up here yet."
           : error instanceof Error
             ? error.message
-            : "Something went wrong. Try again in a moment.",
+            : "That didn’t work. Try again in a moment.",
         offerEnrol: unknown,
       });
     }

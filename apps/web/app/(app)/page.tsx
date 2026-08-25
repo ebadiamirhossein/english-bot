@@ -31,10 +31,17 @@ export default function TodayPage() {
         <p className="text-center text-sm text-muted-foreground">
           The session runner arrives in W10.{" "}
           <Link
+            href="/practice"
+            className="text-primary underline underline-offset-4"
+          >
+            Practise
+          </Link>{" "}
+          or{" "}
+          <Link
             href="/write"
             className="text-primary underline underline-offset-4"
           >
-            Write anything
+            write anything
           </Link>{" "}
           in the meantime.
         </p>
@@ -47,7 +54,7 @@ export default function TodayPage() {
           "Five blocks: warm-up, focus, input, production, review.",
           "Built overnight, so it opens in under a second.",
           "Resumable — lock your phone mid-session and pick it up later.",
-          "Missed a day? Tomorrow is smaller, not doubled.",
+          "Away for a day? Tomorrow is smaller, not doubled.",
         ]}
       />
 
