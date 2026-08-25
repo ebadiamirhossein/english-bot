@@ -6,9 +6,15 @@ observed by `python -m core.items.judge_observe --live`, which is human-run and
 billed (CLAUDE.md §5b).
 
 **The load-bearing test is `test_arm_a_is_byte_identical_to_what_validate_sends`.**
-If `sentence_of` ever changes, the harness follows it or this suite fails. A
-harness that drifted from the thing it reports on is the W5a `--live` bug, and
-this slice exists to answer a question that bug's shape already cost a slice.
+If what the gate sends ever changes, the harness follows it or this suite fails.
+A harness that drifted from the thing it reports on is the W5a `--live` bug, and
+W5b exists to answer a question that bug's shape already cost a slice.
+
+**W5c inverted five of these.** W5b pinned the broken behaviour deliberately —
+its own docstrings said so and named the inversion as the fix slice's acceptance
+criterion. The gate now sends `judged_sentence`, so arm A carries no gap, arm B
+differs from it for nothing, and the partition is 10 judged / 0 gapped / 10
+prose.
 """
 
 from __future__ import annotations
@@ -20,7 +26,7 @@ from pathlib import Path
 import pytest
 
 from core.items import gates, judge_observe
-from core.items.checks import sentence_of
+from core.items.checks import judged_sentence
 from core.items.schema import GAP
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -31,8 +37,11 @@ FIXTURES = json.loads(
     )
 )
 
-#: The four whose judged string is defective, named rather than derived: a
-#: derived list would silently agree with a harness that stopped filling gaps.
+#: The four whose judged string WAS defective before W5c, named rather than
+#: derived: a derived list would silently agree with a harness that stopped
+#: filling gaps. Kept after the fix because the tests below assert these four
+#: specifically are no longer defective — a set that shrank with the bug would
+#: prove nothing.
 GAPPED = {"mcq", "cloze_cued", "collocation_pick", "error_spot"}
 
 
@@ -48,35 +57,39 @@ def _by_name() -> dict:
 
 
 def test_arm_a_is_byte_identical_to_what_validate_sends() -> None:
-    """Arm A must BE `sentence_of`, not resemble it.
+    """Arm A must BE what the gate sends, not resemble it.
 
-    `gates.validate` judges `sentence_of(item)` (gates.py:399). If the harness
+    `gates.validate` judges `judged_sentence(item)` since W5c. If the harness
     reported on any other string, its finding would describe a request
     production never makes.
     """
     for name, item in _by_name().items():
-        assert judge_observe.arm_as_shipped(item) == sentence_of(item), name
+        assert judge_observe.arm_as_shipped(item) == judged_sentence(item), name
 
 
-def test_arm_a_hands_the_judge_a_gap_for_exactly_four_fixtures() -> None:
-    """The finding, pinned. This is #115's cause stated as an assertion.
+def test_arm_a_hands_the_judge_no_gap_for_any_fixture() -> None:
+    """W5b's pinned defect, inverted. This is #115 stated as a fixed assertion.
 
-    Deliberately asserts the CURRENT broken behaviour rather than the desired
-    behaviour: W5b is an investigation and may not fix the gate. When the fix
-    lands this test flips to `GAP not in ...` for every fixture, and that
-    inversion is the fix's own acceptance criterion.
+    W5b deliberately asserted the broken behaviour — `GAP in arm A` for three
+    fixtures — and named this inversion as the fix slice's acceptance criterion.
+    Here it is, green.
     """
     gapped = {
         name
         for name, item in _by_name().items()
         if GAP in judge_observe.arm_as_shipped(item)
     }
-    assert gapped == GAPPED - {"error_spot"}
+    assert gapped == set()
 
 
-def test_error_spot_hands_the_judge_its_own_deliberate_error() -> None:
+def test_error_spot_no_longer_hands_the_judge_its_own_deliberate_error() -> None:
+    """The other half of the inversion: `correction`, not `tiles[wrong_index]`.
+
+    W5b asserted `"I goed to the shops"` here. That string is what made the
+    judge say `textbook`x3 `stilted`x2 — correctly, since nobody says it.
+    """
     item = _by_name()["error_spot"]
-    assert judge_observe.arm_as_shipped(item) == "I goed to the shops"
+    assert judge_observe.arm_as_shipped(item) == "I went to the shops"
 
 
 def test_arm_b_closes_every_gap() -> None:
@@ -89,14 +102,43 @@ def test_arm_b_corrects_the_wrong_tile_in_place() -> None:
     assert judge_observe.arm_filled(item) == "I went to the shops"
 
 
-def test_arm_b_differs_from_arm_a_for_exactly_the_four() -> None:
-    """The asymmetry IS the hypothesis, so it is asserted rather than assumed."""
+def test_arm_b_differs_from_arm_a_for_nothing_at_all() -> None:
+    """The asymmetry WAS the hypothesis; closing it is the fix.
+
+    W5b asserted `differ == GAPPED`. Arm A now sends what arm B always sent, so
+    the set is empty — and the four that used to differ are named explicitly
+    below so this cannot pass by both arms breaking together.
+    """
     differ = {
         name
         for name, item in _by_name().items()
         if judge_observe.arm_filled(item) != judge_observe.arm_as_shipped(item)
     }
-    assert differ == GAPPED
+    assert differ == set()
+
+
+def test_arm_b_is_what_the_gate_now_sends() -> None:
+    """Two independently written functions, asserted to agree.
+
+    `arm_filled` does NOT delegate to `judged_sentence` (see its docstring).
+    That is what makes this an assertion rather than a tautology: it says the
+    fix implements exactly W5b's arm B, which is the arm the live run measured
+    at 5/5 natural on all four types.
+    """
+    for name, item in _by_name().items():
+        assert judge_observe.arm_filled(item) == judged_sentence(item), name
+
+
+def test_the_four_formerly_defective_fixtures_are_the_ones_that_changed() -> None:
+    """Named, not derived. The fix has to have touched exactly these four."""
+    from core.items.checks import sentence_of
+
+    changed = {
+        name
+        for name, item in _by_name().items()
+        if judged_sentence(item) != sentence_of(item)
+    }
+    assert changed == GAPPED
 
 
 def test_arm_b_is_deterministic_and_costs_no_model_call(monkeypatch) -> None:
@@ -105,11 +147,14 @@ def test_arm_b_is_deterministic_and_costs_no_model_call(monkeypatch) -> None:
         assert judge_observe.arm_filled(item) == judge_observe.arm_filled(item)
 
 
-def test_the_partition_is_ten_judged_four_gapped_six_prose() -> None:
-    """`match_pairs` is never judged: `sentence_of` returns "" and
-    `gates.validate` skips the call (`if sentence.strip()`)."""
+def test_the_partition_is_ten_judged_zero_gapped_ten_prose() -> None:
+    """W5b measured 10 / 4 / 6. The four are gone; that is the whole slice.
+
+    `match_pairs` is still never judged: it has no sentence, so the judged
+    string is "" and `gates.validate` skips the call (`if sentence.strip()`).
+    """
     judged, gapped, clean = judge_observe._partition(_loaded())
-    assert [len(judged), len(gapped), len(clean)] == [10, 4, 6]
+    assert [len(judged), len(gapped), len(clean)] == [10, 0, 10]
     assert "match_pairs" not in {r["name"] for r in judged}
 
 
@@ -266,17 +311,32 @@ def test_the_dry_run_makes_no_call_and_is_the_default(monkeypatch, capsys) -> No
     assert judge_observe.main([]) == 0
     out = capsys.readouterr().out
     assert "Nothing was sent and nothing was written." in out
-    assert "10 judged, 4 of them gapped or errored, 6 already prose." in out
+    # W5b printed "10 judged, 4 of them gapped or errored, 6 already prose."
+    assert "10 judged, 0 of them gapped or errored, 10 already prose." in out
 
 
-def test_the_dry_run_shows_the_four_defective_strings(monkeypatch, capsys) -> None:
-    """Most of the finding is legible before a single call is billed."""
+def test_the_dry_run_shows_no_defective_strings_any_more(monkeypatch, capsys) -> None:
+    """W5b's finding was legible here before a single call was billed.
+
+    It printed four `___`/`goed` strings under a GAPPED/ERRORED flag. The same
+    zero-cost print is now the cheapest proof the fix landed: no flag, and the
+    stem that used to be judged replaced by the sentence it stands for.
+    """
     monkeypatch.setattr(gates, "_chat", _forbidden)
     judge_observe.main([])
     out = capsys.readouterr().out
-    assert out.count("<-- GAPPED/ERRORED") == 4
-    assert "'I ___ to the shops yesterday.'" in out
+    assert out.count("<-- GAPPED/ERRORED") == 0
+    assert "'I ___ to the shops yesterday.'" not in out
+    assert "'I goed to the shops'" not in out
     assert "'I went to the shops yesterday.'" in out
+    assert "'I went to the shops'" in out
+
+
+def test_the_dry_run_prices_arm_b_at_zero(monkeypatch, capsys) -> None:
+    """The arms are the same string now, so arm B costs nothing to re-run."""
+    monkeypatch.setattr(gates, "_chat", _forbidden)
+    judge_observe.main([])
+    assert "+ 0 arm-B calls" in capsys.readouterr().out
 
 
 def test_runs_must_be_at_least_one() -> None:

@@ -90,8 +90,12 @@ def sentence_of(item: BaseItem) -> str:
 
     Not always `prompt_text`: for `dictation` the stem is an instruction and the
     sentence is the answer, for `listening_gap` it is the transcript, and for
-    `l1_to_l2_production` the stem is not English at all. The naturalness gate
-    must read the English, so it asks here rather than assuming.
+    `l1_to_l2_production` the stem is not English at all. A gate that must read
+    the English asks here rather than assuming.
+
+    **This is the STEM, gap and all.** It is what the mechanical rules and the
+    deterministic checks want; it is not what the LLM naturalness judge wants.
+    See `judged_sentence` below and W5b's finding (#115).
     """
     if isinstance(item, DictationItem):
         return item.answer or ""
@@ -106,6 +110,39 @@ def sentence_of(item: BaseItem) -> str:
     if isinstance(item, ErrorSpotItem):
         return " ".join(item.tiles)
     return item.prompt_text
+
+
+def judged_sentence(item: BaseItem) -> str:
+    """`sentence_of` as PROSE — the gap closed, the wrong tile corrected.
+
+    **The string the LLM naturalness judge is given, and the only caller that
+    wants this one.** `item_naturalness.txt` asks whether a real person would
+    say this to a friend; it never mentions gaps, exercises or learners, and it
+    instructs rejection of anything "nobody actually phrases that way". Handing
+    it `"I ___ to the shops yesterday."` or `"I goed to the shops"` is asking
+    the right question about the wrong string, and a model that answers no is
+    obeying its prompt. W5b measured it: 0/5 natural as shipped, 5/5 filled,
+    across all four defective types, forty observations in the predicted
+    direction (#115).
+
+    **Deterministic, no model call**, by design. W5b's arm B was built this way
+    for a reason: a second source of ambiguity inside the thing that decides is
+    how a gate becomes unfalsifiable.
+
+    Byte-identical to `sentence_of` for the seven types whose sentence is
+    already prose, which `tests/test_items_judged_sentence.py` asserts in both
+    directions so the change stays provably narrow.
+    """
+    if isinstance(item, ErrorSpotItem):
+        tiles = list(item.tiles)
+        tiles[item.wrong_index] = item.correction
+        return " ".join(tiles)
+    sentence = sentence_of(item)
+    # The guard makes the function total, not because it is expected to fire:
+    # the judge runs only after `deterministic_failures` has returned empty.
+    if GAP in sentence and item.answer:
+        return sentence.replace(GAP, item.answer)
+    return sentence
 
 
 def looks_proper_noun(word: str, sentence: str) -> bool:

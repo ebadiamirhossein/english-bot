@@ -187,53 +187,81 @@ def test_an_item_whose_canonical_is_not_offered_is_rejected(monkeypatch) -> None
     assert result.report.blind_solver[0] in {"not_recoverable", "multi_acceptable"}
 
 
-# ── listening_gap gets a uniqueness gate for the first time ────────────────
+# ── listening_gap: W5a's probe, and W5c's ruling R1 removing it ────────────
 
 
-def test_listening_gap_runs_the_probe_as_well_as_the_round_trip(monkeypatch) -> None:
-    """W5 gated it on audio only.
+def test_listening_gap_is_gated_by_the_round_trip_alone(monkeypatch) -> None:
+    """W5a gave this type a text-only probe. W5c takes it back (ruling R1).
 
-    The round-trip proved the gapped word was AUDIBLE; nothing proved it was the
-    only word that FITS. `"I forgot my ___ this morning"` round-trips perfectly
-    and admits wallet, phone, bag and purse.
+    W5b measured what that probe could do: `classes=0` on all six attempts,
+    bare and cued, three runs. It recovered no word at all. The reason is
+    structural — PRD §4.3 says the gate sees *"only what the learner will
+    see"*, and the learner HEARS this sentence, so a text-only probe sees
+    strictly less than the learner rather than the same (#121).
+
+    The assertion is about CONTROL FLOW, not about `PROBED_FAMILIES`: this
+    type's family is still probed for other types, so membership would stay
+    true and prove nothing. Here the probe's own seam raises, so a single call
+    fails the test.
     """
     row = next(r for r in VALID if r["name"] == "listening_gap")
     item = _item(row["item"])
     monkeypatch.setattr(gates, "_synthesize", lambda *a, **k: b"audio")
     monkeypatch.setattr(gates, "_transcribe", lambda *a, **k: item.transcript)
-    monkeypatch.setattr(
-        gates, "_chat", _recorded({"acceptable": ["doesn't", "won't"]})
-    )
+
+    def _no_probe(*_a, **_k):
+        raise AssertionError("listening_gap must not reach the probe")
+
+    monkeypatch.setattr(gates, "_chat", _no_probe)
 
     result = gates.validate(item, judge=False)
-    assert result.report.verdict == "discarded", (
-        "a clean round-trip must no longer be enough on its own"
-    )
-    assert result.report.solver_calls >= 1
+    assert result.report.verdict == "passed"
+    assert result.report.solver_calls == 0
 
 
-def test_a_clean_listening_gap_passes_both_gates(monkeypatch) -> None:
+def test_listening_gap_still_fails_when_the_gapped_word_is_not_heard(
+    monkeypatch,
+) -> None:
+    """R1 removes the probe; it does not weaken the gate that remains.
+
+    A word the recogniser itself cannot recover from the audio is not one a
+    learner will, so the round-trip must still be decisive on its own.
+    """
     row = next(r for r in VALID if r["name"] == "listening_gap")
     item = _item(row["item"])
     monkeypatch.setattr(gates, "_synthesize", lambda *a, **k: b"audio")
-    monkeypatch.setattr(gates, "_transcribe", lambda *a, **k: item.transcript)
+    monkeypatch.setattr(gates, "_transcribe", lambda *a, **k: "She like coffee")
     monkeypatch.setattr(gates, "_chat", _recorded({"acceptable": ["doesn't"]}))
 
-    assert gates.validate(item, judge=False).report.verdict == "passed"
+    assert gates.validate(item, judge=False).report.verdict == "discarded"
 
 
 # ── the version bump ────────────────────────────────────────────────────────
 
 
 def test_the_validator_version_records_the_tightened_gate() -> None:
-    """W10 filters the bank on this; a version-1 row may be multi-acceptable."""
-    assert VALIDATOR_VERSION == 2
+    """W10 filters the bank on this.
+
+    1 → 2 (W5a): a version-1 row may be multi-acceptable. 2 → 3 (W5c): a
+    version-2 row's naturalness verdict was reached on the gapped stem, which
+    is a differently-worded question, and a version-2 `listening_gap` row also
+    carried a probe it could not satisfy.
+    """
+    assert VALIDATOR_VERSION == 3
 
 
 def test_probed_families_are_exactly_the_non_exact_ones() -> None:
+    """Family membership, which is NOT the same as "validate probes it".
+
+    `listening_gap`'s family is still probed — the type is exempted by
+    `validate`'s control flow (ruling R1), not by its family. Asserting
+    membership here and control flow in
+    `test_listening_gap_is_gated_by_the_round_trip_alone` keeps the two claims
+    from being mistaken for each other.
+    """
     probed = {t for t, f in ANSWER_FAMILY.items() if f in PROBED_FAMILIES}
     assert "match_pairs" not in probed
-    assert {"cloze_cued", "listening_gap", "collocation_pick"} <= probed
+    assert {"cloze_cued", "collocation_pick"} <= probed
 
 
 # ── the verification harness itself ─────────────────────────────────────────

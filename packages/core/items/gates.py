@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from core import PROMPTS_DIR
 from core.config import Settings
@@ -39,7 +39,12 @@ from core.items import (
     TYPES_WITH_AUDIO,
     VALIDATOR_VERSION,
 )
-from core.items.checks import Failure, deterministic_failures, sentence_of
+from core.items.checks import (
+    Failure,
+    deterministic_failures,
+    judged_sentence,
+    sentence_of,
+)
 from core.items.grading import (
     distinct_answers,
     equivalence_key,
@@ -137,6 +142,17 @@ class ValidationReport:
     solver_answer: str | None = None
     canonical: str | None = None
     solver_calls: int = 0
+
+    #: **The diagnostics the gates ask for and used to throw away (#119).**
+    #: `item_naturalness.txt` asks for a one-word reason and `item_probe.txt`
+    #: asks for a confidence; both were parsed and dropped one line later, so a
+    #: `high` issue was opened that a stored word would have answered and a
+    #: whole slice (W5b) was spent recovering it. The cost of dropping them was
+    #: measured, so they are stored: the next unexplained verdict diagnoses
+    #: itself out of `items.validation`.
+    naturalness_reason: str | None = None
+    probe_confidence: str | None = None
+
     validator_version: int = VALIDATOR_VERSION
 
     @property
@@ -156,6 +172,8 @@ class ValidationReport:
             "solver_answer": self.solver_answer,
             "canonical": self.canonical,
             "solver_calls": self.solver_calls,
+            "naturalness_reason": self.naturalness_reason,
+            "probe_confidence": self.probe_confidence,
             "validator_version": self.validator_version,
         }
 
@@ -220,6 +238,19 @@ def _candidates(response: dict) -> list[str]:
         elif entry is not None:
             out.append(str(entry))
     return out
+
+
+def _confidence(response: dict) -> str | None:
+    """The probe's own `confidence`, which `item_probe.txt` asks for (#119).
+
+    *"Low confidence is a signal about the exercise, not about you"* — so it is
+    evidence about the item and belongs in the stored validation record beside
+    `acceptable`, under the same "from the LAST probe call" convention. It does
+    not decide anything today: a verdict driven by a self-reported confidence
+    would be a threshold, and this validator has none.
+    """
+    raw = response.get("confidence")
+    return str(raw) if isinstance(raw, str) and raw.strip() else None
 
 
 def _mapping_matches(item: BaseItem, response: dict) -> bool:
@@ -304,14 +335,43 @@ def _sentence_field(item: BaseItem) -> str | None:
     return "prompt_text"
 
 
+@dataclass(frozen=True, slots=True)
+class NaturalnessVerdict:
+    """One row of the judge's answer: the boolean AND the word it gave for it.
+
+    **Read `.natural`, never the object.** A dataclass instance is always
+    truthy, so `if not judge_naturalness(...)[0]` would silently never fire —
+    a fail-open with no symptom, on the one gate whose whole failure mode this
+    slice exists to fix. `test_items_judged_sentence.py` drives
+    `validate(..., judge=True)` in both directions so the trap cannot be
+    re-entered quietly; before W5c that path had no test at all, because every
+    `validate` call in the suite passed `judge=False` (CLAUDE.md §3 rule 4).
+    """
+
+    natural: bool
+    #: One of `item_naturalness.txt`'s words — ok, slack, textbook, stilted,
+    #: jargon, written — or `MISSING_ROW` when the fail-open default fired.
+    reason: str
+
+
+#: What `reason` says when the model omitted the row entirely. The same string
+#: `judge_observe._reason_of` has used since W5b, so the gate and the harness
+#: that observes it name the fail-open case identically.
+MISSING_ROW = "missing-row"
+
+
 def judge_naturalness(
     sentences: Sequence[str], *, settings: Settings | None = None
-) -> tuple[bool, ...]:
+) -> tuple[NaturalnessVerdict, ...]:
     """Rule 1, batched up to `JUDGE_BATCH` per call.
 
     Batching is safe here precisely because it is unsafe for the blind solver:
     the judge is not being asked to recover an answer, so a neighbouring
     sentence cannot leak one.
+
+    **Callers must pass prose.** `checks.judged_sentence` is what produces it;
+    `checks.sentence_of` is not, and handing this function a gapped stem is
+    #115 (W5b: 0/5 natural as shipped, 5/5 filled).
     """
     if not sentences:
         return ()
@@ -324,15 +384,25 @@ def judge_naturalness(
         reject_truncation=True,
         settings=settings,
     )
-    verdicts = {}
+    verdicts: dict[int, NaturalnessVerdict] = {}
     if isinstance(response, dict):
         for row in response.get("verdicts", []) or []:
             if isinstance(row, dict) and "n" in row:
-                verdicts[int(row["n"])] = bool(row.get("natural"))
+                # The reason is asked for by the prompt and, until W5c, was
+                # parsed and dropped on the next line (#119). It is the whole
+                # diagnosis of a rejection and it costs nothing to keep.
+                reason = row.get("reason")
+                verdicts[int(row["n"])] = NaturalnessVerdict(
+                    bool(row.get("natural")),
+                    str(reason) if reason is not None else "",
+                )
     # A sentence the judge failed to rule on is treated as natural. The judge is
     # a backstop behind three mechanical rules, and failing an item because a
     # model omitted a row would reject good content for a transport reason.
-    return tuple(verdicts.get(i + 1, True) for i in range(len(sentences)))
+    return tuple(
+        verdicts.get(i + 1, NaturalnessVerdict(True, MISSING_ROW))
+        for i in range(len(sentences))
+    )
 
 
 # ── gate 3: the audio round-trip ────────────────────────────────────────────
@@ -396,28 +466,59 @@ def validate(
         )
 
     if judge:
-        sentence = sentence_of(item)
-        if sentence.strip() and not judge_naturalness([sentence], settings=settings)[0]:
-            return Validated(
-                None, ValidationReport("discarded", naturalness=("unnatural",))
-            )
+        # **`judged_sentence`, not `sentence_of` (W5c, #115).** The judge is
+        # asked whether a real person would say this to a friend, by a prompt
+        # that never mentions gaps, exercises or learners. Handed the gapped
+        # stem it said no to `mcq`, `cloze_cued` and `collocation_pick`, and
+        # handed the tiles with their deliberate error still in them it said no
+        # to `error_spot` -- 0/5 natural as shipped, 5/5 filled, forty
+        # observations with no exception. The judge was right and the input was
+        # wrong. The mechanical rules above keep the stem, deliberately: rule 4
+        # writes its repair BACK through `_sentence_field`, so reading a filled
+        # sentence there would put prose into `prompt_text` and destroy the gap.
+        sentence = judged_sentence(item)
+        if sentence.strip():
+            # `.natural`, never the object: a dataclass is always truthy and
+            # `not verdict` would disable the gate silently.
+            verdict = judge_naturalness([sentence], settings=settings)[0]
+            if not verdict.natural:
+                return Validated(
+                    None,
+                    ValidationReport(
+                        "discarded",
+                        naturalness=("unnatural",),
+                        naturalness_reason=verdict.reason,
+                    ),
+                )
 
     if item.item_type in TYPES_WITH_AUDIO:
-        audio = _audio_gate(item, settings=settings)
-        # **`listening_gap` needs BOTH gates, and W5 gave it only one.** It sits
-        # in TYPES_WITH_AUDIO, so it never reached the solver: the round-trip
-        # proved the gapped word was AUDIBLE and nothing ever proved it was the
-        # only word that FITS. `"I forgot my ___ this morning"` round-trips
-        # perfectly and admits wallet, phone, bag and purse. It was carrying
-        # `cloze_cued`'s defect plus one more, and this is the one type where
-        # W5a adds a call rather than swapping one.
-        if not audio.report.ok or item.item_type != "listening_gap":
-            return audio
-        probed = _probe_and_repair(audio.item or item, settings=settings)
-        return Validated(
-            probed.item,
-            replace(probed.report, solver_answer=audio.report.solver_answer),
-        )
+        # **The round-trip is the whole gate for these types (W5c, ruling R1).**
+        #
+        # W5a added a text-only uniqueness probe to `listening_gap` on the
+        # correct observation that nothing had ever tested whether the gapped
+        # word was the only one that fits. W5b measured what that probe could
+        # actually do and the answer was nothing: `classes=0` on all six
+        # attempts, bare and cued, three runs. It did not recover the wrong
+        # word, it recovered no word.
+        #
+        # The reason is structural, not a tuning problem. PRD §4.3 defines the
+        # gate as a call that sees *"only what the learner will see"* -- and
+        # the learner HEARS this sentence. The probe is handed
+        # `{"item_type": "listening_gap", "prompt_text": "She ___ like coffee
+        # these days"}` and nothing else, so it is not blind, it is DEPRIVED:
+        # it sees strictly less than the learner and is solving a harder
+        # problem than the item poses. In text that slot admits `doesn't`,
+        # `does not` and `might not`; with the audio it admits one.
+        #
+        # Making it genuinely blind has no shippable form today. Giving it the
+        # transcript is giving it the answer, so the gate becomes
+        # unfalsifiable. Giving it an STT reading of the synthesized audio is
+        # exactly what `audio_round_trip` already computes. Giving it the audio
+        # needs an audio-input model call `speech.py` does not expose -- that is
+        # W14's problem, and #121 records it there. Until then this type's
+        # uniqueness evidence IS the round-trip: a word the recogniser itself
+        # cannot recover from the audio is not one a learner will.
+        return _audio_gate(item, settings=settings)
 
     if item.item_type == "speak_answer":
         # No blind solver: an open production task has no single answer to
@@ -476,6 +577,9 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
     family = ANSWER_FAMILY[item.item_type]
     current = item
     calls = 0
+    #: The last probe call's self-reported confidence, carried to whichever
+    #: report this loop returns. `None` until a probe has actually answered.
+    confidence: str | None = None
     cue_applied: str | None = None
     tried: set[str] = set()
     distractors: list[str] = []
@@ -493,6 +597,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                 ),
             )
         calls += 1
+        confidence = _confidence(response)
 
         if current.item_type == "match_pairs":
             if _mapping_matches(current, response):
@@ -504,6 +609,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                         cue_applied=cue_applied,
                         canonical=None,
                         solver_calls=calls,
+                        probe_confidence=confidence,
                     ),
                 )
             return Validated(
@@ -512,6 +618,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                     "discarded",
                     blind_solver=("mapping_mismatch",),
                     solver_calls=calls,
+                    probe_confidence=confidence,
                 ),
             )
 
@@ -540,6 +647,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                     solver_answer=candidates[0] if candidates else None,
                     canonical=current.answer,
                     solver_calls=calls,
+                    probe_confidence=confidence,
                 ),
             )
 
@@ -554,6 +662,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                     solver_answer=candidates[0] if candidates else None,
                     canonical=current.answer,
                     solver_calls=calls,
+                    probe_confidence=confidence,
                 ),
             )
 
@@ -576,6 +685,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                         blind_solver=("under_specified", *candidates),
                         repair_count=attempt,
                         solver_calls=calls,
+                        probe_confidence=confidence,
                         canonical=current.answer,
                     ),
                 )
@@ -590,6 +700,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                     solver_answer=candidates[0],
                     canonical=current.answer,
                     solver_calls=calls,
+                    probe_confidence=confidence,
                 ),
             )
 
@@ -625,6 +736,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                 solver_answer=candidates[0] if candidates else None,
                 canonical=current.answer,
                 solver_calls=calls,
+                probe_confidence=confidence,
             ),
         )
 

@@ -32,9 +32,14 @@ measure the thing it reports on.**
 ────────────────────────────────────────────────────────────────────────────────
 THE THREE ARMS
 
-  A — as shipped.  Exactly `checks.sentence_of(item)`. For `mcq`, `cloze_cued`
-      and `collocation_pick` that is the **gapped stem**; for `error_spot` it is
-      the sentence **with the deliberate error still in it**.
+  A — as shipped.  Exactly what `gates.validate` sends. At W5b that was
+      `checks.sentence_of(item)` — the **gapped stem** for `mcq`, `cloze_cued`
+      and `collocation_pick`, and for `error_spot` the sentence **with the
+      deliberate error still in it**. **W5c acted on the finding**: the gate now
+      sends `checks.judged_sentence(item)` and so does this arm, which means A
+      and B are the same string and the comparison below is spent. The module is
+      kept as the standing instrument for "what is the judge actually asked?" —
+      re-running it now measures whether prose is accepted, nothing more.
   B — filled.  The same sentence with the gap closed / the error tile corrected.
       Deterministic and in-process — a second model call here would add a second
       source of ambiguity to an experiment about ambiguity. Only the four
@@ -44,6 +49,9 @@ THE THREE ARMS
       bare and `first_letter_length`-cued, reproducing the sequence the W6 run
       made. No audio gate: `_audio_gate` already passed on production, and
       re-running it would bill TTS and STT to re-learn that.
+      **Opt-in since W5c (`--probe-arm`).** It returned `classes=0` on all six
+      attempts, and on that evidence ruling R1 removed the probe from this type
+      altogether — so the arm now observes a path production does not take.
 
 ────────────────────────────────────────────────────────────────────────────────
 PRE-REGISTERED PREDICTIONS AND BRANCH RULES
@@ -88,7 +96,7 @@ from pathlib import Path
 from core import PROMPTS_DIR
 from core.config import load_settings
 from core.items import gates
-from core.items.checks import sentence_of
+from core.items.checks import judged_sentence, sentence_of
 from core.items.grading import distinct_answers, equivalence_key, normalise_variants
 from core.items.repair import apply_cue
 from core.items.schema import GAP, ErrorSpotItem, parse
@@ -140,18 +148,30 @@ def arm_as_shipped(item) -> str:
     """Exactly the string `gates.validate` hands the judge.
 
     Deliberately a one-line delegation rather than a copy.
-    `tests/test_items_judge_observe.py` asserts it is byte-identical to
-    `sentence_of` for all eleven fixtures, so if `sentence_of` ever changes this
+    `tests/test_items_judge_observe.py` asserts it is byte-identical to what
+    the gate sends for all eleven fixtures, so if that ever changes this
     harness follows it or the suite fails.
+
+    **W5c re-pointed this from `sentence_of` to `judged_sentence`**, because
+    that is what `gates.validate` now sends. The contract is "what production
+    sends", not "what production sent in W5b" — a harness pinned to a string
+    the gate stopped making would report on a request nobody makes, which is
+    the W5a `--live` bug this module was built to avoid repeating.
     """
-    return sentence_of(item)
+    return judged_sentence(item)
 
 
 def arm_filled(item) -> str:
     """The same sentence with the gap closed, or the wrong tile corrected.
 
-    Deterministic, no model call. Identical to `arm_as_shipped` for every type
-    whose judged string is already prose — which is the seven that passed.
+    Deterministic, no model call.
+
+    **Independently written, and it stays that way.** Since W5c fixed the input,
+    this is what `judged_sentence` produces — so it would be tempting to
+    delegate. It must not: `test_arm_b_is_what_the_gate_now_sends` asserts the
+    two agree over all eleven fixtures, and that assertion is evidence only
+    while the two are separate implementations. Delegating would turn it into a
+    tautology that passes no matter what either function does.
     """
     if isinstance(item, ErrorSpotItem):
         tiles = list(item.tiles)
@@ -217,7 +237,11 @@ def judge_once(sentence: str, *, settings) -> tuple[bool, str]:
     """One real `judge_naturalness` call. Verdict and reason from the SAME call."""
     with _recording() as calls:
         verdict = gates.judge_naturalness([sentence], settings=settings)[0]
-    return verdict, _reason_of(calls)
+    # `.natural`: since W5c the gate returns a `NaturalnessVerdict`, which is
+    # always truthy as an object. The reason still comes from `_reason_of`,
+    # read off the raw response at the seam — so the harness derives it
+    # independently of the gate rather than trusting the thing it observes.
+    return verdict.natural, _reason_of(calls)
 
 
 # ── reporting ───────────────────────────────────────────────────────────────
@@ -241,8 +265,10 @@ def _mostly_rejected(results: list[tuple[bool, str]]) -> bool:
 def _partition(fixtures: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     """judged / gapped-or-errored / clean-prose.
 
-    `match_pairs` is not judged at all: `sentence_of` returns "" and
-    `gates.validate` skips the call (`if sentence.strip()`).
+    `match_pairs` is not judged at all: it has no sentence, so `judged_sentence`
+    returns "" and `gates.validate` skips the call (`if sentence.strip()`).
+
+    Since W5c `gapped` is empty by construction — that is the fix, visible here.
     """
     judged = [r for r in fixtures if arm_as_shipped(r["item"]).strip()]
     gapped = [r for r in judged if arm_filled(r["item"]) != arm_as_shipped(r["item"])]
@@ -275,7 +301,9 @@ def dry_run(runs: int) -> int:
         item = row["item"]
         shipped, filled = arm_as_shipped(item), arm_filled(item)
         if not shipped.strip():
-            print(f"{row['name']:22} (not judged — sentence_of returns \"\")")
+            print(
+                f"{row['name']:22} (not judged — no sentence to judge)"
+            )
             continue
         flag = "  <-- GAPPED/ERRORED" if filled != shipped else ""
         print(f"{row['name']:22} A: {shipped!r}{flag}")
@@ -287,8 +315,9 @@ def dry_run(runs: int) -> int:
     )
     print(
         f"\n--live would make {len(judged) * runs} arm-A calls + "
-        f"{len(gapped) * runs} arm-B calls + {2 * PROBE_RUNS} probe calls "
-        f"= {len(judged) * runs + len(gapped) * runs + 2 * PROBE_RUNS}."
+        f"{len(gapped) * runs} arm-B calls "
+        f"= {len(judged) * runs + len(gapped) * runs}, "
+        f"plus {2 * PROBE_RUNS} more with --probe-arm."
     )
     print("Nothing was sent and nothing was written.")
     return 0
@@ -335,7 +364,15 @@ def _run_judge_arms(judged, gapped, runs, settings):
 
 
 def _run_probe_arm(fixtures, settings) -> list[dict]:
-    """Arm C. Reproduces the W6 sequence with public calls and no audio."""
+    """Arm C. Reproduces the W6 sequence with public calls and no audio.
+
+    **Opt-in since W5c (`--probe-arm`), because production no longer takes this
+    path.** Ruling R1 exempted `listening_gap` from the text-only probe on the
+    evidence this arm produced: `classes=0` on all six attempts. Billing for it
+    by default would be a harness charging to observe a dead branch. It stays
+    runnable because W14 may give the probe the audio and make the question
+    live again (#121).
+    """
     row = next((r for r in fixtures if r["name"] == "listening_gap"), None)
     if row is None:
         return []
@@ -344,6 +381,9 @@ def _run_probe_arm(fixtures, settings) -> list[dict]:
     canonical = equivalence_key(item.answer)
 
     print("\n=== ARM C — the listening_gap probe (no audio gate; it passed at W6) ===")
+    print("  NOTE: `gates.validate` no longer takes this path. W5c ruling R1")
+    print("  exempted the type on this arm's own evidence; re-run it only to")
+    print("  re-open the question, not to check production.")
     print(f"  canonical: {item.answer!r}   key={canonical}")
     print(f"  the probe sees only: {item.prompt_text!r}")
     print("  ...and NEVER the audio the learner hears. PRD §4.3 says the blind")
@@ -367,6 +407,42 @@ def _run_probe_arm(fixtures, settings) -> list[dict]:
 def _verdict(arm_a, arm_b, gapped, clean, probe) -> None:
     """Evaluate the pre-registered branch rules. Nothing is adjusted by hand."""
     print("\n=== PRE-REGISTERED PREDICTIONS ===")
+
+    if not gapped:
+        # After W5c the two arms are the same string by construction, so
+        # `gapped` is empty and P1/P2 quantify over nothing — and `all()` over
+        # an empty set is True. Printing "HELD" there would be a green result
+        # over an unreachable path, which is exactly what CLAUDE.md §3 rule 4
+        # forbids. Say so instead of scoring it.
+        print(
+            "  P1/P2  VACUOUS   no fixture differs between the arms any more.\n"
+            "         W5c fixed the input, so arm A IS arm B and the W5b\n"
+            "         comparison has nothing left to compare. The finding of\n"
+            "         this run is the arm-A column alone: every judged string\n"
+            "         is prose, and the question is whether it is accepted."
+        )
+        p3 = all(_mostly_natural(arm_a[r["name"]]) for r in clean)
+        print(
+            f"  P3  {'HELD    ' if p3 else 'FAILED  '}  "
+            "the judged strings accept at >=80% each"
+        )
+        if probe:
+            offered = sum(1 for pr in probe if pr["offered"])
+            print(
+                f"  ARM C   {offered}/{len(probe)} calls offered the canonical. "
+                "Not scored:\n"
+                "         ruling R1 removed this path from production, so the\n"
+                "         arm reports on a branch `gates.validate` no longer\n"
+                "         reaches. It is re-openable evidence, not a verdict."
+            )
+
+        print("\n=== VERDICT ===")
+        print(
+            "  THE FIX HOLDS."
+            if p3
+            else "  THE FIX DOES NOT HOLD — prose is still being rejected."
+        )
+        return
 
     p1 = all(_mostly_rejected(arm_a[r["name"]]) for r in gapped)
     p2 = all(_mostly_natural(arm_b[r["name"]]) for r in gapped)
@@ -406,11 +482,13 @@ def _verdict(arm_a, arm_b, gapped, clean, probe) -> None:
         )
 
 
-def live(runs: int) -> int:
+def live(runs: int, *, probe_arm: bool) -> int:
     settings = load_settings()
     fixtures = load_fixtures()
     judged, gapped, clean = _partition(fixtures)
-    total = len(judged) * runs + len(gapped) * runs + 2 * PROBE_RUNS
+    total = len(judged) * runs + len(gapped) * runs
+    if probe_arm:
+        total += 2 * PROBE_RUNS
 
     if not _confirm(total):
         print("Stopped. Nothing was sent.")
@@ -418,7 +496,7 @@ def live(runs: int) -> int:
 
     print(f"\nmodel: {settings.llm_model}   runs: {runs}   calls: {total}")
     arm_a, arm_b = _run_judge_arms(judged, gapped, runs, settings)
-    probe = _run_probe_arm(fixtures, settings)
+    probe = _run_probe_arm(fixtures, settings) if probe_arm else []
 
     print("\n=== SUMMARY ===")
     print(f"{'item':22} {'arm A':16} {'arm B':16}")
@@ -454,11 +532,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--runs", type=int, default=DEFAULT_RUNS,
         help=f"samples per fixture per arm (default {DEFAULT_RUNS})")
+    parser.add_argument(
+        "--probe-arm",
+        action="store_true",
+        help="also run arm C, which W5c ruling R1 removed from production",
+    )
     args = parser.parse_args(argv)
     if args.runs < 1:
         parser.error("--runs must be at least 1")
     if args.live:
-        return live(args.runs)
+        return live(args.runs, probe_arm=args.probe_arm)
     return dry_run(args.runs)
 
 

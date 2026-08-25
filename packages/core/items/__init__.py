@@ -94,7 +94,19 @@ RESPONSE_MODE: dict[str, str] = {
 # they sit unread. Nothing was ever generated under version 1, so there is
 # nothing to migrate today -- the rule is stated for the first slice that finds
 # rows there.
-VALIDATOR_VERSION = 2
+#
+# **3 (W5c): the naturalness judge is given prose, and `listening_gap` lost the
+# text-only probe.** Two changes to what the gates ask, not one. Version-2 rows
+# were judged on the GAPPED STEM -- `"I ___ to the shops yesterday."` -- which
+# the judge rejects correctly, because `item_naturalness.txt` asks whether a
+# real person would say the string to a friend (#115). So a version-2 row that
+# PASSED naturalness passed a differently-worded question, and a version-2
+# `listening_gap` row was additionally gated by a probe that could not see the
+# audio the learner hears (#121, ruling R1). Neither is equivalent to a
+# version-3 row. **`items` was empty when this bump was made** -- `count(*)`
+# returned 0 on production after the W6a purge (#109) -- so nothing was
+# orphaned by it, and every later moment would have cost more.
+VALIDATOR_VERSION = 3
 
 # What an item of this type is actually testing, which is what decides whether a
 # multi-acceptable item is WIDENED or REJECTED. A constant, not a runtime
