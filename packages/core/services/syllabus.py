@@ -321,12 +321,66 @@ def unit_rows(conn) -> list[tuple[int, int, str, int, int]]:
         return [(int(a), int(b), c, int(d), int(e)) for a, b, c, d, e in cur.fetchall()]
 
 
+@dataclass(frozen=True, slots=True)
+class StoredUnit:
+    """One `syllabus_units` row as it actually is, authored columns only.
+
+    Deliberately not `core.syllabus.content.Unit`: that type is what the FILE
+    says, and the whole purpose of reading this is to compare the two.
+    """
+
+    unit_number: int
+    stage: int
+    can_do: str
+    grammar_targets: list
+    output_task_spoken: str
+    output_task_written: str
+    checkpoint: dict
+
+
+def stored_units(conn) -> list[StoredUnit]:
+    """The seven authored columns of every unit, ordered by unit_number.
+
+    Written independently of `upsert_units` so a before/after report does not read
+    from the function under test (CLAUDE.md §3 rule 5) -- the same reason
+    `unit_rows` above is written the way it is. `unit_rows` cannot serve here: it
+    projects to counts for the seed's acceptance line and never returns the
+    `checkpoint` itself.
+
+    `created_at` is excluded: nothing authored decides it and a rewrite must not
+    be judged against it.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT unit_number, stage, can_do, grammar_targets,
+                   output_task_spoken, output_task_written, checkpoint
+              FROM syllabus_units
+             ORDER BY unit_number
+            """
+        )
+        return [
+            StoredUnit(
+                unit_number=int(row[0]),
+                stage=int(row[1]),
+                can_do=row[2],
+                grammar_targets=row[3],
+                output_task_spoken=row[4],
+                output_task_written=row[5],
+                checkpoint=row[6],
+            )
+            for row in cur.fetchall()
+        ]
+
+
 __all__ = [
     "SeedCounts",
+    "StoredUnit",
     "below_floor",
     "missing_lemmas",
     "orphan_unit_lexemes",
     "reconcile_unit_lexemes",
+    "stored_units",
     "target_counts",
     "unit_rows",
     "unit_target_lexemes",

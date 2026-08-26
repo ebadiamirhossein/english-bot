@@ -147,10 +147,34 @@ def validate_checkpoint(raw: object, *, unit_number: int, targets: tuple[Grammar
             f"{sorted(missing)} -- a target nothing checks is not a target"
         )
 
+    # W8d: 0, not ">= 0", and the key is KEPT rather than deleted.
+    #
+    # #161 ruled the syllabus a GRAMMAR SPINE: the 24 units are grammar, and
+    # vocabulary comes from the learner's ledger and from what they actually meet,
+    # not from a list attached to a grammar unit. That left a checkpoint's lexeme
+    # block with NO SOURCE (#166) -- and the arithmetic was worse than "a quarter
+    # of the checkpoint": at `lexeme_items: 3` a unit had nine grammar items out of
+    # twelve, 75% against an 80% mark, so a learner scoring 100% on the grammar
+    # still failed. Eight units, seven of them the first seven weeks.
+    #
+    # Kept at 0 rather than removed because #166's option 2 is the recorded target
+    # once the deck is real: re-source the block from the learner's own FSRS due
+    # cards, which is truer to ruling A than a unit list ever was. A key held at 0
+    # records where the block was; a deleted key would have to be rediscovered.
     lexeme_items = raw.get("lexeme_items")
-    if not isinstance(lexeme_items, int) or lexeme_items < 0:
-        raise ContentError(f"unit {unit_number}: checkpoint lexeme_items must be >= 0")
+    if isinstance(lexeme_items, bool) or lexeme_items != 0:
+        raise ContentError(
+            f"unit {unit_number}: checkpoint lexeme_items must be 0 -- #161 ruled "
+            "the syllabus a grammar spine, so a vocabulary block has no source "
+            "(#166). All 12 items test this unit's own grammar targets."
+        )
 
+    # UNCHANGED by W8d, and deliberately not simplified to `sum(per_target)`.
+    # It reads `sum(per_target) + 0` today, and it is still the only place the
+    # blocks-sum invariant is enforced -- migration 014 mirrors `item_count` and
+    # `pass_pct` into a SQL CHECK and does not mirror this (#167, still open).
+    # It must survive intact for #166's option 2, which makes `lexeme_items`
+    # non-zero again and hands this line back its second term.
     total = sum(per_target.values()) + lexeme_items
     if total != CHECKPOINT_ITEM_COUNT:
         raise ContentError(

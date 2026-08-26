@@ -26,12 +26,12 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "past simple: regular and irregular verbs": 3,
-        "past continuous for what was going on around it": 2,
-        "past simple and past continuous in the same sentence": 2,
+        "past simple: regular and irregular verbs": 4,
+        "past continuous for what was going on around it": 3,
+        "past simple and past continuous in the same sentence": 3,
         "time linkers: then, after that, a bit later": 2
       },
-      "lexeme_items": 3,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -70,12 +70,12 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "present perfect for experience: I've been to, I've tried": 2,
+        "present perfect for experience: I've been to, I've tried": 3,
         "ever and never in questions and short answers": 2,
-        "just, already and yet": 2,
-        "present perfect or past simple: is the time finished?": 3
+        "just, already and yet": 3,
+        "present perfect or past simple: is the time finished?": 4
       },
-      "lexeme_items": 3,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -110,11 +110,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "for and since with the present perfect": 3,
-        "present perfect continuous: how long you've been doing it": 3,
-        "used to for habits that have stopped": 3
+        "for and since with the present perfect": 4,
+        "present perfect continuous: how long you've been doing it": 4,
+        "used to for habits that have stopped": 4
       },
-      "lexeme_items": 3,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -153,12 +153,12 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "past perfect: the thing that happened first": 3,
-        "past perfect in reported explanations: I said I'd already eaten": 2,
-        "choosing between past simple and past perfect": 3,
+        "past perfect: the thing that happened first": 4,
+        "past perfect in reported explanations: I said I'd already eaten": 3,
+        "choosing between past simple and past perfect": 4,
         "keeping a story in one tense until you need to move": 1
       },
-      "lexeme_items": 3,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -193,11 +193,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "comparatives: cheaper, more comfortable, better": 3,
-        "superlatives: the cheapest one on the list": 3,
-        "as ... as, not as ... as": 3
+        "comparatives: cheaper, more comfortable, better": 4,
+        "superlatives: the cheapest one on the list": 4,
+        "as ... as, not as ... as": 4
       },
-      "lexeme_items": 3,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -235,12 +235,12 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "relative clauses with who, which and that": 3,
-        "leaving out the relative pronoun: the flat we saw": 2,
-        "where and whose in relative clauses": 2,
+        "relative clauses with who, which and that": 4,
+        "leaving out the relative pronoun: the flat we saw": 3,
+        "where and whose in relative clauses": 3,
         "adjective order: a small old wooden table": 2
       },
-      "lexeme_items": 3,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -274,11 +274,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "some, any, no and none": 3,
-        "much, many, a lot of, plenty": 3,
-        "a little and a few, and what they suggest": 3
+        "some, any, no and none": 4,
+        "much, many, a lot of, plenty": 4,
+        "a little and a few, and what they suggest": 4
       },
-      "lexeme_items": 3,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -318,10 +318,10 @@
       "per_target": {
         "a and an: the first time you mention something": 3,
         "the: when we both know which one": 3,
-        "no article for things in general": 3,
+        "no article for things in general": 4,
         "the with places, buildings and streets": 2
       },
-      "lexeme_items": 1,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -359,12 +359,12 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "present continuous for arrangements: I'm seeing him Friday": 3,
-        "going to for plans and for what looks likely": 3,
+        "present continuous for arrangements: I'm seeing him Friday": 4,
+        "going to for plans and for what looks likely": 4,
         "will for decisions made as you speak": 2,
         "will or going to: which one and why": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -399,11 +399,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "first conditional: if it rains, we'll stay in": 4,
+        "first conditional: if it rains, we'll stay in": 5,
         "when, as soon as, until with a present tense": 3,
-        "unless and in case": 3
+        "unless and in case": 4
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -438,11 +438,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "second conditional: if I had more time, I'd learn to cook": 4,
-        "I wish and if only about now": 3,
+        "second conditional: if I had more time, I'd learn to cook": 5,
+        "I wish and if only about now": 4,
         "would for imagined situations": 3
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -481,12 +481,12 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "might, may and could for possibility": 3,
-        "must and can't for what you're fairly sure of": 3,
+        "might, may and could for possibility": 4,
+        "must and can't for what you're fairly sure of": 4,
         "softening a refusal: I'm not sure I can, I'd rather not": 2,
         "probably, definitely and where they sit in the sentence": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -521,11 +521,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "discourse markers: actually, to be honest, mind you": 3,
-        "on the other hand, having said that": 3,
-        "linking a reason to a claim: because, since, as": 3
+        "discourse markers: actually, to be honest, mind you": 4,
+        "on the other hand, having said that": 4,
+        "linking a reason to a claim: because, since, as": 4
       },
-      "lexeme_items": 3,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -559,11 +559,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "passive: present and past simple": 4,
+        "passive: present and past simple": 5,
         "passive with modals: it should be fixed by Friday": 3,
-        "when the passive is the natural choice, and when it isn't": 3
+        "when the passive is the natural choice, and when it isn't": 4
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -601,12 +601,12 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "reported speech: tense shift back": 3,
-        "reported questions: he asked whether I was free": 3,
+        "reported speech: tense shift back": 4,
+        "reported questions: he asked whether I was free": 4,
         "reporting verbs: admit, suggest, promise, complain": 2,
         "say and tell": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -640,11 +640,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "modals of deduction: he must have forgotten": 4,
-        "conceding a point: I take your point, fair enough, that's true, but": 4,
+        "modals of deduction: he must have forgotten": 5,
+        "conceding a point: I take your point, fair enough, that's true, but": 5,
         "softening disagreement: I'm not sure about that, I see it differently": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -678,11 +678,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "third conditional: if we'd sent it earlier, they'd have replied": 4,
-        "perfect modals: should have, could have, might have": 4,
+        "third conditional: if we'd sent it earlier, they'd have replied": 5,
+        "perfect modals: should have, could have, might have": 5,
         "regret and hindsight without blame": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -717,11 +717,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "hedging: it seems, it looks like, I'd suggest": 4,
-        "phrasal verbs in spoken work English: bring up, hold off, follow up": 4,
+        "hedging: it seems, it looks like, I'd suggest": 5,
+        "phrasal verbs in spoken work English: bring up, hold off, follow up": 5,
         "indirect questions: could you let me know whether": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -756,11 +756,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "phrasal verb or Latinate verb: put off or postpone": 4,
-        "talking about cost: charge, quote, come to, work out at": 4,
+        "phrasal verb or Latinate verb: put off or postpone": 5,
+        "talking about cost: charge, quote, come to, work out at": 5,
         "making a counter-offer: would you consider, we could stretch to": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -799,12 +799,12 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "email openings and closings that aren't translated": 3,
-        "getting to the point in the first line": 3,
+        "email openings and closings that aren't translated": 4,
+        "getting to the point in the first line": 4,
         "register: same message, formal and informal": 2,
         "chasing without nagging": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -839,11 +839,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "verb + noun collocations: make a decision, take a break": 4,
-        "adjective + noun collocations: heavy rain, strong accent": 4,
+        "verb + noun collocations: make a decision, take a break": 5,
+        "adjective + noun collocations: heavy rain, strong accent": 5,
         "common wrong pairings and the right ones": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -878,11 +878,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "common everyday idioms and what they actually mean": 4,
-        "the neutral way to say the same thing": 4,
+        "common everyday idioms and what they actually mean": 5,
+        "the neutral way to say the same thing": 5,
         "who says this to whom: reading register before you copy it": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -917,11 +917,11 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "connected speech: gonna, wanna, d'you, kind of": 4,
-        "weak forms: to, of, and, was in the middle of a sentence": 4,
+        "connected speech: gonna, wanna, d'you, kind of": 5,
+        "weak forms: to, of, and, was in the middle of a sentence": 5,
         "hearing the word you know inside a phrase you don't": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",
@@ -961,12 +961,12 @@
       "item_count": 12,
       "pass_pct": 80,
       "per_target": {
-        "self-repair: sorry, I mean, what I'm trying to say is": 3,
-        "buying time: the thing is, let me think, how do I put this": 3,
+        "self-repair: sorry, I mean, what I'm trying to say is": 4,
+        "buying time: the thing is, let me think, how do I put this": 4,
         "paraphrasing a word you can't remember": 2,
         "finishing a sentence you started badly": 2
       },
-      "lexeme_items": 2,
+      "lexeme_items": 0,
       "item_types": [
         "mcq",
         "cloze_cued",

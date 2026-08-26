@@ -163,6 +163,98 @@ def test_every_checkpoints_blocks_sum_to_twelve() -> None:
         assert total == CHECKPOINT_ITEM_COUNT, unit.unit_number
 
 
+def test_every_checkpoint_is_entirely_grammar() -> None:
+    """W8d: `lexeme_items` is 0 in all 24 and the 12 items are the grammar blocks.
+
+    #161 ruled the syllabus a grammar spine, so a vocabulary block has no source
+    (#166). The block is held at 0 rather than deleted — #166's option 2 re-sources
+    it from the learner's own due cards and needs the key back.
+    """
+    for unit in units():
+        assert unit.checkpoint["lexeme_items"] == 0, unit.unit_number
+        assert (
+            sum(unit.checkpoint["per_target"].values()) == CHECKPOINT_ITEM_COUNT
+        ), unit.unit_number
+
+
+def test_a_perfect_grammar_score_passes_every_checkpoint() -> None:
+    """#166 as a test: a learner who answers all the grammar right must pass.
+
+    **This was RED for units 1-7 and 13 before W8d.** `lexeme_items: 3` left nine
+    grammar items out of twelve — 75% against an 80% mark — so a perfect grammar
+    score still failed, and a learner cannot tell a broken blueprint from their own
+    inadequacy (CLAUDE.md §4).
+    """
+    for unit in units():
+        reachable = sum(unit.checkpoint["per_target"].values()) * 100 / CHECKPOINT_ITEM_COUNT
+        assert reachable >= unit.checkpoint["pass_pct"], (
+            unit.unit_number,
+            reachable,
+        )
+
+
+# The W8 distribution, hardcoded from commit 7954198 and never recomputed
+# (CLAUDE.md §3 rule 5), in each unit's authored `grammar_targets` order.
+W8_PER_TARGET: dict[int, tuple[int, ...]] = {
+    1: (3, 2, 2, 2),
+    2: (2, 2, 2, 3),
+    3: (3, 3, 3),
+    4: (3, 2, 3, 1),
+    5: (3, 3, 3),
+    6: (3, 2, 2, 2),
+    7: (3, 3, 3),
+    8: (3, 3, 3, 2),
+    9: (3, 3, 2, 2),
+    10: (4, 3, 3),
+    11: (4, 3, 3),
+    12: (3, 3, 2, 2),
+    13: (3, 3, 3),
+    14: (4, 3, 3),
+    15: (3, 3, 2, 2),
+    16: (4, 4, 2),
+    17: (4, 4, 2),
+    18: (4, 4, 2),
+    19: (4, 4, 2),
+    20: (3, 3, 2, 2),
+    21: (4, 4, 2),
+    22: (4, 4, 2),
+    23: (4, 4, 2),
+    24: (3, 3, 2, 2),
+}
+
+
+def test_the_redistribution_did_not_flatten_the_weighting() -> None:
+    """W8d gave the freed items back to grammar without evening the weights out.
+
+    The weighting is deliberate — unit 2 gives its largest block to *present perfect
+    or past simple: is the time finished?*, its hardest distinction — and W8 content
+    check 5 read the design and returned a positive on exactly that point. Spreading
+    the freed items evenly would have erased it, and nothing else in the suite would
+    have noticed.
+
+    Three properties of the largest-remainder rule, all checked against the W8
+    numbers above rather than against a recomputation of the rule:
+
+      * no target lost an item;
+      * a target weighted above another is still STRICTLY above it;
+      * no target carries more than 5 of the 12 — no checkpoint leans half its
+        weight on one point.
+    """
+    for unit in units():
+        before = W8_PER_TARGET[unit.unit_number]
+        after = tuple(
+            unit.checkpoint["per_target"][t.target] for t in unit.grammar_targets
+        )
+        assert len(after) == len(before), unit.unit_number
+        for old, new in zip(before, after):
+            assert new >= old, (unit.unit_number, before, after)
+        for i, _ in enumerate(before):
+            for j, _ in enumerate(before):
+                if before[i] > before[j]:
+                    assert after[i] > after[j], (unit.unit_number, before, after)
+        assert max(after) <= 5, (unit.unit_number, after)
+
+
 def test_every_checkpoint_tests_every_grammar_target_of_its_unit() -> None:
     """A target nothing checks is not a target."""
     for unit in units():
@@ -197,8 +289,8 @@ def test_a_blueprint_carrying_an_item_is_refused() -> None:
     good = {
         "item_count": 12,
         "pass_pct": 80,
-        "per_target": {"a": 3, "b": 3, "c": 3},
-        "lexeme_items": 3,
+        "per_target": {"a": 4, "b": 4, "c": 4},
+        "lexeme_items": 0,
         "item_types": ["mcq"],
     }
     assert validate_checkpoint(good, unit_number=1, targets=targets)
@@ -214,13 +306,37 @@ def test_a_blueprint_that_does_not_sum_to_twelve_is_refused() -> None:
     targets = validate_grammar_targets(
         [{"target": "a"}, {"target": "b"}, {"target": "c"}], unit_number=1
     )
-    with pytest.raises(ContentError, match="sum to 11"):
+    with pytest.raises(ContentError, match="sum to 9"):
         validate_checkpoint(
             {
                 "item_count": 12,
                 "pass_pct": 80,
                 "per_target": {"a": 3, "b": 3, "c": 3},
-                "lexeme_items": 2,
+                "lexeme_items": 0,
+                "item_types": ["mcq"],
+            },
+            unit_number=1,
+            targets=targets,
+        )
+
+
+def test_a_blueprint_with_a_vocabulary_block_is_refused() -> None:
+    """W8d's gate is non-inert, and it fires on the BLOCK, not on the arithmetic.
+
+    The blueprint below sums to 12, so the blocks-sum check at `blueprint.py:154`
+    cannot catch it. Only the `lexeme_items == 0` clause can, which is the point:
+    under #161's ruling a vocabulary block has no source however well it adds up.
+    """
+    targets = validate_grammar_targets(
+        [{"target": "a"}, {"target": "b"}, {"target": "c"}], unit_number=1
+    )
+    with pytest.raises(ContentError, match="lexeme_items must be 0"):
+        validate_checkpoint(
+            {
+                "item_count": 12,
+                "pass_pct": 80,
+                "per_target": {"a": 4, "b": 4, "c": 3},
+                "lexeme_items": 1,
                 "item_types": ["mcq"],
             },
             unit_number=1,
