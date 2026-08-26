@@ -76,7 +76,8 @@ def _refuse_input(monkeypatch, why):
     monkeypatch.setattr("builtins.input", _boom)
 
 
-def _chunk_derived_card(db, user_id, *, back, card_type="production"):
+def _chunk_derived_card(db, user_id, *, back, card_type="production",
+                        source="vocabulary"):
     """A card in `migrate_chunks`' EXACT shape: a chunk, and no `lexeme_id`.
 
     Built by hand and not through `migrate_chunks` because the point is the
@@ -85,8 +86,8 @@ def _chunk_derived_card(db, user_id, *, back, card_type="production"):
     """
     chunk = db.execute(
         "INSERT INTO chunks (user_id, chunk, meaning, source) "
-        "VALUES (%s, %s, 'gloss', 'vocabulary') RETURNING id",
-        (user_id, back),
+        "VALUES (%s, %s, 'gloss', %s) RETURNING id",
+        (user_id, back, source),
     ).fetchone()[0]
     state = initial_state(due=NOW)
     card = db.execute(
@@ -422,3 +423,118 @@ def test_the_backfill_never_modifies_chunks(db, learner, monkeypatch) -> None:
         (learner,),
     ).fetchall()
     assert before == after
+
+
+# ── the scope the production dry run forced ────────────────────────────────
+
+
+def test_a_slang_card_is_out_of_reach_of_the_backfill(db, learner, monkeypatch) -> None:
+    """#180. `mid` identity-matches a seed lexeme meaning *middle*.
+
+    This is the failure mode neither existing guard was built for. #177's `ti`
+    came through `lemmatize`'s SUFFIX step, so refusing that step fixed it.
+    `mid` arrives through the IDENTITY step: the string is a real lemma, the
+    match is exact, nothing is invented, and the answer is still wrong, because
+    `lexemes` carries `pos` and no sense distinction at all.
+
+    Migration 013 says `lexeme_id` is what `grade_card` writes the ledger from,
+    so the card would have written evidence for *middle* on every grade of the
+    slang sense. The backfill therefore reaches only `vocabulary`-sourced
+    chunks, where one word means one thing.
+    """
+    card = _chunk_derived_card(
+        db, learner, back="mid", card_type="recognition", source="slang"
+    )
+    db.rollback()
+
+    assert card not in [r[0] for r in svc.cards_needing_a_lexeme(db)]
+
+    _refuse_input(monkeypatch, "a slang card is out of scope; nothing to confirm")
+    backfill_lexemes.apply()
+    db.rollback()
+    assert db.execute(
+        "SELECT lexeme_id FROM cards WHERE id = %s", (card,)
+    ).fetchone()[0] is None
+
+
+def test_the_backfill_grows_no_slang_lemma_into_the_shared_dictionary(
+    db, learner, monkeypatch
+) -> None:
+    """`lexemes` is GLOBAL — one row serves every learner — so growing it with
+    `delulu` and `low-key` is a product decision, not a backfill's to make."""
+    _chunk_derived_card(
+        db, learner, back="delulu", card_type="recognition", source="slang"
+    )
+    db.rollback()
+    before = db.execute("SELECT count(*) FROM lexemes").fetchone()[0]
+
+    _refuse_input(monkeypatch, "nothing is in scope; nothing to confirm")
+    backfill_lexemes.apply()
+    db.rollback()
+    assert db.execute("SELECT count(*) FROM lexemes").fetchone()[0] == before
+    assert db.execute(
+        "SELECT count(*) FROM lexemes WHERE lemma = 'delulu'"
+    ).fetchone()[0] == 0
+
+
+def test_the_scope_is_a_property_of_the_row_not_a_date_or_an_id_list(db) -> None:
+    """`retire_chunk_cloze`'s rule, and the narrowing must not break it.
+
+    A date range sweeps rows nobody looked at and an id list stops being true
+    the moment the database changes. `chunks.source = 'vocabulary'` is neither:
+    it is a statement about what the card teaches.
+    """
+    source = inspect.getsource(svc.cards_needing_a_lexeme)
+    sql = source.split('"""', 2)[2]
+    for banned in ("created_at", "id = ANY", "id IN (", "BETWEEN", "due <"):
+        assert banned not in sql
+    assert "k.source = 'vocabulary'" in sql
+
+
+def test_a_captured_card_is_outside_the_backfill_by_construction(
+    db, learner
+) -> None:
+    """W13's cards carry no `source_chunk_id` and set `lexeme_id` at creation,
+    so no run of this command at any moment can reach one — a property of the
+    predicate, not of when it is run."""
+    state = initial_state(due=NOW)
+    card = db.execute(
+        "INSERT INTO cards (user_id, card_type, front, back, register, "
+        "register_source, fsrs_state, fsrs_step, due) VALUES "
+        "(%s, 'production', 'f', 'b', 'neutral', 'import_default', %s, %s, %s) "
+        "RETURNING id",
+        (learner, state.fsrs_state, state.fsrs_step, NOW),
+    ).fetchone()[0]
+    db.commit()
+    assert card not in [r[0] for r in svc.cards_needing_a_lexeme(db)]
+
+
+def test_card_17s_meaning_is_two_columns_of_the_same_trancy_row(db) -> None:
+    """Finding 1, corrected: the provenance claim is STRONGER than first stated.
+
+    `cards.meaning` is not the Translation column alone. S24a composed it with
+    `watch_import.format_meaning`, which appends the phonetic:
+
+        btrim(Translation) || ' (' || Phonetic || ')'
+
+    So card 17 carries TWO columns from the same row, through a function whose
+    source is in this repository — which is a tighter tie to this exact file
+    than a single-column match would have been. The first deployment query
+    asserted the Translation alone and failed for that reason.
+    """
+    import csv
+    import io
+
+    from core.services.watch_import import format_meaning
+
+    text = (FIXTURES / "trancy.csv").read_text(encoding="utf-8-sig")
+    row = next(r for r in csv.reader(io.StringIO(text, newline="")) if r[0] == "tier")
+    translation, phonetic = row[2], row[1]
+
+    # Hardcoded, never derived from the function under test (§3 rule 5).
+    # `\u200c` is a ZERO WIDTH NON-JOINER and is written as an escape so it
+    # cannot be lost to a copy-paste that strips invisible characters.
+    expected = "سطح ردیف;  چیدمان در سطوح طبقه\u200cبندی (/tɪər/)"
+    assert format_meaning(translation, phonetic) == expected
+    # And the SQL form the deployment step uses, computed independently.
+    assert translation.strip() + " (" + phonetic + ")" == expected

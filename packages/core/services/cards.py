@@ -989,21 +989,53 @@ def lemmas_with_a_card(conn: Any, user_id: int) -> frozenset[str]:
 
 
 def cards_needing_a_lexeme(conn: Any) -> list[tuple[int, int, str, str]]:
-    """`(card id, user id, card type, back)` for every card with no `lexeme_id`.
+    """Cards with no `lexeme_id` **whose source chunk is a vocabulary import**.
 
-    **Never filtered by provenance or by date.** `retire_chunk_cloze`'s rule,
-    and `delete_items_by_hash`' reason one package over: a date range sweeps
-    rows nobody looked at, and an id list is a claim about the database that
-    stops being true the moment the database changes. The predicate is the
-    thing the backfill is about — "this card has no lemma" — and nothing else.
+    `lexeme_id IS NULL AND chunks.source = 'vocabulary'`, and the second half was
+    added after a production dry run, not designed in. **It is a predicate about
+    WHAT THE CARD TEACHES, not a date range and not an id list** — so
+    `retire_chunk_cloze`'s rule is satisfied rather than bent: the population is
+    defined by a property of the row that stays true as the database changes.
+
+    **WHY THE SCOPE NARROWED.** `resolve_capture_lemma` refuses `lemmatize`'s
+    suffix step because `tier` resolved to `ti` (#177). The dry run found the
+    same corruption arriving through the OTHER door:
+
+        mid  →  identity match  →  `mid` ADJ, rank 8,955  ("middle")
+
+    The card teaches the slang sense. The lexeme means *middle*. Nothing
+    resolved wrongly, nothing was invented, and no guard fired — **the identity
+    match is exactly right about the string and exactly wrong about the word**,
+    because `lexemes` carries `pos` and no SENSE distinction at all. Migration
+    013 says `lexeme_id` is what `grade_card` writes the ledger from, so that
+    card would have written evidence for *middle* every time a learner graded
+    the slang meaning. Filed as **#180**.
+
+    A second reason, and it is a product decision rather than a defect:
+    `delulu` and `low-key` are absent from the seed list, so an unscoped
+    backfill would **grow the shared dictionary** with slang lemmas. `lexemes`
+    is global — one row serves every learner — and whether slang belongs in it
+    is nobody's call to make inside a backfill.
+
+    **What a `vocabulary` chunk is, and why the lemma is safe there:** a Trancy
+    row is a single dictionary word the learner looked up, with its gloss. One
+    word, one sense, no register question. That is the population where lemma
+    identity means what `cards.lexeme_id` says it means.
+
+    Everything else stays NULL, and that is filed rather than deferred:
+    the phrase backs **permanently** (a phrase has no lemma — already ruled),
+    and the single-word slang backs until **W13** gives capture a sense-aware
+    identity, which `lexemes` cannot express today.
     """
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
             """
-            SELECT id, user_id, card_type, back
-              FROM cards
-             WHERE lexeme_id IS NULL
-             ORDER BY id
+            SELECT c.id, c.user_id, c.card_type, c.back
+              FROM cards c
+              JOIN chunks k ON k.id = c.source_chunk_id
+             WHERE c.lexeme_id IS NULL
+               AND k.source = 'vocabulary'
+             ORDER BY c.id
             """
         )
         return [
