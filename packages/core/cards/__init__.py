@@ -97,6 +97,32 @@ PRODUCTIVE_CARD_TYPES: frozenset[str] = frozenset(
     {"production", "cloze", "collocation"}
 )
 
+#: Card types whose answer the learner TYPES before the back is revealed (#157,
+#: ruled at W8e: assistant-recommended, operator-accepted).
+#:
+#: **The split is by card type and it is principled rather than a carve-out.**
+#: A `production` or `cloze` card's answer is a STRING, so
+#: `core.items.grading.equivalence_key` can fold capitalisation, punctuation and
+#: contraction variants onto it without a model call. A `recognition` card's
+#: answer is a MEANING, and `equivalence_key` folds variants of a known answer —
+#: it cannot judge whether a paraphrased definition is the same definition. A
+#: typed recognition card would grade WORDING and fail a learner for being right
+#: in different words, which CLAUDE.md §4 forbids.
+#:
+#: The operator's reason for the ruling, recorded as the operator's: *a card
+#: that shows the answer on a tap and then asks the learner to grade themselves
+#: cannot distinguish recall from recognition, and that distinction is the whole
+#: difference between knowing a word and thinking you know it.* Noticed by the
+#: operator USING the reviewer, not by any gate.
+#:
+#: **`collocation` is deliberately absent even though it is productive.** No
+#: `collocation` card exists in the deck and none is created by any path in this
+#: repository, so including it would be a ruling about a card shape nobody has
+#: seen — the same reason #155's one-character cue is filed rather than guarded.
+#: `audio`'s answer is a transcript and belongs to W14's scoring, not to a
+#: string fold.
+TYPED_ANSWER_CARD_TYPES: frozenset[str] = frozenset({"production", "cloze"})
+
 # Mirrors `fsrs.State`, which is an IntEnum (Learning=1, Review=2,
 # Relearning=3). Stored lowercase because every other CHECK in this schema is
 # lowercase; `core.cards.fsrs` owns the translation in both directions and
@@ -179,6 +205,7 @@ __all__ = [
     "SLANG_CHUNK_CARD_TYPES",
     "MIGRATION_CARD_TYPES",
     "PRODUCTIVE_CARD_TYPES",
+    "TYPED_ANSWER_CARD_TYPES",
     "FSRS_STATES",
     "RATINGS",
     "RATING_NAMES",

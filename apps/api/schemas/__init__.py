@@ -13,7 +13,7 @@ maintained parser, and a mismatch would reach the learner as "it didn't work".
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -222,6 +222,11 @@ class CardFace(BaseModel):
     )
     neutral_equivalent: str | None
     who_says_this: str | None
+    #: Whether this card asks for a TYPED answer before the reveal (#157).
+    #: Derived server-side from `core.cards.TYPED_ANSWER_CARD_TYPES` and sent on
+    #: the wire, so `apps/web` holds no copy of the table — the rule W6 settled
+    #: for `response_mode`. A mirrored table is a table that drifts.
+    typed: bool
     #: What each of the four buttons would schedule, in days, computed
     #: server-side. **There is no interval arithmetic in TypeScript** — the same
     #: rule W6 established for grading, and a scan over the deck tree fails the
@@ -243,7 +248,35 @@ class DeckCountsOut(BaseModel):
 
 class ReviewQueueOut(BaseModel):
     cards: list[CardFace]
+    #: **Still sent, and no learner surface renders it** (#160). The session
+    #: sizes block 1 from it and W19 will read it; the ban is on presenting a
+    #: duty counter, not on the number existing — the same standing
+    #: `murphy_units` has under #187.
     counts: DeckCountsOut
+    #: `users.native_language` (#159). One per response, never per card: it is a
+    #: per-user fact and eighty copies is eighty chances for two to disagree.
+    l1_language: str
+
+
+class CardAttemptRequest(BaseModel):
+    """A typed answer, before the back is revealed (#157).
+
+    Bounded at the same 500 characters as `ItemAnswerRequest.text`. A card's
+    back is a word or a phrase; anything longer is not an attempt at it.
+    """
+
+    text: str = Field(max_length=500)
+
+
+class CardAttemptResult(BaseModel):
+    """Did it match. **Nothing was written.**
+
+    The attempt is recorded by the grade call, which recomputes this verdict
+    from the stored string rather than trusting one the client carries back
+    (#108's shape).
+    """
+
+    matched: bool
 
 
 class GradeRequest(BaseModel):
@@ -256,6 +289,14 @@ class GradeRequest(BaseModel):
 
     rating: Literal["again", "hard", "good", "easy"]
     duration_ms: int | None = None
+    #: The session this grade happened inside, when it happened inside one
+    #: (#160 — block 1). NULL from `/review`, which stays reachable outside a
+    #: session, exactly as `item_attempts.session_id` is nullable because
+    #: migration 012 named free practice a first-class path.
+    session_id: int | None = None
+    #: What the learner typed before revealing the back (#157). Stored verbatim;
+    #: **the match is recomputed server-side** and is never sent by the client.
+    typed_response: str | None = Field(default=None, max_length=500)
 
 
 class GradeResult(BaseModel):
@@ -264,7 +305,46 @@ class GradeResult(BaseModel):
     counts: DeckCountsOut
 
 
+class BlockOut(BaseModel):
+    """One of PRD §4.1's five blocks.
+
+    **`state` is why this is a model and not a nullable payload.** `empty` and
+    `unavailable` are different facts — nothing is due, versus this block could
+    not be built — and a learner told *nothing’s due, go watch something*
+    because a query fell over has been lied to in a way that looks identical to
+    the truth on a screen. `core.sessions.BLOCK_STATES` is the authority and a
+    test asserts the two agree.
+    """
+
+    n: int
+    kind: str
+    state: str
+    payload: dict[str, Any]
+
+
+class SessionTodayOut(BaseModel):
+    """Today's session, hydrated. PRD §4.1.
+
+    **Nothing was generated to build this.** ARCHITECTURE §7: items are produced
+    and gated the night before, never while the learner waits — and W10 produces
+    none at all, so the property holds trivially today and is asserted anyway,
+    because it stops being trivial with the generation slice.
+    """
+
+    session_id: int
+    #: The learner's LOCAL date, from `users.timezone` — the same basis every
+    #: other `sessions.date` uses. See migration 016's header for why not UTC.
+    date: date
+    l1_language: str
+    current_block: int
+    completed: bool
+    blocks: list[BlockOut]
+
+
 __all__ = [
+    "BlockOut",
+    "CardAttemptRequest",
+    "CardAttemptResult",
     "CardFace",
     "DeckCountsOut",
     "GradeRequest",
@@ -282,4 +362,5 @@ __all__ = [
     "RegisterBeginRequest",
     "RegisterFinishRequest",
     "Session",
+    "SessionTodayOut",
 ]

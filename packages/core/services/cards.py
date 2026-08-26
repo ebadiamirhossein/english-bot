@@ -38,9 +38,11 @@ from core.cards import (
     PREP_SOURCE_PREFIX,
     RATING_NAMES,
     RECEPTIVE_FIRST_REGISTERS,
+    TYPED_ANSWER_CARD_TYPES,
 )
 from core.cards.fsrs import CardState, review
 from core.db import connection, cursor
+from core.items.grading import equivalence_key
 from core.items.repair import first_letter_cue
 
 logger = logging.getLogger(__name__)
@@ -125,6 +127,11 @@ class Card:
             "register": self.register,
             "neutral_equivalent": self.neutral_equivalent,
             "who_says_this": self.who_says_this,
+            # #157: whether this card asks for a typed answer before the reveal.
+            # Derived from `TYPED_ANSWER_CARD_TYPES` and sent on the wire, so
+            # `apps/web` holds no copy of the table -- the same rule W6 settled
+            # for `response_mode`. A mirrored table is a table that drifts.
+            "typed": self.card_type in TYPED_ANSWER_CARD_TYPES,
         }
 
 
@@ -483,6 +490,8 @@ def grade_card(
     rating: int,
     now: datetime,
     duration_ms: int | None = None,
+    session_id: int | None = None,
+    typed_response: str | None = None,
 ) -> GradeOutcome | None:
     """Grade one card: schedule it, log the review, keep the ledger honest.
 
@@ -509,6 +518,10 @@ def grade_card(
 
             result = review(card.state, rating, now=now)
             after = result.after
+
+            # #157. `None` for a `recognition` card, for `/review` used without
+            # typing, and for any card type outside `TYPED_ANSWER_CARD_TYPES`.
+            typed, matched = _typed_verdict(card, typed_response)
 
             # PRD §5: a leech is rewritten with an easier cue, NOT suspended.
             # `first_letter_cue` is reused from the item repair ladder rather
@@ -553,11 +566,13 @@ def grade_card(
                     card_id, user_id, reviewed_at, rating,
                     state_before, stability_before, difficulty_before,
                     state_after, stability_after, difficulty_after, due_after,
-                    elapsed_days, scheduled_days, review_duration_ms
+                    elapsed_days, scheduled_days, review_duration_ms,
+                    session_id, typed_response, typed_matched
                 ) VALUES (
                     %s, %s, %s, %s,
                     %s, %s, %s,
                     %s, %s, %s, %s,
+                    %s, %s, %s,
                     %s, %s, %s
                 )
                 """,
@@ -580,6 +595,15 @@ def grade_card(
                     result.elapsed_days,
                     result.scheduled_days,
                     _clean_duration(duration_ms),
+                    session_id,
+                    # VERBATIM and unnormalised: "what did they actually type"
+                    # cannot be recovered from "did it match". Same rule as
+                    # `item_attempts.response_text`.
+                    typed,
+                    # RECOMPUTED HERE, never taken from the client. A verdict
+                    # the browser supplies is a verdict the browser can choose
+                    # (#108's shape).
+                    matched,
                 ),
             )
 
@@ -603,6 +627,146 @@ def grade_card(
         interval_days=result.scheduled_days or 0,
         became_leech=became_leech,
         counts=counts_today(user_id, now=now),
+    )
+
+
+# ---------------------------------------------------------------------------
+# the typed answer (#157)
+# ---------------------------------------------------------------------------
+
+
+def answer_matches(card: Card, text: str | None) -> bool:
+    """Does this typed string mean the same as the card's back?
+
+    **Through `core.items.grading.equivalence_key` and nothing else.** #157's
+    ruling is explicit that this adds no second normaliser: `equivalence_key`
+    already turns a string into its expanded, lowered token tuple, so
+    capitalisation, edge punctuation and contractions fold — `I'll` and `I will`
+    are one class — and it is the SAME function W5a's uniqueness probe counts
+    with and `probe_cloze` reuses. A second fold here could accept a string the
+    gate rejects, or reject one it accepts, and the learner would see a coin
+    flip. That is the exact bug the v3 rebuild exists to end.
+
+    **A card has no `accepted_variants` column**, unlike `items`, so the back is
+    the whole of what can be matched against. That is a real limitation and it is
+    why **this verdict never marks a card by itself**: `grade_card` still takes
+    the learner's own Again/Hard/Good/Easy, and the typed attempt is what makes
+    that self-grade honest rather than what replaces it. Card 17's malformed
+    `_____s` hint (#147) and a one-word back would otherwise produce wrong-answer
+    marks for correct English, which CLAUDE.md §4 forbids.
+
+    An empty or whitespace-only string is not an answer and is not a match.
+    """
+    key = equivalence_key(text)
+    if not key:
+        return False
+    return key == equivalence_key(card.back)
+
+
+def _typed_verdict(
+    card: Card, text: str | None
+) -> tuple[str | None, bool | None]:
+    """``(stored_response, matched)`` for `card_reviews`, or ``(None, None)``.
+
+    Both NULL together, which is what migration 016's
+    `card_reviews_a_verdict_needs_its_answer` CHECK requires: a verdict with
+    nothing it was a verdict about is unreadable a month later.
+
+    A typed string on a card type that does not take one is DISCARDED rather
+    than stored. `recognition` is exempt by ruling — its answer is a meaning, and
+    grading a paraphrase would fail a learner for being right in different words
+    — so a client that sent one anyway is asking for a judgement this function
+    is not allowed to make.
+    """
+    if text is None or not text.strip():
+        return None, None
+    if card.card_type not in TYPED_ANSWER_CARD_TYPES:
+        return None, None
+    return text, answer_matches(card, text)
+
+
+def attempt_card(
+    user_id: int, card_id: int, *, text: str
+) -> bool | None:
+    """Did this typed answer match? ``None`` when the card is not this learner's.
+
+    **Read-only: it writes nothing.** The attempt is recorded by `grade_card`,
+    which recomputes the verdict from the stored `typed_response` rather than
+    trusting anything the client carries back.
+
+    Two calls rather than one, and the reason is a rule this codebase already
+    holds: the client HAS the back (a card has no hidden half worth a
+    projection — see `Card`) but
+    `tests/test_web_shell.py::test_no_answer_comparison_in_typescript` forbids it
+    comparing anything, because a second definition of "the answer" is how a
+    learner ends up seeing a coin flip. So the fold happens on the server, and
+    the round trip is the price of there being exactly one of it.
+
+    ``False`` on a card type that takes no typed answer, which is the honest
+    answer to "did that match" for a card that was never asking.
+    """
+    card = get_card(user_id, card_id)
+    if card is None:
+        return None
+    if card.card_type not in TYPED_ANSWER_CARD_TYPES:
+        return False
+    return answer_matches(card, text)
+
+
+# ---------------------------------------------------------------------------
+# what one request needs (#159)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewQueue:
+    """The queue, the counts, and the learner's L1 — one service call.
+
+    **`l1_language` rides on the ENVELOPE and not on every card** (#159). It is a
+    per-user fact read from `users.native_language`, and eighty copies of it is
+    eighty chances for two of them to disagree.
+
+    Why it exists at all: `cards.user_id` references `users(id)` and nothing
+    walked the join, so `card-face.tsx` guessed the language from the SCRIPT —
+    which tags every Latin-script line `en` and is therefore **silently wrong for
+    Lithuanian**. No tofu, no direction symptom, nothing on screen and nothing in
+    a log; a screen reader and a hyphenation engine are simply told the wrong
+    language. There is no migration in this: `users.native_language TEXT NOT
+    NULL` has existed since `001_init_postgres.sql:19`.
+
+    It also makes `/review/queue` a route that calls ONE service function, where
+    it used to call two (CLAUDE.md §2).
+    """
+
+    cards: list[Card]
+    counts: DeckCounts
+    l1_language: str
+
+
+def native_language(conn: Any, user_id: int) -> str:
+    """`users.native_language` for this learner. 'en' when the row is unknown.
+
+    Defaulting rather than raising: a missing user is not this function's problem
+    to report, and `en` is the one value that makes the renderer do nothing
+    special — no `font-l1`, no `lang` override. Failing open to "treat it as
+    English" is the harmless direction.
+    """
+    row = conn.execute(
+        "SELECT native_language FROM users WHERE id = %s", (user_id,)
+    ).fetchone()
+    if row is None or not row["native_language"]:
+        return "en"
+    return str(row["native_language"])
+
+
+def review_queue(user_id: int, *, now: datetime, limit: int = 20) -> ReviewQueue:
+    """Everything `GET /review/queue` needs, in one call."""
+    with connection() as conn:
+        language = native_language(conn, user_id)
+    return ReviewQueue(
+        cards=due_queue(user_id, now=now, limit=limit),
+        counts=counts_today(user_id, now=now),
+        l1_language=language,
     )
 
 

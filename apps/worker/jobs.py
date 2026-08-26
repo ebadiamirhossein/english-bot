@@ -17,15 +17,17 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from core.config import load_settings
 from core.scheduling import (
+    list_candidate_users,
     run_monthly_freeze_reset,
     run_monthly_reset,
     run_streak_rollover,
 )
+from core.services import sessions as sessions_service
 from core.services import backup_freshness as backup_freshness_service
 from core.services import heartbeat as heartbeat_service
 
@@ -149,12 +151,64 @@ def backup_freshness() -> None:
         logger.info("Off-site backup R2 %s: %s", health.status, health.detail)
 
 
+def assign_daily() -> None:
+    """Pre-create tomorrow's daily session for every eligible learner.
+
+    ARCHITECTURE §7 gives this job three things to do — build tomorrow's
+    session, pick and pre-validate its items, choose the video. **Two of the
+    three have no subject in W10, and the job ships doing one of them rather
+    than being invented later under time pressure.**
+
+    * There is **no generator**. Block 3's eight items need one, and building it
+      inside a surface slice would put a billed content pipeline there. That is
+      the item generation slice, and every generator-shaped issue targeted at W10
+      (#102, #103, #105, #110, #120, #168) moves with it.
+    * There is **no video engine**. `videos` and `video_assignments` arrive at
+      W12.
+
+    **So `docs/TASKS-v3-web.md`'s W10 criterion "report the item accept rate
+    from the first `assign_daily` run" cannot be met by this slice.** Nothing is
+    generated, so there is no accept rate. The number is reported as unmeasurable
+    and the bar is not moved (CLAUDE.md §3 rule 7); the criterion is carried
+    verbatim to the generation slice.
+
+    **Each learner's LOCAL tomorrow**, from the `timezone` `EligibleUser` already
+    carries. Computing it on server time would disagree with the lazy create in
+    `GET /session/today` exactly once a day, at the boundary — and migration
+    016's partial UNIQUE would accept both rows, because it enforces one row per
+    date and cannot tell you the date was computed wrongly.
+
+    Polls like every other job here rather than firing at 03:30: both learners'
+    local dates are evaluated on each tick, which is how `streak_rollover` and
+    the two monthly jobs already work and is what lets two learners sit in
+    different timezones. Creating a row that already exists is a no-op.
+
+    One learner failing must not stop the others — the loop logs and continues,
+    the same shape `core.scheduling.run_streak_rollover` uses.
+    """
+    now = datetime.now(timezone.utc)
+    created = 0
+    for user in list_candidate_users():
+        try:
+            local_tomorrow = (
+                sessions_service.local_today(user.timezone, now) + timedelta(days=1)
+            )
+            sessions_service.ensure_daily_session(
+                user.id, local_tomorrow, now=now
+            )
+            created += 1
+        except Exception:
+            logger.exception("assign_daily failed user_id=%s", user.id)
+    logger.info("assign_daily ok users=%s", created)
+
+
 JOBS: tuple[Job, ...] = (
     Job("streak_rollover", streak_rollover, STREAK_POLL_SECONDS, 20),
     Job("monthly_freeze_reset", monthly_freeze_reset, STREAK_POLL_SECONDS, 30),
     Job("monthly_reset", monthly_reset, STREAK_POLL_SECONDS, 40),
     Job("heartbeat", heartbeat, MAINTENANCE_POLL_SECONDS, 60),
     Job("backup_freshness", backup_freshness, MAINTENANCE_POLL_SECONDS, 90),
+    Job("assign_daily", assign_daily, MAINTENANCE_POLL_SECONDS, 120),
 )
 
 

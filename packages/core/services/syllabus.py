@@ -387,3 +387,84 @@ __all__ = [
     "upsert_units",
     "validate_items_fk",
 ]
+
+
+def current_unit(conn, user_id: int) -> int:
+    """Which unit this learner is on. **Read-only; W11 owns every write.**
+
+    The lowest `unit_number` this learner has not passed, defaulting to 1.
+    `passed_at IS NOT NULL` rather than `state IN ('passed', 'mastered')`,
+    because 014's `user_unit_state_timestamps_match_the_state` CHECK already
+    pins the two together and a timestamp is the fact the ordering needs.
+
+    **It never writes, and that is the whole of why it is a query rather than an
+    advance.** `user_unit_state` is W11's table -- `docs/TASKS-v3-web.md` gives
+    it checkpoints and unit advancement -- and pulling progression into a surface
+    slice is the widening CLAUDE.md §8 forbids.
+
+    **THE CONSEQUENCE, STATED HERE RATHER THAN DISCOVERED ON A PHONE: today this
+    returns 1 for every learner and keeps returning 1.** `user_unit_state` is
+    empty on production and nothing in the repository writes to it, so the unit
+    cannot advance until W11 ships. Blocks 3 and 4 of the daily session are
+    frozen on unit 1 with it, and block 4 therefore shows unit 1's single
+    `output_task_written` **every day** -- day two and day thirty are the same
+    task. That is a stated cost of W10, filed against W11, and it is not a bug in
+    this function.
+
+    Defaulting to 1 rather than raising is deliberate: `locked` is the ABSENCE of
+    a row (`core.syllabus.states`), so "no rows at all" means "has reached
+    nothing", and unit 1 being where you start is the syllabus's own answer
+    rather than a fallback.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT min(u.unit_number)
+              FROM syllabus_units u
+             WHERE NOT EXISTS (
+                     SELECT 1 FROM user_unit_state s
+                      WHERE s.user_id = %s
+                        AND s.unit_number = u.unit_number
+                        AND s.passed_at IS NOT NULL
+                   )
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+    # NULL only when every unit is passed, which is the end of the programme.
+    # The last unit is the honest answer there -- there is no unit 25.
+    if row is None or row[0] is None:
+        return UNIT_COUNT
+    return int(row[0])
+
+
+def unit_for_session(conn, unit_number: int) -> StoredUnit | None:
+    """One unit's authored row, for blocks 3 and 4. ``None`` if it is not seeded.
+
+    Returns `StoredUnit` -- the row as it actually is -- rather than
+    `core.syllabus.content.Unit`, because the session must serve what production
+    holds, not what the file says. The two are compared by the seed's own
+    acceptance check, which is where that comparison belongs.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT unit_number, stage, can_do, grammar_targets,
+                   output_task_spoken, output_task_written, checkpoint
+              FROM syllabus_units
+             WHERE unit_number = %s
+            """,
+            (unit_number,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return StoredUnit(
+        unit_number=int(row[0]),
+        stage=int(row[1]),
+        can_do=row[2],
+        grammar_targets=row[3],
+        output_task_spoken=row[4],
+        output_task_written=row[5],
+        checkpoint=row[6],
+    )

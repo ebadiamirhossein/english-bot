@@ -33,6 +33,11 @@ EXPECTED_JOBS = {
     "monthly_reset": 900,
     "heartbeat": 3600,
     "backup_freshness": 3600,
+    # W10. ARCHITECTURE §7 schedules `assign_daily` at 03:30 local; it POLLS
+    # hourly here for the reason every other job in this table does — each fires
+    # on the USER's local date, and two learners can sit in different timezones,
+    # so a single cron entry would be right for at most one of them.
+    "assign_daily": 3600,
 }
 
 # The delivery jobs still belong to apps/bot until W20: each one sends a
@@ -75,6 +80,52 @@ def test_worker_jobs_use_an_interval_trigger_with_the_right_period() -> None:
         assert trigger.interval.total_seconds() == EXPECTED_JOBS[job.id], (
             f"{job.id} interval={trigger.interval}"
         )
+
+
+def test_assign_daily_is_registered_and_creates_no_content() -> None:
+    """W10's job, and the assertion is about what it does NOT do.
+
+    ARCHITECTURE §7 gives `assign_daily` three jobs: build tomorrow's session,
+    pick and pre-validate items, choose the video. **Two of the three have no
+    subject in W10** — nothing generates items and the video engine is W12 — so
+    the job creates the session row and stops.
+
+    This asserts the emptiness rather than leaving it to a docstring, so the
+    generation slice finds a test to change rather than a comment to notice.
+
+    **Parsed, never grepped, and the docstring is dropped first** — #150 exactly.
+    The first draft read `inspect.getsource` as a string and fired on the
+    function's own docstring explaining why it generates nothing. Prose ABOUT a
+    rule is not the rule being broken; this is the same reason
+    `test_no_murphy_reaches_a_learner.py` parses `texts.py` instead of scanning
+    it, and the reason `test_web_shell.py` strips comments before every copy
+    scan.
+    """
+    import ast
+    import inspect
+
+    from apps.worker import jobs
+
+    tree = ast.parse(inspect.getsource(jobs.assign_daily).strip())
+    function = tree.body[0]
+    assert isinstance(function, ast.FunctionDef)
+    # Drop the docstring node, then read only what executes.
+    first = function.body[0]
+    if (
+        isinstance(first, ast.Expr)
+        and isinstance(first.value, ast.Constant)
+        and isinstance(first.value.value, str)
+    ):
+        function.body = function.body[1:]
+    code = ast.unparse(function)
+
+    for forbidden in ("llm", "speech", "items", "video"):
+        assert forbidden not in code, (
+            f"assign_daily reaches {forbidden}; W10 generates nothing, and "
+            "docs/TASKS-v3-web.md's accept-rate criterion belongs to the "
+            "generation slice"
+        )
+    assert "ensure_daily_session" in code
 
 
 def test_worker_does_not_take_the_delivery_jobs() -> None:

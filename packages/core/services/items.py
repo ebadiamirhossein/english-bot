@@ -317,6 +317,24 @@ _SELECT = """
       LEFT JOIN error_types et ON et.code = items.error_type
 """
 
+#: **A row validated by an older gate is not servable, and this is the filter
+#: that says so** (W10, `docs/TASKS-v3-web.md`).
+#:
+#: `VALIDATOR_VERSION` is 3 today and has moved twice for a reason each time:
+#: 1 -> 2 at W5a, when the uniqueness gate stopped asking *"what is your
+#: answer?"* — a question that proves an item is RECOVERABLE and can never prove
+#: it is UNIQUELY ACCEPTABLE — and 2 -> 3 at W5c, when the naturalness judge
+#: started seeing prose instead of a gapped stem. **A version-1 row was passed by
+#: a gate that could not detect multi-acceptability**, which is the exact defect
+#: that started the v3 rebuild, so serving one inside a session would put an
+#: ungradable item in front of a learner.
+#:
+#: Applied to the two reads that feed a learner, and NOT to `insert_item`, which
+#: always writes the current version. `items` is empty on production (#109 closed
+#: with `count(*)` at 0 after the W6a purge), so this filter costs nothing today
+#: and is here before the bank exists rather than after it does.
+_CURRENT_VALIDATOR = " AND items.validator_version = %s"
+
 
 def list_bank(
     user_id: int, *, item_type: str | None = None, limit: int = 50
@@ -331,15 +349,19 @@ def list_bank(
         cur.row_factory = tuple_row
         if item_type is None:
             cur.execute(
-                _SELECT + " WHERE items.user_id = %s ORDER BY items.created_at DESC LIMIT %s",
-                (user_id, limit),
+                _SELECT
+                + " WHERE items.user_id = %s"
+                + _CURRENT_VALIDATOR
+                + " ORDER BY items.created_at DESC LIMIT %s",
+                (user_id, VALIDATOR_VERSION, limit),
             )
         else:
             cur.execute(
                 _SELECT
                 + " WHERE items.user_id = %s AND items.item_type = %s"
+                + _CURRENT_VALIDATOR
                 + " ORDER BY items.created_at DESC LIMIT %s",
-                (user_id, item_type, limit),
+                (user_id, item_type, VALIDATOR_VERSION, limit),
             )
         return [_to_stored(row) for row in cur.fetchall()]
 
@@ -355,15 +377,16 @@ def bank_for_session(user_id: int, *, unit_number: int, limit: int = 20) -> list
         cur.row_factory = tuple_row
         cur.execute(
             _SELECT
+            + " WHERE items.user_id = %s AND items.unit_number = %s"
+            + _CURRENT_VALIDATOR
             + """
-              WHERE items.user_id = %s AND items.unit_number = %s
               ORDER BY (
                   SELECT MAX(a.attempted_at) FROM item_attempts a
                    WHERE a.item_id = items.id
               ) ASC NULLS FIRST, items.created_at ASC
               LIMIT %s
             """,
-            (user_id, unit_number, limit),
+            (user_id, unit_number, VALIDATOR_VERSION, limit),
         )
         return [_to_stored(row) for row in cur.fetchall()]
 

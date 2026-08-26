@@ -31,6 +31,21 @@ holds — no migration, no drop.
 **#164 stays open**: the three contradictions in the syllabus field are still
 real, still unexplained, and the field still exists in `data/syllabus_units.json`.
 This test is why they can no longer reach anybody.
+
+**W10 EXTENDED THIS FILE RATHER THAN WRITING A SECOND ONE, and the extension is
+a different KIND of check.** #171's surviving obligation was owed by whichever of
+W9 or W10 shipped first, and W10 is the slice that first serialises a unit's
+`grammar_targets` into a payload — block 3 of the daily session. The scan above
+covers every rendering surface, which already covers W10's new components the
+moment they exist. What it cannot cover is a payload: a field that arrives on the
+wire and is rendered by a surface **nobody has written yet**.
+
+So the third check below asserts at the **serialisation seam** —
+`core.sessions.blocks.visible_target`, which builds the learner-visible dict by
+NAMING the one field that may travel rather than by copying and deleting. That
+makes withholding the default: a second operator-only field added to
+`GrammarTarget` later is absent unless someone deliberately admits it, where a
+copy-and-delete would leak it until someone remembered.
 """
 
 from __future__ import annotations
@@ -167,6 +182,19 @@ def murphy_offenders() -> list[str]:
     for name, value in _texts_string_literals():
         if "Murphy" in value and name != ALLOWED_TEXTS_CONSTANT:
             found.append(f"{TEXTS.name}:{name}: {value!r}")
+
+    # (3) The PAYLOAD (W10). A surface cannot render what never arrived, and
+    #     block 3 of the daily session is the first thing in this repository to
+    #     serialise a unit's grammar targets at all.
+    from core.sessions.blocks import visible_target
+
+    class _Target:
+        target = "must and can't for what you're fairly sure of"
+        murphy_units = "38"
+
+    projected = visible_target(_Target())
+    if "murphy_units" in projected:
+        found.append("core.sessions.blocks.visible_target: serialises murphy_units")
     return found
 
 
@@ -176,6 +204,45 @@ def test_no_surface_renders_a_murphy_citation_from_any_source() -> None:
     S11 weekly routing — but the rule is stated over every surface, not over
     those four, so a fifth cannot be added without failing here."""
     assert murphy_offenders() == []
+
+
+def test_a_grammar_target_reaches_a_learner_carrying_only_its_text() -> None:
+    """#171's surviving obligation, discharged by W10 as the first slice to
+    serialise `grammar_targets`.
+
+    Asserted positively as well as negatively: the projection must still carry
+    the target itself, or a payload that dropped everything would pass the ban
+    and teach nothing.
+    """
+    from core.sessions.blocks import visible_target
+
+    class _Target:
+        target = "third conditional"
+        murphy_units = "38-39"
+        some_later_operator_field = "added by a future slice"
+
+    assert visible_target(_Target()) == {"target": "third conditional"}
+
+
+def test_the_real_syllabus_content_still_carries_the_operator_note() -> None:
+    """**The ban must not become vacuous**, the same guard the `texts.py`
+    exemption gets below.
+
+    If `murphy_units` were ever dropped from `data/syllabus_units.json`, the
+    projection above would pass for the wrong reason — there would be nothing
+    left to withhold. The field is an OPERATOR NOTE and W8g's ruling kept it
+    deliberately: the column stays, no migration, no drop.
+    """
+    from core.syllabus.content import units
+
+    with_citations = [
+        target
+        for unit in units()
+        for target in unit.grammar_targets
+        if target.murphy_units
+    ]
+    # #164's inventory: 82 targets, 69 carrying a citation, 13 without.
+    assert len(with_citations) == 69
 
 
 def test_the_allow_listed_exemption_is_still_real() -> None:

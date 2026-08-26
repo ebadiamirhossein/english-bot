@@ -230,6 +230,14 @@ export type CardFace = {
   register: string;
   neutral_equivalent: string | null;
   who_says_this: string | null;
+  /**
+   * Whether this card asks for a **typed answer before the reveal** (#157).
+   *
+   * Decided on the server from `core.cards.TYPED_ANSWER_CARD_TYPES` and sent on
+   * the wire, so there is no copy of that table here. A mirrored table is a
+   * table that drifts — the same rule `response_mode` follows for items.
+   */
+  typed: boolean;
   intervals: Record<Rating, number>;
 };
 
@@ -252,7 +260,23 @@ export type DeckCounts = {
 
 export type ReviewQueue = {
   cards: CardFace[];
+  /**
+   * **Sent, and never rendered** (#160). `/review` used to print
+   * *"N left today"*, and a number that grows while a learner is away is a
+   * backlog presented — which CLAUDE.md §4 forbids. The session sizes block 1
+   * from this and W19 reads it; the ban is on the surface, not on the number.
+   */
   counts: DeckCounts;
+  /**
+   * The learner's first language, from `users.native_language` (#159).
+   *
+   * One per response rather than one per card: it is a per-user fact, and
+   * eighty copies of it is eighty chances for two to disagree. Before this the
+   * card face guessed from the SCRIPT, which tags every Latin-script line `en`
+   * and is silently wrong for Lithuanian — no tofu, no direction symptom,
+   * nothing on screen and nothing in a log.
+   */
+  l1_language: string;
 };
 
 export type GradeResult = {
@@ -314,10 +338,84 @@ export function gradeCard(
   cardId: number,
   rating: Rating,
   durationMs?: number,
+  extra?: { sessionId?: number; typedResponse?: string },
 ): Promise<GradeResult> {
   return request<GradeResult>(`/review/${cardId}/grade`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rating, duration_ms: durationMs }),
+    body: JSON.stringify({
+      rating,
+      duration_ms: durationMs,
+      session_id: extra?.sessionId ?? null,
+      // Sent verbatim. The server recomputes whether it matched; this client
+      // never carries a verdict back (#108's shape).
+      typed_response: extra?.typedResponse ?? null,
+    }),
+  });
+}
+
+/**
+ * Did that typed answer match? **Nothing is written by this call** (#157).
+ *
+ * The comparison lives on the server even though this client already holds
+ * `back`: `test_no_answer_comparison_in_typescript` forbids a fold here, because
+ * a second definition of "the answer" is how a learner ends up seeing a coin
+ * flip. That is the same reason `answerItem` has no optimistic path.
+ */
+export function attemptCard(
+  cardId: number,
+  text: string,
+): Promise<{ matched: boolean }> {
+  return request<{ matched: boolean }>(`/review/${cardId}/attempt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+}
+
+/**
+ * One of PRD §4.1's five blocks.
+ *
+ * **`state` is the whole point of this type.** `empty` and `unavailable` are
+ * different facts — nothing is due, versus this block could not be built — and
+ * a learner told *nothing's due, go watch something* because a query fell over
+ * has been lied to in a way that looks identical to the truth on screen. A
+ * failure of the whole request is neither: it rejects, and the caller shows a
+ * retry.
+ */
+export type SessionBlock = {
+  n: number;
+  kind: "review" | "input" | "focus" | "output" | "close";
+  state: "ready" | "done" | "empty" | "unavailable";
+  payload: Record<string, unknown>;
+};
+
+export type SessionToday = {
+  session_id: number;
+  /** The learner's **local** date, from `users.timezone`. */
+  date: string;
+  l1_language: string;
+  current_block: number;
+  completed: boolean;
+  blocks: SessionBlock[];
+};
+
+/**
+ * Today's session, hydrated. **Nothing is generated to answer this call.**
+ *
+ * Opens each day. Yesterday leaves no badge, no count and no backlog — missed
+ * days shrink the task and never pile up (CLAUDE.md §4).
+ */
+export function getSessionToday(): Promise<SessionToday> {
+  return request<SessionToday>("/session/today");
+}
+
+/** Mark one block done and get the refreshed session back. */
+export function completeBlock(
+  sessionId: number,
+  blockN: number,
+): Promise<SessionToday> {
+  return request<SessionToday>(`/session/${sessionId}/block/${blockN}/complete`, {
+    method: "POST",
   });
 }

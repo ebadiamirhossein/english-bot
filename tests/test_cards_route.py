@@ -213,6 +213,11 @@ def test_an_empty_deck_is_an_ordinary_response_and_not_an_error(
     assert response.json() == {
         "cards": [],
         "counts": {"new_remaining": 0, "review_remaining": 0, "total_remaining": 0},
+        # W10 / #159: the learner's L1 rides on the ENVELOPE, once, read from
+        # `users.native_language`. Before this the card face guessed it from the
+        # SCRIPT, which is right for Farsi by accident and silently wrong for a
+        # Latin-script L1 — no tofu, no direction symptom, nothing in a log.
+        "l1_language": "fa",
     }
 
 

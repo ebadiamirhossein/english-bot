@@ -20,6 +20,12 @@ function card(over: Partial<CardFaceData> = {}): CardFaceData {
     register: "neutral",
     neutral_equivalent: null,
     who_says_this: null,
+    // #157: a `recognition` card keeps the self-mark, so the default is false.
+    // The exemption is principled — a recognition card's answer is a MEANING,
+    // and `equivalence_key` folds variants of a known answer rather than judging
+    // whether a paraphrase is the same definition, so a typed one would grade
+    // wording and fail a learner for being right in different words.
+    typed: false,
     intervals: { again: 0, hard: 3, good: 7, easy: 15 },
     ...over,
   };
@@ -269,6 +275,14 @@ describe("the front never carries the answer", () => {
  * capable fallback is proved in a real browser and reported as three numbers.
  * What these assert is the other half — that the Farsi line is *marked*, per
  * line, so there is something for that stack to attach to.
+ *
+ * **W10 CHANGED WHAT DRIVES THE MARK, and these tests were UPDATED rather than
+ * deleted** (#159). Until this slice the component tested the TEXT against the
+ * Arabic range and tagged from that: right for Farsi by accident, and silently
+ * wrong for Lithuanian. Now `l1Language` decides whether a script is being
+ * looked for at all, so every case below passes it — and the Lithuanian case
+ * below is the one that could not be written before, because there was nothing
+ * to write it about.
  */
 describe("mixed-direction card text", () => {
   // Card 17's real front: a Farsi gloss above an English sentence, in one field.
@@ -282,7 +296,9 @@ describe("mixed-direction card text", () => {
   });
 
   it("tags the Farsi line fa and the English line beside it en", () => {
-    const { container } = render(<CardFace card={mixed} revealed={false} />);
+    const { container } = render(
+      <CardFace card={mixed} revealed={false} l1Language="fa" />,
+    );
     const fa = container.querySelector('[lang="fa"]');
     const en = container.querySelector('[lang="en"]');
 
@@ -291,7 +307,9 @@ describe("mixed-direction card text", () => {
   });
 
   it("puts the L1 face on the Farsi line and not on the English one", () => {
-    const { container } = render(<CardFace card={mixed} revealed={false} />);
+    const { container } = render(
+      <CardFace card={mixed} revealed={false} l1Language="fa" />,
+    );
     const fa = container.querySelector('[lang="fa"]');
     const en = container.querySelector('[lang="en"]');
 
@@ -303,7 +321,9 @@ describe("mixed-direction card text", () => {
     // dir="auto" on the whole field would take its direction from the first
     // strong character — Farsi — and lay the English sentence out right-to-left
     // with its punctuation on the wrong end. Each line is its own run.
-    const { container } = render(<CardFace card={mixed} revealed={false} />);
+    const { container } = render(
+      <CardFace card={mixed} revealed={false} l1Language="fa" />,
+    );
     const lines = Array.from(container.querySelectorAll('p [dir="auto"]'));
     expect(lines.length).toBeGreaterThanOrEqual(2);
     for (const line of lines) {
@@ -312,7 +332,7 @@ describe("mixed-direction card text", () => {
   });
 
   it("leaves the provenance slug LTR — it is not learner text", () => {
-    render(<CardFace card={mixed} revealed />);
+    render(<CardFace card={mixed} revealed l1Language="fa" />);
     const ref = screen
       .getByTestId("card-context")
       .querySelector('[dir="ltr"]');
@@ -320,12 +340,48 @@ describe("mixed-direction card text", () => {
   });
 
   it("marks every learner-facing field, not only the front", () => {
-    render(<CardFace card={mixed} revealed />);
+    render(<CardFace card={mixed} revealed l1Language="fa" />);
     for (const id of ["card-back", "card-context"]) {
       expect(
         screen.getByTestId(id).querySelector("[dir][lang]"),
       ).not.toBeNull();
     }
+  });
+
+  /**
+   * #159's whole point, and the case that could not be written before W10.
+   *
+   * A Latin-script L1 needs no companion family and no direction override, so
+   * the script is not looked for at all and every line stays `en`. Under the old
+   * rule this card would have rendered identically — which is exactly the
+   * problem: the component was right for Farsi by accident, and for Morkyte it
+   * was labelling a Lithuanian gloss as English with no symptom anywhere.
+   */
+  it("looks for no script at all when the learner's L1 is Latin", () => {
+    const lithuanian = card({
+      card_type: "production",
+      front: "pakopa; lygis rikiuotėje\nthree _____s: dev, staging, and production.",
+      back: "tier",
+      meaning: "a level in a ranked arrangement",
+    });
+    const { container } = render(
+      <CardFace card={lithuanian} revealed={false} l1Language="lt" />,
+    );
+
+    expect(container.querySelector('[lang="lt"]')).toBeNull();
+    expect(container.querySelector(".font-l1")).toBeNull();
+    expect(container.querySelector('[lang="en"]')).not.toBeNull();
+  });
+
+  /**
+   * The default is the harmless direction. A caller that has not been threaded
+   * renders English-only rather than throwing, and `en` is the value that makes
+   * the component do nothing special.
+   */
+  it("declares nothing when no language is supplied", () => {
+    const { container } = render(<CardFace card={mixed} revealed={false} />);
+    expect(container.querySelector('[lang="fa"]')).toBeNull();
+    expect(container.querySelector(".font-l1")).toBeNull();
   });
 });
 

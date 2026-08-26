@@ -1,16 +1,25 @@
 import Link from "next/link";
 
 import { ApiStatus } from "@/components/api-status";
-import { ComingLater } from "@/components/coming-later";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 
 /**
  * Home. One button, and the button is the product (PRD §4).
  *
- * It is disabled at W1b because W10 builds the session runner. The shape is
- * here from the start on purpose: every screen added between now and then has
- * to justify itself against a home page that asks for one decision a day.
+ * **W10 turns it on.** It was disabled from W1b, and the shape was here from the
+ * start on purpose: every screen added between then and now had to justify
+ * itself against a home page that asks for one decision a day.
+ *
+ * **There is nothing else on this page and there is deliberately no number on
+ * it.** No due count, no streak, no "you missed yesterday" — a badge that grows
+ * while a learner is away is a backlog presented, which CLAUDE.md §4 forbids
+ * (*"Missed days shrink the task; they never pile up"*) and PRD §12 rule 5
+ * repeats. The session opens each day; yesterday leaves nothing behind.
+ * `tests/test_web_shell.py::test_no_surface_presents_a_backlog_count` holds it.
+ *
+ * The two links below the button are links, not a second decision: `/practice`
+ * and `/write` are places you go on purpose, and neither is ever asked for.
  */
 export default function TodayPage() {
   return (
@@ -22,19 +31,19 @@ export default function TodayPage() {
 
       <section className="space-y-3">
         <Button
+          asChild
           size="lg"
-          disabled
           className="h-14 w-full rounded-2xl text-base font-semibold"
         >
-          Start today&rsquo;s session
+          <Link href="/session">Start today&rsquo;s session</Link>
         </Button>
         <p className="text-center text-sm text-muted-foreground">
-          The session runner arrives in W10.{" "}
+          Or{" "}
           <Link
             href="/practice"
             className="text-primary underline underline-offset-4"
           >
-            Practise
+            practise
           </Link>{" "}
           or{" "}
           <Link
@@ -42,21 +51,10 @@ export default function TodayPage() {
             className="text-primary underline underline-offset-4"
           >
             write anything
-          </Link>{" "}
-          in the meantime.
+          </Link>
+          .
         </p>
       </section>
-
-      <ComingLater
-        slice="W10"
-        title="What this button will open"
-        items={[
-          "Five blocks: warm-up, focus, input, production, review.",
-          "Built overnight, so it opens in under a second.",
-          "Resumable — lock your phone mid-session and pick it up later.",
-          "Away for a day? Tomorrow is smaller, not doubled.",
-        ]}
-      />
 
       <ApiStatus />
     </>

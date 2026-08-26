@@ -225,11 +225,24 @@ def test_bottom_nav_has_the_four_places_the_app_has() -> None:
 
 
 def test_today_offers_exactly_one_action() -> None:
-    """PRD §4: home resolves to one button, and it is disabled until W10."""
-    source = (WEB / "app" / "(app)" / "page.tsx").read_text(encoding="utf-8")
+    """PRD §4: home resolves to one button, and **W10 turns it on.**
+
+    **The `disabled` assertion is INVERTED here, not deleted.** It was true from
+    W1b until 2026-08-26 and it was load-bearing for exactly as long as the
+    session runner did not exist; the button now goes somewhere, and the
+    assertion becomes that it goes to the session. A deleted assertion is
+    indistinguishable from one that was forgotten.
+    """
+    #: Comment-stripped, because home's own docstring explains that the button
+    #: WAS disabled until W10 — and prose about a rule is not the rule being
+    #: broken (#150, the same trap `test_no_murphy_reaches_a_learner.py` names).
+    source = _without_comments(
+        (WEB / "app" / "(app)" / "page.tsx").read_text(encoding="utf-8")
+    )
     assert "Start today" in source
     assert source.count("<Button") == 1
-    assert "disabled" in source
+    assert "disabled" not in source
+    assert 'href="/session"' in source
 
 
 def test_the_api_client_reads_its_base_url_from_the_environment() -> None:
@@ -448,10 +461,132 @@ def test_no_red_reaches_the_correction_screen() -> None:
 
 def test_today_still_offers_one_button() -> None:
     """W3 adds a link to /write, not a second action. PRD §4: home resolves to
-    one decision a day, and the session runner is that decision from W10."""
+    one decision a day, and the session runner **is** that decision from W10."""
     source = (WEB / "app" / "(app)" / "page.tsx").read_text(encoding="utf-8")
     assert source.count("<Button") == 1
     assert 'href="/write"' in source
+
+
+#: Every number the deck API can put on the wire that describes what is LEFT.
+#:
+#: Read out of `apps/api/schemas.py`'s `DeckCountsOut` rather than remembered, so
+#: a fourth count added there is covered here the day it is added.
+_BACKLOG_FIELDS = ("total_remaining", "new_remaining", "review_remaining", "due_now")
+
+
+def _backlog_offenders(sources: dict[str, str]) -> list[str]:
+    offenders: list[str] = []
+    for rel, raw in sorted(sources.items()):
+        for field in _BACKLOG_FIELDS:
+            if field in raw:
+                offenders.append(f"{rel}: {field}")
+    return offenders
+
+
+def test_no_surface_presents_a_backlog_count() -> None:
+    """**The W10 ruling, and it is a rule this project already had.**
+
+    CLAUDE.md §4: *"Never present a backlog. Missed days shrink the task; they
+    never pile up."* PRD §12 rule 5 repeats it: *"No backlog is ever
+    presented."*
+
+    `/review` printed *"N left today"* from W7 until 2026-08-26. That number is
+    already capped, so it never showed the true overdue pile — and it was still a
+    duty counter on a tab, which is the thing the rule is about. #160 retired
+    `/review` as a daily obligation and moved the due deck into the session.
+
+    **The number is not banned; RENDERING it is.** The API still sends
+    `DeckCountsOut` — the session sizes block 1 from it and W19 reads it — which
+    is the same standing `murphy_units` has under #187: a field on the wire that
+    no surface may consume.
+
+    **Scoped to the RENDERING surfaces — `app/` and `components/` — and `lib/`
+    is excluded deliberately.** `lib/api.ts` declares `DeckCounts` because the
+    API really does send those three fields; deleting them from the type while
+    the payload carries them would make the TypeScript wrong in the other
+    direction. That is #187's reasoning exactly, and it is why this bans a
+    render rather than a word.
+
+    Scoped to what ships, so a test asserting the absence is not itself an
+    offence.
+    """
+    sources = {
+        rel: _without_comments(raw)
+        for rel, raw in _shipped_sources().items()
+        if rel.startswith("apps/web/app/") or rel.startswith("apps/web/components/")
+    }
+    assert sources, "the web sources moved; this scan is reading nothing"
+    assert _backlog_offenders(sources) == [], (
+        "no learner surface may render a remaining-count (CLAUDE.md §4): "
+        + "; ".join(_backlog_offenders(sources))
+    )
+
+
+def test_the_backlog_scan_catches_a_real_violation() -> None:
+    """A green scan over nothing proves nothing (CLAUDE.md §3 rule 4).
+
+    Demonstrated against the exact string that was on `/review` until W10.
+    """
+    assert _backlog_offenders(
+        {"x.tsx": "<p>{counts.total_remaining} left today</p>"}
+    ) == ["x.tsx: total_remaining"]
+    assert _backlog_offenders({"x.tsx": "<p>{queue.due_now} due</p>"})
+    assert _backlog_offenders({"x.tsx": "<p>Block 1 of 5</p>"}) == []
+
+
+def test_home_carries_no_number_at_all() -> None:
+    """The one screen a learner opens every day, and the one a badge would be
+    added to first. A count that grows while someone is away is the visual form
+    of "you are behind"."""
+    source = _without_comments(
+        (WEB / "app" / "(app)" / "page.tsx").read_text(encoding="utf-8")
+    )
+    for banned in ("Badge", "count", "streak", "due", "left today"):
+        assert banned not in source, f"{banned} on home"
+
+
+def test_the_session_screen_exists_and_is_behind_the_session_guard() -> None:
+    page = WEB / "app" / "(app)" / "session" / "page.tsx"
+    assert page.is_file()
+    layout = (WEB / "app" / "(app)" / "layout.tsx").read_text(encoding="utf-8")
+    assert "RequireSession" in layout
+
+
+def test_no_red_reaches_the_session_screen() -> None:
+    """The palette has no red in it by design, and a block that failed to load
+    is not an alarm — it is a quiet line and a way back."""
+    sources = {
+        rel: _without_comments(raw)
+        for rel, raw in _shipped_sources().items()
+        if "components/session/" in rel or "app/(app)/session/" in rel
+    }
+    assert sources, "the session sources moved; this scan is reading nothing"
+    for rel, raw in sources.items():
+        for banned in _RED:
+            assert banned not in raw, f"{banned} in {rel}"
+
+
+def test_empty_and_unavailable_are_distinct_strings_in_the_copy() -> None:
+    """**The one thing a learner must never see collapse.**
+
+    A block that ran and found nothing, and a block that could not be built, are
+    different facts. If the two shared a string the distinction would exist in
+    the API and nowhere a person can see, which is worse than not having it —
+    the payload would be right and the screen would still lie.
+    """
+    copy = (WEB / "components" / "session" / "copy.ts").read_text(encoding="utf-8")
+    assert "NOTHING_DUE" in copy and "BLOCK_UNAVAILABLE" in copy
+    import re as _re
+
+    def _body(name: str) -> str:
+        match = _re.search(rf"export const {name} = \{{(.*?)\}} as const;", copy, _re.S)
+        assert match, f"{name} is not in the session copy"
+        return match.group(1)
+
+    nothing_due = _body("NOTHING_DUE")
+    unavailable = _body("BLOCK_UNAVAILABLE")
+    assert nothing_due.strip() and unavailable.strip()
+    assert nothing_due != unavailable
 
 
 def test_the_correction_request_is_json_encoded() -> None:

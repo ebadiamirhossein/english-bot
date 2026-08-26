@@ -40,6 +40,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from apps.api.deps import rate_limit, require_current_user
 from apps.api.schemas import (
+    CardAttemptRequest,
+    CardAttemptResult,
     CardFace,
     DeckCountsOut,
     GradeRequest,
@@ -122,16 +124,70 @@ def review_queue(
     """Due cards, capped by PRD §5's two daily budgets.
 
     An empty list is the ordinary state on a day already finished, not an error.
-    `counts` is what the reviewer's header reads, and it is the **capped**
-    remainder rather than the raw overdue count: CLAUDE.md §4 — a backlog is
-    never presented.
+
+    **`counts` is still sent and NO LEARNER SURFACE RENDERS IT** (#160). It was
+    the reviewer's header — *"N left today"* — and a tab whose number
+    accumulates while a learner is away is a backlog presented, which CLAUDE.md
+    §4 forbids. The number itself is not the offence: the session sizes block 1
+    from it and W19 reads it. The ban is on rendering, and it is held by
+    `tests/test_web_shell.py::test_no_surface_presents_a_backlog_count` — the
+    same standing `murphy_units` has under #187.
+
+    It is also the **capped** remainder rather than the raw overdue count, which
+    it has been since W7.
+
+    **One service call, where this used to make two.** `review_queue` returns
+    the queue, the counts and the learner's L1 together (#159), which is what
+    CLAUDE.md §2 asks a route to look like.
     """
     now = datetime.now(timezone.utc)
-    queue = cards_service.due_queue(session.id, now=now, limit=limit)
+    queue = cards_service.review_queue(session.id, now=now, limit=limit)
     return ReviewQueueOut(
-        cards=[_face(card, now=now) for card in queue],
-        counts=_counts(cards_service.counts_today(session.id, now=now)),
+        cards=[_face(card, now=now) for card in queue.cards],
+        counts=_counts(queue.counts),
+        l1_language=queue.l1_language,
     )
+
+
+@router.post(
+    "/review/{card_id}/attempt",
+    response_model=CardAttemptResult,
+    dependencies=[
+        Depends(require_json),
+        Depends(rate_limit("review_attempt", per_client=600, overall=2000, window_seconds=3600)),
+    ],
+)
+def attempt(
+    card_id: int,
+    body: CardAttemptRequest,
+    session: AuthenticatedUser = Depends(require_current_user),
+) -> CardAttemptResult:
+    """Did that typed answer match? **Writes nothing** (#157).
+
+    The learner commits to an answer before the back is revealed, which is the
+    whole of what #157 asks for: *a card that shows the answer on a tap and then
+    asks the learner to grade themselves cannot distinguish recall from
+    recognition.* The four grade buttons still follow — this verdict informs the
+    self-grade rather than replacing it, because `cards` has no
+    `accepted_variants` column and a one-word back would otherwise mark correct
+    English as a miss.
+
+    **A round trip rather than a client-side compare, and that is the rule
+    rather than an inefficiency.** The browser already holds `back` — a card has
+    no hidden half worth a projection — but
+    `tests/test_web_shell.py::test_no_answer_comparison_in_typescript` forbids it
+    comparing anything, because a second definition of "the answer" is how a
+    learner ends up seeing a coin flip.
+
+    The attempt is recorded by the grade call, which recomputes the verdict from
+    the stored string. Nothing here reaches `errors`: a missed production card is
+    a retrieval failure, not necessarily a grammar error, and a wrong journal row
+    is permanent damage (CLAUDE.md §5).
+    """
+    matched = cards_service.attempt_card(session.id, card_id, text=body.text)
+    if matched is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    return CardAttemptResult(matched=matched)
 
 
 @router.post(
@@ -162,6 +218,11 @@ def grade(
         rating=RATINGS[body.rating],
         now=datetime.now(timezone.utc),
         duration_ms=body.duration_ms,
+        # NULL from `/review`, which #160 keeps reachable outside a session.
+        session_id=body.session_id,
+        # Stored verbatim; the match is recomputed in the service and is never
+        # taken from the client (#108's shape).
+        typed_response=body.typed_response,
     )
     if outcome is None:
         raise HTTPException(status_code=404, detail="not_found")

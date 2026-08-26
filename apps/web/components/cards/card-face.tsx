@@ -71,18 +71,35 @@ const SOURCE_LINE_ON_FRONT: Record<string, boolean> = {
 };
 
 /**
+ * Which L1s need a declared font family and a right-to-left run.
+ *
+ * **W10 keys this on the learner's language, not on the characters** (#159).
+ * The component used to tag a line from the SCRIPT alone: right for Farsi by
+ * accident, and **silently wrong for Morkyte** — Lithuanian is Latin script, so
+ * her gloss was labelled English, with no tofu, no direction symptom, nothing
+ * on screen and nothing in a log. A screen reader and a hyphenation engine were
+ * simply told the wrong language.
+ *
+ * There was never a missing column. `users.native_language TEXT NOT NULL` has
+ * existed since `001_init_postgres.sql:19` and reads `fa` / `lt` / `fa` for the
+ * three production rows; the value just never reached the card. #143's open half
+ * asked for exactly this field, from the rendering side.
+ */
+const RTL_SCRIPT_LANGUAGES = new Set(["fa", "ar", "he", "ur", "ps"]);
+
+/**
  * The Arabic script block, and **it is deliberately the same range as the
  * production query** — `SELECT ... WHERE front ~ '[؀-ۿ]'`, which returns 9. The
  * rows that query counts are exactly the lines this component styles, so the
  * number in the record and the behaviour on the phone cannot describe different
  * sets.
  *
- * **Stated assumption:** for these two learners, Arabic-script text is Persian,
- * so the tag is `fa`. Every other line is tagged `en`, which is right for the
- * whole deck today and **wrong for Morkyte** — Lithuanian is Latin script, so
- * her gloss would be labelled English, with no visible symptom and nothing to
- * report it. Filed on #143, whose real fix was always an L1-language field
- * carried on the card rather than script detection in a component.
+ * **It survives W10, narrowed to one job, and the reason it is not simply
+ * replaced by the L1 field is that a single field is genuinely bilingual:**
+ * `migrate_chunks.py:245` builds a production front as `meaning + "\n" + gapped`,
+ * which on card 17 is a Farsi gloss above an English sentence. The field says
+ * *which language the learner's half is in*; the script still says *which lines
+ * are that half*. For a Latin-script L1 the question is not asked at all.
  */
 const ARABIC_SCRIPT = /[؀-ۿ]/;
 
@@ -111,19 +128,36 @@ const ARABIC_SCRIPT = /[؀-ۿ]/;
  * Follows `components/items/presentation/l1-to-l2-production.tsx:22`
  * (`<div dir="auto" lang={language}>`) rather than inventing a second pattern.
  */
-function BidiText({ text, className }: { text: string; className?: string }) {
+function BidiText({
+  text,
+  language,
+  className,
+}: {
+  text: string;
+  /** The learner's L1, from `users.native_language` (#159). */
+  language: string;
+  className?: string;
+}) {
   const lines = text.split("\n");
+  // Asked once per field, not once per line: a learner has one first language.
+  const l1NeedsItsOwnFace = RTL_SCRIPT_LANGUAGES.has(language);
   return (
     <>
       {lines.map((line, index) => {
-        const l1 = ARABIC_SCRIPT.test(line);
+        // For a Latin-script L1 this is always false and every line is `en`,
+        // which is correct rather than a fallback: Lithuanian and English share
+        // a script and a direction, so there is nothing to declare and nothing
+        // to override. That is the conditional #159 asks for — the field drives
+        // the font, instead of the component applying `font-l1` to whatever it
+        // decides is L1.
+        const l1 = l1NeedsItsOwnFace && ARABIC_SCRIPT.test(line);
         return (
           <span
             // A field's lines have no identity beyond their position, and the
             // field is re-rendered whole when the card changes.
             key={index}
             dir="auto"
-            lang={l1 ? "fa" : "en"}
+            lang={l1 ? language : "en"}
             className={cn(lines.length > 1 && "block", l1 && "font-l1", className)}
           >
             {line}
@@ -137,9 +171,18 @@ function BidiText({ text, className }: { text: string; className?: string }) {
 export function CardFace({
   card,
   revealed,
+  l1Language = "en",
 }: {
   card: CardFaceData;
   revealed: boolean;
+  /**
+   * The learner's first language, from the queue or session envelope (#159).
+   *
+   * Defaulted to `en` so a caller not yet threaded renders English-only rather
+   * than throwing — and `en` is the value that makes this component do nothing
+   * special, which is the harmless direction to fail in.
+   */
+  l1Language?: string;
 }) {
   const isReceptiveRegister =
     card.register === "slang" || card.register === "informal";
@@ -170,7 +213,7 @@ export function CardFace({
       data-revealed={String(revealed)}
     >
       <p className="font-heading text-2xl leading-snug">
-        <BidiText text={card.front} />
+        <BidiText language={l1Language} text={card.front} />
       </p>
 
       {/* The cue appears only on a card the leech rule has rewritten. It is a
@@ -182,18 +225,18 @@ export function CardFace({
           className="font-mono text-base tracking-widest text-muted-foreground"
           data-testid="card-cue"
         >
-          <BidiText text={card.cue} />
+          <BidiText language={l1Language} text={card.cue} />
         </p>
       ) : null}
 
       {revealed ? (
         <div className="space-y-3 border-t border-border pt-4" data-testid="card-back">
           <p className="font-heading text-2xl leading-snug text-primary">
-            <BidiText text={card.back} />
+            <BidiText language={l1Language} text={card.back} />
           </p>
           {card.meaning ? (
             <p className="text-sm leading-relaxed text-muted-foreground">
-              <BidiText text={card.meaning} />
+              <BidiText language={l1Language} text={card.meaning} />
             </p>
           ) : null}
         </div>
@@ -207,7 +250,7 @@ export function CardFace({
           {sourceSentence ? (
             <>
               &ldquo;
-              <BidiText text={sourceSentence} />
+              <BidiText language={l1Language} text={sourceSentence} />
               &rdquo;
             </>
           ) : null}
@@ -247,13 +290,13 @@ export function CardFace({
             <p data-testid="card-neutral">
               Safe anywhere:{" "}
               <span className="font-medium">
-                <BidiText text={card.neutral_equivalent} />
+                <BidiText language={l1Language} text={card.neutral_equivalent} />
               </span>
             </p>
           ) : null}
           {card.who_says_this ? (
             <p className="text-muted-foreground" data-testid="card-who-says">
-              <BidiText text={card.who_says_this} />
+              <BidiText language={l1Language} text={card.who_says_this} />
             </p>
           ) : null}
         </div>
