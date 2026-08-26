@@ -246,15 +246,24 @@ def test_rendered_message_matches_prd_shape(cleanup_user: int) -> None:
         you_said="her english is not so much good",
         correct_form="her English isn't very good",
         explanation='"so much" doesn\'t go before adjectives. Use "very".',
-        murphy_units=murphy_lookup()["quantifier_modifier"],
     )
     expected_second = texts.format_correction_block(
         you_said="collocation fail",
         correct_form="make a decision",
         explanation='Say "make a decision", not "do a decision".',
-        murphy_units=None,  # collocation has NULL murphy_units
     )
-    assert "📗" in expected_first
+    # INVERTED 2026-08-26 by the #183 ruling, not deleted. These two lines read
+    # `assert "📗" in expected_first` / `not in expected_second` and were the
+    # proof that a block WITH a Murphy range and a block without looked
+    # different. Under the ruling there is no such distinction: no block carries
+    # the citation, whether or not the error type has one.
+    #
+    # `quantifier_modifier` still has a non-NULL `murphy_units` and `collocation`
+    # is still NULL -- the column is untouched -- so this asserts the ruling
+    # rather than the absence of data.
+    assert murphy_lookup()["quantifier_modifier"] is not None
+    assert murphy_lookup()["collocation"] is None
+    assert "📗" not in expected_first
     assert "📗" not in expected_second
     assert reply == (
         expected_first
@@ -331,14 +340,21 @@ def test_short_single_error_includes_nonempty_did_well(cleanup_user: int) -> Non
     assert "past participle" not in did_well.lower()
 
 
-def test_format_correction_block_no_murphy_when_null() -> None:
+def test_format_correction_block_never_carries_a_murphy_citation() -> None:
+    """RENAMED AND INVERTED 2026-08-26 (#183), not deleted.
+
+    It was `test_format_correction_block_no_murphy_when_null`, and it pinned the
+    conditional: no Murphy line when the error type has no range. The ruling
+    removed the line unconditionally, so the conditional it pinned no longer
+    exists and the name would have described a rule the code had stopped having.
+    """
     block = texts.format_correction_block(
         you_said="do a decision",
         correct_form="make a decision",
         explanation='Use "make" with decision.',
-        murphy_units=None,
     )
     assert "📗" not in block
+    assert "Murphy" not in block
     assert block == (
         '✏️ "do a decision"\n'
         "→ make a decision\n"

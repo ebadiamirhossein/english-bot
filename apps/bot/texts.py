@@ -640,14 +640,30 @@ QUIZ_RESCUE = "Shorter one today — three questions."
 
 QUIZ_WEEKLY = "Sunday check-in — fifteen questions across your journal."
 
-# Murphy routing (S11) — appended to weekly-test completion (reply, not a
+# Weekly routing (S11) — appended to weekly-test completion (reply, not a
 # new bot-initiated message). Labels only; under 400 chars; no guilt.
+#
+# **The Murphy citation came out on 2026-08-26 by operator ruling (#183).** It
+# read "Worth revisiting: Murphy {units} ({label}) — you already have some of
+# those stored." Most learners own no copy and some own a different edition, so
+# the unit number was clutter for nearly everyone who read it; the LABEL is the
+# part that meant something and it stays.
+#
+# The constant names still say MURPHY and the routing still branches on which
+# book units the learner has scanned. That is now an internal signal only —
+# nothing about it reaches the reply. The names are left alone deliberately:
+# renaming them is a handler edit, and this ruling is two string edits. What
+# stops the citation coming back through a name that invites it is
+# `tests/test_no_murphy_reaches_a_learner.py`, not the name.
+#
+# `{units}` is still passed by `quiz.format_murphy_recommendation` and is now
+# ignored by `str.format`. Left as a dead keyword rather than fixed here for the
+# same reason — see the known issue.
 MURPHY_REC_STUDIED = (
-    "Worth revisiting: Murphy {units} ({label}) — you already have some "
-    "of those stored."
+    "Worth revisiting: {label}."
 )
 MURPHY_REC_NEW = (
-    "New from your patterns: Murphy {units} ({label})."
+    "New from your patterns: {label}."
 )
 
 # Freeze notice (S5 choice b): keep remaining count when tokens remain;
@@ -677,23 +693,39 @@ def format_correction_block(
     you_said: str,
     correct_form: str,
     explanation: str,
-    murphy_units: str | None,
 ) -> str:
-    """One PRD §8 correction block. Omits the Murphy line when units is None."""
-    lines = [
-        f'✏️ "{you_said}"',
-        f"→ {correct_form}",
-        f"💡 {explanation}",
-    ]
-    if murphy_units:
-        lines.append(f"📗 Murphy {murphy_units}")
-    return "\n".join(lines)
+    """One PRD §8 correction block. Three lines, and the explanation is the last.
+
+    **The fourth line came out on 2026-08-26 by operator ruling (#183).** It read
+    `📗 Murphy {murphy_units}` and had been live for two learners every day since
+    v2. Most learners own no copy of Murphy and some own a different edition, so
+    the unit number was meaningless to nearly everyone reading it. It sat beside
+    an explanation that already stands on its own, which made it clutter rather
+    than harm -- and clutter for nearly every user is not a feature.
+
+    The `murphy_units` parameter went with the line rather than being kept and
+    ignored: a parameter that is accepted and does nothing reads like one that
+    still works. **`error_types.murphy_units` itself is untouched** -- it stays as
+    an operator reference, and `correction.murphy_lookup()` still doubles as the
+    valid-error-code set both this handler and `core.services.correction` filter
+    on. This ruling is about what reaches a learner, not what the database holds.
+
+    `apps/bot` dies at W22 and is normally left alone. It is edited here because
+    this is a live daily path for two people, and the ruling is about what a
+    learner reads today, not about which module survives.
+    """
+    return "\n".join(
+        [
+            f'✏️ "{you_said}"',
+            f"→ {correct_form}",
+            f"💡 {explanation}",
+        ]
+    )
 
 
 def format_correction_reply(
     corrections: list[dict],
     did_well: str,
-    murphy_by_code: dict[str, str | None],
 ) -> str:
     """Full correction reply: blocks separated by blank lines, then did_well."""
     blocks = [
@@ -701,7 +733,6 @@ def format_correction_reply(
             you_said=c["you_said"],
             correct_form=c["correct_form"],
             explanation=c["explanation"],
-            murphy_units=murphy_by_code.get(c["error_type"]),
         )
         for c in corrections
     ]

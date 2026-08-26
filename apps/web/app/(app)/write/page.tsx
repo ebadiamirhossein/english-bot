@@ -130,12 +130,12 @@ function Result({ result }: { result: CorrectionResult }) {
           <p className="font-heading text-lg leading-snug text-primary">
             {c.correct_form}
           </p>
+          {/* The explanation stands alone. The Murphy citation that sat
+              here from W3 until 2026-08-26 is gone by operator ruling (#183):
+              most learners own no copy and some own a different edition, so a
+              unit number was clutter for nearly everyone who read it. The
+              column stays as an operator note; nothing renders it. */}
           <p className="text-sm leading-relaxed">{c.explanation}</p>
-          {c.murphy_units ? (
-            <p className="text-xs text-muted-foreground">
-              Murphy {c.murphy_units}
-            </p>
-          ) : null}
         </article>
       ))}
 

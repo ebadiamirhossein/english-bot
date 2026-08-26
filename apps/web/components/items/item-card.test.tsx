@@ -104,11 +104,15 @@ describe("the feedback state machine", () => {
     expect(feedback.innerHTML).not.toContain("line-through");
   });
 
-  it("the explanation panel renders nothing when the item carries neither half", async () => {
+  it("the explanation panel renders nothing when the item carries no explanation", async () => {
     // Today's ordinary case, and worth pinning rather than discovering on a
-    // phone: the generator never asks for an explanation (#103) and an item
-    // need not declare an error type (#104). An empty "Why" box would be a
-    // promise the item cannot keep.
+    // phone: the generator never asks for an explanation (#103). An empty "Why"
+    // box would be a promise the item cannot keep.
+    //
+    // This case got LARGER on 2026-08-26. It used to need both halves missing;
+    // since #183 took the Murphy citation off this panel, the explanation is
+    // the only half there is — so from W10 every generated item lands here
+    // until #103 is fixed.
     answerItem.mockResolvedValue(graded());
     render(<ItemCard item={BY_TYPE.get("mcq")!} />);
     await userEvent.click(screen.getByRole("button", { name: "went" }));
@@ -117,7 +121,13 @@ describe("the feedback state machine", () => {
     expect(screen.queryByTestId("explanation")).toBeNull();
   });
 
-  it("shows the explanation and the Murphy reference when they exist", async () => {
+  // INVERTED 2026-08-26, not deleted. This assertion read
+  // `expect(panel).toHaveTextContent("Murphy 5-6")` and was the strongest
+  // evidence in the repo that the citation really was on a learner's screen.
+  // The operator ruling on #183 reversed the rule, so the assertion is reversed
+  // with it and kept in place — a test that quietly disappears reads as one
+  // that was forgotten, and this one is the reason #183 could be written at all.
+  it("shows the explanation, and never a Murphy citation beside it", async () => {
     answerItem.mockResolvedValue(
       graded({ explanation: "Past simple for a finished action.", murphy_units: "5-6" }),
     );
@@ -126,7 +136,11 @@ describe("the feedback state machine", () => {
     await userEvent.click(screen.getByRole("button", { name: "Check" }));
     const panel = await screen.findByTestId("explanation");
     expect(panel).toHaveTextContent("Past simple for a finished action.");
-    expect(panel).toHaveTextContent("Murphy 5-6");
+    // The API still SENDS `murphy_units` — the column stays and the payload is
+    // unchanged. The rule is that nothing renders it, so the mock supplies it
+    // deliberately and the panel must ignore it.
+    expect(panel).not.toHaveTextContent("Murphy");
+    expect(panel).not.toHaveTextContent("5-6");
   });
 
   it("cannot be answered twice — the check disappears once graded", async () => {

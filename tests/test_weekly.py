@@ -434,9 +434,17 @@ def test_murphy_routing_skips_null_and_marks_studied(cleanup_user: int) -> None:
     assert rec is not None
     assert "Collocation" not in rec  # NULL skipped
     assert "Missing article" in rec
-    assert "69-81" in rec
-    assert "already" in rec.lower() or "stored" in rec.lower()
-    assert "collocation" not in rec.lower()
+    # INVERTED 2026-08-26 by the #183 ruling, not deleted. This line read
+    # `assert "69-81" in rec` -- the S11 weekly citation, on a live daily path.
+    # The LABEL is what survives; the unit range never reaches the learner.
+    #
+    # The routing still branches on Murphy unit numbers internally (a NULL
+    # `murphy_units` is still why Collocation is skipped, asserted two lines
+    # up), which is what makes this an inversion of the RENDER and not of the
+    # logic -- and it is the whole of what #186 is about.
+    assert "69-81" not in rec
+    assert "Murphy" not in rec
+    assert "Worth revisiting" in rec
     assert len(rec) <= 400
     assert _GUILT.search(rec) is None
 
@@ -450,7 +458,9 @@ def test_murphy_new_when_not_studied(cleanup_user: int) -> None:
     assert rec is not None
     assert "Word order" in rec
     assert "New" in rec or "new" in rec
-    assert "already" not in rec.lower()
+    assert "Worth revisiting" not in rec
+    # #183: the two branches still differ, and neither names a book.
+    assert "Murphy" not in rec
 
 
 def test_expand_murphy_ranges() -> None:

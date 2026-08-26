@@ -160,8 +160,13 @@ def render_correction_message(
     did = (did_well or "").strip() or "Nice."
     if not corrections:
         return texts.format_praise(did)
+    # `murphy_lookup()` is the code -> units map and doubles as the VALID
+    # ERROR-CODE SET, which is the only thing it is used for here. The map is no
+    # longer passed to the formatter: #183's ruling took the citation off the
+    # correction block, so there is nothing to look up for rendering. One
+    # argument removed, no logic changed.
     valid = murphy_lookup()
     kept = [c for c in corrections if c.get("error_type") in valid]
     if not kept:
         return texts.format_praise(did)
-    return texts.format_correction_reply(kept, did, valid)
+    return texts.format_correction_reply(kept, did)
