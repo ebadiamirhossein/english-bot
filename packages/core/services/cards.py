@@ -61,7 +61,8 @@ _CARD_COLUMNS = """
     cards.who_says_this, cards.lexeme_id, cards.cue_text, cards.register,
     cards.register_source, cards.neutral_mastered_at, cards.fsrs_state,
     cards.fsrs_step, cards.stability, cards.difficulty, cards.due,
-    cards.last_review, cards.lapses, cards.reps, cards.leech_at
+    cards.last_review, cards.lapses, cards.reps, cards.leech_at,
+    cards.captured_at, cards.source_title
 """
 
 
@@ -95,6 +96,14 @@ class Card:
     neutral_mastered_at: datetime | None
     state: CardState
     leech_at: datetime | None
+
+    # W8f / migration 015. Defaulted, so a caller constructing a Card by hand
+    # (several tests do) is not forced to supply provenance a v2 card never had.
+    # NOT surfaced by `face()`: rendering the readable title is a card-face
+    # change, which reaches `apps/web` and `CardFace`, and W8f does not touch
+    # the frontend. The column is populated now so W13 has something to render.
+    captured_at: datetime | None = None
+    source_title: str | None = None
 
     def face(self) -> dict:
         """What the reviewer renders. PRD §5 and §8.5.4.
@@ -162,6 +171,8 @@ def _to_card(row: tuple) -> Card:
             reps=int(row[24]),
         ),
         leech_at=_utc(row[25]),
+        captured_at=_utc(row[26]) if len(row) > 26 else None,
+        source_title=row[27] if len(row) > 27 else None,
     )
 
 
@@ -208,6 +219,8 @@ def create_card(
     lexeme_id: int | None = None,
     cue_text: str | None = None,
     seed_basis: dict | None = None,
+    captured_at: datetime | str | None = None,
+    source_title: str | None = None,
 ) -> int | None:
     """Insert one card on an open connection (caller owns the transaction).
 
@@ -215,6 +228,19 @@ def create_card(
     `UNIQUE (user_id, source_chunk_id, card_type)` conflict is a no-op rather
     than an error, which is the second half of the migration's idempotency
     (the first is its anti-join).
+
+    `captured_at` and `source_title` (migration 015) are PRD §5's "and where it
+    came from", for a card whose provenance is a capture rather than a chunk.
+    Both stay NULL for a migrated card, which recorded neither, and no value is
+    invented for those rows: an invented capture instant is indistinguishable
+    from a real one.
+
+    **The `ON CONFLICT` below is keyed on `source_chunk_id` and therefore CANNOT
+    FIRE for a captured card**, because PostgreSQL treats every NULL as
+    distinct. That is not an oversight left in place: migration 015's
+    `cards_one_card_per_lemma` is the guarantee that covers those rows, and the
+    caller's anti-join is the other half. Two independent guarantees on both
+    paths, which is the property `migrate_chunks` has and this one needed.
 
     `neutral_mastered_at` is deliberately not a parameter. It has exactly one
     writer, `promote_to_production`, and a test says so; accepting it here would
@@ -233,13 +259,15 @@ def create_card(
             context_sentence, meaning, neutral_equivalent, neutral_lexeme_id,
             who_says_this, lexeme_id, cue_text, register, register_source,
             fsrs_state, fsrs_step, stability, difficulty, due, last_review,
-            lapses, reps, seeded_from_history, seed_basis
+            lapses, reps, seeded_from_history, seed_basis,
+            captured_at, source_title
         ) VALUES (
             %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s,
             %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s
+            %s, %s, %s, %s,
+            %s, %s
         )
         ON CONFLICT (user_id, source_chunk_id, card_type) DO NOTHING
         RETURNING id
@@ -270,6 +298,8 @@ def create_card(
             state.reps,
             seed_basis is not None,
             json.dumps(seed_basis or {}, ensure_ascii=False),
+            captured_at,
+            source_title,
             ),
         )
         row = cur.fetchone()
@@ -836,3 +866,179 @@ def delete_chunk_cloze_cards() -> list[int]:
         deleted = [int(row[0]) for row in cur.fetchall()]
     logger.info("chunk cloze cards deleted count=%s", len(deleted))
     return deleted
+
+
+# ---------------------------------------------------------------------------
+# W8f: captured vocabulary — resolution, the anti-join, and the backfill
+# ---------------------------------------------------------------------------
+#
+# SQL lives here and not in `core.cards.capture` / `.import_vocab` /
+# `.backfill_lexemes`, so `test_core_boundary.py::test_cards_package_is_pure`
+# stays unexempted and #59 remains this project's only boundary exemption.
+
+
+def resolve_capture_lemma(
+    conn: Any, word: str, *, grow: bool = True
+) -> tuple[int | None, str]:
+    """A captured word → its `lexemes` row. Returns `(id, path)`.
+
+    `path` is one of `identity` | `grown` | `would_grow` | `unresolved`, and it
+    is returned rather than logged because the dry run prints it: "9 resolved"
+    is not the check, "7 identity + 2 grown" is. If `tier` ever reports
+    `identity`, the suffix step is live and has written `ti`.
+
+    **`grow=False` makes this read-only**, which is what a dry run needs:
+    `ensure_lexeme` INSERTs, so a dry run that resolved the ordinary way would
+    silently add rows to `lexemes` while reporting that it wrote nothing. The
+    dry path reports `would_grow` for a word it could add, so the operator sees
+    the same two-way split before and after.
+
+    **`lemmatize` IS DELIBERATELY NOT CALLED, and that is the whole function.**
+
+    `core.lexicon.normalize.lemmatize` has three steps, and the third proposes
+    suffix-stripped candidates and accepts one **if it is already a known
+    lemma**. Its docstring promises it "can fail to resolve, but it cannot
+    invent" — which is true literally and false in effect:
+
+        lemmatize("tier") -> "ti"
+
+    `tier` is absent from the 15,000-lemma seed list, so step 3 strips `-er`,
+    proposes `['ti', 'tie']`, and `ti` IS in the list at rank 9,856 — an
+    artefact of an OpenSubtitles-derived frequency file. Nothing was invented
+    and the answer is still wrong.
+
+    That step exists to fold INFLECTIONS onto a lemma. A captured word arrives
+    in dictionary form already, so the step buys nothing on this path and costs
+    a mislabelled card. And a mislabel here is not cosmetic: migration 013 says
+    of `lexeme_id` that it "is what `grade_card` writes the ledger from, with
+    source='review'", so a card pointing at `ti` would write ledger evidence for
+    the wrong word every time the learner graded it — into the one structure
+    CLAUDE.md §5 calls unrebuildable.
+
+    Worse, it would have READ GREEN: the importer would make the identical error
+    on the identical input, so `tier` would still deduplicate correctly, because
+    both sides of the comparison were wrong in the same direction.
+
+    `ensure_lexeme`'s own docstring assumes the composition this function
+    refuses — "called after `lemmatize` has returned None" — and that assumption
+    is exactly what `tier` breaks. Filed against W4 (`lemmatize`'s suffix step
+    reaches anything absent from the seed list) and NOT fixed here: coverage
+    calls `lemmatize` on every transcript token, so changing it moves every
+    coverage figure this project has recorded, and that is its own slice with
+    its own before-and-after.
+
+    **The importer and the backfill both call this**, which is the point. An
+    earlier draft had the importer growing lexemes while the backfill refused
+    to, so the same word was a lemma on one path and not on the other.
+    """
+    normalised = word.strip().lower()
+    if not normalised:
+        return None, "unresolved"
+
+    from core.services import lexicon as lexicon_service
+
+    found = lexicon_service.lexeme_ids(conn, [normalised])
+    if normalised in found:
+        return int(found[normalised]), "identity"
+
+    if not grow:
+        # Read-only: say what WOULD happen, write nothing. `GROWABLE` is the
+        # same regex `ensure_lexeme` applies, imported rather than restated so
+        # the dry run and the apply cannot disagree about which words are addable.
+        addable = lexicon_service.GROWABLE.match(normalised) is not None
+        return None, ("would_grow" if addable else "unresolved")
+
+    # Absent from the dictionary. Grow it — `origin='grown'`, NULL `freq_rank`,
+    # which migration 010's frequency floor (`WHERE freq_rank IS NOT NULL`)
+    # already refuses to assume known. The dictionary gains exactly what a tap
+    # would have added. A multi-word back fails GROWABLE on the space and comes
+    # back None, which is how phrase-backed cards stay out of this by themselves.
+    grown = lexicon_service.ensure_lexeme(conn, normalised)
+    return (int(grown), "grown") if grown is not None else (None, "unresolved")
+
+
+def lemmas_with_a_card(conn: Any, user_id: int) -> frozenset[str]:
+    """Every lemma this learner already has ANY card for.
+
+    The importer's anti-join, and it is **row-level on purpose**: one existing
+    card of any type skips the whole row, so a word with a production card does
+    not quietly gain a recognition one. The alternative turns the S24a
+    verification run into a nine-card write.
+
+    Reads `lexemes.lemma` through the join rather than `cards.back`, because
+    `back` is display text and this is an identity question — the same reason
+    013 gives `neutral_lexeme_id` for preferring a join to a text match.
+
+    An EXPLICIT tuple cursor, for `create_card`'s reason one page up: this runs
+    on a CALLER-OWNED connection and a caller's row factory is not ours to
+    assume. `core.db.connection()` yields dict rows and a plain `psycopg.connect`
+    yields tuples, and both reach here — the command through the pool, W13's
+    route and the tests through their own connection.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT l.lemma
+              FROM cards c
+              JOIN lexemes l ON l.id = c.lexeme_id
+             WHERE c.user_id = %s
+            """,
+            (user_id,),
+        )
+        return frozenset(str(row[0]) for row in cur.fetchall())
+
+
+def cards_needing_a_lexeme(conn: Any) -> list[tuple[int, int, str, str]]:
+    """`(card id, user id, card type, back)` for every card with no `lexeme_id`.
+
+    **Never filtered by provenance or by date.** `retire_chunk_cloze`'s rule,
+    and `delete_items_by_hash`' reason one package over: a date range sweeps
+    rows nobody looked at, and an id list is a claim about the database that
+    stops being true the moment the database changes. The predicate is the
+    thing the backfill is about — "this card has no lemma" — and nothing else.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT id, user_id, card_type, back
+              FROM cards
+             WHERE lexeme_id IS NULL
+             ORDER BY id
+            """
+        )
+        return [
+            (int(r[0]), int(r[1]), str(r[2]), str(r[3])) for r in cur.fetchall()
+        ]
+
+
+def set_card_lexeme(conn: Any, card_id: int, lexeme_id: int) -> bool:
+    """Point one card at its lemma. Returns whether a row changed.
+
+    `AND lexeme_id IS NULL` is in the WHERE and is not decoration: it makes the
+    write idempotent and makes a second run report zero instead of rewriting
+    rows a later slice may have corrected. This is the only column it touches.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            "UPDATE cards SET lexeme_id = %s WHERE id = %s AND lexeme_id IS NULL",
+            (lexeme_id, card_id),
+        )
+        return cur.rowcount == 1
+
+
+def captured_cards(user_id: int) -> list[Card]:
+    """This learner's imported cards, for the independent read-back.
+
+    Matches on `register_source` — the fourth value migration 015 added — which
+    is what makes an import findable in one WHERE. That is the same move
+    `user_lexemes.source = 'assumption'` makes for the frequency floor (#93).
+    """
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            f"SELECT {_CARD_COLUMNS} FROM cards "
+            "WHERE cards.user_id = %s AND cards.register_source = 'import_default' "
+            "ORDER BY cards.id ASC",
+            (user_id,),
+        )
+        return [_to_card(r) for r in cur.fetchall()]

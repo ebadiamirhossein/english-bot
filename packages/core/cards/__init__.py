@@ -74,6 +74,23 @@ SLANG_CHUNK_CARD_TYPES: tuple[str, ...] = ("recognition",)
 #: `migrated_card_keys` filters on, so they are outside this set by construction.
 MIGRATION_CARD_TYPES: tuple[str, ...] = CHUNK_CARD_TYPES + SLANG_CHUNK_CARD_TYPES
 
+#: What ONE CAPTURED WORD becomes (W8f, and W13's transcript tap) — a
+#: recognition card and a production card, and never a cloze one. It lives here
+#: beside `CHUNK_CARD_TYPES` because this module is the single place a reader
+#: looks for "what turns into what", and a fan-out defined next to the loop that
+#: builds it is one nobody finds.
+#:
+#: **The absent `cloze` is NOT W8b's ruling repeated.** W8b removed the chunk
+#: cloze because a v2 chunk is an idiom and a gap swallowing a whole phrase
+#: cannot be reconstructed from what is left — an argument about phrases. A
+#: single word sitting in a real sentence is exactly what cloze is for, and a
+#: capture cloze would be a good card. The blocker is **#147**, still open:
+#: `make_sentence_with_gap` replaces a SUBSTRING, not a whole word, so it gaps
+#: *tier* out of *tiers* and strands the `s`. Building on it would inherit a
+#: live defect onto every new card. Capture cloze lands at W13, with a
+#: whole-word gapper beside it.
+CAPTURE_CARD_TYPES: tuple[str, ...] = ("recognition", "production")
+
 #: Card types that ask the learner to PRODUCE the phrase. Mirrors the DDL in
 #: migration 013 so the two cannot drift, and a test asserts they agree.
 PRODUCTIVE_CARD_TYPES: frozenset[str] = frozenset(
@@ -97,7 +114,17 @@ RATING_NAMES: dict[int, str] = {v: k for k, v in RATINGS.items()}
 # `neutral` is a stated assumption and not an observation. Keeping the two
 # distinguishable is the same move `user_lexemes.source = 'assumption'` makes
 # for the frequency floor (#93) — a hypothesis stays findable in one WHERE.
-REGISTER_SOURCES: tuple[str, ...] = ("migration_default", "detected", "operator")
+# W8f adds `import_default`, and the reason is that the other three are all
+# false of an import. 'migration_default' says "v2 had no register concept";
+# 'detected' says a model looked; 'operator' says a human judged this row. W8f
+# makes no model call and the operator ran a file, not a review. Migration 015
+# widens the CHECK to match; `test_migration_015` asserts the two agree.
+REGISTER_SOURCES: tuple[str, ...] = (
+    "migration_default",
+    "detected",
+    "operator",
+    "import_default",
+)
 
 #: The register a v2 chunk's card is tagged with, and it is a decision with a
 #: cost rather than an omission. `neutral` is PRD §8.5.1's own default
@@ -158,6 +185,7 @@ __all__ = [
     "REGISTERS",
     "REGISTER_SOURCES",
     "MIGRATION_DEFAULT_REGISTER",
+    "CAPTURE_CARD_TYPES",
     "PREP_SOURCE_PREFIX",
     "PREP_FORBIDDEN_REGISTERS",
     "RECEPTIVE_FIRST_REGISTERS",

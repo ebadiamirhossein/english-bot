@@ -127,6 +127,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | W8c | The card face: the answer is printed on the front | 🟡 deployed 2026-08-26 | 2026-08-26 | **A learner-visible leak, found by a person on a phone and not by any gate.** The source line printed the answer on every `production` front; it is now ruled **per card type**, exhaustively, with withheld as the fallthrough. Two more leaks in the same file closed with it (**#153** register panel on the front, **#154** the sentence printed twice) — both live on all 15 `recognition` cards. **#142 measured shut in the shipped app**: Geist 209.36px = naive appended 209.36px (inert), `--font-l1` **250.55px**; the first reading of 202.74px was `Vazirmatn Fallback` under `preload: false` and would have been recorded as a pass. **#143 closed per LINE, not per field** — paragraph-level `dir="auto"` would drag card 17's English hint RTL. **No migration, no `.sql`, no Python in the diff** — hence no install and **no restart**, a frontend-only exception recorded with its reason. pytest **1681/6 unchanged**; Vitest **62 → 74**. #124 and the five glosses land as a guarded human backfill, not in the code. **DEPLOYED 2026-08-26.** `core.db status` read **verbatim** into this file — `Applied: 001–014, Pending: (none)` — which closes the reporting gap W8b left open (#141). Frontend-only as ruled: **no install, no migrate, no restart**; backup **321,253 bytes** to R2 immediately before the writing half — **and its delta against W8b's 321,034 was first read backwards and is corrected in the decisions log**: taken after a 14-card deletion, the dump should have shrunk by KB and grew by 219 bytes instead. **#124 closed on the database**: five guarded `UPDATE`s, **ids 35/37/39/41/43, each `UPDATE 1`**, Farsi count **9 → 14 read back in `psql`**, glosses in the decisions log verbatim **with their authorship stated** — assistant-drafted, operator-accepted. **#151 gains a third trap and the first that can corrupt a write** (`!` in a double-quoted `psql -c` → bash history expansion; `set +H` first). **Two new issues from the phone: #157** (no typed answer, so recall and recognition are indistinguishable — W10) and **#158** (the gloss renders twice after reveal — #154's shape on another type, invisible to #154's guard). **PHONE EVIDENCE 2026-08-26 on card 39: Vazirmatn resolving, Farsi RTL, English LTR — #142 and #143 close on a screen**, and the hidden-costs card is confirmed as **39**, not 38 (corrected in place, struck). **`users.native_language` = `fa`/`lt`/`fa` for ids 1/2/3, Morkyte correct** — #159 narrows to plumbing and the nine `{native_language}` templates have been right for her all along. **#152 CLOSES ON THE SCREEN 2026-08-26** — card 39, the ungapped sentence only after *Show me*, the defect confirmed shut where it was found. **#158 did not reproduce there and is NOT fixed**: the backfill changed the data (Farsi line 1 vs English `meaning`), not the renderer, and the nine Trancy rows may still duplicate. **#153 and #154 remain unseen** on the fifteen slang cards nobody has opened. **#160 filed — the ruling retiring `/review` as a daily duty**, due cards into W10's session as typed/spoken/cued exercises, `/review` reachable but never counted; **a return to PRD §4.1's Block 1 rather than a revision of §5**, and CLAUDE.md §4's no-backlog rule is the stronger link. |
 | W8d | Checkpoints: give the freed items back to grammar | 🟡 deployed 2026-08-26 | 2026-08-26 | **#161's ruling left every checkpoint's vocabulary block with no source, and eight of the 24 checkpoints were UNPASSABLE as a result (#166). `lexeme_items` is 0 in all 24 and its items are back with the unit's own grammar targets, so all twelve items test that unit's grammar and a perfect grammar score passes.** **No migration — `schema_version` stays at 14**, no `.sql` file added or edited, and the `syllabus_units_checkpoint_is_twelve_at_eighty` CHECK is untouched and still satisfied. **The rule is proportional (Hare-quota largest remainder) because the weighting is deliberate** — unit 2's largest block is on its hardest distinction and W8 check 5 returned a positive on exactly that — **and the seven units with more tied targets than seats get an AUTHORED tie-break, recorded per unit with its reason, never array position**, which in four of the seven would have handed the seat to the easier half. **Four properties asserted: sums to 12, no target loses, strict rank preserved, nothing above 5 of 12.** **`test_a_perfect_grammar_score_passes_every_checkpoint` was run RED first — eight units at 75.0% — before a number moved.** Production is rewritten by `python -m core.syllabus.rewrite_checkpoints`, human-run, dry by default, printing all 24 before/after rows and refusing to write if any column other than `checkpoint` differs from the file; **rehearsed end to end on the dev database, including the drift guard and the typed-count stop.** **#166 closes with option 2 filed as its successor (assistant-recommended, operator-accepted); #168 and #169 filed; #165 and #167 carried unchanged.** **PRD §3 checked, not assumed: it never specified a vocabulary block, so no amendment is owed here.** Suite **1681 → 1685 passing / 6 skipped / 0 failing**; Vitest 74, untouched. **DEPLOYED to production 2026-08-26**: `Applied: 001–014, Pending: (none)` pasted verbatim, dry run 24 CHANGES with no drift refusal, backup 321,653 bytes, `0 inserted, 24 updated`, independent `psql` returning `lex` 0 and `grammar` 12 for all 24, second run `0 of 24 would change`, `english-api` restarted and `english-bot` deliberately not. **Two record-level findings from the deploy: the 24 before/after rows were never in this file** (they were in the plan, which lives outside the repository) **and are added with their provenance labelled; and the backup delta is not evidence for this slice at all** — W8d's expected delta is **zero**, since every value that moved is one digit replaced by one digit. **W8d stays 🟡 until the human marks it.** |
 | W8e | Two W10 rulings and one sequencing constraint | 🟡 code-complete | 2026-08-26 | **Records only — no code, no migration, no server step.** `schema_version` stays at **14**; no `.sql` file, no `packages/core` change. **The suite was RUN, not assumed: 1685 passed / 6 skipped / 0 failing (107s), Vitest 74 passed across 7 files** — identical to W8d's numbers, which is the point of running it on a slice that changed no code. **RULING 1 (#157): the typed answer is split BY CARD TYPE** — `production` and `cloze` take a typed answer graded through `equivalence_key`/`distinct_answers`; **`recognition` keeps W6's self-mark, because its answer is a meaning and a meaning cannot be machine-graded against a typed string.** The reason is from use: *a card that shows the answer on a tap and then asks the learner to grade themselves cannot distinguish recall from recognition*, and **that was noticed by the operator using the reviewer, not by any gate** — the second time in three slices. **RULING 2 (#170): checkpoints stay pure grammar in W10** — do not re-source vocabulary items from the learner's due cards; **#170 re-targeted W11 → W13 with the trigger stated as DECK SIZE, not a date** (29 cards today, and W8b removed 14 of them). **Both rulings assistant-recommended, operator-accepted**, recorded with W8c's gloss convention. **CONSTRAINT (#171, new): W10 must not be PLANNED until #164 is settled** — W10 generates items against the Murphy citations, which is the surface #164's escalation clause names, and **three citations contradict each other (19–20 across units 3 and 9; 38 across 12 and 17)**. **A wrong citation fails silently.** Filed as its own row so it is findable as a blocker. **W8 check 4 is the unblocking step and stays part-run, blocked on the book, carried with all four questions.** **Do not start W9 or W10.** |
+| W8f | Vocabulary import: Language Reactor and Trancy | 🟡 code-complete | 2026-08-26 | **Migration 015 and the first v3 import path. Not deployed; `schema_version` is 15 on the Mac dev database only.** Two real exports are committed as fixtures and both parsers are tested against them. **#27 CLOSES, and it closes with the defect it was filed for finally MEASURED rather than described:** the v2 path reading the real Language Reactor export produces **7 headers and 9 phantom rows from a 2-record, 24-column file** and then refuses it — the export has **no header row at all**, is tab-separated, and carries literal newlines inside quoted fields. A real LR export has never been importable since S15a. Both halves are asserted so it cannot silently reopen. **The ruling: LR is the primary path, Trancy the degraded one, and NO MODEL CALL is made on either.** An LR row carries the sentence the learner met; a Trancy row becomes a smaller card and no sentence is invented — that generator is what W8b measured as the cause of the deck's 50% work bias (#99), and #99's remaining surface is exactly the import paths. **THE SLICE'S OWN FOUNDING DEFECT, found in review and not by a gate:** `migrate_chunks` sets `source_chunk_id` on every card and `lexeme_id` on none, so the duplicate guarantee as first drafted was blind to **all 14 production cards**, and importing the very file S24a already imported would have written a second `tier` card beside card 17. Corrected by keying identity on the LEMMA and by `core.cards.backfill_lexemes`. **A second, sharper trap was found and routed around, not fixed:** `lemmatize("tier")` returns **`ti`** — a real seed row at rank 9,856 — so a backfill through the lemmatiser would have pointed card 17 at the wrong word and corrupted the ledger on every grade, **and it would have read green**, because the importer makes the identical error on the identical input. `resolve_capture_lemma` never calls `lemmatize`. **S24a's record is CORRECTED: its `1 skipped (frustrate)` was wrong** — the file has nine rows including `frustrate`, the census counted nine chunks, and all nine landed. Suite **1756 passed / 6 skipped**, up from 1685. |
 
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
 
@@ -188,6 +189,20 @@ Record every decision that deviates from or resolves ambiguity in the spec. Newe
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-08-26 | **W8f: Language Reactor is the primary import path and Trancy the degraded one, and NO MODEL CALL is made on either. Assistant-recommended, operator-accepted.** | An LR row carries the sentence the learner actually met the word in; a Trancy row carries a bare word, which is why S24a generated a sentence around it. **W8b measured where those sentences went: 7 of 14 cards work-framed, exactly 50% against §4's 20% cap**, from a prompt with no track weighting anywhere in it. #99's status already says its remaining surface is the import paths. **A path that generates context inherits §4's weights; this one generates nothing, so it cannot inherit the bias.** A Trancy card is a smaller card, not an invented sentence. |
+| 2026-08-26 | **W8f: #27 closes with a MEASUREMENT, not a description. A real Language Reactor export has never been importable.** | Three independent reasons, all visible in the committed fixture: the export has **no header row** (so `csv.DictReader` eats record 0 as headers), it is **tab-separated** (so one record comma-splits into seven fragments), and its context columns carry **literal newlines inside quoted fields** (so a line reader sees ten lines where there are two records). Measured: `parse_csv_bytes` + `classify_csv_format` return **7 headers, 9 rows, format None** on a 2-record, 24-column file. **Both halves are asserted** — that the v2 path still refuses it and that the new one accepts it — because asserting only the fix would let someone re-point the importer at the old detector and still see green. |
+| 2026-08-26 | **W8f CORRECTION: S24a's `9 words → 8 imported / 1 skipped (frustrate)` was wrong. There was one import, of nine rows, and the reply's count was the error.** | The attached Trancy file is **byte-identical to `VOCABULARY LIST 2026-08-14.csv`** (verified with `diff`), so it is not *a* Trancy file, it is **the** file S24a imported. It contains nine rows **including `frustrate`**; the census counts nine `vocabulary` chunks; and `frustrate` is the back of card 32. The record has carried this since 2026-08-25 as *"either a second import ran, or the skip did not skip"*. **It was neither: all nine landed and the count in the Telegram reply was wrong.** |
+| 2026-08-26 | **W8f: cards directly, not chunks-then-cards, and this creator is the one W13 reuses. Assistant-recommended, operator-accepted.** | `ARCHITECTURE-v3-web.md` §6 already routes creation through `POST /video/{id}/save-word`; PRD §7.3 has the player's Add-to-deck build cards "with this exact sentence and timestamp"; and `013_cards.sql:88` says of `lexeme_id`, in its own comment, *"W13's capture sets it."* **An LR row and a tapped transcript word carry identical inputs** — lemma, sentence, gloss, source title, captured-at — so they are the same event through two doors. Two creators would mean two fan-out tables and the second one drifts. |
+| 2026-08-26 | **W8f: THE FOUNDING DEFECT — the duplicate guarantee as first drafted was blind to every card in the deck. Found in review, not by a gate.** | `core.cards.migrate_chunks` sets `source_chunk_id` on **every** card and `lexeme_id` on **none** — the string `lexeme` does not occur in that module at all. A unique index scoped `WHERE source_chunk_id IS NULL AND lexeme_id IS NOT NULL` therefore matched **zero of the 14 production cards**, and `create_card`'s `ON CONFLICT (user_id, source_chunk_id, card_type)` cannot fire on a NULL either, because PostgreSQL treats every NULL as distinct. **The step written as the duplicate test would have created the duplicates**: 9 imported instead of 9 skipped, and a second `tier` card beside card 17. Fixed by keying identity on the **lemma** and backfilling `lexeme_id` — the index's missing `source_chunk_id` clause **is** the ruling, which is why its absence is commented in the migration and asserted by a test. |
+| 2026-08-26 | **W8f: `resolve_capture_lemma` never calls `lemmatize`, and that is the whole function. `lemmatize("tier")` returns `ti`.** | `tier` is absent from the 15,000-lemma seed list, so step 3's suffix rules strip `-er`, propose `['ti','tie']`, and **`ti` IS a known lemma** (rank 9,856, an OpenSubtitles artefact) — so the guard *"a candidate is accepted only if it is already a known lemma"* passes. The docstring's promise that it *"can fail to resolve, but cannot invent"* **holds literally and fails in effect**. `013_cards.sql:88` says `lexeme_id` is what `grade_card` writes the ledger from, so a card pointing at `ti` would have written ledger evidence for the wrong word on every grade — into the one structure CLAUDE.md §5 calls unrebuildable. **And it would have READ GREEN**: the importer makes the identical error on the identical input, so `tier` still deduplicates — both sides wrong in the same direction. Identity match first, `ensure_lexeme` otherwise, suffix step never. **The importer and the backfill call the same function**, because an earlier draft had one growing lexemes while the other refused to. |
+| 2026-08-26 | **W8f: NO frequency floor on a captured word. Assistant-proposed, assistant-reviewed-against, operator-accepted.** | A rank-8000 floor was proposed and argued down, and the losing argument is kept because the threshold will look re-proposable. **Two errors.** (1) `freq_rank IS NULL` does not mean rare: `tier` and `bootstrap` are absent from an OpenSubtitles-derived list, which is a fact about the list. Migration 010's *NULL sorts last* is a **sorting** rule, and using it to reject silently upgrades *absent from our list* into *too rare to be worth a card*. **A missing rank is unknown, and unknown is not rare.** (2) **A capture is not a suggestion** — the learner met the word, did not know it, and looked it up, which is the strongest statement of intent this system receives. `psychosis` at 14,342 came from a documentary. **The first draft cited the floor's rejection of `tier` and `bootstrap` as corroboration; it was a coincidence** — this same record establishes those entered as *captures* while the bias entered through *generated sentences*. `skipped_too_rare` is kept as an always-zero bucket, asserted by a test, so reinstating a floor is a number rather than plumbing. **The floor belongs to proactive selection, not to capture.** |
+| 2026-08-26 | **W8f: a `native_language` mismatch refuses the WHOLE FILE before anything is written; the user row wins over the export's own column.** | `users.native_language` is what every other surface reads, and it is a whole-file property, so failing loud beats importing row by row and skipping most of them. S24's own reason, unchanged: *"operator Trancy exports carry Persian meanings; User B is Lithuanian."* This does not close **#159**, which is about carrying L1 onto the card FACE — it stops W8f from making it worse. |
+| 2026-08-26 | **W8f: the duplicate skip is ROW-LEVEL, not per card type.** | Any existing card for a lemma skips the whole row. The alternative — skip the nine production cards and create nine *recognition* cards, which genuinely do not exist — turns the S24a verification run into a nine-card write, and D5's *"already a card → skip"* reads row-level. **Cost, filed:** a word with only a production card can never gain a recognition card through import; W13 owns whether a partially-carded word is topped up. |
+| 2026-08-26 | **W8f: no capture produces a cloze card, and the reason is #147, NOT W8b's ruling.** | W8b removed the chunk cloze because a v2 chunk is an **idiom** and a gap swallowing a whole phrase cannot be reconstructed — an argument about phrases. **A single word sitting in a real sentence is exactly what cloze is for, and a capture cloze would be a good card.** The blocker is that `make_sentence_with_gap` replaces a **substring**, so it gaps *tier* out of *tiers*. Building on it would inherit a live open defect onto every new card. The production card carries **no context hint** for the same reason — that hint *is* the gapper's output. Cloze lands at W13 with a whole-word gapper beside it. |
+| 2026-08-26 | **W8f: `register_source` gains a fourth value, `import_default`.** | The other three are all false of an import: `migration_default` means "v2 had no register concept", `detected` means a model looked, `operator` means a human judged this row. W8f makes no model call and the operator ran a file, not a review. **Naming it is what makes these rows findable in one `WHERE`** when W13's register detection lands — the move `user_lexemes.source = 'assumption'` makes for the frequency floor (#93). **Cost, stated:** a slang line captured from a series is tagged `neutral` and becomes a production card. That is **#126** already. |
+| 2026-08-26 | **W8f takes migration 015 and every unwritten slice below it shifts by one** (W10 016, W12 017, W13a 018, W14 019, W18 020), corrected in `docs/TASKS-v3-web.md`'s authoritative table **and in the five affected Build columns in the same commit**. | W4b's move and W4b's reason: `db.py` computes pending as a **set difference**, not `v > max`, so a number taken above everything claimed would still apply — but **after** 015 on production and **before** it on a fresh database, and W10's file would have to be correct against two different parent schemas. The schema history stops being replayable, which is the one thing a numbered-file scheme exists to give you. **Renumbering an APPLIED migration is #49; renumbering an unwritten planning row is bookkeeping** (W4a). `test_record_consistency` checks both halves agree. |
+| 2026-08-26 | **W8f: PRODUCT-PRINCIPLES §3's licensing check is PERFORMED on the two committed fixtures, with its answer — and the PATH is flagged, not ruled on.** | Both fixture records are Project Gutenberg (`gb_20203`, *Autobiography of Benjamin Franklin*) — **public domain**, so §3's *"licensing is checked before any third-party data enters the repo"* is satisfied and the answer is written down rather than assumed. **But Language Reactor captures from Netflix and YouTube, and a subtitle line is copyrighted text.** `cards.context_sentence` already stores it and 015 adds `source_title` and `captured_at` beside it. Storing that in a personal database is one thing; storing it in a product with paying users is another, and the schema is being built now. §3 calls this the *"cheap now and expensive later"* case exactly. **Filed with a target (W12/W13) and NOT ruled on here.** |
+| 2026-08-26 | **W8f: THE PATTERN, named once — a guarantee evaluated against a set that cannot contain the thing it is about. This is its fourth appearance, and two of the four are this slice, caught on consecutive review passes.** | (1) v2 — 161 tests green over handlers called directly, so no test could see the dead route (§3 rule 1). (2) W1 — `assert_path_outside_repo`'s test computed its fixture from the same broken `repo_root()` it was checking (§3 rule 5). (3) **W8f draft 1** — the unique index scoped to `source_chunk_id IS NULL`, blind to all 14 cards. (4) **W8f draft 2** — the backfill scoped to existing lexemes, blind to the two words absent from the dictionary. **It is not rare and it is not a v2 artefact.** Its next mutation is already visible here and is worse than blindness: `tier → ti` is a guarantee that *sees* the row and sees it wrongly, on both sides at once, and reads green. **The check that catches this family is asking what the predicate CANNOT match, not whether it passes.** |
 | 2026-08-26 | **W10 RULING 1: the typed answer is ruled PER CARD TYPE, not for the session. `production` and `cloze` take a typed answer, graded through the existing `core.items.grading.equivalence_key` (`grading.py:100`) and `distinct_answers` (`grading.py:127`) seam; `recognition` KEEPS W6's reveal-then-self-mark.** **Assistant-recommended, operator-accepted — authorship recorded as it is for W8c's five glosses and the #161 ruling.** #157 is ruled, not closed: the ruling is recorded here and W10 executes it. | **The reason is from USE, and that is the part worth keeping:** a card that shows the answer on a tap and then asks the learner to grade themselves **cannot distinguish recall from recognition**, and that distinction **is the whole difference between knowing a word and thinking you know it**. Everything FSRS schedules downstream rests on that one signal, so a generous self-mark does not merely mis-record one review — it sizes the next interval for a memory that was never retrieved. **Recognition is exempt for a reason, not spared as an afterthought: its answer is a MEANING, and a meaning cannot be machine-graded against a typed string.** `equivalence_key` folds capitalisation, punctuation and accepted variants of a known answer; it cannot decide whether a learner's paraphrase of a definition is the same definition. Forcing a typed answer there would grade the learner's wording rather than their memory, and would fail them for being right in different words — CLAUDE.md §4's no-guilt rule reached by a different road. **Recorded explicitly: this was noticed by the OPERATOR USING THE REVIEWER, not by any gate** — the second time in three slices (W8c's front-of-card leak was the first), and the same lesson: a defect in what a screen *asks of a person* is invisible to a test suite that never sees the screen. **Grade through the existing seam, never a second normaliser** — `gates.py` and `probe_cloze.py:183-191` already depend on it, and two normalisers disagreeing is the shape this record has filed four times. |
 | 2026-08-26 | **W10 RULING 2: checkpoints stay PURE GRAMMAR in W10. Do NOT re-source a checkpoint's vocabulary items from the learner's FSRS due cards. #170 is RE-TARGETED from W11 to W13, and its trigger is stated as DECK SIZE, not a date.** W8d's redistribution stands as shipped: `lexeme_items` 0 in all 24 units, 12 grammar items at 80%. **Assistant-recommended, operator-accepted — same authorship convention.** | **Option (b) needs a deck to draw from and there is not one.** The deck is **29 cards** — W7's migration, tied to neither the syllabus nor the video engine — and **W8b removed 14 of them**, so the number is small and recently smaller. A checkpoint that sources items from a learner's due cards, against a deck that size, either finds nothing or finds the same handful in every unit; the fallback for an empty deck would run more often than the path it falls back from. **W13 is the trigger because W13 is where video capture makes the deck large enough to draw from** — that is the condition, and it is written as the condition. **A DATE would go stale and a slice number alone would not say why**: if W13 slips, the constraint is still deck size; if the deck grows another way, #170 is ready earlier. **A second reason, independent of the deck:** option (b) **couples a checkpoint's content to deck state**, a property W8 deliberately built out — a checkpoint is today derivable from the unit row alone — and W10 is **the first slice that generates items at all**. Landing both in one slice means a generation defect and a coupling defect arrive together and cannot be told apart from the output. **#170 is not weakened by the delay and is not discarded**: it remains the truer answer to #161 (vocabulary from what the learner met, not from a unit list), and `lexeme_items` stays **held at 0 rather than deleted** so it still has somewhere to return to. |
 | 2026-08-26 | **SEQUENCING CONSTRAINT, filed as #171 in its own right rather than as a sentence inside #164: W10 MUST NOT BE PLANNED until #164 is settled.** #164's escalation clause named W9 as the slice that shows a citation to a learner; **W10 is a second such slice and the record did not say so.** | **W10 generates items against each unit's grammar targets and their Murphy citations** — that is precisely the surface #164's clause names, *"to `high` on the first slice that shows a Murphy citation to a learner"*. **Three citations are known to contradict each other and the contradiction needs no book: Murphy 19–20 cited by unit 3 for *used to* and by unit 9 for *present continuous for arrangements*; Murphy 38 cited by unit 12 for *must and can't* and by unit 17 for *third conditional*.** One book unit cannot teach two things. **#164 records why this is worse than a bad lexeme and the reason is the whole point: a wrong citation FAILS SILENTLY** — the learner assumes the book is correct, finds the pages do not match the week, and **concludes they are confused.** A bad lexeme is visible as a strange word; a bad citation is invisible as a bad week. **The constraint the record already established, restated so settling the edition is not mistaken for clearing the collisions: a uniform edition offset CANNOT explain a collision, because a uniform shift maps equal numbers to equal numbers** — 19/20 and 38 collide after the shift exactly as before. **So the edition question and the contradictions are INDEPENDENT, and answering the edition does not resolve them.** **Filed as its own numbered row because a constraint that lives only inside another issue's prose is one a planner reads past** — #164 is a long row about citation arithmetic, and the sentence that blocks a slice must be findable as a blocker. **W8 check 4 is the unblocking step**, unchanged and still part-run: one sitting with the book, all four questions in one pass. |
@@ -1038,6 +1053,14 @@ sentence, one airport sentence and five about renting a flat.
 
 | # | Issue | Severity | Slice | Status |
 |---|---|---|---|---|
+| 178 | **The capture path has no "already saved" answer, so `cards_one_card_per_lemma` raises where a route must refuse politely.** W8f's index is the right guarantee and a `UniqueViolation` is the right outcome for a human-run command that prints it. Through `POST /video/{id}/save-word` (ARCHITECTURE §6) it is a **500 for a learner who tapped a word they had already saved** — which is not an error, it is the normal case on a second viewing. The importer avoids it with a row-level anti-join; a route needs an *already saved* response distinct from a failure, and the shape of that answer is W13's to choose. **Filed now so the route meets a known constraint rather than a 500 in front of a learner.** | medium | W8f → W13 | ⬜ open |
+| 177 | **`lemmatize` resolves `tier` to `ti`, and the same shape reaches anything absent from the 15,000-lemma seed list.** `tier` is not a known lemma, so step 3's suffix rules strip `-er`, propose `['ti','tie']`, and `ti` **is** in the seed list at rank 9,856 — an OpenSubtitles artefact — so the guard *"a candidate is accepted only if it is already a known lemma"* passes. The docstring's *"it can fail to resolve, but it cannot invent"* holds **literally** and fails **in effect**. **This is live today and is not W8f's defect:** `core.lexicon.coverage` calls `lemmatize` on every transcript token, so `tier` in any text already counts as `ti`, and **PRD §7.2 selects videos on that coverage number** — which is why W12 is the target. W8f routes around it (`resolve_capture_lemma` never calls it) and deliberately does **not** fix it: changing the lemmatiser moves **every coverage figure this project has recorded**, and that is its own slice with its own before-and-after. `tests/test_cards_import_vocab.py` pins `lemmatize("tier") == "ti"` so a future fix explains why that file exists. | medium | W4 → W12 | ⬜ open |
+| 176 | **`migrate_chunks` created 14 cards with no `lexeme_id`, so every lemma-keyed guarantee was blind to the whole deck.** The string `lexeme` does not occur in that module: its spec is built from a `common` dict with no such key, so `create_card`'s `None` default applied, and `source_chunk_id` is set on every branch. W8f's first-drafted index (`WHERE source_chunk_id IS NULL AND lexeme_id IS NOT NULL`) therefore matched **zero of them**, and importing the very file S24a already imported would have reported 9 new words and written a **second `tier` card beside card 17** — the command written to prevent duplicates would have created them. **Filed and closed in the same slice on purpose:** a defect that stood for nineteen days and was found by review rather than by any gate is exactly what this table exists to hold. | medium | W7 → **W8f** | ✅ **closed 2026-08-26** by keying identity on the lemma and by `core.cards.backfill_lexemes`. **The close is code-complete, not deployed** — the backfill has not been run on production, and until it is, the guarantee holds only on the Mac dev database |
+| 175 | **Storing captured subtitle lines is PRODUCT-PRINCIPLES §3's "cheap now and expensive later" case, and the schema is being built now.** §3: *"licensing is checked before any third-party data enters the repo, and the answer must hold for a commercial product, not only for a private one."* **The two committed fixtures are clean** — Project Gutenberg, public domain, checked with its answer recorded. **The path is not.** Language Reactor captures from Netflix and YouTube; a subtitle line is copyrighted text; `cards.context_sentence` stores it and migration 015 adds `source_title` and `captured_at` beside it. Storing that in a personal database is one thing, storing it in a product with paying users is another. **Flagged at the moment of the choice and deliberately NOT ruled on by W8f** — it is not one slice's call. | medium | W8f → W12/W13 | ⬜ open — the ruling is needed before the product has users who are not these two |
+| 174 | **Eight Language Reactor columns have no established meaning, and W8f reads none of them.** Two records is not a sample. **Column 14** carries `6` and `0`, which a familiarity score and a byte offset look identical at n=2. **Column 4** is identical to the lemma in both records, so the surface/lemma distinction cannot be confirmed — `LR_LEMMA` (5) is read and `LR_SURFACE` is defined but unused, so a bigger export can tell them apart without re-deriving which column was which. **Columns 7, 12, 13, 20, 21 and 22** are empty in every record. The `gb_` prefix on column 15 is unresolved. **Recorded rather than guessed:** a field given an invented semantics is worse than one left alone. | low | W8f → W13 | ⬜ open — needs a larger export, not a decision |
+| 173 | **A Language Reactor `.mp3` is not necessarily an MP3.** The audio **is** in the export (in `media/`, contrary to the slice prompt), and in the committed sample `1787736123635.mp3` is **Ogg/Opus data** while `1787736112873.mp3` is genuine MPEG. The extension lies about the container. **W8f builds nothing for audio** — column 23 is carried as a filename string and nothing more — so this costs nothing today and would cost a decoder failure to whoever wires it up. | low | W8f → W13 | ⬜ open — sniff the container, never trust the suffix |
+| 172 | **W8f's card front shows the FIRST sense on the assumption that Language Reactor orders senses by relevance to the captured context, and two records cannot establish that.** A front wants one gloss, not three (`بلعیدن, خوردن, فرو بردن`), so `first_sense` takes the first and the full string is kept in `meaning` — nothing is discarded, and a later slice can re-choose without re-importing. **The fallback if the assumption is wrong is mild:** the learner sees a valid but less apt sense with the full list one column away. Filed as an assumption rather than left as an unstated one. **Interacts with #158:** a W8f production card has `front` = first sense and `meaning` = full string, so the two are no longer equal by construction — which is the condition #158's outstanding `split_part` query measures, and that query must now be read against both populations. | low | W8f → W13 | ⬜ open |
+| 179 | **A lemma that already has one card type can never gain another through import, and nothing tells the learner what an import filtered out.** Two consequences of W8f's row-level skip and of its dry-run report. (a) The skip is row-level by ruling, so a word with a production card does not gain a recognition card — W13 owns whether a partially-carded word is topped up. (b) **Rarity is recorded but nothing acts on it:** D2 ships no frequency floor, so a rank-14,342 capture becomes a card like any other, and nothing deprioritises it in scheduling. `freq_rank` is on `lexemes` and the card reaches it through `lexeme_id`, so the input exists. (c) The dry run prints every filtered row to the **operator**; there is no learner-facing view of it. **Filed so the dropped floor is a deferral with an owner rather than an absence.** | low | W8f → W10 / W13 | ⬜ open |
 | 171 | **SEQUENCING: W10 must not be PLANNED until #164 is settled, and this is filed as a blocker in its own right because #164's escalation clause named only W9.** **W10 generates items against each unit's `grammar_targets` and the Murphy citations attached to them** — the exact surface #164's clause names, *"it escalates to `high` on the first slice that shows a Murphy citation to a learner"*. That clause was written with W9's skill map in view; **W10 is a second such slice, and generation is the worse of the two** — a skill map renders a citation the learner can compare against the book in one glance, whereas **a generated item embeds the citation's assumption in the item itself**, where being wrong is not visible at all. **The three contradictions, which need no book to establish:** **Murphy 19–20** cited by **unit 3** for *used to for habits that have stopped* and by **unit 9** for *present continuous for arrangements* — six weeks and two stages apart, sent to the same two pages; **Murphy 38** cited by **unit 12** for *must and can't* and by **unit 17** for *third conditional*. One book unit cannot teach both members of either pair. **WHY IT BLOCKS PLANNING AND NOT JUST SHIPPING: a wrong citation fails SILENTLY.** The learner assumes the book is correct, finds the pages do not match what the week is asking of them, and **concludes they are confused** — so nothing surfaces as a defect and the damage is to the learner's confidence rather than to the output. A slice cannot design around a fault it will not be able to see. **THE INDEPENDENCE, restated because it is the thing most likely to be forgotten: a uniform edition offset CANNOT explain a collision** — a constant shift maps equal numbers to equal numbers, so 19/20 and 38 collide after it exactly as before. **The edition question and the contradictions are therefore independent, and settling the edition does not clear them.** Both need the same sitting; only one of them needs the book to *exist*. **NOT a new finding — a new BLOCKER over an existing one.** #164 is unchanged and stays `medium`; this row exists so that the sentence which stops a slice is findable as a blocker rather than buried in a long row about citation arithmetic | medium | W8e → W10 | ⬜ open — **the unblocking step is W8 check 4**, still PART-RUN and blocked on the book, carried with **all four questions** so the sitting is one pass: does Murphy unit **25** teach past perfect · does **38** teach must/can't · do **36–37** teach might/may/could · **which edition**. **After the sitting: decide which of each colliding pair is wrong, edit `data/syllabus_units.json`, regenerate the seed — no migration.** Read with **#164** (the finding), **#133** (nothing in the repository can substitute for the book) and **#134/#136** (stage 6's 13 targets carry no citation to be wrong) |
 | 170 | **#166's option (b), filed as the successor to what W8d shipped: re-source a checkpoint's vocabulary items from the learner's own FSRS due cards rather than from a unit list.** **Assistant-recommended, operator-accepted as the later target** — authorship recorded as it is for the #161 ruling and W8c's five glosses. **W8e, 2026-08-26: the target is now W13 and the deferral itself is a second assistant-recommended, operator-accepted ruling** — recorded with the same convention, because "why is this still not done" is exactly the question a later reader asks of a filed successor. **Why it is the truer answer to #161:** ruling A said vocabulary comes from what the learner actually meets and from the ledger, and option (b) takes the checkpoint's vocabulary from exactly there, where W8d's option (a) simply removes it. **Why it was not taken now: it needs a real deck.** The deck is 29 cards tied to neither the syllabus nor the video engine, and option (b) **couples a checkpoint's content to deck state** — a property W8 deliberately built out, since a checkpoint is today derivable from the unit row alone — and **needs a fallback for an empty deck**, which is every learner's state on day one of a unit. **What it costs when it lands:** `lexeme_items` becomes non-zero again, so `core.syllabus.blueprint`'s `== 0` clause is relaxed to a range, **`blueprint.py:154`'s second term comes back into use** (which is why W8d did not simplify that line away), the redistribution W8d authored is partly undone, and **#169's concentration eases by the same arithmetic**. `lexeme_items` is held at 0 in all 24 rows rather than deleted **precisely so this has somewhere to return to** | low | W8d → **W13** | ⬜ open — **RE-TARGETED W11 → W13 by W8e, 2026-08-26, and the trigger is stated as DECK SIZE, not a date: do not attempt it until video capture has made the deck large enough to draw from.** **W10 is ruled OUT explicitly** — checkpoints stay pure grammar in W10, and W8d's redistribution stands as shipped. **The numbers behind the trigger, so it is a condition and not a mood: the deck is 29 cards, and W8b removed 14 of them** — a due-card source that small either returns nothing or returns the same handful in every unit, and the empty-deck fallback would run more often than the path it falls back from. **W13 is named because W13 is where the video engine starts creating cards**, not because W13 is far away; **if the deck grows another way this is ready earlier, and if W13 slips the condition is still deck size.** **A second, deck-independent reason W10 was ruled out:** option (b) couples checkpoint content to deck state — a property W8 deliberately built out — and **W10 is the first slice that generates items at all**, so landing both together makes a generation defect and a coupling defect indistinguishable from the output. **Not weakened and not discarded:** it remains the truer answer to #161, and `lexeme_items` stays held at 0 rather than deleted so it has somewhere to return to. Read with **#166** (closed, the ruling it succeeds), **#167** (the invariant whose shape it changes back) and **#135** (`mastered` still has no metric) |
 | 169 | **A checkpoint now generates 12 items across 3–4 grammar targets, and nothing can see two of them asking the same question in different words.** W8d moved every checkpoint from 9–11 grammar items to 12, so the concentration rose: **31 target-slots now carry 4 items and 17 carry 5.** **Fourteen of the 24 units have only three targets.** The two worst shapes, named so the generation slice meets numbers rather than a warning: **unit 3 is four items on *for and since with the present perfect*, four on *present perfect continuous: how long you've been doing it*, and four on *used to for habits that have stopped*** — twelve items on three neighbouring points of the same tense; and **units 16, 17, 18, 19, 21, 22 and 23 each put FIVE items on each of two targets** (2 × 5 + 2). Units 10, 11 and 14 put five on one. **Four or five items on one narrow grammar point, generated in one pass, is where near-duplicates come from.** **The gap is that W5a's uniqueness probe is PER ITEM**: it asks whether one item admits more than one answer, and **it is structurally unable to see two DISTINCT items in the same checkpoint testing the identical thing** — which reads to a learner as padding and measures nothing extra. **#164's family, fourth appearance** — after **#152** (a gate examining one field cannot see a leak from another), **#158** (a guard comparing two whole fields cannot see a duplicate inside one) and **#164** (a bounds check per citation cannot see two citations contradicting each other): **a gate examining one artefact cannot see two artefacts disagreeing.** **This is a cost W8d accepted, not a defect it introduced blindly** — the alternative was leaving eight checkpoints unpassable — and it is filed with the arithmetic so it is met rather than discovered in output | low | W8d → W11 | ⬜ open — **W11 owns checkpoints; W10 owns generation.** The fix is a **checkpoint-level** uniqueness pass over the 12 items as a set, which is a different gate from W5a's per-item probe and belongs to the slice that generates them. **Do not solve it by lowering the item count** — that is the bar #166 was closed to protect (§3 rule 7) |
@@ -1146,7 +1169,7 @@ sentence, one airport sentence and five about renting a flat.
 | 23 | S15 self-forward → capture, not M2. `forward_origin` cannot reliably detect self (`MessageOriginHiddenUser`). Workaround: paste own English as plain text (reply hint). Guessing wrong would journal someone else’s sentences. | medium | S15 | ⬜ open — by design |
 | 25 | S18a: `why_statement` and `work_domain` remain uneditable from Telegram. Deliberate omission — free-text ConversationHandler states are the dispatch shape that killed M2; tapped-only editor excludes them until a later slice accepts that risk. | low | S18a | ⬜ open — deliberate omission |
 | 26 | S4c: `backup.sh` never read `BACKUP_OFFSITE_DIR` / `BACKUP_DIR` from `.env` — only `DATABASE_URL` was grepped; backup keys came solely from the process environment. Configured-in-`.env` → silent skip (looked unset). Tests missed it: all 18 passed `BACKUP_OFFSITE_DIR` as a real env var to the subprocess, never exercising the `.env` path (same shape as the prefill regression). Fixed 2026-08-10: `env_file_get` + `apply_dotenv_backup_vars` (real env wins; quoted/unquoted; spaces); INFO when skip; regression tests write a temp `.env` with a space in the path. **Standing lesson: shell configuration must be tested through `.env`, not only through environment variables passed by the test harness.** | high | S4c | ✅ closed — 2026-08-10 |
-| 27 | S15a inferred Trancy mapping (Word+Translation plus a sentence-like column) was wrong. A real Trancy vocabulary export (`VOCABULARY_LIST_2026-08-14.csv`) is `Word,Phonetic,Translation,Date` — four columns, no sentence. Trancy files have therefore never been importable since S15a shipped. **S24a is the fix** (exact four-column vocabulary + LLM-generated sentences). Language Reactor half remains untested against a real export. | medium | S15a → S24a | ⬜ open — LR half still unverified |
+| 27 | S15a inferred Trancy mapping (Word+Translation plus a sentence-like column) was wrong. A real Trancy vocabulary export (`VOCABULARY_LIST_2026-08-14.csv`) is `Word,Phonetic,Translation,Date` — four columns, no sentence. Trancy files have therefore never been importable since S15a shipped. **S24a is the fix** (exact four-column vocabulary + LLM-generated sentences). Language Reactor half remains untested against a real export. | medium | S15a → S24a → **W8f** | ✅ **CLOSED 2026-08-26 by W8f, and it closes with the defect MEASURED rather than described.** A real Language Reactor export is now committed as a fixture, and the v2 path reading it produces **7 headers and 9 phantom rows from a 2-record, 24-column file**, then refuses it (`classify_csv_format → None`). **Three independent causes, all visible in the file:** it has **no header row at all**, so `csv.DictReader` consumes record 0 as headers; it is **tab-separated**, so one record comma-splits into seven fragments; and its context columns carry **literal newlines inside quoted fields**, so a line reader sees ten lines where there are two records. `is_language_reactor_headers` looks for a `Phrase` column that does not exist and never did. **A real LR export has therefore never been importable since S15a shipped.** `core.cards.exports` reads it structurally — 24 fields and a well-formed id, never a header — and `tests/test_vocab_exports.py` asserts **both halves**: that the v2 path still refuses the fixture and that the new parser accepts it. Asserting only the fix would let someone re-point the importer at the old detector and still see green. **The Trancy half was already correct** (fixed at S24a) and is pinned by its own test. |
 | 28 | S8 couple challenge produces **no learning signal**: question is generated from a specific error journal row, but a correct group answer does not call `mark_result` (no `source_error_id` column; no migration). Same answer in the morning quiz would advance the spacing ladder. Only product surface where getting something right teaches the system nothing. Fix path: migration adding `source_error_id` → winner’s claim calls `mark_result(..., True)`. | medium | S8 → later | ⬜ open — deliberate omission |
 | 29 | S8 cannot be verified live until a shared Telegram group exists and `COUPLE_CHAT_ID` is set via `/here`. Second user is onboarded; remaining blocker is the group + env. | high | S8 | ⬜ open — blocked on shared group + `COUPLE_CHAT_ID` |
 | 30 | S18c: `docs/GUIDE-saving-phrases.md` and the in-bot `/guide` strings in `texts.py` are two copies of the same content and can diverge. Markdown is the human-facing source for editing; `texts.py` is what ships to Telegram. | low | S18c | ⬜ open — dual copy by design |
@@ -1235,6 +1258,37 @@ Full carried-forward set: #2 · #3 · #5 · #8 · #13 · #14 · #15 · #17 · #1
 Cursor: keep this current so a fresh chat knows what exists without reading the repo.
 
 **What the W3 ticks rest on.** The `packages/core/services/correction.py`, `packages/core/prompt_rules.py` and `apps/bot/handlers/*` rows are evidenced by the startup log line naming `core.services.correction` and by the 08:18–08:20 UTC restart. The `apps/web/*` rows rest on **the human's report** of the `/write` check — no build or deploy log for the web app is in this record.
+
+### W8f — vocabulary import: Language Reactor and Trancy (2026-08-26)
+
+**Not deployed.** `schema_version` is 15 on the **Mac dev database only**; nothing
+in this section is on production until the deploy sequence in Next action is run.
+
+| File | Purpose | Status |
+|---|---|---|
+| `migrations/015_capture.sql` | **`cards.captured_at` and `cards.source_title`** (PRD §5's "and where it came from"; `source_ref` is a slug and cannot carry either without lossy encoding, and a capture INSTANT has nowhere at all to go — `created_at` is when the row was written, weeks later). **`register_source` CHECK widened for `import_default`.** **`cards_one_card_per_lemma`** — the partial UNIQUE that gives chunk-less cards the second idempotency guarantee, which 013's `UNIQUE (user_id, source_chunk_id, card_type)` cannot provide because a NULL `source_chunk_id` makes every row distinct. **Its predicate deliberately omits `source_chunk_id`, and that omission IS the ruling** — identity is the lemma, not the provenance; scoped to chunk-less rows it would have been blind to all 14 production cards. #48 not triggered (no `ALTER TABLE users`), stated rather than omitted. PRODUCT-PRINCIPLES §2 in post-011 form: `cards.user_id → users(id)` already, no user-keyed table added, enlarges nothing. | 🟡 **not deployed** |
+| `packages/core/cards/exports.py` | **Pure.** `CaptureRecord`, `parse_language_reactor`, `parse_trancy`, `detect_export_format`. Detection is **structural, never by header** — the real LR export has none. Eight columns whose meaning two records cannot establish are named and **not read**. | 🟡 |
+| `packages/core/cards/capture.py` | **Pure.** `plan_for_capture` — one captured word → a `recognition` and a `production` card, no cloze (#147, not W8b's ruling), no context hint (same gapper), no model call. Owns `first_sense`, the row-level buckets and the accounting identity. Takes the ledger and the anti-join as **arguments**, which is what makes the fan-out testable without Postgres (§3 rule 5). | 🟡 |
+| `packages/core/cards/import_vocab.py` | The human-run importer. `--file PATH --user N`, dry by default, count typed back, no `--yes`. Refuses the **whole file** on a `native_language` mismatch. Reports **buckets, not a total**, and prints a FINDING if they do not sum to the rows read. Holds **no SQL**. | 🟡 |
+| `packages/core/cards/backfill_lexemes.py` | Sets `lexeme_id` from each card's `back`, so the duplicate guarantee can see the cards `migrate_chunks` created (#176). Dry by default; **refuses on a collision before writing anything**; writes only that one column and never touches `chunks`. Holds **no SQL**. | 🟡 |
+| `packages/core/services/cards.py` | **+5**: `resolve_capture_lemma` (identity → `ensure_lexeme`, and **never `lemmatize`'s suffix step** — see #177), `lemmas_with_a_card` (the row-level anti-join), `cards_needing_a_lexeme`, `set_card_lexeme`, `captured_cards`. `create_card` gains `captured_at`/`source_title`; `Card` and `_CARD_COLUMNS` carry them, and `face()` deliberately does **not** — rendering them is a card-face change that reaches `apps/web`, which W8f does not touch. The conn-taking readers use an **explicit tuple cursor**, for `create_card`'s stated reason: a caller's row factory is not ours to assume. | 🟡 |
+| `packages/core/cards/__init__.py` | `CAPTURE_CARD_TYPES` beside `CHUNK_CARD_TYPES`; `REGISTER_SOURCES` gains `import_default`. | 🟡 |
+| `tests/fixtures/vocab_import/languagereactor.csv` | **The real export, byte-identical** — 2 records, 24 tab-separated columns, no header row, embedded newlines in quoted fields. Project Gutenberg (`gb_20203`), **public domain**: PRODUCT-PRINCIPLES §3's licence check performed, with its answer. #27 sat unverified from S15a to today because nobody fed a real file to the parser. | 🟡 |
+| `tests/fixtures/vocab_import/trancy.csv` | **The real export, and it is byte-identical to `VOCABULARY LIST 2026-08-14.csv`** — the file S24a actually imported, verified with `diff`. Nine rows including `frustrate`, which is what corrects S24a's record. | 🟡 |
+| `tests/test_vocab_exports.py` | **15 tests**, against the two real files. The load-bearing one asserts **both halves of #27**: the v2 path still returns 7 headers / 9 rows / `None` on the real LR export, and the new parser returns 2 records. `tier`'s Translation is asserted **byte-for-byte on the raw CSV field**, leading space included, because the provenance claim is about the file. | 🟡 |
+| `tests/test_cards_capture.py` | **21 tests**, pure. The fan-out, the gloss split per format, and the filter. Includes `test_a_missing_freq_rank_is_never_a_rejection_reason` — written as a negative because **the first draft of this slice failed it by design** — and `test_the_too_rare_bucket_exists_and_nothing_can_set_it`. | 🟡 |
+| `tests/test_cards_import_vocab.py` | **20 tests**, against a real database. The load-bearing one is `test_a_chunk_derived_card_is_invisible_until_the_backfill_runs`, which asserts **both directions** of #176 and then removes the lemma again to show the blindness returning — so the guarantee is not confused with luck. Also `test_tier_resolves_to_tier_and_never_to_ti`, which pins `lemmatize("tier") == "ti"` so a future fix explains this file. | 🟡 |
+| `tests/test_migration_015.py` | **16 tests**, read from `information_schema`/`pg_constraint`, never a hand-written column list. The load-bearing one is `test_the_unique_index_is_not_scoped_to_chunkless_cards` — **the ruling is an absence, and an absence is what a future edit restores without noticing.** | 🟡 |
+| `docs/TASKS-v3-web.md` | The **W8f** row in Phase C; **015 → W8f** in the authoritative table with W10 016, W12 017, W13a 018, W14 019, W18 020; the five affected Build columns corrected in the same commit. `test_record_consistency` checks both halves agree. | 🟡 |
+| `prompts/CC-W8f-vocabulary-import-PLAN.md` | The slice's prompt, archived — intent, not state. | 🟡 |
+
+**Not touched, and each is a decision:** `apps/bot/handlers/csv_import.py`,
+`core/services/watch_import.py` and `core/services/vocab_import.py` — the v2 CSV
+path is untouched and dies at W22, and `tests/test_vocab_exports.py` **pins what
+it does** rather than changing it, so the reason W8f exists stays visible.
+`core/cards/migrate_chunks.py` — #176 is corrected by the backfill, not by
+editing a one-off migration that has already run. `apps/web` — the card face does
+not render `source_title` yet, and that is W13's.
 
 ### W8e — one new file, and it is not a record
 
@@ -2134,76 +2188,143 @@ Commands and taps needing only a running bot.
 
 ## Next action
 
-**W8e is RECORDS ONLY and 🟡. Two W10 rulings and one sequencing constraint were
-recorded; nothing else happened.** **No code, no migration, no server step** —
-`schema_version` stays at **14**, no `.sql` file added or edited, no
-`packages/core` change. **The suite was RUN and not assumed: 1685 passed / 6
-skipped / 0 failing in 107s, Vitest 74 across 7 files — identical to W8d.** **Nothing on the check list below is closed by
-this slice and nothing on it is carried silently.**
+**W8f is CODE-COMPLETE and 🟡, and NOTHING IS ON PRODUCTION.** Migration 015 is
+applied to the **Mac dev database only**; `schema_version` on production is still
+**14**. **The suite was RUN and not assumed: 1756 passed / 6 skipped / 0 failing**,
+against W8e's baseline of 1685 — 71 new tests, and the one failure that appeared
+along the way was `test_record_consistency`'s own guard refusing a migration with
+no file-inventory row, which is that check working.
 
-**RULING 1 — #157 is ruled and SPLIT BY CARD TYPE.** `production` and `cloze`
-take a **typed answer**, graded through the seam that already exists —
-`equivalence_key` (`grading.py:100`) and `distinct_answers` (`grading.py:127`),
-already used by `gates.py` and `probe_cloze.py:183-191` — **and no second
-normaliser is added.** **`recognition` keeps W6's reveal-then-self-mark**, and
-the exemption is principled: **its answer is a MEANING, and a meaning cannot be
-machine-graded against a typed string.** A typed recognition card would grade the
-learner's wording rather than their memory and fail them for being right in
-different words — §4's no-guilt rule by a different road. **The reason, from
-use:** *a card that shows the answer on a tap and then asks the learner to grade
-themselves cannot distinguish recall from recognition, and that distinction is
-the whole difference between knowing a word and thinking you know it.*
-**Recorded explicitly: noticed by the operator USING the reviewer, not by any
-gate** — the second time in three slices after W8c. **#157 stays ⬜ open: the
-ruling is recorded, W10 executes it.**
+**#27 CLOSES, and it closes with the defect MEASURED instead of described.** A
+real Language Reactor export is committed as a fixture, and the v2 path reading it
+produces **7 headers and 9 phantom rows from a 2-record, 24-column file**, then
+refuses it. Three causes, all in the file: **no header row at all**, **tab**
+separation, and **literal newlines inside quoted fields**. A real LR export has
+never been importable since S15a. **Both halves are asserted** — the refusal and
+the fix — so it cannot silently reopen.
 
-**RULING 2 — #170: checkpoints stay PURE GRAMMAR in W10, and #170 moves W11 →
-W13.** Do not re-source checkpoint vocabulary from the learner's FSRS due cards;
-**W8d's redistribution stands as shipped.** **The trigger is stated as DECK SIZE,
-not a date:** the deck is **29 cards** and **W8b removed 14 of them**, so a
-due-card source that small either returns nothing or returns the same handful in
-every unit, and the empty-deck fallback would run more often than the path it
-falls back from. **W13 is named because video capture is what makes the deck
-large enough** — if the deck grows another way this is ready earlier; if W13
-slips, the condition is still deck size. **Second reason, deck-independent:**
-option (b) couples checkpoint content to deck state, and **W10 is the first slice
-that generates items at all**, so both defects would arrive together and be
-indistinguishable from the output.
+**THE SLICE'S OWN FOUNDING DEFECT, and it was found in review rather than by any
+gate.** `migrate_chunks` sets `source_chunk_id` on every card and `lexeme_id` on
+none, so the duplicate guarantee as first drafted matched **zero of the 14
+production cards**. Run as written, the step described as *the duplicate test*
+would have reported 9 imported instead of 9 skipped and written **a second `tier`
+card beside card 17**. Corrected by keying identity on the **lemma** and by
+`core.cards.backfill_lexemes` (#176). **A second, sharper trap was found and
+routed around, not fixed:** `lemmatize("tier")` returns **`ti`** — a real seed row
+at rank 9,856 — so a backfill through the lemmatiser would have pointed card 17 at
+the wrong word and corrupted the ledger on every grade, **and it would have read
+green**, because the importer makes the identical error on the identical input
+(#177, filed against W4 → W12 and deliberately not fixed here).
 
-**BOTH RULINGS ARE ASSISTANT-RECOMMENDED AND OPERATOR-ACCEPTED**, recorded the
-way W8c's five glosses and the #161 ruling were — **the distinction between
-authored and accepted is what someone asking "why was this decided" needs, and
-it cannot be reconstructed later.**
+**S24a'S RECORD IS CORRECTED.** Its row reads `9 words → 8 imported / 1 skipped
+(frustrate)`. The committed fixture is **byte-identical** to
+`VOCABULARY LIST 2026-08-14.csv`, contains nine rows **including `frustrate`**,
+the census counts nine `vocabulary` chunks, and `frustrate` is the back of card
+32. **There was one import, of nine rows, and the reply's count was wrong** —
+neither "a second import ran" nor "the skip did not skip".
 
-**THE SEQUENCING CONSTRAINT — #171, new, and filed in its own right: W10 MUST NOT
-BE PLANNED until #164 is settled.** **W10 generates items against each unit's
-grammar targets and their Murphy citations** — precisely the surface #164's
-escalation clause names, *"to `high` on the first slice that shows a Murphy
-citation to a learner"*, **a clause written with W9 in view that named one slice
-too few.** **Three citations contradict each other, provable with no book:
-Murphy 19–20** cited by unit 3 for *used to for habits that have stopped* and by
-unit 9 for *present continuous for arrangements*; **Murphy 38** cited by unit 12
-for *must and can't* and by unit 17 for *third conditional*. **A wrong citation
-FAILS SILENTLY** — the learner assumes the book is correct, finds the pages do
-not match the week, **and concludes they are confused** — which is why it blocks
-PLANNING and not merely shipping: **a slice cannot design around a fault it will
-not be able to see.** **The constraint the record already established, restated
-because it is the thing most likely to be forgotten: a uniform edition offset
-cannot explain a collision**, since a uniform shift maps equal numbers to equal
-numbers — **so the edition question and the contradictions are INDEPENDENT, and
-settling the edition does not clear them.** **Filed as its own numbered row
-because a constraint that lives only inside another issue's prose is one a
-planner reads past.**
+**Two rulings, with their authorship, because the distinction cannot be
+reconstructed later.** The LR-over-Trancy ruling and the cards-directly creator
+are **assistant-recommended, operator-accepted**. **The dropped frequency floor is
+assistant-proposed, assistant-reviewed-against, operator-accepted** — the
+objection came from the reviewing assistant, not from the operator, and the losing
+argument is kept in the decisions log because the threshold will look
+re-proposable to the next reader.
 
-**W8 check 4 is the unblocking step and it is unchanged** — **PART-RUN and
-blocked on the book**, carried below with **all four questions** so the sitting
-is one pass: does Murphy unit **25** teach past perfect · does **38** teach
-must/can't · do **36–37** teach might/may/could · **which edition**. **W8 check 2
-stays BLOCKED**: it asks whether work vocabulary leaked into units 1–16, and
-under #161's ruling there is no topic field for it to have leaked into, so the
-question is not one that can be true or false.
+**THE PATTERN IS NAMED ONCE IN THE DECISIONS LOG AND IS NOT REPEATED HERE, except
+for the part that changes how to read this list:** *a guarantee evaluated against
+a set that cannot contain the thing it is about* is on its fourth appearance, and
+**two of the four are this slice, caught on consecutive review passes**. The check
+that catches this family is **asking what a predicate CANNOT match**, not whether
+it passes — which is why the deploy steps below read split counts rather than
+totals, and why a bare `9` is not evidence.
+
+**W8 check 4 is unchanged: PART-RUN and BLOCKED ON THE BOOK, and it still blocks
+W9 and W10 through #171.** W8f touched none of the carried checks and closes none
+of them.
 
 **Do not start W9. Do not start W10.**
+
+### The W8f deploy — NOT RUN
+
+**Steps 1–9 run as `bot`, from `/home/bot/english-bot`, through `.venv/bin/`** —
+there is no `python` or `pip` on `bot`'s PATH. **Step 10 needs root:** `bot` has no
+sudo, so `exit` back first. **One backup, immediately before the migration.**
+**Stop at the first step whose output does not match**, and record what it said.
+
+**The production host is shared.** `fonderis-worker` (Node, 3011) runs on it and
+PostgreSQL serves both projects. Never `apt upgrade`, never reboot, never restart a
+system-wide service, and name `english_bot` in every `psql`.
+
+1. `scripts/backup.sh` — immediately before step 3, not earlier.
+2. `git pull`
+3. `.venv/bin/pip install -e packages/core`
+4. `.venv/bin/python -m core.db migrate` → **`Applied migration 015`**
+5. `.venv/bin/python -m core.db status` → **`Applied: 001–015, Pending: (none)`**, pasted verbatim (#141).
+6. **The `tier` byte-identity — read-only, and it is the evidence for the S24a correction.**
+   ```bash
+   psql english_bot -c "SELECT id, meaning = ' سطح ردیف;  چیدمان در سطوح طبقه‌بندی' AS byte_identical FROM cards WHERE back = 'tier';"
+   ```
+   Expect one row, `t`. **On `f`, do NOT stop yet** — re-run with `btrim()` on both sides:
+   ```bash
+   psql english_bot -c "SELECT id, btrim(meaning) = btrim(' سطح ردیف;  چیدمان در سطوح طبقه‌بندی') AS same_content FROM cards WHERE back = 'tier';"
+   ```
+   Equal after trimming → **the provenance claim holds** and the whitespace difference is recorded as a v2 parser detail; the claim is that this file is the source of that card, and it does not rest on leading whitespace surviving two hops. **Still unequal → that is the finding. Record it and stop**, because the S24a correction rests on it.
+7. **The S24a correction, measured rather than read:**
+   ```bash
+   psql english_bot -c "SELECT count(*) FROM chunks WHERE source='vocabulary';"
+   psql english_bot -c "SELECT chunk FROM chunks WHERE source='vocabulary' ORDER BY id;"
+   ```
+   Expect **9**, and `tier, notch, luckily, frustrate, bootstrap, proper, incapable, psychosis, convenient`.
+8. **The pre-flight read — #176's premise, before anything writes:**
+   ```bash
+   psql english_bot -c "SELECT id, back, lexeme_id, source_chunk_id IS NULL AS captured FROM cards WHERE card_type='production' ORDER BY id;"
+   ```
+   Expect **14 rows, every `lexeme_id` NULL, every `captured` false.** **Any row that disagrees means #176 is wrong — stop and report before step 9.**
+9. **The backfill, dry first:** `.venv/bin/python -m core.cards.backfill_lexemes`
+   **Read the PATH column, not the total.** For the nine vocabulary-derived backs expect
+   **7 `would_grow`/`identity` split as `identity 7` + `would_grow 2`** — the two being `tier` and `bootstrap`, which are absent from `data/lexemes.tsv`.
+   **If `tier` reports `identity`, the suffix step is live and has resolved it to `ti` — STOP.** That corruption is invisible in a total, which is the whole reason the path is printed.
+   **The other 20 cards cannot be predicted from here** — the record does not hold the slang and reading backs — so read each printed path and confirm none is a false resolution before applying. Expect most to be phrases and stay `unresolved`.
+   Then `--apply` and **type the count back**. Read it back independently:
+   ```bash
+   psql english_bot -c "SELECT lemma, origin, freq_rank FROM lexemes WHERE origin='grown' ORDER BY lemma;"
+   psql english_bot -c "SELECT count(*) FILTER (WHERE lexeme_id IS NOT NULL) AS resolved, count(*) AS total FROM cards;"
+   ```
+10. `exit` to root, then `systemctl restart english-api`. **Never a system-wide service.**
+
+### W8f's own checks — none is run
+
+1. **The Trancy duplicate test, and `--user 3` is load-bearing.**
+   ```bash
+   .venv/bin/python -m core.cards.import_vocab --file trancy.csv --user 3
+   ```
+   **User 3 is who S24a imported to** — all 14 production cards are theirs. User 1 is Navid, whose deck is fifteen slang recognition cards and nothing else, so against user 1 these nine words are largely **new**: the step would fail its own expectation and, on an `--apply`, write nine words into the wrong learner's deck.
+   **Expect per bucket, never as a total:**
+   ```
+   rows_read              9
+   imported               0
+   skipped_duplicate      9   ← 0 here means step 9 did not take. STOP; do not --apply.
+   skipped_already_known  0   ← non-zero means the ledger matched, not the deck
+   skipped_too_rare       0   ← non-zero means a floor was reinstated by accident
+   skipped_no_gloss       0
+   skipped_no_sentence    0   ← Trancy carries none; that is not a skip reason
+   ```
+   **This is the duplicate test run against real production data rather than a synthetic case.** Any deviation is the finding — record it and stop. **It writes nothing even on success**, so there is no `--apply` for this step.
+2. **The Language Reactor import.** Dry run first; expect **2 rows read, 2 imported, 4 cards**. **`swain` imports** — it is rank 11,886 and there is no rarity floor, which is the ruling working, not a bug. **The dry-run output belongs in this file before `--apply` is run.** Then `--apply`, type the count back, and read back independently:
+   ```bash
+   psql english_bot -c "SELECT card_type, count(*) FROM cards GROUP BY card_type ORDER BY 1;"
+   psql english_bot -c "SELECT count(*) FROM cards WHERE register_source='import_default';"
+   ```
+3. **Re-run `--apply`** → nothing written. Idempotency proved by running it, not asserted.
+4. **PHONE: open one imported card and read it end to end.** This is the first card either learner receives from this path, and **nothing about its face has been seen by anyone**. Three things to judge, and the third is a judgement rather than a bug report:
+   (a) the Farsi gloss renders in Vazirmatn and is not boxed LTR (#142/#143's shape, on a card they were never tested against);
+   (b) the production card fronts **one sense**, not three — and whether the sense chosen actually fits the sentence, which is **#172**'s assumption meeting a real card;
+   (c) **`swain`.** Rank 11,886, from an 18th-century autobiography. The floor was dropped on the argument that *a capture is intent, not a suggestion* — **read the card and say whether that argument survives contact with the screen.** If it does not, the ruling is re-openable and this is the evidence.
+5. **#158's outstanding `split_part` read, now against TWO populations** — the nine Trancy rows where `front` line 1 equals `meaning` by construction, and the new W8f rows where it cannot, because `front` is one sense and `meaning` is the full string:
+   ```bash
+   set +H; psql english_bot -c "SELECT id, (split_part(front, E'\n', 1) = meaning) AS dup FROM cards WHERE card_type='production' ORDER BY id;"
+   ```
 
 ### ~~The W8d deploy~~ — **RUN 2026-08-26. Superseded; do not re-run.**
 
@@ -3006,6 +3127,88 @@ grammar spine and a vocabulary spine joined as though they were one thing, and
 the ruling on what W9's skill map shows is the operator's, owed before W9 is
 planned.** **It is deliberately not made here.** **W5, W5a, W5b, W5c, W6, W6a,
 W7, W8, W8r, W8a and W8b are 🟡 with W8c. Do not start W9.**
+
+---
+
+
+## Superseded — the W8e Next action preamble, kept for the record
+
+**Superseded by W8f on 2026-08-26. Kept verbatim rather than edited**, because
+its stop-conditions and its two rulings are the record of what was decided, and
+a preamble rewritten in place cannot be told from one that was never written.
+
+
+**W8e is RECORDS ONLY and 🟡. Two W10 rulings and one sequencing constraint were
+recorded; nothing else happened.** **No code, no migration, no server step** —
+`schema_version` stays at **14**, no `.sql` file added or edited, no
+`packages/core` change. **The suite was RUN and not assumed: 1685 passed / 6
+skipped / 0 failing in 107s, Vitest 74 across 7 files — identical to W8d.** **Nothing on the check list below is closed by
+this slice and nothing on it is carried silently.**
+
+**RULING 1 — #157 is ruled and SPLIT BY CARD TYPE.** `production` and `cloze`
+take a **typed answer**, graded through the seam that already exists —
+`equivalence_key` (`grading.py:100`) and `distinct_answers` (`grading.py:127`),
+already used by `gates.py` and `probe_cloze.py:183-191` — **and no second
+normaliser is added.** **`recognition` keeps W6's reveal-then-self-mark**, and
+the exemption is principled: **its answer is a MEANING, and a meaning cannot be
+machine-graded against a typed string.** A typed recognition card would grade the
+learner's wording rather than their memory and fail them for being right in
+different words — §4's no-guilt rule by a different road. **The reason, from
+use:** *a card that shows the answer on a tap and then asks the learner to grade
+themselves cannot distinguish recall from recognition, and that distinction is
+the whole difference between knowing a word and thinking you know it.*
+**Recorded explicitly: noticed by the operator USING the reviewer, not by any
+gate** — the second time in three slices after W8c. **#157 stays ⬜ open: the
+ruling is recorded, W10 executes it.**
+
+**RULING 2 — #170: checkpoints stay PURE GRAMMAR in W10, and #170 moves W11 →
+W13.** Do not re-source checkpoint vocabulary from the learner's FSRS due cards;
+**W8d's redistribution stands as shipped.** **The trigger is stated as DECK SIZE,
+not a date:** the deck is **29 cards** and **W8b removed 14 of them**, so a
+due-card source that small either returns nothing or returns the same handful in
+every unit, and the empty-deck fallback would run more often than the path it
+falls back from. **W13 is named because video capture is what makes the deck
+large enough** — if the deck grows another way this is ready earlier; if W13
+slips, the condition is still deck size. **Second reason, deck-independent:**
+option (b) couples checkpoint content to deck state, and **W10 is the first slice
+that generates items at all**, so both defects would arrive together and be
+indistinguishable from the output.
+
+**BOTH RULINGS ARE ASSISTANT-RECOMMENDED AND OPERATOR-ACCEPTED**, recorded the
+way W8c's five glosses and the #161 ruling were — **the distinction between
+authored and accepted is what someone asking "why was this decided" needs, and
+it cannot be reconstructed later.**
+
+**THE SEQUENCING CONSTRAINT — #171, new, and filed in its own right: W10 MUST NOT
+BE PLANNED until #164 is settled.** **W10 generates items against each unit's
+grammar targets and their Murphy citations** — precisely the surface #164's
+escalation clause names, *"to `high` on the first slice that shows a Murphy
+citation to a learner"*, **a clause written with W9 in view that named one slice
+too few.** **Three citations contradict each other, provable with no book:
+Murphy 19–20** cited by unit 3 for *used to for habits that have stopped* and by
+unit 9 for *present continuous for arrangements*; **Murphy 38** cited by unit 12
+for *must and can't* and by unit 17 for *third conditional*. **A wrong citation
+FAILS SILENTLY** — the learner assumes the book is correct, finds the pages do
+not match the week, **and concludes they are confused** — which is why it blocks
+PLANNING and not merely shipping: **a slice cannot design around a fault it will
+not be able to see.** **The constraint the record already established, restated
+because it is the thing most likely to be forgotten: a uniform edition offset
+cannot explain a collision**, since a uniform shift maps equal numbers to equal
+numbers — **so the edition question and the contradictions are INDEPENDENT, and
+settling the edition does not clear them.** **Filed as its own numbered row
+because a constraint that lives only inside another issue's prose is one a
+planner reads past.**
+
+**W8 check 4 is the unblocking step and it is unchanged** — **PART-RUN and
+blocked on the book**, carried below with **all four questions** so the sitting
+is one pass: does Murphy unit **25** teach past perfect · does **38** teach
+must/can't · do **36–37** teach might/may/could · **which edition**. **W8 check 2
+stays BLOCKED**: it asks whether work vocabulary leaked into units 1–16, and
+under #161's ruling there is no topic field for it to have leaked into, so the
+question is not one that can be true or false.
+
+**Do not start W9. Do not start W10.**
+
 
 ---
 

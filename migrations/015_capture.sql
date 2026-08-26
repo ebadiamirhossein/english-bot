@@ -1,0 +1,123 @@
+-- W8f: captured vocabulary — provenance on `cards`, and the idempotency
+-- guarantee that chunk-less cards never had. PRD §5, §7.1.
+--
+-- Plain, non-idempotent DDL, per 009's note and 010's, 012's, 013's and 014's:
+-- core.db.migrate wraps each file in one transaction and gates it on
+-- schema_version, which is what makes a re-run impossible. Guards would only
+-- buy the impression that a re-run is safe. This file writes NO schema_version
+-- row -- the runner does that (core/db.py), and only 001 inserts one itself.
+--
+-- NOTHING IS SEEDED HERE, following 010, 013 and 014. The import is
+-- `python -m core.cards.import_vocab`, human-run and dry by default, and the
+-- `lexeme_id` backfill is `python -m core.cards.backfill_lexemes`. Both are
+-- data passes over real learner rows, which is W4's seed, W4a's repair and
+-- W7's chunk migration precedent; and "run it twice, the second run writes
+-- nothing" is not a testable criterion for a file schema_version cannot run
+-- twice.
+--
+-- THIS FILE TAKES 015, WHICH `docs/TASKS-v3-web.md`'s authoritative table had
+-- assigned to W10, and every unwritten slice below it shifts by one (W10 016,
+-- W12 017, W13a 018, W14 019, W18 020), corrected in that table and in the
+-- five affected Build columns in this same commit. This is W4b's move and
+-- W4b's reason: `db.py:171` computes pending as a SET DIFFERENCE, not `v >
+-- max`, so a number taken above everything claimed would still apply -- but it
+-- would run AFTER 015 on production and BEFORE it on a fresh database, and
+-- W10's file would have to be correct against two different parent schemas.
+-- The schema history stops being replayable, which is the one thing a
+-- numbered-file scheme exists to give you. Renumbering an APPLIED migration is
+-- #49; renumbering an unwritten planning row is bookkeeping (W4a).
+--
+-- #48 IS NOT TRIGGERED. There is no ALTER TABLE users in this file, so the
+-- paired `CREATE OR REPLACE VIEW approved_onboarded_users` is not required and
+-- is deliberately absent. Stated rather than omitted silently: #48 has recurred
+-- because each case looked like the one where the rule did not apply, so the
+-- rule being considered is recorded even when it does not fire.
+--
+-- PRODUCT-PRINCIPLES §2 position, in its POST-011 form. §2 stopped tracking
+-- "the eventual identity migration" on 2026-08-24, when 011 met it and #92
+-- closed; writing "this enlarges the eventual migration" is now a meaningless
+-- leftover clause. The rule is to confirm the keying and say so: `cards.user_id`
+-- already references `users(id)` (013:43), and this file ADDS NO USER-KEYED
+-- TABLE and no user-keyed column. It enlarges nothing.
+--
+-- PRODUCT-PRINCIPLES §3 position, flagged at the moment of the choice and NOT
+-- ruled on here: `context_sentence` already stores the line a word was met in,
+-- and `source_title` below stores where it came from. For the two committed
+-- fixtures that line is Project Gutenberg -- public domain, licence checked,
+-- answer recorded. But Language Reactor captures from Netflix and YouTube, and
+-- a subtitle line is copyrighted text. Storing it in a personal database is one
+-- thing; storing it in a product with paying users is another, and §3 asks for
+-- exactly this to be named when the schema is built rather than when it bites.
+-- Filed against W12/W13, which is where it stops being hypothetical.
+
+-- ---------------------------------------------------------------
+-- 1. provenance -- PRD §5's "and where it came from"
+-- ---------------------------------------------------------------
+-- `source_ref` (013) is a SLUG -- 'himym_s2e4', and now
+-- 'capture_language_reactor_gb_20203'. It is what the deck matches on and it is
+-- deliberately not human-readable. These two columns are the readable half, and
+-- they exist because a slug cannot carry either one without lossy encoding:
+-- slugifying "Autobiography of Benjamin Franklin" and reading it back gives a
+-- different string, and a capture INSTANT has nowhere at all to go today --
+-- `created_at` is when the row was written, which for an import is weeks after
+-- the learner met the word.
+--
+-- Both are NULLABLE with no backfill: the 29 cards already in the deck came
+-- from v2 chunks that recorded neither, and inventing a value for them would be
+-- indistinguishable from a real one.
+ALTER TABLE cards ADD COLUMN captured_at  TIMESTAMPTZ;
+ALTER TABLE cards ADD COLUMN source_title TEXT;
+
+-- ---------------------------------------------------------------
+-- 2. register_source gains a fourth value
+-- ---------------------------------------------------------------
+-- 013 offered three and W8f is honestly none of them. 'migration_default' means
+-- "v2 had no register concept, so `neutral` is a stated assumption";
+-- 'detected' means a model looked; 'operator' means a human judged this row.
+-- An import that makes NO MODEL CALL and that the operator ran over a file
+-- without reading every line is a fourth thing.
+--
+-- Naming it is what makes those rows findable in one WHERE when W13's register
+-- detection lands -- the same move `user_lexemes.source = 'assumption'` makes
+-- for the frequency floor (#93): a hypothesis stays identifiable, so unwinding
+-- it is a query and not archaeology.
+--
+-- The CHECK is dropped and re-added rather than widened in place because
+-- PostgreSQL has no ALTER CONSTRAINT for a CHECK. The name is written
+-- explicitly so it matches what 013's inline CHECK was auto-named.
+ALTER TABLE cards DROP CONSTRAINT cards_register_source_check;
+ALTER TABLE cards ADD  CONSTRAINT cards_register_source_check
+    CHECK (register_source IN (
+        'migration_default', 'detected', 'operator', 'import_default'));
+
+-- ---------------------------------------------------------------
+-- 3. THE SECOND IDEMPOTENCY GUARANTEE
+-- ---------------------------------------------------------------
+-- 013's `UNIQUE (user_id, source_chunk_id, card_type)` is the guarantee behind
+-- `create_card`'s ON CONFLICT DO NOTHING. It CANNOT FIRE for a captured card,
+-- because `source_chunk_id` is NULL there and PostgreSQL treats every NULL as
+-- distinct -- so `migrate_chunks`' "two independent guarantees" property does
+-- not transfer to this path for free, and a second import would insert
+-- duplicates silently. This index is the half that restores it; the importer's
+-- own anti-join is the other.
+--
+-- NOTE WHAT IS NOT IN THE PREDICATE, because its absence IS the ruling:
+-- there is no `source_chunk_id IS NULL` clause. Identity is the LEMMA, not the
+-- provenance. Scoped to chunk-less rows this index would have been blind to all
+-- 14 production cards already in the deck -- `migrate_chunks` sets neither a
+-- NULL `source_chunk_id` nor any `lexeme_id` at all -- and the first import
+-- would have written a second `tier` card beside card 17, from the very command
+-- written to prevent duplicates.
+--
+-- `WHERE lexeme_id IS NOT NULL` still excludes the twenty phrase-backed cards
+-- (slang and reading). A phrase has no lemma and never will, so they are
+-- outside this constraint permanently and correctly -- not a gap to be closed.
+--
+-- THE PRODUCT RULE IT ENCODES: one card per (learner, lemma, card type). A
+-- second sighting of a word is not a second card. This binds W13 as well as the
+-- importer, which is why it lives in the schema and not in the command --
+-- 013:200-203's own argument, that a guard living only in today's creator is a
+-- guard the next writer does not know about.
+CREATE UNIQUE INDEX cards_one_card_per_lemma
+    ON cards (user_id, lexeme_id, card_type)
+    WHERE lexeme_id IS NOT NULL;
