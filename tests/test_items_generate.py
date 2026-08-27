@@ -45,7 +45,7 @@ UNIT_1 = (
 # ── the plan ────────────────────────────────────────────────────────────────
 
 
-def test_every_permitted_type_is_drafted_so_168_gets_a_number_for_each():
+def test_the_slot_plan_drafts_every_type_still_in_the_mix():
     """#168 has waited three slices for evidence about which types serve a
     grammar target. Left to itself a generator writes three `mcq`s and five
     `cloze_cued`s and four types get none, which is why the slot is prescribed.
@@ -54,7 +54,62 @@ def test_every_permitted_type_is_drafted_so_168_gets_a_number_for_each():
     assert len(plan) == ITEMS_PER_UNIT
     drafted = Counter(slot.item_type for slot in plan)
     assert set(drafted) == set(SLOT_TYPES)
-    assert drafted["cloze_cued"] == 2, "the slot family's only type gets the repeat"
+
+
+def test_mcq_and_collocation_pick_are_dropped_for_grammar_targets():
+    """**#207's ruling, option (c), asserted rather than left in a constant.**
+
+    `checks._options_failures` rejects an option set where one option contains
+    another — a guessability rule from W5, written beside `option_length_tell`
+    for a bank of vocabulary items whose options are unrelated words. **For a
+    grammar target it rejects the distractor set the item must have:**
+    `walk / walked / was walking` are substrings of one another because that is
+    what testing a verb form means.
+
+    These two types are the ONLY callers of `_options_failures`, so dropping
+    them resolves the conflict **without touching the rule** — which is right
+    for the population it was written for.
+    """
+    from core.items.generate import DROPPED_FOR_GRAMMAR
+
+    assert set(DROPPED_FOR_GRAMMAR) == {"mcq", "collocation_pick"}
+    assert not set(SLOT_TYPES) & set(DROPPED_FOR_GRAMMAR)
+
+
+def test_the_doubled_slots_are_the_ones_with_gates_not_the_ones_without():
+    """**The distribution is a decision, and the direction matters.**
+
+    `match_pairs` has the FEWEST gates in front of it — its family is `exact`,
+    so `_probe_and_repair` never runs and its uniqueness gate is dead code
+    (#192) — and it is also the only type `substring_option` cannot reject,
+    having no options. **Giving the least-checked type more slots is the wrong
+    direction**, so it stays at one. `l1_to_l2_production` stays at one because
+    each costs an extra back-translation call and #102 is unresolved.
+    """
+    drafted = Counter(SLOT_TYPES)
+    assert drafted["cloze_cued"] == 2, "the only cue-repairable type gets a repeat"
+    assert drafted["match_pairs"] == 1, "the least-gated type must not be doubled"
+    assert drafted["l1_to_l2_production"] == 1
+    assert drafted["match_pairs"] <= min(
+        drafted[t] for t in ("cloze_cued", "word_bank_order", "error_spot")
+    )
+
+
+def test_the_new_mix_raises_168s_per_type_n_for_three_types():
+    """#168's sample size, restated after the ruling — **and it still does not
+    close.** Three types go from n=3 to n=6 across three units; two stay at 3;
+    and the two dropped types now get **n=0**, so this run can produce no yield
+    evidence about them at all. Their removal is a STRUCTURAL ruling, not a
+    measured one, and the record says so.
+    """
+    per_unit = Counter(SLOT_TYPES)
+    across_three_units = {t: n * 3 for t, n in per_unit.items()}
+    assert across_three_units == {
+        "cloze_cued": 6, "word_bank_order": 6, "error_spot": 6,
+        "match_pairs": 3, "l1_to_l2_production": 3,
+    }
+    # Far from the 24 per type that #168 closes on.
+    assert max(across_three_units.values()) < 24
 
 
 def test_the_type_target_pairing_rotates_between_units():
@@ -581,6 +636,58 @@ def test_a_working_check_passes_the_control(monkeypatch):
     result = run_control()
     assert result.failures == 3
     assert result.ok
+
+
+def test_a_partially_evaluated_axis_is_NOT_COMPARABLE_not_met(capsys):
+    """**#201 fixed the zero case and reverted to the old claim at n=1.**
+
+    Attempt 5 drafted 8 items, 1 reached `probe_target`, and P2 printed
+    `0 of 8 — MET` — which reads as *eight items were checked and none drifted*
+    when one was checked. The `exercised == 0` branch printed NOT EVALUATED and
+    then fell through to the band comparison the instant a single item arrived,
+    so the fix held at exactly the value where the bug misleads least.
+
+    **Ninth appearance of *a guarantee never evaluated against the thing it
+    names*, and the second inside a fix written for the family** — after #198.
+    """
+    from core.items.generate import ControlResult, journal_line, print_verdicts
+
+    rows = []
+    for index in range(8):
+        rows.append(journal_line(Outcome(
+            slot=Slot(index=index, item_type="mcq", target=UNIT_1[0]),
+            unit_number=1,
+            state="accepted" if index == 0 else "discarded",
+            stage=None if index == 0 else "deterministic",
+            codes=() if index == 0 else ("substring_option",),
+        )))
+    print_verdicts(rows, ControlResult(runs=3, failures=3, ranks=(None, None, None)))
+    out = capsys.readouterr().out
+
+    for axis in ("P2 target drift", "P3 unnatural", "P4 ambiguity"):
+        line = next(l for l in out.splitlines() if axis in l)
+        assert "NOT COMPARABLE" in line, line
+        assert "MET" not in line.replace("NOT COMPARABLE", ""), line
+    # Both numbers, so a reader can see the gap rather than infer it.
+    assert "0 of 1 EVALUATED (8 drafted)" in out
+    # P1 is measured over DRAFTS and is unaffected — it is the accept rate.
+    assert "P1 accept rate    : 1 of 8" in out
+
+
+def test_a_fully_evaluated_axis_still_reports_met(capsys):
+    """The partial rule must not swallow the case it was carved out of."""
+    from core.items.generate import ControlResult, journal_line, print_verdicts
+
+    rows = [
+        journal_line(Outcome(
+            slot=Slot(index=i, item_type="mcq", target=UNIT_1[0]),
+            unit_number=1, state="accepted", stage=None,
+        ))
+        for i in range(4)
+    ]
+    print_verdicts(rows, ControlResult(runs=3, failures=3, ranks=(None, None, None)))
+    out = capsys.readouterr().out
+    assert "P2 target drift   : 0 of 4 (all 4 evaluated) — predicted 0-3 — MET" in out
 
 
 def test_two_of_three_is_acceptable_and_says_so_in_those_words(monkeypatch, capsys):

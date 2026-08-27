@@ -202,23 +202,51 @@ ITEMS_PER_UNIT = 8
 #: is 3 rather than 1.
 DEFAULT_UNITS = (1, 2, 3)
 
-#: The prescribed type per slot, in order. All seven types that units 1-3's
-#: checkpoints permit, plus one repeat of `cloze_cued` -- the only `slot`-family
-#: type here, and therefore the only one `repair.LADDER` can rescue.
+#: The prescribed type per slot, in order. **Five types across eight slots since
+#: the #207 ruling** -- `mcq` and `collocation_pick` are out (see
+#: `DROPPED_FOR_GRAMMAR`).
+#:
+#: **The three doubled slots are chosen, not spread evenly, and each has a
+#: reason.** `cloze_cued` because it is the only `slot`-family type here and
+#: therefore the only one `repair.LADDER` can rescue. `word_bank_order` and
+#: `error_spot` because neither touches `_options_failures` and both test a
+#: grammar point directly.
+#:
+#: **`match_pairs` and `l1_to_l2_production` stay at one each, deliberately.**
+#: `match_pairs` is the type with the FEWEST gates in front of it -- its family
+#: is `exact`, so `_probe_and_repair` never runs for it and its uniqueness gate
+#: is dead code (#192) -- and giving the least-checked type more slots is the
+#: wrong direction. `l1_to_l2_production` costs an extra back-translation call
+#: each and #102 is unresolved, so one per unit is what the evidence can carry.
 #:
 #: **Zero TTS and zero STT calls.** `dictation`, `listening_gap`, `speak_repeat`
 #: and `speak_answer` are not permitted by units 1-3's blueprints, so
 #: `gates._audio_gate` -- which bills two providers -- is never reached.
 SLOT_TYPES: tuple[str, ...] = (
-    "mcq",
     "cloze_cued",
     "word_bank_order",
     "error_spot",
     "match_pairs",
-    "collocation_pick",
     "l1_to_l2_production",
     "cloze_cued",
+    "word_bank_order",
+    "error_spot",
 )
+
+#: Dropped from the mix on the #207 ruling, 2026-08-27. **Named rather than
+#: deleted**, so the next reader sees a decision instead of an absence.
+#:
+#: `checks._options_failures` rejects any option set where one option contains
+#: another -- a GUESSABILITY rule, written in W5 beside `option_length_tell`
+#: (*"the odd one out is guessable without reading the stem"*) for a bank of
+#: vocabulary items whose options are unrelated words. **For a grammar target it
+#: rejects the distractor set the item must have**: `walk / walked / was walking`
+#: are substrings of one another because that is what testing a verb form means.
+#:
+#: These are the only two types that call `_options_failures` (`checks.py:380`
+#: and `:649`), so dropping them removes the conflict without touching the rule
+#: -- and the rule is right for the population it was written for.
+DROPPED_FOR_GRAMMAR: tuple[str, ...] = ("mcq", "collocation_pick")
 
 #: #161 read the syllabus and found that "the only units with a real topic are
 #: 18-21 -- work, price and terms, email, collocations". Everything else is
@@ -526,7 +554,25 @@ def generate_drafts(
 #: Eight items with explanations and cue material. Generous, and
 #: `reject_truncation=True` means a response that needs more is a failure rather
 #: than a silently half-written cohort.
-GENERATE_MAX_TOKENS = 8000
+#: **16,000, raised from 8,000 on the 2026-08-27 ruling.**
+#:
+#: `settings.llm_model` is `claude-sonnet-5`, and **omitting the `thinking`
+#: parameter runs ADAPTIVE THINKING** on that model -- `core/llm.py` never sets
+#: it, so thinking has been on for every call this project has made. **Thinking
+#: tokens are billed and count against `max_tokens`**, which is therefore a
+#: ceiling on reasoning PLUS text. Attempt 4's top-up spent the whole 8,000 on
+#: thinking and returned `blocks=['ThinkingBlock','TextBlock']` with an empty
+#: text block.
+#:
+#: **This RETURNS TO A DEFAULT rather than picking a number:** the Anthropic
+#: reference's own guidance for non-streaming requests is ~16,000, and 8,000 was
+#: below it.
+#:
+#: **`output_config.effort` is deliberately NOT touched.** It defaults to `high`
+#: and controls thinking depth, so lowering it would change item quality --
+#: **before P1 has ever been read.** That would contaminate the first real
+#: measurement of the accept rate with a change to the thing being measured.
+GENERATE_MAX_TOKENS = 16000
 
 
 def verify_cohort(
@@ -1069,8 +1115,26 @@ def _band(
         print(f"  {name}: NOT EVALUATED — no item reached this gate. "
               f"**Not met, not unmet: never asked.**")
         return False
+    if exercised is not None and exercised < total:
+        # **THE PARTIAL CASE, and #201 fixed only the zero case.**
+        # A prediction registered as "0-3 of 24" cannot be evaluated when one
+        # item reached the gate: `0 of 24 — MET` reads as *twenty-four items
+        # were checked and none drifted*, when one was checked. The zero case
+        # printed NOT EVALUATED and the code then **reverted to the old claim
+        # the moment a single item arrived** -- so the fix held only at exactly
+        # n=0, which is the one value where the bug is least misleading.
+        print(f"  {name}: {value} of {exercised} EVALUATED "
+              f"({total} drafted) — predicted {low}-{high} of {total} — "
+              f"**NOT COMPARABLE**")
+        print(f"      The prediction was registered over {total}. At "
+              f"{exercised} evaluated it is neither met nor unmet:\n"
+              f"      the denominator it names did not happen.")
+        return False
     met = low <= value <= high
-    print(f"  {name}: {value} of {total} — predicted {low}-{high} — "
+    shown = f"{value} of {total}"
+    if exercised is not None:
+        shown += f" (all {exercised} evaluated)"
+    print(f"  {name}: {shown} — predicted {low}-{high} — "
           f"{'MET' if met else 'NOT MET'}")
     if not met:
         print(f"      {over}")
@@ -1095,6 +1159,9 @@ def print_verdicts(rows: Sequence[dict], control: "ControlResult") -> None:
         if st not in ("generation", "runner", "deterministic", "naturalness")
     )
     probed_n = sum(1 for st in stages if st in (None, "target"))
+    # Reaching the PROBE is not the same as reaching the judge: an item the
+    # judge rejected never got there, so P4's denominator is its own.
+    probe_reached = sum(1 for st in stages if st in (None, "target", "probe"))
     drift = sum(1 for st in stages if st == "target")
     unnatural = sum(1 for st in stages if st == "judge")
     ambiguous = sum(
@@ -1123,7 +1190,7 @@ def print_verdicts(rows: Sequence[dict], control: "ControlResult") -> None:
           "hand-written fixtures and the judge is strict.", exercised=judged_n)
     _band("P4 ambiguity      ", ambiguous, P4_LOW, P4_HIGH, total,
           "≥14 → grammar gaps are structurally more ambiguous than vocabulary "
-          "gaps; the TYPE MIX is the fix, not the gate.", exercised=judged_n)
+          "gaps; the TYPE MIX is the fix, not the gate.", exercised=probe_reached)
 
     print(f"  P5 control        : {control.failures} of {control.runs} runs "
           f"correctly refused the mis-targeted item")

@@ -308,6 +308,28 @@ NOT_THE_GENERATORS: frozenset[str] = frozenset(
         "cue_type",
         "cue_text",
         "accepted_variants",
+        # **Added 2026-08-27, and the rule-2 call is what found them.** Both are
+        # bindings into tables the generator has no business writing:
+        #
+        # `error_type` is `TEXT REFERENCES error_types(code)` (012:111) over a
+        # closed set of NINETEEN codes. The confirming call returned
+        # `error_type: "tense confusion"` on seven of eight drafts -- reasonable
+        # English, not a code -- which parses, passes every gate, and then
+        # **raises a ForeignKeyViolation inside `insert_item`.** Nothing before
+        # the write would have caught it: `parse` has no constraint on the field
+        # and every committed fixture uses a real code. It would have surfaced at
+        # `--apply`, on production, after a whole run had been paid for.
+        #
+        # `lexeme` is worse in kind if milder in effect: `insert_item` calls
+        # `ensure_lexeme`, which CREATES the row when it is absent
+        # (`origin='grown'`). A model-invented lemma therefore writes to
+        # `lexemes` silently -- the generator growing the lexicon as a side
+        # effect of writing an exercise.
+        #
+        # Neither is needed: `_shared`'s `no_target` is satisfied by
+        # `unit_number`, which `_draft_to_item` always sets.
+        "error_type",
+        "lexeme",
     }
 )
 

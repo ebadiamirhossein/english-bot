@@ -78,6 +78,46 @@ def test_the_contract_never_asks_for_a_field_the_runner_overwrites(
         assert field not in contract, f"{item_type} asks for {field}"
 
 
+def test_the_contract_never_asks_for_a_binding_into_another_table() -> None:
+    """**Found by the rule-2 confirming call, not by any test.**
+
+    `error_type` is `TEXT REFERENCES error_types(code)` over a closed set of
+    nineteen codes. The confirming call returned `error_type: "tense confusion"`
+    on seven of eight drafts — reasonable English, not a code — and that
+    **parses, passes every gate, and raises a ForeignKeyViolation inside
+    `insert_item`.** It would have surfaced at `--apply`, on production, after a
+    whole run had been paid for.
+
+    `lexeme` is worse in kind: `insert_item` calls `ensure_lexeme`, which CREATES
+    the row when absent, so a model-invented lemma writes to `lexemes` as a side
+    effect of writing an exercise.
+
+    Neither is needed — `checks._shared`'s `no_target` is satisfied by
+    `unit_number`, which `_draft_to_item` always sets.
+    """
+    for item_type in ITEM_TYPES:
+        contract = generator_contract(item_type)
+        assert "error_type" not in contract, item_type
+        assert "lexeme" not in contract, item_type
+
+
+def test_an_invented_error_type_would_still_be_refused_before_the_write() -> None:
+    """Belt as well as braces: the contract stops it being asked for, and the
+    closed set is what the column enforces. Asserted here so the nineteen codes
+    are named in a test rather than only in a migration."""
+    from core.items.schema import parse
+
+    item = parse({
+        "item_type": "cloze_cued", "track": "life",
+        "prompt_text": "While I ___ for the bus, it started to rain.",
+        "answer": "was waiting", "accepted_variants": ["was waiting"],
+        "unit_number": 1, "error_type": "tense confusion",
+    })
+    # `parse` does NOT constrain it — that is the point, and why the contract
+    # must not invite it.
+    assert item.error_type == "tense confusion"
+
+
 def test_answer_is_described_as_required_where_checks_require_it() -> None:
     """**Optionality comes from `checks.py`, not from the annotation.**
 
