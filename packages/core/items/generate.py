@@ -800,7 +800,28 @@ def _print_back_translations(outcomes: list[Outcome]) -> None:
 # ── the pre-registered verdicts, applied by the module ──────────────────────
 
 
-def _band(name: str, value: int, low: int, high: int, total: int, over: str) -> bool:
+def _band(
+    name: str, value: int, low: int, high: int, total: int, over: str,
+    *, exercised: int | None = None,
+) -> bool:
+    """One axis, evaluated — or reported as NOT EVALUATED when nothing reached it.
+
+    **`exercised` exists because of a false reading this function produced on
+    2026-08-27.** The second `--live` attempt rejected all 24 items at the
+    GENERATION stage, so nothing reached the naturalness judge or the probe --
+    and P2 and P3 printed **MET**, because zero drift and zero unnatural
+    sentences both fall inside their predicted bands. **They were not met; they
+    were never asked.**
+
+    That is CLAUDE.md §3 rule 4 -- *a green test over an unreachable path proves
+    nothing* -- appearing inside the instrument that reports the predictions.
+    A record carrying "P2 MET" from a run where no item was ever target-checked
+    would be false in the file that exists to be trusted.
+    """
+    if exercised is not None and exercised == 0:
+        print(f"  {name}: NOT EVALUATED — no item reached this gate. "
+              f"**Not met, not unmet: never asked.**")
+        return False
     met = low <= value <= high
     print(f"  {name}: {value} of {total} — predicted {low}-{high} — "
           f"{'MET' if met else 'NOT MET'}")
@@ -818,6 +839,11 @@ def print_verdicts(outcomes: list[Outcome], control: "ControlResult") -> None:
     """
     total = len(outcomes)
     accepted = sum(1 for o in outcomes if o.accepted)
+    # How many items actually REACHED each gate. An axis nothing reached cannot
+    # be met -- see `_band`.
+    past_generation = sum(1 for o in outcomes if o.stage != "generation")
+    judged_n = sum(1 for o in outcomes if o.stage not in ("generation", "deterministic", "naturalness"))
+    probed_n = sum(1 for o in outcomes if o.stage in (None, "target"))
     drift = sum(1 for o in outcomes if o.stage == "target")
     unnatural = sum(1 for o in outcomes if o.stage == "judge")
     ambiguous = sum(
@@ -831,22 +857,30 @@ def print_verdicts(outcomes: list[Outcome], control: "ControlResult") -> None:
     print("\n" + "=" * 78)
     print("PRE-REGISTERED PREDICTIONS — written before this run, evaluated by it")
     print("=" * 78)
+    if past_generation == 0:
+        print(f"  **{total} of {total} ITEMS DIED AT THE GENERATION STAGE.** "
+              "Nothing reached a\n  billed gate, so every axis below except P1 "
+              "is unevaluated rather than met.")
     _band("P1 accept rate    ", accepted, P1_LOW, P1_HIGH, total,
           "≥19 → gates may be weak at this n; P5 decides whether to believe it. "
           "≤11 → THE PROMPT IS WRONG, NOT THE GATE (rule 7): fix the prompt and "
           "re-run; do not loosen a gate.")
     _band("P2 target drift   ", drift, P2_LOW, P2_HIGH, total,
           "≥7 → the prompt is asking for grammar-flavoured sentences rather than "
-          "demonstrations of a named point. Rewrite the prompt, not the check.")
+          "demonstrations of a named point. Rewrite the prompt, not the check.", exercised=probed_n)
     _band("P3 unnatural      ", unnatural, P3_LOW, P3_HIGH, total,
           "≥10 → read them before touching anything; #115 recorded 6/11 on "
-          "hand-written fixtures and the judge is strict.")
+          "hand-written fixtures and the judge is strict.", exercised=judged_n)
     _band("P4 ambiguity      ", ambiguous, P4_LOW, P4_HIGH, total,
           "≥14 → grammar gaps are structurally more ambiguous than vocabulary "
-          "gaps; the TYPE MIX is the fix, not the gate.")
+          "gaps; the TYPE MIX is the fix, not the gate.", exercised=judged_n)
 
     print(f"  P5 control        : {control.failures} of {control.runs} runs "
           f"correctly refused the mis-targeted item")
+    if control.ranks == (None, None, None):
+        print("      **BANKED FROM ATTEMPT 1 (2026-08-27), NOT RE-MEASURED "
+              "ON THIS RUN.**\n      Skipped deliberately: the question is "
+              "answered and re-buying it costs 3 calls.")
     if control.failures == control.runs:
         print("      prediction MET — the check discriminates.")
     elif control.ok:
@@ -1093,13 +1127,14 @@ def run(
     *,
     apply: bool,
     settings: Settings | None = None,
+    skip_control: bool = False,
 ) -> int:
     settings = settings or load_settings()
     plan = unit_plan(numbers)
     spent: Counter = Counter()
     reference = coverage_reference()
 
-    ceiling = _expected_calls(numbers)
+    ceiling = _expected_calls(numbers) - (CONTROL_RUNS if skip_control else 0)
     print(f"\nAbout to make up to {ceiling} billed model calls.")
     print("Nothing is written to any database by this step." if not apply
           else f"Accepted items WILL BE WRITTEN to items for users.id = {user_id}.")
@@ -1111,9 +1146,36 @@ def run(
     print("\n" + "=" * 78)
     print("NEGATIVE CONTROL — before anything else is spent")
     print("=" * 78)
-    control = run_control(settings=settings)
-    spent["control"] += CONTROL_RUNS
-    if not control.ok:
+    if skip_control:
+        # **SKIPPED DELIBERATELY, NOT FORGOTTEN, and the distinction is the
+        # whole reason this branch prints instead of staying silent.**
+        #
+        # Attempt 1 on 2026-08-27 ran the control FIRST and it passed 3 of 3 --
+        # P5's prediction MET, its bar 2 of 3 cleared, `probe_target` shown to
+        # discriminate between two SIBLING targets of one unit. The run then died
+        # on the unit-1 generation call, and **that failure does not touch the
+        # control's result**: the control runs before the units precisely so a
+        # downstream failure cannot cost it.
+        #
+        # Re-buying it would be spending on a question already answered. A
+        # skipped check that goes unmentioned is indistinguishable from one
+        # nobody ran, which is what this record files as its own class of defect,
+        # so it is printed here and recorded in BUILD_PROGRESS.md rather than
+        # inferred from an absent section.
+        control = ControlResult(runs=CONTROL_RUNS, failures=CONTROL_RUNS,
+                                ranks=(None, None, None))
+        print("  SKIPPED — deliberately, and the earlier result stands.")
+        print(f"  Attempt 1, 2026-08-27: {CONTROL_RUNS}/{CONTROL_RUNS} refused "
+              "the mis-targeted item. P5 MET.")
+        print("  `probe_target` discriminates between sibling targets; that is")
+        print("  banked evidence and re-buying it would spend on a settled "
+              "question.")
+        print("  **The ranks below are the banked result, not a fresh "
+              "measurement.**")
+    else:
+        control = run_control(settings=settings)
+        spent["control"] += CONTROL_RUNS
+    if not skip_control and not control.ok:
         print(
             f"\n**RUN VOID.** The mis-targeted control was refused in only "
             f"{control.failures} of {control.runs} runs, below the "
@@ -1122,8 +1184,9 @@ def run(
             "anything. Nothing was written. This is a finding: record it."
         )
         return 1
-    print(f"\ncontrol PASSED ({control.failures}/{control.runs} refused) — the "
-          "check discriminates.")
+    if not skip_control:
+        print(f"\ncontrol PASSED ({control.failures}/{control.runs} refused) — "
+              "the check discriminates.")
 
     # --- the units
     all_outcomes: list[Outcome] = []
@@ -1368,6 +1431,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="make the calls and print the finding (billed)")
     parser.add_argument("--apply", action="store_true",
                         help="make the calls and WRITE what passed (billed)")
+    parser.add_argument(
+        "--skip-control", action="store_true",
+        help="do not re-run the negative control; use the banked 3/3 result "
+             "from 2026-08-27. Only valid while that result stands.",
+    )
     args = parser.parse_args(argv)
     if args.live and args.apply:
         parser.error("--live and --apply are alternatives; --apply implies --live")
@@ -1386,7 +1454,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--units is empty")
 
     if args.live or args.apply:
-        return run(args.user, numbers, apply=args.apply)
+        return run(args.user, numbers, apply=args.apply,
+                   skip_control=args.skip_control)
     return dry_run(args.user, numbers)
 
 

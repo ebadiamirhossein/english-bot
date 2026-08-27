@@ -318,8 +318,41 @@ def _anthropic_once(
         duration_ms,
     )
     if reject_truncation and stop_reason == "max_tokens":
+        # #198. **The response was generated and BILLED; discarding it makes the
+        # most expensive failure in the system the only undiagnosable one.**
+        # W10c's first `--live` attempt died here at output_tokens=8000 on a task
+        # a measurement put at ~2,000, and the 8,000 tokens were gone -- so
+        # *was it writing prose, or forty items, or repeating itself?* could not
+        # be answered and the next attempt had to buy the answer again.
+        #
+        # **The inconsistency was inside this one function**: the `json_mode`
+        # parse-failure path already logs `raw=%r` before raising and this path
+        # did not, so a malformed response was diagnosable and a truncated one
+        # was not. Same `_truncate_raw`, same 300-char limit, same WARNING level.
+        #
+        # HEAD AND TAIL, not head alone. The head says whether a preamble was
+        # written before the JSON; **the tail says where it actually stopped**,
+        # which is the half that distinguishes a long-but-correct answer from a
+        # runaway. `item_type` occurrences say how many items it was writing --
+        # one number that settles "over-generating" outright.
+        #
+        # **This is a log line and nothing else.** No request field changes, so
+        # CLAUDE.md §3 rule 2 does not fire.
+        try:
+            partial = _extract_text(response)
+        except LLMError:
+            partial = ""
+        logger.warning(
+            "truncated response discarded: chars=%s item_type_count=%s "
+            "head=%r tail=%r",
+            len(partial),
+            partial.count('"item_type"'),
+            _truncate_raw(partial),
+            partial[-_JSON_RAW_LOG_LIMIT:],
+        )
         raise LLMError(
-            f"response truncated stop_reason={stop_reason}"
+            f"response truncated stop_reason={stop_reason} "
+            f"output_tokens={output_tokens} chars={len(partial)}"
         )
     return _extract_text(response)
 

@@ -136,6 +136,93 @@ def test_json_mode_retries_once_then_raises_on_garbage(
 
 @patch("core.llm.time.sleep", return_value=None)
 @patch("core.llm.anthropic.Anthropic")
+def test_a_truncated_response_is_logged_before_it_is_discarded(
+    mock_anthropic_cls: MagicMock,
+    _mock_sleep: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """#198. **The most expensive failure in the system was the only one that
+    could not be diagnosed.**
+
+    W10c's first `--live` attempt died on `stop_reason=max_tokens` at
+    `output_tokens=8000` — for a task an offline measurement put at ~2,000 — and
+    this path raised while **discarding the response it had just been billed
+    for**. So the question that decides what to do next, *was the model writing
+    prose, or forty items, or repeating itself?*, was unanswerable, and the next
+    attempt had to buy the answer over again.
+
+    **The inconsistency was inside one function:** the `json_mode` parse-failure
+    path above already logs `raw=%r` before raising and this one did not, so a
+    malformed response was diagnosable and a truncated one was not.
+
+    **Head AND tail, and the count.** The head shows a preamble written before
+    the JSON; **the tail shows where it actually stopped**, which is what
+    separates a long-but-correct answer from a runaway; and the `item_type`
+    count settles over-generation outright — this fixture asks for 8 and the
+    model wrote 40.
+    """
+    body = (
+        "Let me think about this first. "
+        + '{"items":['
+        + '{"item_type":"mcq","prompt_text":"x"},' * 40
+    )
+    client = mock_anthropic_cls.return_value
+    response = _make_response(body)
+    response.stop_reason = "max_tokens"
+    response.usage.output_tokens = 8000
+    client.messages.create.return_value = response
+
+    with caplog.at_level("WARNING", logger="core.llm"):
+        with pytest.raises(LLMError) as exc_info:
+            chat(
+                [{"role": "user", "content": "hi"}],
+                max_tokens=8000,
+                reject_truncation=True,
+                settings=_settings(),
+            )
+
+    logged = caplog.text
+    assert "truncated response discarded" in logged
+    # How many items it was actually writing — one number, and it settles it.
+    assert "item_type_count=40" in logged
+    # The preamble, which `json_mode`'s tolerance for prose makes possible.
+    assert "Let me think about this first" in logged
+    # Where it stopped. Without this a runaway looks like a long correct answer.
+    assert 'tail=' in logged
+    assert logged.split("tail=")[1].startswith(("'", '"'))
+    # The exception itself now carries the size, so a caller's own log is useful.
+    assert "output_tokens=8000" in str(exc_info.value)
+    assert f"chars={len(body)}" in str(exc_info.value)
+
+
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
+def test_truncation_still_raises_and_returns_nothing(
+    mock_anthropic_cls: MagicMock, _mock_sleep: MagicMock
+) -> None:
+    """**`reject_truncation` is not weakened by being made diagnosable.**
+
+    Logging what was discarded must not turn a hard failure into a soft one: a
+    truncated `{"items": [...]}` parses into a few good items and a silent hole,
+    which is worse than a loud failure. W10c pays four billed calls for that
+    loudness and the trade is deliberate.
+    """
+    client = mock_anthropic_cls.return_value
+    response = _make_response('{"items":[{"item_type":"mcq"}')
+    response.stop_reason = "max_tokens"
+    client.messages.create.return_value = response
+
+    with pytest.raises(LLMError):
+        chat(
+            [{"role": "user", "content": "hi"}],
+            json_mode=True,
+            reject_truncation=True,
+            settings=_settings(),
+        )
+
+
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
 def test_json_mode_parse_failure_logs_truncated_raw(
     mock_anthropic_cls: MagicMock,
     _mock_sleep: MagicMock,
