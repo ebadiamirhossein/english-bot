@@ -19,6 +19,7 @@ import pytest
 from core.items import ITEM_TYPES, TYPES_WITHOUT_ANSWER
 from core.items.generate import SLOT_TYPES, generator_system_prompt
 from core.items.schema import (
+    VARIANTS_ARE_THE_GENERATORS,
     constraint_block,
     MODEL_FOR_TYPE,
     NOT_THE_GENERATORS,
@@ -46,6 +47,10 @@ def test_the_contract_matches_the_model_exactly(item_type: str) -> None:
         (f.serialization_alias or f.alias or name)
         for name, f in model.model_fields.items()
     } - set(NOT_THE_GENERATORS)
+    # `accepted_variants` is the runner's for every type but one: only
+    # `l1_to_l2_production`'s own checks require the generator to supply it.
+    if item_type not in VARIANTS_ARE_THE_GENERATORS:
+        expected -= {"accepted_variants"}
     assert set(generator_contract(item_type)) == expected
 
 
@@ -273,7 +278,7 @@ def test_every_rejection_a_type_can_suffer_is_stated_or_named_unstatable(
             "columns_overlap": "both sides",
             "l1_wrong_script": "own script",
             "answer_not_english": "answer is English",
-            "too_few_variants": "accepted renderings",
+            "too_few_variants": "renderings",
             "dictation_length": "words",
             "digits_in_dictation": "no digits",
         }.get(code)
@@ -315,3 +320,59 @@ def test_the_contract_is_cheap_enough_to_send_every_call() -> None:
     """
     block = contract_block(sorted(set(SLOT_TYPES)))
     assert len(block) < 3000, f"contract grew to {len(block)} chars"
+
+
+def test_l1_to_l2_production_is_asked_for_the_variants_its_checks_require() -> None:
+    """**The type was impossible to pass, and the contract is why.**
+
+    `accepted_variants` was in `NOT_THE_GENERATORS`, so the contract never asked
+    for it; `_draft_to_item` then derives it from `answer` alone, which yields
+    exactly ONE rendering; and `checks._l1_production` requires
+    `MIN_ACCEPTED_VARIANTS` because *"the type with the widest legitimate
+    variation... one accepted form is a trap: the learner produces a correct
+    translation and is marked wrong."*
+
+    **So every draft failed `too_few_variants` deterministically** — 0/3 in three
+    consecutive production runs, nine straight, including drafts that obeyed the
+    contract perfectly.
+
+    The exclusion was right in general and wrong for the one type whose own
+    checks demand the generator supply the field.
+    """
+    contract = generator_contract("l1_to_l2_production")
+    assert "accepted_variants" in contract
+    assert "at least 2" in contract["accepted_variants"]
+
+
+@pytest.mark.parametrize(
+    "item_type", sorted(set(ITEM_TYPES) - {"l1_to_l2_production"})
+)
+def test_no_other_type_is_asked_for_accepted_variants(item_type: str) -> None:
+    """The exception is scoped, and narrowness is the property worth asserting.
+
+    For every other type `normalise_variants` derives the field and the repair
+    ladder widens it; a generator supplying its own would be authoring what is
+    graded as correct.
+    """
+    assert "accepted_variants" not in generator_contract(item_type)
+
+
+def test_a_perfect_l1_to_l2_draft_now_passes_the_deterministic_gates() -> None:
+    """End to end, because the contract being right is not the same as the item
+    passing — and the regression this guards is *the type cannot pass at all*."""
+    from core.items.checks import deterministic_failures
+    from core.items.generate import Slot, _draft_to_item
+
+    slot = Slot(index=0, item_type="l1_to_l2_production", target="present perfect")
+    item = _draft_to_item({
+        "register": "neutral",
+        "prompt_text": "من دیروز به مغازه رفتم",
+        "answer": "I went to the shop yesterday",
+        "accepted_variants": [
+            "I went to the shop yesterday", "Yesterday I went to the shop",
+        ],
+        "explanation": "Past simple: the time is finished.",
+        "definition": "a completed action at a stated past time",
+        "l1_gloss": "رفتم",
+    }, slot, 1)
+    assert [f.code for f in deterministic_failures(item)] == []

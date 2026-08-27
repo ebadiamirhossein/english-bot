@@ -307,7 +307,6 @@ NOT_THE_GENERATORS: frozenset[str] = frozenset(
         "grammar_target",
         "cue_type",
         "cue_text",
-        "accepted_variants",
         # **Added 2026-08-27, and the rule-2 call is what found them.** Both are
         # bindings into tables the generator has no business writing:
         #
@@ -343,6 +342,23 @@ _WIRE_TYPE: dict[str, str] = {
 }
 
 
+#: `accepted_variants` is the runner's for every type EXCEPT this one.
+#:
+#: **It was in `NOT_THE_GENERATORS` and that made `l1_to_l2_production`
+#: impossible to pass.** `_draft_to_item` derives the field from `answer` alone,
+#: which yields exactly ONE rendering; `checks._l1_production` requires
+#: `MIN_ACCEPTED_VARIANTS` (2) because *"the type with the widest legitimate
+#: variation... one accepted form is a trap: the learner produces a correct
+#: translation and is marked wrong."* So every draft of this type failed
+#: `too_few_variants` **deterministically** -- 0/3 in three consecutive runs,
+#: nine straight, and a draft obeying the contract perfectly failed too.
+#:
+#: The exclusion was right in general (the repair ladder and
+#: `normalise_variants` own the field) and wrong for the one type whose own
+#: checks demand the generator supply it.
+VARIANTS_ARE_THE_GENERATORS: frozenset[str] = frozenset({"l1_to_l2_production"})
+
+
 def generator_contract(item_type: str) -> dict[str, str]:
     """What one item type requires, DERIVED FROM THE MODEL. ``{field: type}``.
 
@@ -367,11 +383,15 @@ def generator_contract(item_type: str) -> dict[str, str]:
     `answer` as an ARRAY, which is defensible for a gap it thought had two
     fillers and which nothing had told it otherwise. `answer (string)` tells it.
     """
+    from core.items.checks import MIN_ACCEPTED_VARIANTS
+
     model = MODEL_FOR_TYPE[item_type]
     out: dict[str, str] = {}
     for name, field in model.model_fields.items():
         wire = field.serialization_alias or field.alias or name
         if wire in NOT_THE_GENERATORS:
+            continue
+        if wire == "accepted_variants" and item_type not in VARIANTS_ARE_THE_GENERATORS:
             continue
         annotation = field.annotation
         text = str(annotation)
@@ -403,8 +423,11 @@ def generator_contract(item_type: str) -> dict[str, str]:
             )
         elif wire in ("explanation", "definition", "l1_gloss"):
             note = " (required — see the instructions above)"
-        elif wire in ("lexeme", "error_type"):
-            note = ", optional"
+        elif wire == "accepted_variants":
+            note = (
+                " (required — at least "
+                f"{MIN_ACCEPTED_VARIANTS}, INCLUDING the one in `answer`)"
+            )
         else:
             note = ""
         out[wire] = described + note
@@ -515,8 +538,10 @@ def constraint_block(item_types: Sequence[str]) -> str:
         "l1_to_l2_production": [
             "prompt_text is in the learner's own script, not English",
             "answer is English",
-            f"give at least {MIN_ACCEPTED_VARIANTS} accepted renderings — "
-            "one is a trap that marks a correct translation wrong",
+            f"accepted_variants holds at least {MIN_ACCEPTED_VARIANTS} "
+            "renderings, INCLUDING the one you put in `answer` — a second "
+            "natural way to say the same thing. Supplying only one means a "
+            "learner who writes a correct translation is marked wrong",
         ],
         "dictation": [
             f"the sentence is {DICTATION_WORDS[0]}-{DICTATION_WORDS[1]} words",
