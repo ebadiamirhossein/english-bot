@@ -373,6 +373,66 @@ def test_a_clean_cohort_accepts_and_binds_every_item_to_its_target(stub_gates):
         assert outcome.item.unit_number == 1
 
 
+def test_a_non_string_answer_is_refused_as_a_MODEL_failure_not_a_crash(stub_gates):
+    """Attempt 3, unit 1 item 2: `'list' object has no attribute 'translate'`.
+
+    `_draft_to_item` normalised variants BEFORE pydantic saw the draft, so an
+    `answer` that arrived as an array reached `fold_apostrophes`, which called
+    `.translate()` on a list. **Our crash, on our line** — and it was reported as
+    `schema_error`, i.e. as the model's fault.
+
+    Now it is refused with a `ValueError` naming the type, which IS a model
+    failure and is labelled as one. The contract stops it being sent; this stops
+    us crashing on whatever arrives anyway.
+    """
+    slots = (Slot(index=0, item_type="cloze_cued", target=UNIT_1[0]),)
+    draft = _draft(0, "cloze_cued", UNIT_1[0])
+    draft["answer"] = ["was walking", "was going"]
+    outcomes = verify_cohort(
+        slots, [draft], unit_number=1, candidates=UNIT_1, calls=Counter()
+    )
+    assert outcomes[0].stage == "generation"
+    assert "answer must be a string" in outcomes[0].codes[0]
+    assert "got list" in outcomes[0].codes[0]
+
+
+def test_a_runner_crash_is_not_reported_as_the_models_schema_failure(monkeypatch):
+    """**The mislabel, split.** Three classes of our own `AttributeError` were
+    filed under `schema_error` alongside genuine pydantic failures, and the bare
+    `except Exception`'s comment read *"pydantic ValidationError, ValueError"* —
+    **naming a narrower catch than the code performed.**
+
+    A run already paid for must still finish and report, so the crash is caught
+    rather than raised — but at its own stage, under its own code, and with a
+    traceback in the log, which `schema_error` never carried.
+    """
+    import core.items.generate as module
+
+    def _boom(*a, **k):
+        raise AttributeError("'list' object has no attribute 'translate'")
+
+    monkeypatch.setattr(module, "_draft_to_item", _boom)
+    slots = (Slot(index=0, item_type="cloze_cued", target=UNIT_1[0]),)
+    outcomes = verify_cohort(
+        slots, [_draft(0, "cloze_cued", UNIT_1[0])],
+        unit_number=1, candidates=UNIT_1, calls=Counter(),
+    )
+    assert outcomes[0].stage == "runner", "a runner bug is still blamed on the model"
+    assert outcomes[0].codes[0].startswith("runner_error:")
+
+
+def test_the_payload_no_longer_sends_a_slot_number_to_be_echoed():
+    """Attempt 3's second cause, removed at the source.
+
+    `n` was the runner's own slot index, sent as a per-item key. A model
+    mirroring the input shape echoed it back, and `extra="forbid"` rejected every
+    item. **Order carries the same information and cannot be echoed.**
+    """
+    payload = build_payload(1, "can-do", slot_plan(1, UNIT_1))
+    assert all("n" not in item for item in payload["items"])
+    assert [i["item_type"] for i in payload["items"]] == list(SLOT_TYPES)
+
+
 def test_a_model_that_writes_to_a_different_target_is_caught_for_free(stub_gates):
     """The echo is compared, not overwritten silently.
 

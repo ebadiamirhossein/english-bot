@@ -51,8 +51,19 @@ transliteration.
 Echo `grammar_target` back on every item, copied VERBATIM from the target you
 were given.
 
-Reply with ONLY this JSON object:
+Reply with ONLY this JSON object, and nothing before or after it:
 
 {"items": [ ... ]}
 
-Each item is an object with `item_type` and the fields that type requires.
+Return exactly one item per requested slot, in the order they were requested.
+
+EVERY FIELD EACH TYPE REQUIRES IS LISTED BELOW. Return exactly these fields for
+the type you were asked for — no others. Do not echo back the slot number, the
+item type, or the grammar target you were given; they are recorded already and
+an extra field makes the item unusable.
+
+{contract}
+
+Types are exact. A field marked `string` is one string, never an array — if you
+think two answers fit a gap, the gap is wrong and you must rewrite the sentence
+so that only one fits.

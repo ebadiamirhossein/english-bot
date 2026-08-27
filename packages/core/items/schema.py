@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.items import CUE_TYPES, ITEM_TYPES, REGISTERS, TRACKS
+from core.items import CUE_TYPES, ITEM_TYPES, REGISTERS, TRACKS, TYPES_WITHOUT_ANSWER
 from core.items.grading import fold
 
 Track = Literal["work", "life", "curiosity"]
@@ -288,6 +289,118 @@ def payload_keys(item_type: str) -> frozenset[str]:
         for name, field in model.model_fields.items()
     }
     return frozenset(wire - _PROMOTED)
+
+
+#: Fields the GENERATOR must not set, because something else owns them.
+#:
+#: `_draft_to_item` overwrites the first four from the slot -- a generator does
+#: not get to reassign an item's unit or its target -- and the repair ladder owns
+#: the rest: `cue_type`/`cue_text` are chosen by `repair.apply_cue` from the
+#: probe's own wrong answers, and `accepted_variants` is derived by
+#: `grading.normalise_variants`. Asking for them would invite a model to author a
+#: cue the ladder then overwrites, which is worse than not asking.
+NOT_THE_GENERATORS: frozenset[str] = frozenset(
+    {
+        "item_type",
+        "track",
+        "unit_number",
+        "grammar_target",
+        "cue_type",
+        "cue_text",
+        "accepted_variants",
+    }
+)
+
+#: How a field's type is described to a model. Deliberately plain English rather
+#: than JSON Schema notation: `model_json_schema()` for the eleven types is
+#: ~20,000 characters of mostly `$defs` noise, against ~1,500 for this.
+_WIRE_TYPE: dict[str, str] = {
+    "str": "string",
+    "int": "integer",
+    "tuple": "array of strings",
+}
+
+
+def generator_contract(item_type: str) -> dict[str, str]:
+    """What one item type requires, DERIVED FROM THE MODEL. ``{field: type}``.
+
+    **This exists because `core/prompts/item_generate.txt` never stated the
+    contract and a whole billed run died on it.** The prompt named five fields
+    and closed with *"the fields that type requires"* -- listing none -- so every
+    draft in W10c's third `--live` attempt failed `prompt_text Field required`,
+    on a rule the model was never told. The drafts' content was GOOD; they were
+    answering a schema nobody showed them.
+
+    **Derived and not hand-written, and that is the whole point.** A field list in
+    the prompt text would be a second copy of a schema that lives here, and this
+    project's history is drift between a hand-maintained copy and its source:
+    #100's stale Build columns, #46's five copies of one regex, `spacing_step`,
+    `approved_onboarded_users`, the S24 Meaning/Translation trap. A twelfth item
+    type, or a renamed field, must not be able to leave the prompt quietly wrong
+    -- so `tests/test_items_contract.py` asserts this against `model_fields` for
+    every type.
+
+    **Types are carried, not just names.** A bare list of field names would not
+    have prevented the crash that came with the same run: the model returned
+    `answer` as an ARRAY, which is defensible for a gap it thought had two
+    fillers and which nothing had told it otherwise. `answer (string)` tells it.
+    """
+    model = MODEL_FOR_TYPE[item_type]
+    out: dict[str, str] = {}
+    for name, field in model.model_fields.items():
+        wire = field.serialization_alias or field.alias or name
+        if wire in NOT_THE_GENERATORS:
+            continue
+        annotation = field.annotation
+        text = str(annotation)
+        # `str | None` is a `types.UnionType` with no `__name__`; strip the
+        # None arm and describe the base, or the model is handed the phrase
+        # "str | None" and has to guess what this codebase means by it.
+        base = text.replace("| None", "").replace("Optional[", "").strip(" []")
+        raw = getattr(annotation, "__name__", base)
+        described = _WIRE_TYPE.get(raw, _WIRE_TYPE.get(base, base))
+        if raw == "Literal":
+            described = "one of " + "/".join(
+                repr(a) for a in getattr(annotation, "__args__", ())
+            )
+        if wire == "pairs":
+            described = "array of [left, right] string pairs"
+
+        # **Optionality comes from `checks.py`, not from the annotation**, and
+        # the two genuinely disagree. `answer` is `str | None` on the MODEL
+        # because two of the eleven types have no single canonical answer -- but
+        # for the other nine `checks._shared`'s `answer_presence` REQUIRES it,
+        # and migration 012 mirrors that as a CHECK. Reading optionality off the
+        # annotation would tell the generator `answer` is optional for
+        # `cloze_cued`, which is the same class of omission that cost attempt 3.
+        if wire == "answer":
+            note = (
+                ", MUST be omitted for this type"
+                if item_type in TYPES_WITHOUT_ANSWER
+                else " (required)"
+            )
+        elif wire in ("explanation", "definition", "l1_gloss"):
+            note = " (required — see the instructions above)"
+        elif wire in ("lexeme", "error_type"):
+            note = ", optional"
+        else:
+            note = ""
+        out[wire] = described + note
+    return out
+
+
+def contract_block(item_types: Sequence[str]) -> str:
+    """The contract for several types, as the lines a prompt carries.
+
+    One place builds this string, so the prompt and the validator cannot disagree
+    about what was asked for.
+    """
+    lines: list[str] = []
+    for item_type in item_types:
+        fields = generator_contract(item_type)
+        rendered = "\n".join(f"    {k}: {v}" for k, v in fields.items())
+        lines.append(f"  {item_type}\n{rendered}")
+    return "\n".join(lines)
 
 
 def hash_contribution(item: BaseItem) -> str:

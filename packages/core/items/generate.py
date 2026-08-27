@@ -174,8 +174,11 @@ import json
 import logging
 import sys
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from pydantic import ValidationError
 
 from core import PROMPTS_DIR
 from core.config import Settings, load_settings
@@ -183,7 +186,7 @@ from core.items import gates
 from core.items.checks import COVERAGE_FLOOR, judged_sentence, sentence_of
 from core.items.gates import MAX_REPAIRS, TARGET_DECOYS, TargetVerdict, ValidationReport
 from core.items.grading import normalise_variants
-from core.items.schema import BaseItem, parse
+from core.items.schema import BaseItem, contract_block, parse
 from core.sessions.blocks import visible_targets
 
 logger = logging.getLogger(__name__)
@@ -367,8 +370,14 @@ def build_payload(unit_number: int, can_do: str, slots: tuple[Slot, ...]) -> dic
         "unit_number": unit_number,
         "can_do": can_do,
         "track": track_for(unit_number),
+        # **`n` was REMOVED after attempt 3.** It was the runner's own slot
+        # number, sent as a per-item key -- and a model that mirrors the input
+        # shape echoed it back, where `BaseItem`'s `extra="forbid"` rejected
+        # every item. Order carries the same information and cannot be echoed:
+        # the prompt asks for one item per slot in the order requested, and
+        # `verify_cohort` reads `drafts[slot.index]`.
         "items": [
-            {"n": slot.index + 1, "item_type": slot.item_type, "grammar_target": slot.target}
+            {"item_type": slot.item_type, "grammar_target": slot.target}
             for slot in slots
         ],
     }
@@ -444,12 +453,49 @@ def _draft_to_item(raw: dict, slot: Slot, unit_number: int) -> BaseItem:
     draft["track"] = track_for(unit_number)
     draft["unit_number"] = unit_number
     draft["grammar_target"] = slot.target
-    if draft.get("answer") is not None and not draft.get("accepted_variants"):
-        draft["accepted_variants"] = list(normalise_variants(draft["answer"]))
+
+    answer = draft.get("answer")
+    if answer is not None and not isinstance(answer, str):
+        # **This line is here because it CRASHED.** Attempt 3, unit 1 item 2:
+        # the model returned `answer` as an ARRAY -- defensible for a gap it
+        # believed had two fillers, and nothing in the prompt said otherwise --
+        # and `normalise_variants` handed it to `fold_apostrophes`, which called
+        # `.translate()` on a list. `'list' object has no attribute 'translate'`
+        # was reported as `schema_error`, i.e. as the model's fault.
+        #
+        # The contract now tells the generator `answer` is a string, and this
+        # refuses one that is not. **Both, deliberately:** the contract stops it
+        # being sent, and the guard stops us crashing on whatever does arrive.
+        # A `ValueError` here is caught as a MODEL failure, which is what it is.
+        raise ValueError(
+            f"answer must be a string, got {type(answer).__name__}: {answer!r}"
+        )
+
+    if answer is not None and not draft.get("accepted_variants"):
+        draft["accepted_variants"] = list(normalise_variants(answer))
     return parse(draft)
 
 
 # ── the cohort: one unit, eight slots, cheapest gate first ──────────────────
+
+
+def generator_system_prompt(item_types: Sequence[str] = SLOT_TYPES) -> str:
+    """`item_generate.txt` with the field contract substituted in.
+
+    **The contract is DERIVED from `core.items.schema`, never written here.**
+    W10c's third `--live` attempt died because the prompt closed with *"the
+    fields that type requires"* and listed none: every draft failed
+    `prompt_text Field required`, on a rule the model was never told, while the
+    CONTENT it produced was good. A hand-written list in the prompt file would be
+    a second copy of a schema that lives in code, and this record is largely a
+    history of those two drifting apart.
+    """
+    template = (PROMPTS_DIR / "item_generate.txt").read_text(encoding="utf-8")
+    seen: list[str] = []
+    for item_type in item_types:
+        if item_type not in seen:
+            seen.append(item_type)
+    return template.replace("{contract}", contract_block(seen))
 
 
 def generate_drafts(
@@ -458,7 +504,7 @@ def generate_drafts(
     """One billed call. The raw drafts, in the order the model returned them."""
     response = gates._chat(
         [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-        system=(PROMPTS_DIR / "item_generate.txt").read_text(encoding="utf-8"),
+        system=generator_system_prompt(),
         json_mode=True,
         max_tokens=GENERATE_MAX_TOKENS,
         reject_truncation=True,
@@ -526,9 +572,31 @@ def verify_cohort(
             continue
         try:
             item = _draft_to_item(raw, slot, unit_number)
-        except Exception as exc:  # pydantic ValidationError, ValueError
+        except (ValidationError, ValueError) as exc:
+            # The MODEL's fault: a field missing, an extra field, a wrong type.
             outcomes.append(
                 _discard(slot, unit_number, "generation", f"schema_error: {exc}"[:200])
+            )
+            continue
+        except Exception as exc:  # noqa: BLE001 — see below
+            # **OURS.** Anything that is not a validation failure is a bug in
+            # this runner, and labelling it `schema_error` blamed the model for
+            # our own crash. Attempt 3 hid `'list' object has no attribute
+            # 'translate'` -- a real `AttributeError` on `generate.py`'s own line
+            # -- under that label, and the comment on the old bare `except`
+            # read *"pydantic ValidationError, ValueError"*: **it named a
+            # narrower catch than the code performed.**
+            #
+            # It is still caught rather than raised, because a run that has
+            # already been paid for must finish and report; but it is reported
+            # as `runner_error`, at its own stage, and **logged with a
+            # traceback**, which `schema_error` never was.
+            logger.exception(
+                "runner crash on unit %s slot %s (%s)",
+                unit_number, slot.index + 1, slot.item_type,
+            )
+            outcomes.append(
+                _discard(slot, unit_number, "runner", f"runner_error: {exc}"[:200])
             )
             continue
         outcomes.append(Outcome(slot=slot, unit_number=unit_number, item=item))
@@ -1048,8 +1116,14 @@ def dry_run(user_id: int, numbers: tuple[int, ...]) -> int:
     print(f"\n=== target ===\nusers.id = {user_id} · units {list(numbers)} · "
           f"{ITEMS_PER_UNIT} items each")
 
-    print("\n=== system (item_generate.txt) ===")
-    print((PROMPTS_DIR / "item_generate.txt").read_text(encoding="utf-8"))
+    print("\n=== system (item_generate.txt, contract substituted) ===")
+    # **`generator_system_prompt()` and NOT the template file.** The first draft
+    # of this line read the file directly and printed a literal `{contract}`
+    # placeholder, so the dry run showed something the live run does not send --
+    # on the very change the dry run exists to let somebody read before paying
+    # for it. That is W5a's lesson in the harness rather than in the gate: **the
+    # thing that verifies must measure the thing it reports on.**
+    print(generator_system_prompt())
 
     print("=== system (item_target.txt) ===")
     print((PROMPTS_DIR / "item_target.txt").read_text(encoding="utf-8"))
