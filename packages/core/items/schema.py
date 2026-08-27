@@ -84,6 +84,32 @@ class BaseItem(BaseModel):
     #: PRD §3's fixed 24-unit sequence.
     unit_number: int | None = None
 
+    #: **Which of the unit's 3-5 grammar targets this item tests, verbatim.**
+    #:
+    #: W10c. `unit_number` says which unit an item belongs to and `error_type`
+    #: names one of nineteen coarse journal codes -- and NEITHER can name one of
+    #: the 82 grammar targets. All four of unit 1's targets (`past simple`,
+    #: `past continuous`, the two in one sentence, `time linkers`) map to the
+    #: single code `verb_tense_past`, so an item bound only that way has lost the
+    #: thing it was generated against. #169 records the same gap from the other
+    #: side: block-3 items link at unit granularity.
+    #:
+    #: **Bound by the target's exact text**, which is the established convention
+    #: rather than a new one: `checkpoint.per_target` is a map keyed by target
+    #: string and `core.syllabus.blueprint.validate_checkpoint` already refuses a
+    #: key that is not one of the unit's own targets.
+    #:
+    #: **No migration.** `payload_of` derives `items.payload` by SUBTRACTING the
+    #: promoted columns, so this field persists from the moment it exists, and
+    #: `services.items.StoredItem.as_item` rehydrates it through `**payload`.
+    #: That is exactly the property `payload_of`'s docstring was written to give,
+    #: collected here for the first time. `schema_version` stays at 16.
+    #:
+    #: In `projection.NEVER_VISIBLE`: naming the target on the wire would hand
+    #: the blind solver the answer's category, and `probe_target` specifically
+    #: must never see it.
+    grammar_target: str | None = None
+
     #: Shown after grading, never before — see `projection.visible_projection`.
     explanation: str | None = None
 

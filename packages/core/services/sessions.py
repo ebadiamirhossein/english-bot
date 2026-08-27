@@ -1188,41 +1188,55 @@ def _input_block() -> tuple[str, dict[str, Any]]:
     return "empty", {}
 
 
-def _focus_block(unit: Any) -> tuple[str, dict[str, Any]]:
-    """Block 3. The unit's can-do and grammar targets. **No lesson, no items.**
+def _focus_block(unit: Any, user_id: int) -> tuple[str, dict[str, Any]]:
+    """Block 3. The unit's can-do, its grammar targets, and **its eight items.**
 
     PRD §4.1 asks for "this week's grammar target: 90-second explanation + 8
-    generated items". Neither half exists:
+    generated items". **W10c fills the second half.** The explanation is still
+    W10b, which is approved and not started, so `lesson` stays named and NULL --
+    a reader can tell "no lesson yet" from "this shape has no lessons".
 
-    * the explanation is **W10b**, planned and approved 2026-08-26, gated on this
-      slice -- and its first implementation step is to read the contract this
-      function ships;
-    * the eight items need a **generator**, and building one inside a surface
-      slice would put a billed content pipeline in it. That is the item
-      generation slice, and every generator-shaped issue targeted at W10 (#102,
-      #103, #105, #110, #120, #168) moves there with it.
+    THE BLOCK-3 CONTRACT, updated once here so it is readable from the record
+    rather than from a diff. `items` is now populated where W10 shipped it empty:
+    ``{unit_number, can_do, grammar_targets: [{target}], lesson: None, items: [...]}``
 
-    **So this block renders labels over nothing, which is #182 exactly** -- *the
-    82 grammar targets are labels for teaching that exists nowhere.* W10 does not
-    paper over that with filler; it is the first slice where a person can see it.
+    **NOTHING IS GENERATED HERE.** `focus_items` is `bank_for_session` plus the
+    projection -- one read, of items that were validated, target-checked and
+    written by a human-run command days earlier. That is W10's own criterion and
+    `tests/test_session_route.py::test_nothing_is_generated_while_the_learner_waits`
+    holds it structurally, through session-wide `netguard`, rather than by
+    intention.
 
-    THE BLOCK-3 CONTRACT W10b RECONCILES AGAINST, stated once so it is readable
-    from the record rather than from a diff:
-    ``{unit_number, can_do, grammar_targets: [{target}], lesson: None, items: []}``
+    **An empty list is the ordinary state for a unit nobody has generated for**,
+    and block 3 renders it as the honest empty state it has had since W10. Only
+    units 1-3 have items today, and only for the learner they were generated for
+    -- #159 is why they were not copied to the second learner.
 
     `visible_targets` and not the raw column: #171, and the citation is dropped
-    at this seam. See `core.sessions.blocks.visible_target`.
+    at this seam. See `core.sessions.blocks.visible_target`. The generator drops
+    it at the same seam, for the sharper reason that an assumption embedded in a
+    generated sentence is invisible in a way a rendered number is not.
     """
     if unit is None:
         return "empty", {}
+    from core.services import items as items_service
+
+    presentations = items_service.focus_items(
+        user_id, unit_number=unit.unit_number
+    )
     return "ready", {
         "unit_number": unit.unit_number,
         "can_do": unit.can_do,
         "grammar_targets": [dict(one) for one in visible_targets(unit.grammar_targets)],
-        # Named and NULL rather than absent, so W10b has a field to fill and a
-        # reader can tell "no lesson yet" from "this shape has no lessons".
         "lesson": None,
-        "items": [],
+        "items": [
+            {
+                "id": one.id,
+                "response_mode": one.response_mode,
+                "projection": one.projection,
+            }
+            for one in presentations
+        ],
     }
 
 
@@ -1386,7 +1400,7 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
             # both. Two facts, kept apart even though they come from one query.
             "focus": ("unavailable", {})
             if unit_failed
-            else _build_block("focus", lambda: _focus_block(unit)),
+            else _build_block("focus", lambda: _focus_block(unit, user_id)),
             "output": ("unavailable", {})
             if unit_failed
             else _build_block("output", lambda: _output_block(unit)),

@@ -71,6 +71,76 @@ def test_a_validated_item_round_trips(learner) -> None:
     assert stored[0].response_mode == "typed"
 
 
+def test_the_grammar_target_round_trips_with_no_migration(learner) -> None:
+    """W10c's binding ruling, proved end to end against a real database.
+
+    **The claim being tested is that no DDL was needed.** `items.unit_number`
+    says which unit an item belongs to and `items.error_type` names one of
+    nineteen coarse journal codes — all four of unit 1's grammar targets collapse
+    onto `verb_tense_past` — so neither can say which of the 82 targets an item
+    tests. `grammar_target` is a field on `BaseItem`, and `schema.payload_of`
+    derives the payload by SUBTRACTING the promoted columns, so it persists into
+    the existing `payload` JSONB and `StoredItem.as_item` rehydrates it through
+    `**payload`.
+
+    If that derivation ever stopped working, the field would be dropped on write
+    and read back as `None` — silently, with the item still valid — and block 3
+    would serve items nothing could tell apart. `schema_version` stays at 16.
+    """
+    target = "past simple and past continuous in the same sentence"
+    svc.insert_item(
+        learner, _draft(grammar_target=target, unit_number=1),
+        PASSED, model="test-model",
+    )
+    stored = svc.list_bank(learner)[0]
+    assert stored.payload["grammar_target"] == target
+    assert stored.as_item().grammar_target == target
+    assert stored.unit_number == 1
+
+
+def test_the_grammar_target_never_reaches_the_learner(learner) -> None:
+    """It is in `projection.NEVER_VISIBLE`, and the reason is not privacy.
+
+    Naming the target on the wire tells the learner what CATEGORY of answer is
+    wanted, and hands `gates.probe_target` the answer to the question it exists
+    to ask.
+    """
+    svc.insert_item(
+        learner, _draft(grammar_target="past simple: regular and irregular verbs"),
+        PASSED, model="test-model",
+    )
+    presentation = svc.presentations_for(learner)[0]
+    assert "grammar_target" not in presentation.projection
+
+
+def test_focus_items_serves_only_the_unit_asked_for(learner) -> None:
+    """Block 3's read. `bank_for_session` + the projection, and nothing else."""
+    svc.insert_item(learner, _draft(unit_number=1), PASSED, model="test-model")
+    svc.insert_item(
+        learner,
+        _draft(unit_number=3, prompt_text="I ___ smoke, but I gave up.",
+               answer="used to"),
+        PASSED, model="test-model",
+    )
+    unit_one = svc.focus_items(learner, unit_number=1)
+    assert len(unit_one) == 1
+    assert "shops" in unit_one[0].projection["prompt_text"]
+    assert len(svc.focus_items(learner, unit_number=3)) == 1
+    assert svc.focus_items(learner, unit_number=2) == []
+
+
+def test_focus_items_serves_at_most_the_eight_prd_asks_for(learner) -> None:
+    """PRD §4.1 block 3 is eight items. A bank that grew past that must not
+    hand the whole thing to a session."""
+    for n in range(12):
+        svc.insert_item(
+            learner,
+            _draft(unit_number=1, prompt_text=f"I ___ there {n} times last year."),
+            PASSED, model="test-model",
+        )
+    assert len(svc.focus_items(learner, unit_number=1)) == svc.FOCUS_ITEM_COUNT
+
+
 def test_the_payload_carries_exactly_the_types_extra_keys(learner) -> None:
     """A field added to a model is persisted from the moment it exists."""
     svc.insert_item(learner, _draft(), PASSED, model="test-model")

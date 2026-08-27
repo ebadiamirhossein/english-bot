@@ -349,11 +349,23 @@ def test_only_the_content_loader_reads_the_syllabus_data_files() -> None:
 # NOT under `core/services/`, `test_no_sql_outside_services` already covers it
 # with **zero new exemptions** -- #59 stays the only one in this file.
 ITEMS = CORE / "items"
-# The two deliberately impure modules, named so nobody has to guess. `gates.py`
-# is where the model-required gates live; `verify.py` is the human-run
-# verification. They are exempt from the LLM/speech rule below and from nothing
-# else -- in particular they may not carry SQL.
-ITEMS_MODEL_CALLERS = {ITEMS / "gates.py", ITEMS / "verify.py"}
+# The deliberately impure modules, named so nobody has to guess. `gates.py` is
+# where the model-required gates live; `verify.py` is the human-run
+# verification; `generate.py` (W10c) is the human-run generator. They are exempt
+# from the LLM/speech rule below and from nothing else -- in particular they may
+# not carry SQL, which is what keeps #59 the only boundary exemption.
+#
+# **Three is a naming, not a loosening.** The point of this set has always been
+# that reaching a provider is a decision somebody made on purpose and wrote down,
+# rather than something any file in the package may quietly do. `generate.py`
+# writes through `core.services.items.insert_item` and holds no query, so
+# `test_no_sql_outside_services` and `test_exactly_one_module_writes_an_item`
+# both still cover it unexempted.
+ITEMS_MODEL_CALLERS = {
+    ITEMS / "gates.py",
+    ITEMS / "verify.py",
+    ITEMS / "generate.py",
+}
 
 # W7. `core/cards/fsrs.py` is the only door to the scheduler, for the same
 # reason `core/passkeys.py` is the only door to WebAuthn and `core/llm.py` the

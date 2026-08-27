@@ -54,6 +54,11 @@ NEVER_VISIBLE: frozenset[str] = frozenset(
         "error_type",
         "lexeme",
         "unit_number",
+        # W10c. Naming the grammar target on the wire would tell the blind
+        # solver what CATEGORY of answer is wanted -- and `gates.probe_target`
+        # is asked to recover that category from the item alone, so showing it
+        # would make that gate unfalsifiable in the most direct way available.
+        "grammar_target",
         "track",
         "register",
         "register_tag",

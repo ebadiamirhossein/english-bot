@@ -155,8 +155,8 @@ describe("nothing accumulates", () => {
 });
 
 /**
- * #182 on a screen. Block 3 renders the unit's labels and nothing that teaches
- * them, because the lesson is the next slice and the items need a generator.
+ * Block 3. The unit's labels, no citation, and — since W10c — its items.
+ *
  * **And no citation can reach it**: the server sends `{target}` alone.
  */
 describe("block 3 shows labels and no citation", () => {
@@ -183,6 +183,88 @@ describe("block 3 shows labels and no citation", () => {
   it("renders no Murphy citation, because none arrives", () => {
     const { container } = render(<FocusBlock block={focus} />);
     expect(container.textContent).not.toContain("Murphy");
+  });
+
+  it("renders no practice section at all when no items were generated", () => {
+    render(<FocusBlock block={focus} />);
+    expect(screen.queryByTestId("focus-items")).toBeNull();
+  });
+
+  it("no longer apologises for the generator that now exists", () => {
+    const { container } = render(<FocusBlock block={focus} />);
+    expect(container.textContent).not.toContain("exercise generator");
+  });
+
+  it("still says the written explanation is on its way (#182, W10b's half)", () => {
+    const { container } = render(<FocusBlock block={focus} />);
+    expect(container.textContent).toContain("written explanation");
+  });
+});
+
+/**
+ * Block 3 with items — the half W10 shipped empty.
+ *
+ * **The user action:** reaching block 3 of the daily session and answering the
+ * eight items generated against this unit's own grammar targets.
+ */
+describe("block 3 serves its generated items", () => {
+  const withItems = block({
+    n: 3,
+    kind: "focus",
+    payload: {
+      unit_number: 1,
+      can_do: "I can tell a friend what I did yesterday.",
+      grammar_targets: [{ target: "past simple: regular and irregular verbs" }],
+      lesson: null,
+      items: [
+        {
+          id: 41,
+          response_mode: "typed",
+          projection: {
+            item_type: "cloze_cued",
+            prompt_text: "I ___ there twice last year.",
+          },
+        },
+        {
+          id: 42,
+          response_mode: "tap",
+          projection: {
+            item_type: "mcq",
+            prompt_text: "I ___ to the shops yesterday.",
+            options: ["went", "goed", "gone", "going"],
+          },
+        },
+      ],
+    },
+  });
+
+  it("renders the first item, not all of them at once", () => {
+    render(<FocusBlock block={withItems} />);
+    expect(screen.getByTestId("focus-items")).not.toBeNull();
+    expect(screen.getByText(/there twice last year/)).not.toBeNull();
+    expect(screen.queryByText(/to the shops yesterday/)).toBeNull();
+  });
+
+  it("shows a position and never a count of what is left", () => {
+    const { container } = render(<FocusBlock block={withItems} />);
+    // CLAUDE.md §4: never present a backlog. "1 of 2" is where you are;
+    // "1 remaining" would be a debt.
+    expect(container.textContent).toContain("1 of 2");
+    expect(container.textContent).not.toMatch(/remaining|left|still to do/i);
+  });
+
+  it("keeps rendering the unit's targets above the practice", () => {
+    render(<FocusBlock block={withItems} />);
+    expect(screen.getByTestId("focus-targets").textContent).toContain(
+      "past simple",
+    );
+  });
+
+  it("carries no guilt language into the block", () => {
+    const { container } = render(<FocusBlock block={withItems} />);
+    expect(container.textContent).not.toMatch(
+      /wrong|incorrect|failed|missed|try harder/i,
+    );
   });
 });
 

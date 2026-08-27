@@ -1,0 +1,26 @@
+{
+  "_why": "The negative control for `gates.probe_target` (W10c). verify.py's central lesson is that a check which rejects nothing passes the catch direction perfectly, and probe_target is the one gate in the generation run that could be inert and still look like it is working: every item would rank its claimed target first and every item would pass.",
+  "_design": "This item genuinely tests `used to for habits that have stopped` — the answer turns on `used to` and on nothing else. It CLAIMS `for and since with the present perfect`. Both are real unit-3 targets, so the drift is to a SIBLING rather than to something absurd: a control that is easy to refuse proves nothing about a check that has to catch neighbours. If probe_target ranks the claimed target first here, it cannot tell two adjacent points apart and every verdict it gave the real items is worthless.",
+  "claims": "for and since with the present perfect",
+  "actually": "used to for habits that have stopped",
+  "candidates": [
+    "for and since with the present perfect",
+    "present perfect continuous: how long you've been doing it",
+    "used to for habits that have stopped",
+    "past simple: regular and irregular verbs",
+    "just, already and yet",
+    "ever and never in questions and short answers"
+  ],
+  "item": {
+    "item_type": "cloze_cued",
+    "track": "life",
+    "register": "neutral",
+    "prompt_text": "I ___ smoke, but I gave up two years ago.",
+    "answer": "used to",
+    "accepted_variants": ["used to"],
+    "unit_number": 3,
+    "grammar_target": "for and since with the present perfect",
+    "definition": "something that was true before and isn't now",
+    "l1_gloss": "قبلاً"
+  }
+}

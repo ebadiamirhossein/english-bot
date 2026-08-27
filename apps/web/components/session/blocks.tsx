@@ -1,21 +1,24 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
 import { CardRunner } from "@/components/cards/card-runner";
+import { ItemCard } from "@/components/items/item-card";
 import { BlockShell } from "@/components/session/block-shell";
 import { BLOCKS, NOTHING_DUE } from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
-import type { CardFace, SessionBlock } from "@/lib/api";
+import type { CardFace, ItemPresentation, SessionBlock } from "@/lib/api";
 
 /**
  * The five blocks of PRD §4.1, one component each.
  *
- * **Two of them are empty in this slice and that is the correct output, not a
- * gap to be filled.** Block 2 needs the video engine (W12) and the player
- * (W13); block 3's eight items need a generator, and building one inside a
- * surface slice would put a billed content pipeline in it. A session that looked
+ * **Block 2 is empty and that is the correct output, not a gap to be filled.**
+ * It needs the video engine (W12) and the player (W13). A session that looked
  * full on day one would be inventing work, which is the thing the rules forbid.
+ *
+ * **Block 3 stopped being empty at W10c**, which built the generator its eight
+ * items were waiting for. Its written explanation is still W10b's.
  */
 
 function Empty({ children }: { children: React.ReactNode }) {
@@ -100,13 +103,26 @@ export function InputBlock({ block }: { block: SessionBlock }) {
 }
 
 /**
- * Block 3 · Focus. The unit's can-do and its grammar targets.
+ * Block 3 · Focus. The unit's can-do, its grammar targets, and its items.
  *
- * **Labels over nothing, and that is #182 on a screen** — *the 82 grammar
- * targets are labels for teaching that exists nowhere.* The written explanation
- * is the next slice; the eight items need a generator. W10 does not paper over
- * the gap with filler, and this is the first place a person can see it rather
- * than read about it in the record.
+ * **#182 is half-answered here and the half that remains is named on screen.**
+ * The 82 grammar targets were labels for teaching that existed nowhere; W10c
+ * gives each unit eight items generated against its own targets and checked by
+ * `probe_target` before anybody sees them. The *written explanation* is still
+ * W10b's, so the "on its way" line stays and the "practice arrives with the
+ * generator" line is gone — it has arrived.
+ *
+ * **A unit with no items renders the targets and no practice section at all**,
+ * rather than an empty heading. Only the units someone has run the generator for
+ * have items, and only for the learner it was run for (#159).
+ *
+ * **This block deliberately does NOT reload the session when an item is
+ * answered**, where `ReviewBlock` passes `onGraded={load}` and does. The reason
+ * is `core.services.items.bank_for_session`, which orders by least-recently-
+ * attempted first: a reload after each answer would re-sort the eight items
+ * under the learner's fingers and move the one they just did to the end. The
+ * position is held here, in React, and the block is completed by the session's
+ * own done button like every other block.
  *
  * **No citation reaches here and none can.** The server hands over
  * `{target}` and nothing else — `core.sessions.blocks.visible_target` builds the
@@ -117,6 +133,9 @@ export function FocusBlock({ block }: { block: SessionBlock }) {
   const canDo = block.payload.can_do as string | undefined;
   const targets =
     (block.payload.grammar_targets as { target: string }[] | undefined) ?? [];
+  const items = (block.payload.items as ItemPresentation[] | undefined) ?? [];
+  const [index, setIndex] = useState(0);
+  const item = items[index];
 
   return (
     <BlockShell
@@ -146,9 +165,24 @@ export function FocusBlock({ block }: { block: SessionBlock }) {
           <p className="text-sm leading-relaxed text-muted-foreground">
             {BLOCKS.focus.noLesson}
           </p>
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            {BLOCKS.focus.noItems}
-          </p>
+          {item ? (
+            <div className="space-y-3" data-testid="focus-items">
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {BLOCKS.focus.progress
+                  .replace("{n}", String(index + 1))
+                  .replace("{total}", String(items.length))}
+              </p>
+              <ItemCard
+                key={item.id}
+                item={item}
+                onNext={
+                  index + 1 < items.length
+                    ? () => setIndex(index + 1)
+                    : undefined
+                }
+              />
+            </div>
+          ) : null}
         </div>
       )}
     </BlockShell>

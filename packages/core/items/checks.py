@@ -21,6 +21,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 
+from core.copy_rules import content_offenders
 from core.items import TYPES_WITHOUT_ANSWER
 from core.items.grading import fold, fold_answer
 from core.items.schema import (
@@ -186,6 +187,65 @@ def looks_proper_noun(word: str, sentence: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _learner_facing_text(item: BaseItem) -> list[tuple[str, str | None]]:
+    """Every string on this item that a learner can end up reading, named.
+
+    Enumerated from the model rather than hand-listed for the per-type extras,
+    so a field added to a type is scanned from the moment it exists -- the same
+    property `schema.payload_of` has and for the same reason. `_UNREAD_FIELDS`
+    is the exclusion list, and it is short and explained.
+
+    `explanation` is here and it is new: `core/prompts/item_generate.txt` never
+    asked for one until W10c (#103), so the panel that renders it has had
+    nothing to render and this scan would have had nothing to scan.
+    """
+    named: list[tuple[str, str | None]] = [
+        ("prompt_text", item.prompt_text),
+        ("answer", item.answer),
+        ("cue_text", item.cue_text),
+        ("explanation", item.explanation),
+        ("definition", item.definition),
+        ("l1_gloss", item.l1_gloss),
+    ]
+    seen = {name for name, _ in named}
+    for name in type(item).model_fields:
+        if name in seen or name in _UNREAD_FIELDS:
+            continue
+        value = getattr(item, name, None)
+        if isinstance(value, str):
+            named.append((name, value))
+        elif isinstance(value, tuple):
+            for index, entry in enumerate(value):
+                if isinstance(entry, str):
+                    named.append((f"{name}[{index}]", entry))
+                elif isinstance(entry, tuple):
+                    for side, half in enumerate(entry):
+                        if isinstance(half, str):
+                            named.append((f"{name}[{index}][{side}]", half))
+    return named
+
+
+#: Fields that are not English a learner reads: enumerations, tags and the
+#: target bindings. `track`, `register` and `item_type` are closed vocabularies;
+#: `lexeme`, `error_type` and `grammar_target` are operator-side bindings that
+#: `projection.NEVER_VISIBLE` already keeps off every wire.
+_UNREAD_FIELDS: frozenset[str] = frozenset(
+    {
+        "item_type",
+        "track",
+        "register_tag",
+        "cue_type",
+        "lexeme",
+        "error_type",
+        "unit_number",
+        "grammar_target",
+        "accepted_variants",
+        "l1",
+        "wrong_index",
+    }
+)
+
+
 def _shared(item: BaseItem, known_lemmas: frozenset[str] | None) -> list[Failure]:
     out: list[Failure] = []
     stem = item.prompt_text or ""
@@ -241,6 +301,29 @@ def _shared(item: BaseItem, known_lemmas: frozenset[str] | None) -> list[Failure
                 "gate 3 is unverifiable: no lexeme, error_type or unit_number",
             )
         )
+
+    # CLAUDE.md §4's no-guilt rule, reaching item content for the first time
+    # (#110). Until W10c the banned-phrase scan could only be applied by a test,
+    # so it covered components and never the strings inside them -- and from
+    # W10c those strings are model-generated and are the highest-volume
+    # user-facing copy in the app.
+    #
+    # **`BANNED_IN_CONTENT`, not `BANNED`**, and the narrower rule is the point:
+    # a sentence a learner practises may contain the word "wrong", and a thing
+    # the app says about the learner may not. The looser pattern fires on
+    # `error_spot`'s own shipped instruction -- "Tap the word that is wrong." --
+    # which is correct content, and a check that rejects correct content is a
+    # check the next person switches off. See `core.copy_rules`.
+    #
+    # Scanned per field so the failure names WHERE it was found: the generator
+    # prompt is what has to change, and "somewhere in this item" does not tell
+    # anyone which instruction to rewrite.
+    for field_name, value in _learner_facing_text(item):
+        hits = content_offenders(value)
+        if hits:
+            out.append(
+                Failure("guilt_phrase", f"{field_name}: {list(hits)}")
+            )
 
     if known_lemmas is not None and sentence.strip():
         report = compute_coverage(sentence, known_lemmas)

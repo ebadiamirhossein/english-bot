@@ -405,7 +405,178 @@ def judge_naturalness(
     )
 
 
-# ── gate 3: the audio round-trip ────────────────────────────────────────────
+# ── gate 3: does this item test the target it claims? (W10c) ────────────────
+
+
+#: How many targets from OTHER units join the unit's own in the candidate list.
+#: Three is enough to make a confident wrong answer visible without diluting the
+#: siblings, which are the decoys that actually discriminate.
+TARGET_DECOYS = 3
+
+#: One ranking of a short candidate list, plus a confidence. No reasoning.
+TARGET_MAX_TOKENS = 400
+
+
+@dataclass(frozen=True, slots=True)
+class TargetVerdict:
+    """What the classifier ranked, and where the item's own claim landed.
+
+    **`ok` is `claimed_rank == 1` and nothing softer.** An item whose target
+    comes second is an item that teaches something adjacent to what it says it
+    teaches, and a learner answering it is scored on the wrong point.
+    """
+
+    #: As returned, best first, filtered to the candidates that were offered.
+    ranking: tuple[str, ...]
+    #: 1-based position of the claimed target, or None if it was not ranked.
+    claimed_rank: int | None
+    #: What ranked first, whatever that was.
+    first: str | None
+    #: What ranked SECOND. **Recorded, never failed** (#119): when the claimed
+    #: target wins, the runner-up is the distinction the item came closest to
+    #: blurring, and it is the single most useful line for whoever rewrites the
+    #: generator prompt. Dropping a diagnostic the gate already has is what cost
+    #: this project the whole of W5b.
+    runner_up: str | None
+    confidence: str | None
+
+    @property
+    def ok(self) -> bool:
+        return self.claimed_rank == 1
+
+
+def probe_target(
+    item: BaseItem,
+    *,
+    claimed: str,
+    candidates: Sequence[str],
+    settings: Settings | None = None,
+) -> TargetVerdict:
+    """One call. Which grammar point does this item test? **Ranked, not confirmed.**
+
+    **The gap this closes, stated plainly because nothing else in this module
+    closes it:** every other gate here asks whether an item is *well-formed*,
+    *unambiguous* or *natural*. Not one of them asks whether it tests the thing
+    it claims to test. `checks._shared`'s `no_target` is satisfied by a
+    `unit_number` alone, so "this item belongs to unit 1" passes a check whose
+    name suggests more; and `items.error_type` names one of nineteen coarse
+    journal codes, so all four of unit 1's grammar targets collapse onto
+    `verb_tense_past` and cannot be told apart by it at all.
+
+    **Blind and PRODUCTIVE, never confirmatory** -- W5a's finding applied to a
+    second question. The model is never asked *"does this test the present
+    perfect?"*, because a leading question gets a yes and the gate becomes a
+    rubber stamp exactly the way the single-answer solve did. It is handed the
+    item and a list, and it produces a ranking.
+
+    **What it is shown**: `visible_projection(item)` -- the learner-visible face,
+    through the single serialiser, so this gate sees what the learner sees --
+    plus the canonical answer, which a learner also sees, after grading. It is
+    NOT shown `grammar_target`: that field is in `projection.NEVER_VISIBLE`
+    precisely so this call cannot read the answer to its own question.
+
+    **The candidates are sorted, not shuffled.** Sorting destroys any information
+    in the authored order just as thoroughly and keeps the call reproducible;
+    a random shuffle would make the gate answer differently on each run, which is
+    the property `visible_projection` sorts `match_pairs`' columns to avoid.
+    """
+    ordered = sorted({str(c).strip() for c in candidates if str(c).strip()})
+    if claimed.strip() not in ordered:
+        # Not a model failure and not recoverable by asking: a claim that is not
+        # on the list can never rank first, so the call would be spent proving
+        # something the caller already knows. `validate_checkpoint` refuses a
+        # per_target key that is not one of the unit's targets for the same
+        # reason, and this is that rule at generation time.
+        raise ValueError(
+            f"claimed target {claimed!r} is not among the candidates offered; "
+            "the caller built the list and the item from different units"
+        )
+
+    payload = {
+        "item": visible_projection(item),
+        "answer": item.answer,
+        "candidates": ordered,
+    }
+    response = _chat(
+        [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+        system=_prompt("item_target.txt"),
+        json_mode=True,
+        max_tokens=TARGET_MAX_TOKENS,
+        reject_truncation=True,
+        settings=settings,
+    )
+    if not isinstance(response, dict):
+        raise LLMError("target probe did not return an object")
+
+    # Only candidates that were actually offered count. A model that invents a
+    # grammar point has not ranked the list it was given, and silently keeping
+    # the invention would let it occupy first place and fail every item.
+    offered = {c.casefold(): c for c in ordered}
+    ranking: list[str] = []
+    for entry in response.get("ranking") or []:
+        match = offered.get(str(entry).strip().casefold())
+        if match is not None and match not in ranking:
+            ranking.append(match)
+
+    target = claimed.strip()
+    rank = ranking.index(target) + 1 if target in ranking else None
+    return TargetVerdict(
+        ranking=tuple(ranking),
+        claimed_rank=rank,
+        first=ranking[0] if ranking else None,
+        runner_up=ranking[1] if len(ranking) > 1 else None,
+        confidence=_confidence(response),
+    )
+
+
+def back_translate(
+    item: BaseItem, *, settings: Settings | None = None
+) -> str | None:
+    """`l1_to_l2_production`'s English answer, rendered back into its own L1.
+
+    **This produces evidence for a person; it does not decide anything, and the
+    reason is a defect found while implementing the check that was planned.**
+
+    #102 is that no gate is shown both sides of an L1→L2 relation, so a wrong
+    translation with a plausible canonical passes everything. The planned fix was
+    to back-translate and compare with `grading.equivalence_key`. **That
+    comparison is structurally inert on the only language it would ever run
+    against**: `equivalence_key` is `core.lexicon.normalize.tokenize`, whose word
+    pattern is `[A-Za-z]`-based, so every Farsi string folds to the empty tuple
+    and any two of them compare equal. The check would have passed a completely
+    wrong back-translation, silently, forever -- the `match_pairs` shape (a
+    guarantee never evaluated against the thing it names) reproduced inside the
+    slice that filed it.
+
+    The alternatives were both worse. Writing a Farsi normaliser here would be a
+    second tokenisation layer for a language nothing in this pipeline can check,
+    and #177 is what that looks like when it is wrong in effect while true
+    literally. Asking a model *"do these mean the same?"* is the leading question
+    `probe_target` exists not to ask.
+
+    So the string is produced and PRINTED BESIDE THE ITEM'S OWN L1 PROMPT, and
+    the comparison belongs to the operator -- who is the only Persian reader in
+    this project and the only instrument that can make it. **#102 does not close
+    and its severity is unchanged.**
+    """
+    if item.answer is None:
+        return None
+    payload = {"english": item.answer, "into": getattr(item, "l1", "fa")}
+    response = _chat(
+        [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+        system=_prompt("item_backtranslate.txt"),
+        json_mode=True,
+        max_tokens=TARGET_MAX_TOKENS,
+        reject_truncation=True,
+        settings=settings,
+    )
+    if not isinstance(response, dict):
+        raise LLMError("back-translation did not return an object")
+    rendered = response.get("l1")
+    return str(rendered).strip() if isinstance(rendered, str) else None
+
+
+# ── gate 4: the audio round-trip ────────────────────────────────────────────
 
 
 def audio_round_trip(text: str, *, settings: Settings | None = None) -> tuple[bool, str]:
@@ -427,6 +598,56 @@ def audio_round_trip(text: str, *, settings: Settings | None = None) -> tuple[bo
 # ── orchestration ───────────────────────────────────────────────────────────
 
 
+def free_stages(
+    item: BaseItem, *, known_lemmas: frozenset[str] | None = None
+) -> tuple[BaseItem, Validated | None]:
+    """Every gate that costs nothing, in order. **`validate`'s own head.**
+
+    Returns ``(item, None)`` when the item survives -- the item POSSIBLY
+    REWRITTEN, because rule 4 contracts in place -- and ``(item, Validated)``
+    carrying the discard when it does not.
+
+    **Extracted rather than copied, and the distinction is the whole point.**
+    W10c validates a cohort of eight items and wants ONE batched naturalness
+    call for the eight rather than eight calls of one (#120: `JUDGE_BATCH = 20`
+    has been declared and uncalled since W5). To batch, a caller has to run the
+    free stages itself first -- otherwise it pays the judge for items the free
+    gates would have rejected for nothing, and `validate`'s cheapest-first
+    ordering is lost at the cohort level.
+
+    The obvious way to do that is to copy these three stages into the runner,
+    and that is how two definitions of "is this item well-formed" start. So
+    `validate` calls this and behaves byte-identically for every existing
+    caller, and the batch path calls the same function.
+    """
+    det = deterministic_failures(item, known_lemmas=known_lemmas)
+    if det:
+        return item, Validated(
+            None,
+            ValidationReport("discarded", deterministic=tuple(f.code for f in det)),
+        )
+
+    item, nat = mechanical_naturalness(item)
+    if nat:
+        return item, Validated(
+            None,
+            ValidationReport("discarded", naturalness=tuple(f.code for f in nat)),
+        )
+
+    # A contraction repair can invalidate a deterministic invariant it does not
+    # own -- a shortened sentence changes word counts and, for a cloze, whether
+    # the answer is still visible in the stem. Re-running is cheap and the
+    # alternative is a repaired item that no longer passes its own checks.
+    det = deterministic_failures(item, known_lemmas=known_lemmas)
+    if det:
+        return item, Validated(
+            None,
+            ValidationReport("discarded", deterministic=tuple(f.code for f in det)),
+        )
+
+    return item, None
+
+
 def validate(
     item: BaseItem,
     *,
@@ -439,31 +660,16 @@ def validate(
     Order is the design: mechanical checks → mechanical naturalness → batched
     judge → blind solver. Each stage can only cost money once every free stage
     has already said yes.
+
+    **`judge=False` is not a way to skip the naturalness gate**, and W10c is the
+    first caller to pass it for its intended reason: the caller has already run
+    `judge_naturalness` over a BATCH that included this item. `verify.py` passes
+    it because its subject is the probe; `seed_fixtures.py` and every learner
+    path leave it True.
     """
-    det = deterministic_failures(item, known_lemmas=known_lemmas)
-    if det:
-        return Validated(
-            None,
-            ValidationReport("discarded", deterministic=tuple(f.code for f in det)),
-        )
-
-    item, nat = mechanical_naturalness(item)
-    if nat:
-        return Validated(
-            None,
-            ValidationReport("discarded", naturalness=tuple(f.code for f in nat)),
-        )
-
-    # A contraction repair can invalidate a deterministic invariant it does not
-    # own -- a shortened sentence changes word counts and, for a cloze, whether
-    # the answer is still visible in the stem. Re-running is cheap and the
-    # alternative is a repaired item that no longer passes its own checks.
-    det = deterministic_failures(item, known_lemmas=known_lemmas)
-    if det:
-        return Validated(
-            None,
-            ValidationReport("discarded", deterministic=tuple(f.code for f in det)),
-        )
+    item, failed = free_stages(item, known_lemmas=known_lemmas)
+    if failed is not None:
+        return failed
 
     if judge:
         # **`judged_sentence`, not `sentence_of` (W5c, #115).** The judge is

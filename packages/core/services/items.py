@@ -391,6 +391,39 @@ def bank_for_session(user_id: int, *, unit_number: int, limit: int = 20) -> list
         return [_to_stored(row) for row in cur.fetchall()]
 
 
+#: PRD §4.1 block 3: "90-second explanation + **8 generated items**".
+FOCUS_ITEM_COUNT = 8
+
+
+def focus_items(
+    user_id: int, *, unit_number: int, limit: int = FOCUS_ITEM_COUNT
+) -> list[ItemPresentation]:
+    """Block 3's items, learner-visible halves only. **W10c's entry point.**
+
+    `bank_for_session` + `_present`, and nothing else -- so the unit scoping, the
+    `validator_version` filter and the least-recently-attempted ordering are all
+    stated in exactly one place, and this function cannot disagree with them.
+
+    **THIS IS A READ AND ONLY A READ.** W10's criterion is that nothing is
+    generated while a learner waits, and
+    `tests/test_session_route.py::test_nothing_is_generated_while_the_learner_waits`
+    holds it structurally: `netguard` is armed session-wide, so a generating read
+    would raise rather than quietly pass. The generator is
+    `python -m core.items.generate`, it is human-run, and `assign_daily` still
+    reaches nothing.
+
+    Fewer than `limit` rows is the ordinary case and not an error. A unit whose
+    generation run came up short ships short -- the shortfall is reported by the
+    generator, never padded (CLAUDE.md §3 rule 7) -- and a unit nobody has
+    generated for yet returns an empty list, which block 3 renders as the honest
+    empty state it has had since W10.
+    """
+    return [
+        _present(row)
+        for row in bank_for_session(user_id, unit_number=unit_number, limit=limit)
+    ]
+
+
 def attempt_counts(user_id: int) -> dict[str, int]:
     """Attempts and correct attempts, for W19's progress line."""
     with cursor() as cur:

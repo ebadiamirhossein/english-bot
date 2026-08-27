@@ -39,6 +39,7 @@ from apps.api.main import create_app
 from core.config import load_settings
 from core.sessions import BLOCK_KINDS
 from core.services import cards as cards_svc
+from core.services import items as items_svc
 
 
 @pytest.fixture(autouse=True)
@@ -189,6 +190,124 @@ def test_no_murphy_citation_reaches_the_wire(app, db, learner) -> None:
     """
     raw = request(app, "GET", "/session/today", cookies=_as(learner)).text
     assert "murphy" not in raw.lower()
+
+
+def _seed_focus_item(db, learner, *, unit_number=1, **over) -> int:
+    """One validated item in this learner's bank, through the real writer.
+
+    `items_svc.insert_item` and not an INSERT: it refuses a report that is not
+    `ok`, and `test_exactly_one_module_writes_an_item` holds that there is only
+    one writer. A hand-rolled INSERT here would seed a row the real path could
+    never have produced.
+    """
+    from core.items.gates import ValidationReport
+    from core.items.schema import parse
+
+    draft = {
+        "item_type": "cloze_cued",
+        "track": "life",
+        "prompt_text": "I ___ there twice last year.",
+        "answer": "went",
+        "accepted_variants": ["went"],
+        "unit_number": unit_number,
+        "grammar_target": "past simple: regular and irregular verbs",
+        "explanation": "Past simple, because the time is finished.",
+        "definition": "past of go",
+        "l1_gloss": "nuvykau",
+    }
+    draft.update(over)
+    item_id = items_svc.insert_item(
+        learner.user_id, parse(draft),
+        ValidationReport("passed", acceptable=("went",), canonical="went"),
+        model="test-model",
+    )
+    db.commit()
+    assert item_id is not None
+    return item_id
+
+
+def test_block_three_is_empty_of_items_until_someone_generates_them(
+    app, db, learner
+) -> None:
+    """The ordinary state, and the one the second learner stays in.
+
+    Items are per-learner and #159 is unresolved, so the generator was run for
+    one learner only. Block 3 renders its targets and no practice section rather
+    than an empty heading over nothing.
+    """
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    focus = body["blocks"][2]
+    assert focus["state"] == "ready"
+    assert focus["payload"]["items"] == []
+    assert focus["payload"]["can_do"]
+    assert focus["payload"]["grammar_targets"]
+
+
+def test_block_three_serves_the_unit_s_generated_items(app, db, learner) -> None:
+    """User action: reaching block 3 of the daily session and answering an item.
+
+    W10 shipped this block with `items: []` and a line reading *"Practice for
+    this arrives with the exercise generator."* This is that block filled.
+    """
+    item_id = _seed_focus_item(db, learner)
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    focus = body["blocks"][2]
+    assert [i["id"] for i in focus["payload"]["items"]] == [item_id]
+    assert focus["payload"]["items"][0]["response_mode"] == "typed"
+    assert focus["payload"]["items"][0]["projection"]["prompt_text"]
+
+
+def test_block_three_serves_only_this_unit_s_items(app, db, learner) -> None:
+    """`current_unit` returns 1 and cannot advance (#188), so an item generated
+    for unit 3 must not appear in unit 1's focus block."""
+    mine = _seed_focus_item(db, learner, unit_number=1)
+    _seed_focus_item(
+        db, learner, unit_number=3,
+        prompt_text="I ___ smoke, but I gave up.", answer="used to",
+        accepted_variants=["used to"],
+    )
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    assert [i["id"] for i in body["blocks"][2]["payload"]["items"]] == [mine]
+
+
+def test_block_three_leaks_no_part_of_the_hidden_half(app, db, learner) -> None:
+    """The projection contract, at the HTTP boundary.
+
+    Block 3 is a SECOND surface serving items — `/items` was the first — and the
+    failure this guards against is a new block building an envelope of its own
+    instead of going through `visible_projection`. The whole response is searched
+    for the answer string, as a value and as a substring, exactly as
+    `test_items_projection.py` does per type.
+    """
+    from core.items.projection import NEVER_VISIBLE
+
+    _seed_focus_item(db, learner)
+    response = request(app, "GET", "/session/today", cookies=_as(learner))
+    focus = response.json()["blocks"][2]
+    projection = focus["payload"]["items"][0]["projection"]
+
+    assert not NEVER_VISIBLE & set(projection)
+    assert "went" not in json.dumps(projection)
+    assert "nuvykau" not in response.text, "cue material reached the wire"
+    assert "Past simple, because" not in response.text, "explanation reached the wire"
+
+    # The unit's targets ARE shown — that is block 3's job — but the ITEM must
+    # not say which of them it tests. `grammar_target` is in NEVER_VISIBLE
+    # because naming it would tell a learner what kind of answer is wanted, and
+    # would hand `gates.probe_target` the answer to its own question.
+    assert "grammar_target" not in json.dumps(projection)
+    assert focus["payload"]["grammar_targets"], "the unit's targets are still served"
+
+
+def test_serving_items_makes_no_model_call(app, db, learner) -> None:
+    """W10's criterion, now that block 3 has content to serve.
+
+    `netguard` is armed session-wide, so this passes because the route generates
+    nothing — not because nobody looked. The generator is human-run and
+    `assign_daily` still reaches neither `core.llm` nor `core.items`.
+    """
+    _seed_focus_item(db, learner)
+    assert request(app, "GET", "/session/today", cookies=_as(learner)).status_code == 200
 
 
 def test_block_one_is_empty_and_says_so_distinctly(app, db, learner) -> None:

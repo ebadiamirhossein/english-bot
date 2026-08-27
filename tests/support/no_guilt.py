@@ -1,50 +1,31 @@
-"""The banned-phrase pattern, in one place.
+"""The banned-phrase pattern, in one place — and that place is now `core`.
 
 CLAUDE.md §4: "no 'you failed', no broken-streak message, no disappointed
 emoji", and the test must cover **every** user-facing string, backend and
 frontend.
 
-**This file is not the fix for known issue #46.** #46 is that the Python suite
-carries five hand-copied versions of this regex over eight hand-maintained
-string lists, and that widening it to all copy will surface existing violations;
-it stays open with its W19 target. What this file does is make sure W6 does not
-add a **sixth** copy while bringing the frontend under the rule for the first
-time.
+**W10c moved the pattern to `packages/core/copy_rules.py` and this file
+re-exports it.** The reason is #110: `prompt_text`, `cue_text`, options, tiles
+and the canonical answer live in `items` and are model-generated from W10c, so
+the rule has to be applicable by a **gate** and not only by a test — and a gate
+in `packages/core` cannot import from `tests/`.
 
-The pattern is the union of the three existing Python copies
-(`test_hardening.py`, `test_motivation.py`, `test_shadow.py`) plus the terms an
-item renderer specifically invites. Eleven components' worth of wrong-answer
-feedback is the highest-risk copy in the app so far, and the phrasings that come
-naturally — "Wrong", "Incorrect", "You missed it" — are exactly the ones to
-refuse. The verdict belongs to the attempt, never to the person.
+**This file is still not the fix for known issue #46**, and the move does not
+widen it. #46 is that the Python suite carries five hand-copied versions of this
+regex over eight hand-maintained string lists; that stays open with its W19
+target and is narrowed by exactly one copy here. What this file has always done
+is make sure no **sixth** copy is written, and re-exporting rather than
+re-declaring is that rule applied to its own relocation.
+
+`core.copy_rules` also carries `BANNED_IN_CONTENT`, which is **not** re-exported
+here on purpose: it is the narrower rule for English a learner reads as
+material, it is applied by `core.items.checks`, and a test reaching for it
+through this module would be reaching for the wrong audience. Import it from
+`core.copy_rules` directly and read the split's reasoning there.
 """
 
 from __future__ import annotations
 
-import re
+from core.copy_rules import BANNED, offenders
 
-#: Terms the three existing Python copies already ban.
-_CARRIED = r"\bmissed\b|\bfailed\b|\bbroke\b|wrong!|should have"
-
-#: Added by W6, for the answer-feedback surface.
-_ITEM_RENDERERS = r"\bwrong\b|\bincorrect\b|try harder|you lost"
-
-#: Disappointed faces, plus the two failure marks a renderer reaches for.
-_SAD = r"😞|😢|😔|☹️|🙁|😟|😤|😠|❌|✗"
-
-BANNED = re.compile(
-    f"{_CARRIED}|{_ITEM_RENDERERS}|{_SAD}", re.IGNORECASE
-)
-
-
-def offenders(sources: dict[str, str]) -> list[str]:
-    """``{path: text}`` → one entry per banned term found, sorted by path.
-
-    Takes a mapping rather than reading files so the meta-test can feed it
-    deliberate violations without writing any.
-    """
-    found: list[str] = []
-    for path, text in sorted(sources.items()):
-        for match in BANNED.finditer(text):
-            found.append(f"{path}: {match.group(0)!r}")
-    return found
+__all__ = ["BANNED", "offenders"]

@@ -51,6 +51,7 @@ copy-and-delete would leak it until someone remembered.
 from __future__ import annotations
 
 import ast
+import json
 import re
 import sys
 from pathlib import Path
@@ -195,6 +196,25 @@ def murphy_offenders() -> list[str]:
     projected = visible_target(_Target())
     if "murphy_units" in projected:
         found.append("core.sessions.blocks.visible_target: serialises murphy_units")
+
+    # (4) The GENERATOR PROMPT (W10c), and this is the sharpest of the four.
+    #     A rendered citation is visible, and a person can say "why is there a
+    #     page number on my screen". An assumption embedded in a generated
+    #     SENTENCE is neither visible nor removable: if the generator is told a
+    #     target sits at Murphy 38 and writes an item around whatever it believes
+    #     is taught there, nothing downstream can tell.
+    #
+    #     Asserted over the built payload — the actual bytes — rather than over
+    #     the strip function, because the claim is about what reaches the model.
+    from core.items.generate import build_payload, slot_plan, unit_plan
+
+    plan = unit_plan((1,))
+    entry = plan[1]
+    payload = json.dumps(
+        build_payload(1, entry["unit"].can_do, entry["slots"]), ensure_ascii=False
+    )
+    if "murphy" in payload.lower():
+        found.append("core.items.generate.build_payload: sends a Murphy citation")
     return found
 
 

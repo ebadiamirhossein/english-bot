@@ -70,7 +70,10 @@ export const BLOCKS = {
     // #182, in one line a learner can read. The targets are real; the teaching
     // behind them is the next slice, and the app does not pretend otherwise.
     noLesson: "The written explanation for these is on its way.",
-    noItems: "Practice for this arrives with the exercise generator.",
+    // W10c: the items exist now, so the line apologising for their absence is
+    // gone rather than reworded. `progress` replaces it — a position, not a
+    // count of what is left, because CLAUDE.md §4 forbids presenting a backlog.
+    progress: "Practice · {n} of {total}",
   },
   output: {
     eyebrow: "Output",

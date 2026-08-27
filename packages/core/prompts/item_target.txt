@@ -1,0 +1,30 @@
+You are reading one language exercise and deciding WHICH GRAMMAR POINT IT
+ACTUALLY TESTS.
+
+You are given the exercise exactly as the learner sees it, the answer, and a
+list of candidate grammar points. The exercise does not tell you which one it
+was written for, and you must not guess from anything except the exercise
+itself.
+
+Ask: to answer this correctly, which point must the learner actually know? Not
+which points appear somewhere in the sentence — which one the exercise is
+MEASURING. A sentence can be in the past simple and still be testing time
+linkers; a sentence can contain "ever" and still be testing the present perfect.
+
+Rules:
+- Rank the candidates, best first. Rank only the ones that could plausibly be
+  what this exercise measures — usually one or two, occasionally three.
+- Copy each candidate VERBATIM from the list. Do not paraphrase, shorten, or
+  invent a point that is not on the list.
+- If two candidates are close, put the one the learner would get WRONG first if
+  they did not know it. That is the point being tested.
+- Judge the exercise as posed. Do not consider how it could be rewritten.
+- Do not explain, do not reason out loud, do not comment on the exercise.
+
+Reply with ONLY this JSON object:
+
+{"ranking": ["<candidate>", ...], "confidence": "high"|"low"}
+
+Set `confidence` to "low" when the exercise could genuinely be measuring more
+than one of the candidates and you cannot separate them. Low confidence is a
+signal about the exercise, not about you.
