@@ -19,6 +19,7 @@ import pytest
 from core.items import ITEM_TYPES, TYPES_WITHOUT_ANSWER
 from core.items.generate import SLOT_TYPES, generator_system_prompt
 from core.items.schema import (
+    constraint_block,
     MODEL_FOR_TYPE,
     NOT_THE_GENERATORS,
     contract_block,
@@ -167,6 +168,142 @@ def test_the_prompt_tells_the_model_not_to_echo_what_it_was_given() -> None:
     prompt = generator_system_prompt()
     assert "Do not echo back" in prompt
     assert "extra field makes the item unusable" in prompt
+
+
+# ── the shape constraints, and the assertion that keeps the set honest ──────
+
+
+def _codes_for(item_type: str) -> set[str]:
+    """Every failure code this type can produce, read from `checks.py`'s AST.
+
+    **Computed from the source, not from a list maintained beside it**
+    (CLAUDE.md §3 rule 5): a hand-kept inventory would go stale exactly when a
+    new check is added, which is the moment this test exists to catch.
+    """
+    import ast
+    import inspect
+
+    from core.items import checks
+
+    tree = ast.parse(inspect.getsource(checks))
+    fns = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+
+    def codes(name: str) -> set[str]:
+        out: set[str] = set()
+        for node in ast.walk(fns[name]):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "Failure" and node.args
+                    and isinstance(node.args[0], ast.Constant)):
+                out.add(node.args[0].value)
+        return out
+
+    per_type = {
+        "mcq": ["_mcq", "_options_failures"],
+        "collocation_pick": ["_collocation", "_options_failures"],
+        "cloze_cued": ["_cloze"],
+        "word_bank_order": ["_word_bank"],
+        "error_spot": ["_error_spot"],
+        "match_pairs": ["_match_pairs"],
+        "l1_to_l2_production": ["_l1_production"],
+        "dictation": ["_dictation"],
+        "listening_gap": ["_cloze", "_listening_gap"],
+        "speak_repeat": ["_speak_repeat"],
+        "speak_answer": ["_speak_answer"],
+    }
+    out = codes("_shared")
+    for name in per_type[item_type]:
+        out |= codes(name)
+    return out
+
+
+@pytest.mark.parametrize("item_type", sorted(set(SLOT_TYPES)))
+def test_every_rejection_a_type_can_suffer_is_stated_or_named_unstatable(
+    item_type: str,
+) -> None:
+    """**The assertion that makes the derivation worth anything.**
+
+    W10c's first real accept rate was 6 of 24, and its branch rule — *the prompt
+    is wrong, not the gate* — was right: the contract carried field NAMES and no
+    SHAPE. A generator told `bank: array of strings` cannot know a word bank must
+    be a permutation of the answer and must not already be in order, and both are
+    `deterministic_failures` rejections that are knowable in advance.
+
+    So every code a type can produce must be **either** expressed in the prompt
+    **or** listed in `NOT_EXPRESSIBLE` with a reason. **A new check then fails
+    this test rather than quietly going unstated** — which is the only thing
+    standing between a derived constraint block and a hand-written one that
+    drifts.
+
+    The codes come from `checks.py`'s own AST; the expected set is not
+    maintained here.
+    """
+    from core.items.schema import NOT_EXPRESSIBLE
+
+    prompt = generator_system_prompt()
+    unstated = []
+    for code in sorted(_codes_for(item_type)):
+        if code in NOT_EXPRESSIBLE:
+            continue
+        # The prompt states rules in English, so the assertion is that SOMETHING
+        # in it addresses the rule — keyed off the distinctive word in the code.
+        keyword = {
+            "empty_prompt": "prompt_text",
+            "prompt_too_long": "characters",
+            "sentence_too_long": "words",
+            "guilt_phrase": "judgement",
+            "option_count": "options",
+            "duplicate_options": "repeat another",
+            "substring_option": "substring",
+            "option_length_tell": "twice the length",
+            "answer_not_an_option": "one of them",
+            "gap_count": "exactly one gap",
+            "numeric_gap": "never gap a number",
+            "answer_visible_in_stem": "must not appear anywhere else",
+            "gap_misses_target": "the grammar target is about",
+            "bank_size": "tokens",
+            "bank_not_a_permutation": "same words, same count",
+            "bank_already_ordered": "NOT already be in the answer",
+            "tile_count": "tiles",
+            "wrong_index_out_of_range": "wrong_index",
+            "correction_is_a_no_op": "must differ from it",
+            "answer_not_the_wrong_tile": "copied exactly",
+            "pair_count": "pairs",
+            "duplicate_left": "no left entry may repeat",
+            "duplicate_right": "no right entry may repeat",
+            "columns_overlap": "both sides",
+            "l1_wrong_script": "own script",
+            "answer_not_english": "answer is English",
+            "too_few_variants": "accepted renderings",
+            "dictation_length": "words",
+            "digits_in_dictation": "no digits",
+        }.get(code)
+        if keyword is None or keyword not in prompt:
+            unstated.append(code)
+    assert unstated == [], (
+        f"{item_type}: these rejections are neither stated in the prompt nor "
+        f"named in NOT_EXPRESSIBLE: {unstated}"
+    )
+
+
+def test_the_stated_bounds_are_the_ones_the_checks_read() -> None:
+    """The numbers are derived, so they cannot be changed in one place only.
+
+    Expected values hardcoded here rather than read from the constants
+    (CLAUDE.md §3 rule 5) — a test computing its expectation from the module
+    under test would pass through any change to it.
+    """
+    from core.items import checks
+
+    assert checks.BANK_SIZE == (4, 10)
+    assert checks.TILE_COUNT == (4, 8)
+    assert checks.PAIR_COUNT == (3, 6)
+    assert checks.MIN_ACCEPTED_VARIANTS == 2
+    assert checks.MCQ_OPTIONS == (4,)
+
+    block = constraint_block(["word_bank_order", "error_spot", "match_pairs"])
+    assert "bank holds 4-10 tokens" in block
+    assert "4-8 tiles" in block
+    assert "3-6 pairs" in block
 
 
 def test_the_contract_is_cheap_enough_to_send_every_call() -> None:

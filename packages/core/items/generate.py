@@ -186,7 +186,12 @@ from core.items import gates
 from core.items.checks import COVERAGE_FLOOR, judged_sentence, sentence_of
 from core.items.gates import MAX_REPAIRS, TARGET_DECOYS, TargetVerdict, ValidationReport
 from core.items.grading import normalise_variants
-from core.items.schema import BaseItem, contract_block, parse
+from core.items.schema import (
+    BaseItem,
+    constraint_block,
+    contract_block,
+    parse,
+)
 from core.sessions.blocks import visible_targets
 
 logger = logging.getLogger(__name__)
@@ -530,7 +535,11 @@ def generator_system_prompt(item_types: Sequence[str] = SLOT_TYPES) -> str:
     for item_type in item_types:
         if item_type not in seen:
             seen.append(item_type)
-    return template.replace("{contract}", contract_block(seen))
+    return (
+        template
+        .replace("{contract}", contract_block(seen))
+        .replace("{constraints}", constraint_block(seen))
+    )
 
 
 def generate_drafts(
@@ -1379,8 +1388,16 @@ def dry_run(
     # thing that verifies must measure the thing it reports on.**
     print(generator_system_prompt())
 
-    print("=== system (item_target.txt) ===")
-    print((PROMPTS_DIR / "item_target.txt").read_text(encoding="utf-8"))
+    # **Every system prompt the run will send, not just the generator's.**
+    # #202 was the dry run printing an unsubstituted `{contract}` placeholder;
+    # this is the same lesson one step out. #210's ruling changed
+    # `item_probe.txt` -- what the blind solver is ASKED for `error_spot` -- and
+    # the dry run did not show it, so the one thing that changed could not be
+    # read before it was paid for. A dry run that shows some of the request is
+    # a dry run somebody can be surprised by.
+    for name in ("item_probe.txt", "item_target.txt", "item_backtranslate.txt"):
+        print(f"=== system ({name}) ===")
+        print((PROMPTS_DIR / name).read_text(encoding="utf-8"))
 
     for number in numbers:
         entry = plan[number]

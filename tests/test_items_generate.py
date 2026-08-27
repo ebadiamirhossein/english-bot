@@ -15,6 +15,7 @@ from collections import Counter
 import pytest
 
 from core.items import gates
+from core.items.checks import probe_canonical
 from core.items.generate import (
     journal_line,
     ITEMS_PER_UNIT,
@@ -218,7 +219,7 @@ def test_a_low_coverage_item_is_reported_and_NOT_rejected(stub_gates):
 def test_the_floor_itself_is_not_lowered():
     """CLAUDE.md §3 rule 7. The bar is untouched; only its ENFORCEMENT is off,
     and the run reports what it would have cost."""
-    from core.items.checks import COVERAGE_FLOOR
+    from core.items.checks import probe_canonical, COVERAGE_FLOOR
 
     assert COVERAGE_FLOOR == 0.90
 
@@ -409,7 +410,15 @@ def stub_gates(monkeypatch):
     )
     monkeypatch.setattr(
         gates, "probe_acceptable",
-        lambda item, **k: {"acceptable": [item.answer], "confidence": "high"},
+        # **`probe_canonical`, not `answer` (#210).** A perfect probe returns
+        # what the gate compares against, and for `error_spot` those differ:
+        # its `answer` is the wrong TILE and the probe is now asked for the
+        # CORRECTION. A stub returning `answer` models the contract as it was
+        # BEFORE the ruling, and fails the item for the reason the ruling
+        # removed.
+        lambda item, **k: {
+            "acceptable": [probe_canonical(item)], "confidence": "high",
+        },
     )
     monkeypatch.setattr(
         gates, "probe_target",
@@ -716,3 +725,10 @@ def test_the_dry_run_sends_nothing_and_prints_the_call_ceiling(capsys):
     # The whole system prompt, so the record can carry it verbatim.
     assert "NEVER ADDRESS THE LEARNER'S PERFORMANCE" in out
     assert "murphy" not in out.lower()
+    # **EVERY system prompt the run will send, not just the generator's.**
+    # #210's ruling changed what `item_probe.txt` asks for `error_spot`, and the
+    # dry run did not show that file — so the one thing that changed could not
+    # be read before it was paid for. #202 one step out.
+    assert "the CORRECTION" in out, "item_probe.txt is not shown"
+    assert "Rank the candidates, best first" in out, "item_target.txt is not shown"
+    assert "Reply with ONLY this JSON object" in out

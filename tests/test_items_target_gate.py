@@ -167,3 +167,77 @@ def test_the_candidate_list_is_the_same_on_every_run():
     all_units[3] = UNIT_3
     first = target_candidates(3, UNIT_3, all_units)
     assert all(target_candidates(3, UNIT_3, all_units) == first for _ in range(5))
+
+
+# ── #210: the probe is asked for the correction, not the token ──────────────
+
+
+def test_the_probe_is_compared_against_the_correction_for_error_spot():
+    """**#210's ruling, option 3.**
+
+    `error_spot`'s `answer` is the WRONG word — the token the learner taps — and
+    asking a probe to name it is a question with two defensible answers whenever
+    the error spans two tokens: in *"I have went there twice"* the defective tile
+    is arguably `went` (should be `been`) or `have` (should be dropped), and
+    **both describe one error.** The probe naming the other one yielded
+    `not_recoverable`, and `fixed_option` gives no widening and no cue repair, so
+    the item was discarded on the first probe. Three of W10c's first real run
+    died that way.
+
+    **The correction is a question with one answer.** *What should this say?*
+    does not depend on which token you consider defective.
+    """
+    from core.items.checks import probe_canonical
+
+    item = parse({
+        "item_type": "error_spot", "track": "life",
+        "prompt_text": "Tap the word that is wrong.",
+        "answer": "went", "accepted_variants": ["went"],
+        "tiles": ["I", "have", "went", "there", "twice"], "wrong_index": 2,
+        "correction": "been", "unit_number": 2,
+    })
+    assert probe_canonical(item) == "been", "the probe is judged on the correction"
+    assert item.answer == "went", "the learner still taps the wrong tile"
+
+
+def test_every_other_type_is_still_compared_against_its_answer():
+    """The change is narrow, and narrowness is the property worth asserting.
+
+    `probe_canonical` differing from `answer` for anything else would silently
+    move what the uniqueness gate means for that type.
+    """
+    from core.items.checks import probe_canonical
+
+    item = parse({
+        "item_type": "cloze_cued", "track": "life",
+        "prompt_text": "I ___ there twice last year.",
+        "answer": "went", "accepted_variants": ["went"], "unit_number": 1,
+    })
+    assert probe_canonical(item) == item.answer
+
+
+def test_an_answer_that_is_not_the_wrong_tile_is_refused():
+    """**A learner taps the correct tile and is marked wrong.**
+
+    `response.chosen_option` returns `item.tiles[tapped]` and `grade_text`
+    compares it against `accepted_variants`, which is derived from `answer`. So
+    an `answer` that is not the wrong tile breaks grading for every correct tap —
+    the exact failure the v3 rebuild exists to end.
+
+    W10c's first real run returned the FULL CORRECTED SENTENCE in `answer` while
+    `tiles[wrong_index]` was `went`. It parsed and passed every deterministic
+    check. `item_generate.txt` had stated the rule since the constraint block was
+    derived; **nothing enforced it.**
+    """
+    from core.items.checks import deterministic_failures
+
+    item = parse({
+        "item_type": "error_spot", "track": "life",
+        "prompt_text": "Tap the word that is wrong.",
+        "answer": "I have been there twice",
+        "accepted_variants": ["i have been there twice"],
+        "tiles": ["I", "have", "went", "there", "twice"], "wrong_index": 2,
+        "correction": "been", "unit_number": 2,
+    })
+    codes = [f.code for f in deterministic_failures(item)]
+    assert "answer_not_the_wrong_tile" in codes

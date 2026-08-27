@@ -43,6 +43,7 @@ from core.items.checks import (
     Failure,
     deterministic_failures,
     judged_sentence,
+    probe_canonical,
     sentence_of,
 )
 from core.items.grading import (
@@ -276,8 +277,13 @@ def _canonical_offered(item: BaseItem, classes: tuple[tuple[str, ...], ...]) -> 
 
     The old failure mode, preserved. An item whose canonical is not offered is
     not answerable as authored, whatever else the probe returned.
+
+    **`checks.probe_canonical`, not `item.answer` (#210).** For `error_spot`
+    they differ: `answer` is the wrong tile, and asking a probe to name it is a
+    question with two defensible answers for any two-token error. The
+    CORRECTION has one.
     """
-    return equivalence_key(item.answer) in classes
+    return equivalence_key(probe_canonical(item)) in classes
 
 
 # ── gate 2: naturalness (PRD §4.6) ──────────────────────────────────────────
@@ -851,7 +857,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                     repair_count=attempt,
                     cue_applied=cue_applied,
                     solver_answer=candidates[0] if candidates else None,
-                    canonical=current.answer,
+                    canonical=probe_canonical(current),
                     solver_calls=calls,
                     probe_confidence=confidence,
                 ),
@@ -866,7 +872,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                     repair_count=attempt,
                     cue_applied=cue_applied,
                     solver_answer=candidates[0] if candidates else None,
-                    canonical=current.answer,
+                    canonical=probe_canonical(current),
                     solver_calls=calls,
                     probe_confidence=confidence,
                 ),
@@ -892,7 +898,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                         repair_count=attempt,
                         solver_calls=calls,
                         probe_confidence=confidence,
-                        canonical=current.answer,
+                        canonical=probe_canonical(current),
                     ),
                 )
             return Validated(
@@ -904,7 +910,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                     repair_count=attempt,
                     cue_applied=cue_applied,
                     solver_answer=candidates[0],
-                    canonical=current.answer,
+                    canonical=probe_canonical(current),
                     solver_calls=calls,
                     probe_confidence=confidence,
                 ),
@@ -940,7 +946,7 @@ def _probe_and_repair(item: BaseItem, *, settings: Settings | None) -> Validated
                 repair_count=attempt,
                 cue_applied=cue_applied,
                 solver_answer=candidates[0] if candidates else None,
-                canonical=current.answer,
+                canonical=probe_canonical(current),
                 solver_calls=calls,
                 probe_confidence=confidence,
             ),

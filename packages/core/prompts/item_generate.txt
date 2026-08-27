@@ -67,3 +67,9 @@ an extra field makes the item unusable.
 Types are exact. A field marked `string` is one string, never an array — if you
 think two answers fit a gap, the gap is wrong and you must rewrite the sentence
 so that only one fits.
+
+EVERY ITEM IS CHECKED AGAINST THE RULES BELOW BEFORE A LEARNER SEES IT. An item
+that breaks one is discarded, not corrected — so build to these, do not repair
+towards them.
+
+{constraints}

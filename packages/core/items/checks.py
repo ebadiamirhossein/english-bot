@@ -56,6 +56,43 @@ MAX_SENTENCE_WORDS = 12
 # mean to test. Applied only when the caller supplies a ledger.
 COVERAGE_FLOOR = 0.90
 
+# ---------------------------------------------------------------------------
+# Per-type numeric bounds
+# ---------------------------------------------------------------------------
+#
+# **Promoted from inline literals 2026-08-27, so the GENERATOR PROMPT can be
+# derived from them rather than restating them.** W10c's first real accept rate
+# was 6 of 24, and its branch rule -- *the prompt is wrong, not the gate* --
+# fired correctly: the contract carried field NAMES and no SHAPE, so the model
+# was told `bank: array of strings` and left to guess that a word bank must hold
+# 4-10 tokens, be a permutation of the answer, and not already be in order.
+#
+# A hand-written list of bounds in the prompt would be a second copy of these
+# numbers, and this record is a history of a copy and its source drifting.
+# `core.items.schema.constraint_block` reads THESE NAMES.
+
+#: `mcq` shows exactly four; `collocation_pick` three or four.
+MCQ_OPTIONS: tuple[int, ...] = (4,)
+COLLOCATION_OPTIONS: tuple[int, ...] = (3, 4)
+
+#: A word bank small enough to tap on a phone and large enough to be a task.
+BANK_SIZE: tuple[int, int] = (4, 10)
+
+#: `error_spot` tiles. Fewer than four is not a sentence; more than eight does
+#: not fit a phone row.
+TILE_COUNT: tuple[int, int] = (4, 8)
+
+#: A bijection worth doing, small enough to hold in view.
+PAIR_COUNT: tuple[int, int] = (3, 6)
+
+#: `l1_to_l2_production` is the type with the widest legitimate variation, so one
+#: accepted form is a trap: the learner produces a correct translation and is
+#: marked wrong.
+MIN_ACCEPTED_VARIANTS = 2
+
+#: A dictation short enough to hold in memory and long enough to be worth typing.
+DICTATION_WORDS: tuple[int, int] = (5, 15)
+
 # Reduced at conversational speed to the point where no learner can recover them
 # from audio alone. Gapping one of these in a listening item tests hearing
 # acuity, not English.
@@ -144,6 +181,33 @@ def judged_sentence(item: BaseItem) -> str:
     if GAP in sentence and item.answer:
         return sentence.replace(GAP, item.answer)
     return sentence
+
+
+def probe_canonical(item: BaseItem) -> str | None:
+    """What the BLIND SOLVER's answer is compared against. Not always `answer`.
+
+    **`error_spot` is the one type where the two differ, and #210 is why.**
+    Its `answer` is the WRONG word — the token the learner taps — and asking a
+    probe to name it is asking a question that can have two defensible answers:
+    in *"I have went there twice"* the wrong tile is arguably `went` (should be
+    `been`) or `have` (should be dropped), and **both describe one error.** The
+    probe naming the other token yielded `not_recoverable`, and because
+    `ANSWER_FAMILY['error_spot']` is `fixed_option` there is no widening and no
+    cue repair — one probe, then discarded. Three of W10c's first real run died
+    that way on `went`, `ever` and `study`.
+
+    **The CORRECTION is a question with one answer.** *What should this say?*
+    does not depend on which of two tokens you consider defective, so the probe
+    recovers a fact instead of guessing an authoring choice.
+
+    Same shape as `sentence_of` / `judged_sentence`: a gate that needs a
+    different field asks here rather than assuming.
+    """
+    from core.items.schema import ErrorSpotItem
+
+    if isinstance(item, ErrorSpotItem):
+        return item.correction
+    return item.answer
 
 
 def looks_proper_noun(word: str, sentence: str) -> bool:
@@ -377,7 +441,7 @@ def _options_failures(options: tuple[str, ...], answer: str | None,
 
 
 def _mcq(item: MCQItem) -> list[Failure]:
-    out = _options_failures(item.options, item.answer, (4,))
+    out = _options_failures(item.options, item.answer, MCQ_OPTIONS)
     # More than one option accepted means two right answers, which is the
     # coin-flip bug in its most direct form.
     accepted = {fold_answer(v) for v in item.accepted_variants}
@@ -479,7 +543,7 @@ def _listening_gap(item: ListeningGapItem) -> list[Failure]:
 def _word_bank(item: WordBankOrderItem) -> list[Failure]:
     out: list[Failure] = []
     answer_tokens = words(item.answer or "")
-    if not 4 <= len(item.bank) <= 10:
+    if not BANK_SIZE[0] <= len(item.bank) <= BANK_SIZE[1]:
         out.append(Failure("bank_size", f"{len(item.bank)} tokens, expected 4-10"))
     # Permutation completeness — the check that catches a missing or extra
     # token, which makes the item unsolvable rather than merely hard.
@@ -499,7 +563,7 @@ def _word_bank(item: WordBankOrderItem) -> list[Failure]:
 
 def _error_spot(item: ErrorSpotItem) -> list[Failure]:
     out: list[Failure] = []
-    if not 4 <= len(item.tiles) <= 8:
+    if not TILE_COUNT[0] <= len(item.tiles) <= TILE_COUNT[1]:
         out.append(Failure("tile_count", f"{len(item.tiles)} tiles, expected 4-8"))
     if not 0 <= item.wrong_index < len(item.tiles):
         out.append(
@@ -510,6 +574,26 @@ def _error_spot(item: ErrorSpotItem) -> list[Failure]:
         )
         return out
     wrong = item.tiles[item.wrong_index]
+    # **`answer` MUST be the tile `wrong_index` points at, and nothing checked
+    # it until 2026-08-27.** `response.chosen_option` returns
+    # `item.tiles[tapped]`, and `grade_text` compares that against
+    # `accepted_variants`, which is derived from `answer` -- so an `answer` that
+    # is not the wrong tile means **a learner taps the correct tile and is
+    # marked wrong.** That is the failure the whole v3 rebuild exists to end.
+    #
+    # Found because W10c's first real run returned the FULL CORRECTED SENTENCE
+    # in `answer` while `tiles[wrong_index]` was `went`; it parsed, passed every
+    # deterministic check, and would have graded every correct tap as wrong.
+    # `item_generate.txt` has stated this rule since the constraint block was
+    # derived -- it was stated and unenforced, which is #199's shape.
+    if fold_answer(item.answer) != fold_answer(wrong):
+        out.append(
+            Failure(
+                "answer_not_the_wrong_tile",
+                f"answer is {item.answer!r} but tiles[{item.wrong_index}] is "
+                f"{wrong!r} — a correct tap would be graded wrong",
+            )
+        )
     if fold_answer(wrong) == fold_answer(item.correction):
         out.append(
             Failure(
@@ -542,7 +626,7 @@ def _l1_production(item: L1ToL2ProductionItem) -> list[Failure]:
 
     # The type with the widest legitimate variation. One accepted form is a
     # trap: the learner produces a correct translation and is marked wrong.
-    if len(item.accepted_variants) < 2:
+    if len(item.accepted_variants) < MIN_ACCEPTED_VARIANTS:
         out.append(
             Failure(
                 "too_few_variants",
@@ -557,7 +641,7 @@ def _dictation(item: DictationItem) -> list[Failure]:
     out: list[Failure] = []
     transcript = item.answer or ""
     n = len(words(transcript))
-    if not 5 <= n <= 15:
+    if not DICTATION_WORDS[0] <= n <= DICTATION_WORDS[1]:
         out.append(Failure("dictation_length", f"{n} words, expected 5-15"))
     if any(ch.isdigit() for ch in transcript):
         out.append(
@@ -625,7 +709,7 @@ def _speak_answer(item: SpeakAnswerItem) -> list[Failure]:
 
 def _match_pairs(item: MatchPairsItem) -> list[Failure]:
     out: list[Failure] = []
-    if not 3 <= len(item.pairs) <= 6:
+    if not PAIR_COUNT[0] <= len(item.pairs) <= PAIR_COUNT[1]:
         out.append(Failure("pair_count", f"{len(item.pairs)} pairs, expected 3-6"))
     lefts = [fold(left) for left, _ in item.pairs]
     rights = [fold(right) for _, right in item.pairs]
@@ -646,7 +730,7 @@ def _match_pairs(item: MatchPairsItem) -> list[Failure]:
 
 
 def _collocation(item: CollocationPickItem) -> list[Failure]:
-    out = _options_failures(item.options, item.answer, (3, 4))
+    out = _options_failures(item.options, item.answer, COLLOCATION_OPTIONS)
     # The frame already containing the answer makes the choice free.
     if item.answer and fold_answer(item.answer) in {
         fold_answer(w) for w in words(item.prompt_text.replace(GAP, " "))

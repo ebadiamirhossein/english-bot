@@ -411,6 +411,127 @@ def generator_contract(item_type: str) -> dict[str, str]:
     return out
 
 
+#: Failure codes a type can produce that the prompt does NOT try to express, and
+#: why. **An explicit list, because the alternative is silence:** without it a
+#: check nobody described looks identical to a check nobody noticed.
+#:
+#: These are the codes a generator cannot design around by being told about
+#: them -- they need the probe's own answer set, a lemma table, or a judgement
+#: no instruction can front-run.
+NOT_EXPRESSIBLE: dict[str, str] = {
+    # Needs the probe: whether a SECOND option is also correct is a fact about
+    # English, discovered by asking, not something a rule can state up front.
+    "multiple_correct_options": "needs the probe",
+    # Needs the lemma table (`looks_proper_noun` -> `core.lexicon`).
+    "proper_noun_gap": "needs the lemma table",
+    "proper_noun_target": "needs the lemma table",
+    # Needs the learner's ledger; measured and not enforced (#197).
+    "below_coverage_floor": "measured, not enforced",
+    # Structural facts the runner sets, never the generator.
+    "no_target": "set by the runner",
+    "answer_presence": "stated as a per-field rule instead",
+    "answer_not_accepted": "derived by the runner",
+    # Applies only to a repaired item, whose cue the ladder chooses.
+    "cue_contradicts_answer": "the repair ladder owns the cue",
+}
+
+
+def constraint_block(item_types: Sequence[str]) -> str:
+    """The SHAPE rules each type must satisfy, derived from `core.items.checks`.
+
+    **This exists because the first real accept rate was 6 of 24 and its own
+    branch rule was right: the prompt was wrong, not the gate.** The contract
+    carried field NAMES and no shape -- a generator told `bank: array of
+    strings` has no way to know a word bank must be a permutation of the answer,
+    must not already be in order, and must hold between four and ten tokens.
+    Every one of those is a `deterministic_failures` rejection, and every one is
+    knowable in advance.
+
+    **Derived, not written.** The numbers come from the named constants in
+    `checks.py` that the checks themselves read, so a bound cannot be changed in
+    one place and stated in the other -- the same guarantee `generator_contract`
+    gives for field names, and for the same reason.
+
+    **Honest about its own limits.** The English sentence around each number is
+    ours; what is derived is the SET of rules and their VALUES. What keeps the
+    set honest is `tests/test_items_contract.py`, which asserts that every
+    failure code a type can produce is either expressed here or named in
+    `NOT_EXPRESSIBLE` -- so a new check fails a test rather than quietly going
+    unstated.
+    """
+    from core.items.checks import (
+        BANK_SIZE,
+        COLLOCATION_OPTIONS,
+        DICTATION_WORDS,
+        MAX_PROMPT_CHARS,
+        MAX_SENTENCE_WORDS,
+        MCQ_OPTIONS,
+        MIN_ACCEPTED_VARIANTS,
+        PAIR_COUNT,
+        TILE_COUNT,
+    )
+
+    shared = [
+        f"prompt_text is at most {MAX_PROMPT_CHARS} characters",
+        f"the English sentence is at most {MAX_SENTENCE_WORDS} words",
+        "nothing you write may pass judgement on the learner",
+    ]
+    per_type: dict[str, list[str]] = {
+        "mcq": [
+            f"exactly {'/'.join(str(n) for n in MCQ_OPTIONS)} options",
+            "the answer must be one of them, copied character for character",
+            "no option may repeat another, or contain another as a substring",
+            "the longest option must be under twice the length of the shortest",
+        ],
+        "collocation_pick": [
+            f"{' or '.join(str(n) for n in COLLOCATION_OPTIONS)} options",
+            "the answer must be one of them, copied character for character",
+            "no option may repeat another, or contain another as a substring",
+            "the longest option must be under twice the length of the shortest",
+        ],
+        "cloze_cued": [
+            "exactly one gap, written ___ (three underscores)",
+            "never gap a number",
+            "the answer must not appear anywhere else in prompt_text",
+            "the gapped word must be the one the grammar target is about",
+        ],
+        "word_bank_order": [
+            f"bank holds {BANK_SIZE[0]}-{BANK_SIZE[1]} tokens",
+            "the bank must be exactly the words of the answer, reordered — "
+            "same words, same count, nothing added or dropped",
+            "the bank must NOT already be in the answer's order",
+        ],
+        "error_spot": [
+            f"{TILE_COUNT[0]}-{TILE_COUNT[1]} tiles, one word each",
+            "wrong_index points at the ONE wrong tile (0-based)",
+            "answer is that wrong tile, copied exactly",
+            "correction is what it should say, and must differ from it",
+        ],
+        "match_pairs": [
+            f"{PAIR_COUNT[0]}-{PAIR_COUNT[1]} pairs",
+            "no left entry may repeat, and no right entry may repeat",
+            "no string may appear on both sides",
+        ],
+        "l1_to_l2_production": [
+            "prompt_text is in the learner's own script, not English",
+            "answer is English",
+            f"give at least {MIN_ACCEPTED_VARIANTS} accepted renderings — "
+            "one is a trap that marks a correct translation wrong",
+        ],
+        "dictation": [
+            f"the sentence is {DICTATION_WORDS[0]}-{DICTATION_WORDS[1]} words",
+            "no digits — write numbers as words",
+        ],
+    }
+    lines: list[str] = ["  every type", *(f"    - {rule}" for rule in shared)]
+    for item_type in item_types:
+        rules = per_type.get(item_type)
+        if rules:
+            lines.append(f"  {item_type}")
+            lines.extend(f"    - {rule}" for rule in rules)
+    return "\n".join(lines)
+
+
 def contract_block(item_types: Sequence[str]) -> str:
     """The contract for several types, as the lines a prompt carries.
 

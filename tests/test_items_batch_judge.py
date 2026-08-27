@@ -22,7 +22,7 @@ import pathlib
 import pytest
 
 from core.items import gates
-from core.items.checks import judged_sentence
+from core.items.checks import judged_sentence, probe_canonical
 from core.items.grading import normalise_variants
 from core.items.schema import parse
 
@@ -59,7 +59,15 @@ def test_free_stages_reaches_the_same_verdict_validate_did(name, item, monkeypat
     )
     monkeypatch.setattr(
         gates, "probe_acceptable",
-        lambda item, **k: {"acceptable": [item.answer], "confidence": "high"},
+        # **`probe_canonical`, not `answer` (#210).** A perfect probe returns
+        # what the gate compares against, and for `error_spot` those differ:
+        # its `answer` is the wrong TILE and the probe is now asked for the
+        # CORRECTION. A stub returning `answer` models the contract as it was
+        # BEFORE the ruling, and fails the item for the reason the ruling
+        # removed.
+        lambda item, **k: {
+            "acceptable": [probe_canonical(item)], "confidence": "high",
+        },
     )
     monkeypatch.setattr(gates, "_synthesize", lambda text, **k: b"audio")
     monkeypatch.setattr(
@@ -234,7 +242,15 @@ def test_judge_false_still_skips_the_judge(monkeypatch):
     monkeypatch.setattr(gates, "judge_naturalness", _boom)
     monkeypatch.setattr(
         gates, "probe_acceptable",
-        lambda item, **k: {"acceptable": [item.answer], "confidence": "high"},
+        # **`probe_canonical`, not `answer` (#210).** A perfect probe returns
+        # what the gate compares against, and for `error_spot` those differ:
+        # its `answer` is the wrong TILE and the probe is now asked for the
+        # CORRECTION. A stub returning `answer` models the contract as it was
+        # BEFORE the ruling, and fails the item for the reason the ruling
+        # removed.
+        lambda item, **k: {
+            "acceptable": [probe_canonical(item)], "confidence": "high",
+        },
     )
     item = parse({
         "item_type": "cloze_cued",

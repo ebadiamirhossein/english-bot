@@ -32,7 +32,10 @@ By item_type:
 - cloze_cued, listening_gap: the missing word or words only, not the sentence.
 - word_bank_order: full sentences, each using every bank token exactly once.
 - l1_to_l2_production: English sentences that convey the prompt.
-- error_spot: the wrong word or words, copied from `tiles`.
+- error_spot: **the CORRECTION** — what the one defective word should say. Not
+  which word is wrong: for a two-word error ("I have went") either token can be
+  called the defective one, and both describe the same mistake. What it should
+  say has one answer. Reply with the corrected word alone, not the sentence.
 - match_pairs: a JSON object mapping each `left` entry to its `right` entry,
   as the single element of `acceptable`.
 - dictation, speak_repeat, speak_answer: reply {"acceptable": [], "confidence": "low"}
