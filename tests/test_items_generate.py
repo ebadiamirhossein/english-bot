@@ -21,6 +21,7 @@ from core.items.generate import (
     Outcome,
     Slot,
     build_payload,
+    coverage_reference,
     dry_run,
     load_control,
     run_control,
@@ -95,6 +96,84 @@ def test_no_audio_type_is_drafted_so_nothing_bills_tts_or_stt():
 
     assert not set(SLOT_TYPES) & TYPES_WITH_AUDIO
     assert "speak_answer" not in SLOT_TYPES
+
+
+# ── coverage: measured, never enforced ──────────────────────────────────────
+
+
+def test_the_coverage_reference_is_a_level_not_a_learner():
+    """W10c's ruling on #197, and the measurement that produced it.
+
+    The obvious instrument is `services.lexicon.known_lemmas(user_id)`, and it is
+    the WRONG one today: it is W4's top-2,000 frequency floor, it is a **strict
+    subset** of this reference, and against it every everyday-register probe
+    sentence failed the 90% floor — on `dentist`, `landlord`, `neighbour`,
+    `umbrella`, `tram`, all of which `item_generate.txt` orders the generator to
+    use.
+    """
+    reference = coverage_reference()
+    # The words a 2,000-lemma ledger rejects and a B1 learner plainly knows.
+    for lemma in ("dentist", "neighbour", "umbrella", "parcel", "tram"):
+        assert lemma in reference, f"{lemma} is not in the B1 reference"
+    assert len(reference) > 4000
+
+
+def test_coverage_is_recorded_on_every_accepted_item(stub_gates):
+    """The number exists per item, so P7 is computed from real generated items
+    rather than from the twelve sentences someone probed by hand."""
+    slots = slot_plan(1, UNIT_1)
+    drafts = [_draft(s.index, s.item_type, s.target) for s in slots]
+    outcomes = verify_cohort(
+        slots, drafts, unit_number=1, candidates=UNIT_1, calls=Counter(),
+        reference=coverage_reference(),
+    )
+    measured = [o for o in outcomes if o.accepted and o.coverage_pct is not None]
+    assert measured, "no accepted item carried a coverage number"
+    assert all(0 <= o.coverage_pct <= 100 for o in measured)
+
+
+def test_a_low_coverage_item_is_reported_and_NOT_rejected(stub_gates):
+    """**The whole point of the ruling, asserted so it cannot drift into a gate.**
+
+    An item whose sentence sits below the floor is still ACCEPTED, and carries the
+    number and the unknown lemmas. If someone later turns this into a rejection
+    they will have to delete this test, which is the intended obstacle: at the
+    90% floor a twelve-word sentence may carry one unknown word, and 4 of 8
+    correctly-written everyday sentences fall below it.
+    """
+    # `cloze_cued`, at index 0 because `verify_cohort` reads drafts by
+    # `slot.index`. Changing an `mcq`'s answer without its options would fail on
+    # `answer_not_an_option` and test the wrong thing.
+    slots = (Slot(index=0, item_type="cloze_cued", target=UNIT_1[0]),)
+    draft = _draft(0, slots[0].item_type, slots[0].target)
+    draft["prompt_text"] = "The landlord ___ the boiler while we were out."
+    draft["answer"] = "fixed"
+    outcomes = verify_cohort(
+        slots, [draft], unit_number=1, candidates=UNIT_1, calls=Counter(),
+        reference=coverage_reference(),
+    )
+    outcome = outcomes[0]
+    assert outcome.accepted, "a below-floor item must be reported, not rejected"
+    assert outcome.coverage_pct is not None
+    assert outcome.coverage_pct < 90
+    assert "boiler" in outcome.coverage_unknown
+
+
+def test_the_floor_itself_is_not_lowered():
+    """CLAUDE.md §3 rule 7. The bar is untouched; only its ENFORCEMENT is off,
+    and the run reports what it would have cost."""
+    from core.items.checks import COVERAGE_FLOOR
+
+    assert COVERAGE_FLOOR == 0.90
+
+
+def test_the_dry_run_states_the_floor_is_measured_and_not_enforced(capsys):
+    """A printed absence with no number behind it is what this replaced."""
+    dry_run(3, (1,))
+    out = capsys.readouterr().out
+    assert "MEASURED, NOT ENFORCED" in out
+    assert "STRICT SUBSET" in out
+    assert "90%" in out
 
 
 # ── the payload ─────────────────────────────────────────────────────────────

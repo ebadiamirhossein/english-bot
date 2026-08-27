@@ -87,6 +87,19 @@ axis it does not** -- so each axis gets its own number.
       `past simple` from `time linkers`. 2 of 3 prints as
       `prediction NOT MET, run acceptable`, in those words.
 
+  P7  COVERAGE -- 4-10 of 24 accepted items fall below the 90% floor when
+      measured against `coverage_reference()` (B1-and-below plus the top 2,000).
+        <= 3  -> the floor is compatible with the everyday register after all,
+                 and `known_lemmas` should be wired in the slice that has a
+                 ledger worth more than the frequency floor
+        4-10  -> expected, and it matches the 4-of-8 hand probe. The floor and
+                 CLAUDE.md §4's content rule are in genuine tension and the
+                 operator rules on which gives
+        >= 11 -> the reference is too small for the register, and RAISING THE
+                 REFERENCE is the fix, not lowering the floor (rule 7)
+      **This axis exists because the alternative was leaving a printed absence
+      with no number behind it.** It replaces an argument with an observation.
+
   P6  PER-TYPE YIELD -- no type accepts 0 of 3. `match_pairs` is the likeliest to.
       **This produces #168's numbers and does NOT close #168.** n is 3 per type
       (6 for `cloze_cued`). A type that is genuinely bad gets 1 of 3 by luck often
@@ -121,12 +134,17 @@ type that fails everywhere, and only the second is an argument for narrowing
 ────────────────────────────────────────────────────────────────────────────────
 WHAT THIS RUN DOES NOT DO, SAID PLAINLY
 
-* **The coverage floor is not applied.** `checks.deterministic_failures` takes
-  `known_lemmas` and enforces PRD §2.1's 90% band when it is given one; this run
-  passes None. Two reasons: the ledger read is per-learner and would make the
-  first accept-rate number in this project's history a function of one learner's
-  vocabulary rather than of the generator, and an unmeasured floor applied to a
-  first run confounds P1 with something P1 does not name. Filed, not forgotten.
+* **The coverage floor is MEASURED AND NOT ENFORCED, and the reason is a
+  measurement.** `checks.deterministic_failures` enforces PRD §2.1's 90% band
+  when handed `known_lemmas`; this run passes None and computes the number
+  separately, per item, against `coverage_reference()`. Probed on 2026-08-27:
+  against a learner's real ledger **8 of 8** everyday-register sentences fell
+  below the floor -- on `dentist`, `landlord`, `neighbour`, `umbrella`, `tram`
+  -- **every one of them vocabulary this module's own prompt orders the
+  generator to use**; and that ledger is a STRICT SUBSET of the level reference,
+  carrying zero per-learner signal. Enforcing it would reject the content
+  CLAUDE.md §4 asks for and **P1 would misreport it as a prompt failure**. The
+  floor is not lowered (rule 7); its effect becomes **P7**.
 * **`assign_daily` still generates nothing** and this module is not wired to it.
   Automating a billed pipeline that writes learner-facing English unattended, on
   content whose quality this slice is the first to measure, is its own slice.
@@ -162,7 +180,7 @@ from pathlib import Path
 from core import PROMPTS_DIR
 from core.config import Settings, load_settings
 from core.items import gates
-from core.items.checks import judged_sentence
+from core.items.checks import COVERAGE_FLOOR, judged_sentence, sentence_of
 from core.items.gates import MAX_REPAIRS, TARGET_DECOYS, TargetVerdict, ValidationReport
 from core.items.grading import normalise_variants
 from core.items.schema import BaseItem, parse
@@ -205,6 +223,49 @@ SLOT_TYPES: tuple[str, ...] = (
 #: `topic` column on `syllabus_units`, which #161 ruled out.
 WORK_UNITS: frozenset[int] = frozenset({18, 19, 20, 21})
 
+#: CEFR bands at or below the learners' current level. PRD §1 puts both at B1
+#: heading for B2, so B1-and-below is what "already comprehensible" means today.
+COVERAGE_BANDS: frozenset[str] = frozenset({"A1", "A2", "B1"})
+
+#: The frequency tail that is assumed known regardless of CEFR tag -- W4's own
+#: `assume_top_frequency_known` number, reused rather than re-chosen.
+COVERAGE_FREQ_FLOOR = 2000
+
+
+def coverage_reference() -> frozenset[str]:
+    """The vocabulary a B1 learner is assumed to have. **Not a learner's ledger.**
+
+    ``{lemma : freq_rank <= 2000} | {lemma : cefr in A1/A2/B1}``, read from
+    `core.lexicon.normalize.lexeme_rows` -- pure, no database, no per-learner
+    read. The same reference W10b's approved plan specifies for lesson prose.
+
+    **Why not `services.lexicon.known_lemmas(user_id)`, which exists and is one
+    call away.** Measured on 2026-08-27 against the real ledger rather than
+    argued:
+
+    * the ledger is **2,000 lemmas** and is a **STRICT SUBSET** of this
+      reference -- `ledger - reference` is EMPTY -- so it carries **zero**
+      per-learner signal today. It is W4's top-frequency floor and almost
+      nothing has been evidenced on top of it yet.
+    * against it, **8 of 8** probe sentences in the everyday register failed the
+      90% floor, on `dentist`, `landlord`, `boiler`, `parcel`, `sushi`,
+      `neighbour`, `umbrella`, `tram`, `primary` and `leak` -- **every one of
+      them vocabulary `item_generate.txt` explicitly instructs the generator to
+      use.** Against this reference, 4 of 8.
+
+    A per-learner ledger becomes the right reference the moment it holds more
+    than the floor. Today it would reject the content CLAUDE.md §4 asks for,
+    while telling the caller nothing a level constant does not.
+    """
+    from core.lexicon.normalize import lexeme_rows
+
+    return frozenset(
+        lemma
+        for (lemma, _pos, rank, _band, cefr) in lexeme_rows()
+        if (rank and rank <= COVERAGE_FREQ_FLOOR) or cefr in COVERAGE_BANDS
+    )
+
+
 #: The negative control. Committed so the fixture the check is proved against is
 #: readable beside the check.
 CONTROL_FIXTURE = Path("tests") / "fixtures" / "items" / "mistargeted.json"
@@ -219,6 +280,7 @@ P1_LOW, P1_HIGH = 12, 18
 P2_LOW, P2_HIGH = 0, 3
 P3_LOW, P3_HIGH = 0, 5
 P4_LOW, P4_HIGH = 3, 8
+P7_LOW, P7_HIGH = 4, 10
 
 
 # ── the plan for one unit ───────────────────────────────────────────────────
@@ -325,6 +387,11 @@ class Outcome:
     report: ValidationReport | None = None
     target: TargetVerdict | None = None
     back_translation: str | None = None
+    #: Known-word coverage of this item's sentence against `coverage_reference`,
+    #: as a percentage. **MEASURED, NEVER ENFORCED IN THIS RUN** -- see
+    #: `_measure_coverage` for why the floor is reported rather than applied.
+    coverage_pct: float | None = None
+    coverage_unknown: tuple[str, ...] = ()
     #: "accepted" | "discarded" | "duplicate"
     state: str = "discarded"
     #: Which stage ended it: generation / deterministic / naturalness / judge /
@@ -417,6 +484,7 @@ def verify_cohort(
     candidates: tuple[str, ...],
     settings: Settings | None = None,
     calls: Counter | None = None,
+    reference: frozenset[str] | None = None,
 ) -> list[Outcome]:
     """Every gate over one unit's cohort, cheapest first, batching the judge.
 
@@ -480,6 +548,7 @@ def verify_cohort(
             )
             continue
         outcomes[position].item = item
+        _measure_coverage(outcomes[position], reference)
         judged.append((position, item))
 
     # --- stage 2: ONE naturalness call for the whole cohort (#120)
@@ -792,6 +861,18 @@ def print_verdicts(outcomes: list[Outcome], control: "ControlResult") -> None:
               "discriminate,\n      so every target-first verdict above is "
               "worthless. NOTHING IS WRITTEN.")
 
+    measured = [o for o in outcomes if o.accepted and o.coverage_pct is not None]
+    below = sum(1 for o in measured if o.coverage_pct < COVERAGE_FLOOR * 100)
+    if measured:
+        _band("P7 below floor    ", below, P7_LOW, P7_HIGH, len(measured),
+              "≤3 → the floor is compatible with the everyday register; wire "
+              "`known_lemmas` in the slice whose ledger is worth more than the "
+              "frequency floor. ≥11 → RAISE THE REFERENCE, do not lower the "
+              "floor (rule 7).")
+        print("      MEASURED, NOT ENFORCED — no item was rejected for this. "
+              "The floor is 90%\n      and untouched; this is its effect on real "
+              "generated items for the first time.")
+
     print("  P6 per-type yield : see the TYPE x TARGET table above. "
           "**#168 stays open** —\n      n is 3 per type and closing on three "
           "draws would be a claim true of three\n      draws written as a claim "
@@ -959,10 +1040,21 @@ def dry_run(user_id: int, numbers: tuple[int, ...]) -> int:
           f"judge {gates.JUDGE_MAX_TOKENS} · target {gates.TARGET_MAX_TOKENS} "
           "(reject_truncation=True on all four)")
 
-    print("\n=== coverage floor ===")
-    print("NOT APPLIED. `deterministic_failures` enforces PRD §2.1's 90% band "
-          "only when\ngiven `known_lemmas`, and this run passes None — see the "
-          "module docstring.")
+    reference = coverage_reference()
+    print("\n=== coverage ===")
+    print(f"reference: {len(reference)} lemmas — CEFR A1/A2/B1 plus the top "
+          f"{COVERAGE_FREQ_FLOOR} by frequency.")
+    print(f"floor:     {COVERAGE_FLOOR:.0%}, UNCHANGED — and MEASURED, NOT ENFORCED.")
+    print("  `deterministic_failures` enforces the floor only when handed "
+          "`known_lemmas`;\n  this run passes None and reports the number per item "
+          "instead (P7).")
+    print("  Measured 2026-08-27: against a learner's real ledger, 8 of 8 "
+          "everyday-register\n  sentences fell below the floor — on `dentist`, "
+          "`landlord`, `neighbour`,\n  `umbrella`, `tram` — every one of them "
+          "vocabulary the prompt above ORDERS the\n  generator to use. That ledger "
+          "is a STRICT SUBSET of this reference and adds\n  zero per-learner "
+          "signal. Enforcing it would reject the content CLAUDE.md §4\n  asks for, "
+          "and P1 would misreport it as a prompt failure.")
 
     print("\n=== negative control ===")
     fixture = load_control()
@@ -1005,6 +1097,7 @@ def run(
     settings = settings or load_settings()
     plan = unit_plan(numbers)
     spent: Counter = Counter()
+    reference = coverage_reference()
 
     ceiling = _expected_calls(numbers)
     print(f"\nAbout to make up to {ceiling} billed model calls.")
@@ -1047,6 +1140,7 @@ def run(
         outcomes = verify_cohort(
             entry["slots"], drafts, unit_number=number,
             candidates=entry["candidates"], settings=settings, calls=spent,
+            reference=reference,
         )
 
         # --- one top-up round, asking for exactly the shortfall
@@ -1139,6 +1233,7 @@ def _top_up(
         candidates=entry["candidates"],
         settings=settings,
         calls=calls,
+        reference=coverage_reference(),
     )
     merged = list(outcomes)
     for original, replacement in zip(short, replacements, strict=True):
@@ -1147,6 +1242,45 @@ def _top_up(
             replacement.topped_up = True
             merged[original.slot.index] = replacement
     return merged
+
+
+def _measure_coverage(outcome: Outcome, reference: frozenset[str] | None) -> None:
+    """Record this item's coverage. **This does not gate and must not start to.**
+
+    `checks.deterministic_failures` enforces PRD §2.1's 90% band when handed
+    `known_lemmas`, and this run hands it None -- so the number is computed here,
+    beside the item, and printed.
+
+    **Why it is measured and not enforced, and the reason is a measurement rather
+    than a preference.** At the 90% floor a twelve-word sentence may carry ONE
+    unknown word. Probed on 2026-08-27 against the everyday register
+    `item_generate.txt` demands -- *apartments, neighbours, doctors, food,
+    transport, weather* -- **4 of 8 correctly-written sentences fell below the
+    floor**, on `boiler`, `sushi`, `primary` and `leak`; against a learner's
+    actual ledger it was **8 of 8**, on `dentist`, `landlord`, `neighbour`,
+    `umbrella` and `tram`.
+
+    Turning the gate on would therefore reject the content CLAUDE.md §4 orders
+    the generator to write, and **P1's branch rule would misread it**: `<= 11
+    accepted -> the generator prompt is wrong` would fire while the prompt was
+    right and the reference was too small. That is #115's shape -- the gate was
+    correct and the input was wrong -- and it is the reason this is a number in
+    the report rather than a verdict.
+
+    **The bar is not lowered to make it pass** (CLAUDE.md §3 rule 7): 0.90 is
+    untouched. What changes is that the floor's effect is now MEASURED on real
+    generated items, by P7, instead of assumed in either direction.
+    """
+    if reference is None or outcome.item is None:
+        return
+    from core.lexicon.coverage import compute_coverage
+
+    sentence = sentence_of(outcome.item)
+    if not sentence.strip():
+        return
+    report = compute_coverage(sentence, reference)
+    outcome.coverage_pct = report.percent
+    outcome.coverage_unknown = tuple(report.unknown_lemmas)
 
 
 def _print_items(outcomes: list[Outcome]) -> None:
@@ -1175,6 +1309,12 @@ def _print_items(outcomes: list[Outcome]) -> None:
                 print(f"        cue    : {item.cue_text}")
             if item.explanation:
                 print(f"        why    : {item.explanation}")
+            if outcome.coverage_pct is not None:
+                below = outcome.coverage_pct < COVERAGE_FLOOR * 100
+                flag = "  ** BELOW THE 90% FLOOR (measured, not enforced) **" if below else ""
+                unknown = (f" unknown={list(outcome.coverage_unknown)}"
+                           if outcome.coverage_unknown else "")
+                print(f"        cover  : {outcome.coverage_pct}%{unknown}{flag}")
         if not outcome.accepted:
             print(f"        REJECTED at {outcome.stage}: {list(outcome.codes)}")
         elif outcome.report is not None and outcome.report.repair_count:
