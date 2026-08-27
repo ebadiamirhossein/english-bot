@@ -9,3 +9,4 @@ build/
 dist/
 .claude/
 .syllabus-stage-cache.json
+w10c-journal.jsonl

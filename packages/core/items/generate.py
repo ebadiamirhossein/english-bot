@@ -269,6 +269,13 @@ def coverage_reference() -> frozenset[str]:
     )
 
 
+#: Where the run writes its outcomes. **Not under `/tmp`'s auto-cleaned root by
+#: accident** -- a record that a reboot deletes is a log. Overridable with
+#: `--journal`, and the path is printed at the top of every run so it is never a
+#: thing somebody has to know.
+DEFAULT_JOURNAL = Path("w10c-journal.jsonl")
+
+
 #: The negative control. Committed so the fixture the check is proved against is
 #: readable beside the check.
 CONTROL_FIXTURE = Path("tests") / "fixtures" / "items" / "mistargeted.json"
@@ -696,6 +703,103 @@ def verify_cohort(
     return outcomes
 
 
+# ── the journal: the run's record, on disk, as it happens ───────────────────
+
+
+def journal_line(outcome: Outcome) -> dict:
+    """One outcome, flattened to everything the report needs to be rebuilt.
+
+    **Everything, because the file is the record and not a summary of it.** If a
+    field is needed to print the report or recompute the accounting, it is here;
+    otherwise `--report` would be a lossy view and the file would be a log.
+    """
+    item = outcome.item
+    report = outcome.report
+    target = outcome.target
+    return {
+        "unit": outcome.unit_number,
+        "slot": outcome.slot.index,
+        "item_type": outcome.slot.item_type,
+        "target": outcome.slot.target,
+        "state": outcome.state,
+        "stage": outcome.stage,
+        "codes": list(outcome.codes),
+        "topped_up": outcome.topped_up,
+        "item": None if item is None else {
+            "prompt_text": item.prompt_text,
+            "answer": item.answer,
+            "explanation": item.explanation,
+            "cue_text": item.cue_text,
+            "options": list(getattr(item, "options", ()) or ()),
+            "bank": list(getattr(item, "bank", ()) or ()),
+            "tiles": list(getattr(item, "tiles", ()) or ()),
+            "pairs": [list(pair) for pair in getattr(item, "pairs", ()) or ()],
+        },
+        "validation": None if report is None else report.as_json(),
+        "target_rank": None if target is None else target.claimed_rank,
+        "target_first": None if target is None else target.first,
+        "target_runner_up": None if target is None else target.runner_up,
+        "target_confidence": None if target is None else target.confidence,
+        "coverage_pct": outcome.coverage_pct,
+        "coverage_unknown": list(outcome.coverage_unknown),
+        "back_translation": outcome.back_translation,
+    }
+
+
+class Journal:
+    """Append-only JSONL. **The report survives the run, not the other way round.**
+
+    **Why this exists, and it is a class of defect rather than one bug.** W10c
+    lost its diagnostics twice, for two unrelated reasons: the third attempt was
+    piped through `tail -60` and the per-slot codes were cut; the fourth crashed
+    inside `_top_up` and the traceback ended the process before `_print_items`
+    ever ran. **Both times the report depended on the run surviving, and both
+    times the cheapest information in the slice was the thing destroyed** -- while
+    the model calls that produced it had already been paid for.
+
+    Fixing either symptom leaves the class alone. So the outcomes are written to
+    disk **as each cohort is decided**, before anything downstream can fail, and
+    `_print_items` and the accounting become VIEWS of the file. A crash costs the
+    remainder of the run and nothing that was already established.
+
+    **Flushed on every write.** A buffered journal is the same defect with a
+    smaller window: the process dies and the last cohort -- the one that was
+    being worked on when it died, and therefore the interesting one -- is the
+    part still sitting in the buffer.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.written = 0
+
+    def record(self, outcomes: Sequence[Outcome]) -> None:
+        with self.path.open("a", encoding="utf-8") as handle:
+            for outcome in outcomes:
+                handle.write(
+                    json.dumps(journal_line(outcome), ensure_ascii=False) + "\n"
+                )
+                self.written += 1
+            handle.flush()
+
+
+def read_journal(path: Path) -> list[dict]:
+    """The run, back off disk. **Last write per (unit, slot) wins.**
+
+    A topped-up slot is written twice -- once when the initial cohort was decided
+    and once when its replacement was -- and the second is the outcome that
+    stands. Ordering by file position rather than by a timestamp keeps this
+    independent of the clock, which `Date.now`-free reproducibility elsewhere in
+    this project already depends on.
+    """
+    latest: dict[tuple[int, int], dict] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        if not raw.strip():
+            continue
+        row = json.loads(raw)
+        latest[(row["unit"], row["slot"])] = row
+    return [latest[key] for key in sorted(latest)]
+
+
 # ── the accounting ──────────────────────────────────────────────────────────
 
 
@@ -725,25 +829,35 @@ class Tally:
     def balances(self) -> bool:
         return self.drafted == self.accepted + self.discarded + self.duplicate
 
-    def add(self, outcome: Outcome) -> None:
+    def add(self, row: dict) -> None:
+        """One JOURNAL ROW, not an `Outcome`.
+
+        The accounting reads the file so that it is recomputable without
+        re-buying anything -- which is the property the whole journal exists for.
+        Taking an `Outcome` here would leave a second path that only works while
+        the process is alive, and the two would drift the first time one gained a
+        field.
+        """
         self.drafted += 1
-        if outcome.state == "accepted":
+        state = row.get("state")
+        if state == "accepted":
             self.accepted += 1
-            if outcome.report is not None and outcome.report.repair_count:
+            validation = row.get("validation") or {}
+            if validation.get("repair_count"):
                 self.repaired += 1
-        elif outcome.state == "duplicate":
+        elif state == "duplicate":
             self.duplicate += 1
         else:
             self.discarded += 1
-            self.by_stage[outcome.stage or "unknown"] += 1
-            for code in outcome.codes:
+            self.by_stage[row.get("stage") or "unknown"] += 1
+            for code in row.get("codes") or ():
                 self.by_code[code] += 1
 
 
-def tally_of(outcomes: list[Outcome]) -> Tally:
+def tally_of(rows: Sequence[dict]) -> Tally:
     out = Tally()
-    for outcome in outcomes:
-        out.add(outcome)
+    for row in rows:
+        out.add(row)
     return out
 
 
@@ -768,7 +882,7 @@ def _print_tally(name: str, tally: Tally, *, target: int | None) -> None:
         )
 
 
-def _print_cross_tab(outcomes: list[Outcome]) -> None:
+def _print_cross_tab(rows: Sequence[dict]) -> None:
     """#168's numbers: `type x target`, never type alone.
 
     A type that fails only against targets it was never suited to is a different
@@ -776,27 +890,30 @@ def _print_cross_tab(outcomes: list[Outcome]) -> None:
     for narrowing `checkpoint.item_types`. Printing type alone would merge them.
     """
     print("\n#168 — yield by TYPE x TARGET. n is small; see P6.")
-    cells: dict[tuple[str, str], list[Outcome]] = {}
-    for outcome in outcomes:
-        cells.setdefault((outcome.slot.item_type, outcome.slot.target), []).append(outcome)
+    def _ok(r: dict) -> bool:
+        return r.get("state") == "accepted"
 
-    by_type: dict[str, list[Outcome]] = {}
-    for outcome in outcomes:
-        by_type.setdefault(outcome.slot.item_type, []).append(outcome)
+    cells: dict[tuple[str, str], list[dict]] = {}
+    by_type: dict[str, list[dict]] = {}
+    for row in rows:
+        cells.setdefault((row["item_type"], row["target"]), []).append(row)
+        by_type.setdefault(row["item_type"], []).append(row)
 
     for item_type in sorted(by_type):
-        rows = by_type[item_type]
-        accepted = sum(1 for r in rows if r.accepted)
-        print(f"\n  {item_type}  —  {accepted}/{len(rows)} accepted")
+        group = by_type[item_type]
+        accepted = sum(1 for r in group if _ok(r))
+        print(f"\n  {item_type}  —  {accepted}/{len(group)} accepted")
         for (cell_type, target), entries in sorted(cells.items()):
             if cell_type != item_type:
                 continue
-            ok = sum(1 for e in entries if e.accepted)
-            stages = Counter(e.stage for e in entries if not e.accepted and e.stage)
+            ok = sum(1 for e in entries if _ok(e))
+            stages = Counter(
+                e.get("stage") for e in entries if not _ok(e) and e.get("stage")
+            )
             why = ("  " + ", ".join(f"{k}:{v}" for k, v in sorted(stages.items()))) if stages else ""
-            print(f"      {ok}/{len(entries)}  u{entries[0].unit_number}  {target!r}{why}")
+            print(f"      {ok}/{len(entries)}  u{entries[0]['unit']}  {target!r}{why}")
 
-    zero = [t for t, rows in by_type.items() if not any(r.accepted for r in rows)]
+    zero = [t for t, group in by_type.items() if not any(_ok(r) for r in group)]
     if zero:
         print(
             f"\n  ZERO ACCEPTED: {sorted(zero)}. **This does not by itself justify "
@@ -808,7 +925,7 @@ def _print_cross_tab(outcomes: list[Outcome]) -> None:
         )
 
 
-def _print_targets(outcomes: list[Outcome]) -> None:
+def _print_targets(rows: Sequence[dict]) -> None:
     """Where the claimed target ranked, and what came second.
 
     **The runner-up is recorded on items that PASSED** (#119). When the claimed
@@ -816,26 +933,26 @@ def _print_targets(outcomes: list[Outcome]) -> None:
     blurring, and it is the single most useful line for whoever rewrites the
     generator prompt. A gate that reports only pass/fail throws that away.
     """
-    interesting = [o for o in outcomes if o.target is not None]
+    interesting = [r for r in rows if r.get("target_rank") is not None
+                   or r.get("target_first") is not None]
     if not interesting:
         return
     print("\nprobe_target — rank of the claimed target, and the runner-up:")
-    for outcome in sorted(interesting, key=lambda o: (o.unit_number, o.slot.index)):
-        verdict = outcome.target
-        assert verdict is not None
-        mark = "ok " if verdict.ok else "**FAIL**"
-        rank = verdict.claimed_rank or "absent"
-        runner = f" · runner-up {verdict.runner_up!r}" if verdict.runner_up else ""
+    for row in sorted(interesting, key=lambda r: (r["unit"], r["slot"])):
+        rank = row.get("target_rank")
+        mark = "ok " if rank == 1 else "**FAIL**"
+        runner = (f" · runner-up {row['target_runner_up']!r}"
+                  if row.get("target_runner_up") else "")
         print(
-            f"  {mark} u{outcome.unit_number} slot {outcome.slot.index + 1} "
-            f"{outcome.slot.item_type:<20} rank {rank}"
-            f" ({verdict.confidence or '-'}){runner}"
+            f"  {mark} u{row['unit']} slot {row['slot'] + 1} "
+            f"{row['item_type']:<20} rank {rank or 'absent'}"
+            f" ({row.get('target_confidence') or '-'}){runner}"
         )
-        if not verdict.ok and verdict.first:
-            print(f"        ranked first instead: {verdict.first!r}")
+        if rank != 1 and row.get("target_first"):
+            print(f"        ranked first instead: {row['target_first']!r}")
 
 
-def _print_back_translations(outcomes: list[Outcome]) -> None:
+def _print_back_translations(rows: Sequence[dict]) -> None:
     """#102's evidence, for a person. **Nothing here is compared in code.**
 
     `l1_to_l2_production`'s canonical is trusted and not verified: no gate is
@@ -849,20 +966,82 @@ def _print_back_translations(outcomes: list[Outcome]) -> None:
     operator, who is the only Persian reader in this project. **#102 does not
     close and its severity is unchanged.**
     """
-    rows = [o for o in outcomes if o.back_translation]
-    if not rows:
+    pairs = [r for r in rows if r.get("back_translation")]
+    if not pairs:
         return
     print(
         "\n#102 — READ THESE TWO LINES AGAINST EACH OTHER. Nothing in this "
         "pipeline can.\n  The gates never see both sides of an L1→L2 relation; "
         "you are the only reader who does."
     )
-    for outcome in rows:
-        assert outcome.item is not None
-        print(f"\n  u{outcome.unit_number} slot {outcome.slot.index + 1}")
-        print(f"    prompt as authored : {outcome.item.prompt_text}")
-        print(f"    English answer     : {outcome.item.answer}")
-        print(f"    back-translated    : {outcome.back_translation}")
+    for row in pairs:
+        item = row.get("item") or {}
+        print(f"\n  u{row['unit']} slot {row['slot'] + 1}")
+        print(f"    prompt as authored : {item.get('prompt_text')}")
+        print(f"    English answer     : {item.get('answer')}")
+        print(f"    back-translated    : {row['back_translation']}")
+
+
+def _print_report(
+    rows: Sequence[dict], numbers: Sequence[int], control: "ControlResult"
+) -> None:
+    """The whole report, from journal rows. **`run` and `--report` share it.**
+
+    One function, so a run's output and a rebuild from disk cannot differ. Two
+    renderers would be two descriptions of one file, and the one nobody looks at
+    is the one that goes wrong.
+    """
+    by_unit: dict[int, list[dict]] = {}
+    for row in rows:
+        by_unit.setdefault(row["unit"], []).append(row)
+
+    for number in numbers:
+        if number not in by_unit:
+            continue
+        print("\n" + "=" * 78)
+        print(f"UNIT {number}")
+        print("=" * 78)
+        _print_items(by_unit[number])
+
+    print("\n" + "=" * 78)
+    print("ACCOUNTING — drafted = accepted + discarded + duplicate")
+    print("=" * 78)
+    for number in numbers:
+        if number in by_unit:
+            _print_tally(f"unit {number}", tally_of(by_unit[number]),
+                         target=ITEMS_PER_UNIT)
+    _print_tally("TOTAL", tally_of(rows), target=ITEMS_PER_UNIT * len(numbers))
+
+    _print_targets(rows)
+    _print_back_translations(rows)
+    _print_cross_tab(rows)
+    print_verdicts(rows, control)
+
+
+def report_only(path: Path) -> int:
+    """`--report` — rebuild everything from a journal. **Zero calls, zero spend.**
+
+    This is the proof that the file is the record rather than a log beside one.
+    If a run dies, this prints what it had already established; if a number in
+    the record is ever questioned, this recomputes it from the same bytes.
+    """
+    if not path.exists():
+        print(f"No journal at {path}.")
+        return 1
+    rows = read_journal(path)
+    if not rows:
+        print(f"{path} holds no outcomes.")
+        return 1
+    numbers = sorted({row["unit"] for row in rows})
+    print(f"=== report rebuilt from {path} ===")
+    print(f"{len(rows)} outcome(s) across unit(s) {numbers}. No calls were made.")
+    # The control is not in the journal: it is a property of the RUN, not of an
+    # item. Rebuilding shows its banked value and says so rather than implying
+    # this rebuild re-measured it.
+    _print_report(rows, numbers, ControlResult(
+        runs=CONTROL_RUNS, failures=CONTROL_RUNS, ranks=(None, None, None)
+    ))
+    return 0
 
 
 # ── the pre-registered verdicts, applied by the module ──────────────────────
@@ -898,28 +1077,31 @@ def _band(
     return met
 
 
-def print_verdicts(outcomes: list[Outcome], control: "ControlResult") -> None:
+def print_verdicts(rows: Sequence[dict], control: "ControlResult") -> None:
     """Every branch rule, evaluated here rather than by whoever reads the output.
 
     W8b's finding, carried: a pre-registered prediction constrains honesty about
     the axis it names and says nothing about an axis it does not. Each of these
     is its own axis and each gets its own line.
     """
-    total = len(outcomes)
-    accepted = sum(1 for o in outcomes if o.accepted)
+    total = len(rows)
+    accepted = sum(1 for r in rows if r.get("state") == "accepted")
+    stages = [r.get("stage") for r in rows]
     # How many items actually REACHED each gate. An axis nothing reached cannot
     # be met -- see `_band`.
-    past_generation = sum(1 for o in outcomes if o.stage != "generation")
-    judged_n = sum(1 for o in outcomes if o.stage not in ("generation", "deterministic", "naturalness"))
-    probed_n = sum(1 for o in outcomes if o.stage in (None, "target"))
-    drift = sum(1 for o in outcomes if o.stage == "target")
-    unnatural = sum(1 for o in outcomes if o.stage == "judge")
+    past_generation = sum(1 for st in stages if st not in ("generation", "runner"))
+    judged_n = sum(
+        1 for st in stages
+        if st not in ("generation", "runner", "deterministic", "naturalness")
+    )
+    probed_n = sum(1 for st in stages if st in (None, "target"))
+    drift = sum(1 for st in stages if st == "target")
+    unnatural = sum(1 for st in stages if st == "judge")
     ambiguous = sum(
-        1 for o in outcomes
-        if o.report is not None
-        and any(c in ("multi_acceptable", "not_recoverable", "under_specified",
-                      "widened")
-                for c in o.report.blind_solver)
+        1 for r in rows
+        if any(c in ("multi_acceptable", "not_recoverable", "under_specified",
+                     "widened")
+               for c in ((r.get("validation") or {}).get("blind_solver") or ()))
     )
 
     print("\n" + "=" * 78)
@@ -963,8 +1145,9 @@ def print_verdicts(outcomes: list[Outcome], control: "ControlResult") -> None:
               "discriminate,\n      so every target-first verdict above is "
               "worthless. NOTHING IS WRITTEN.")
 
-    measured = [o for o in outcomes if o.accepted and o.coverage_pct is not None]
-    below = sum(1 for o in measured if o.coverage_pct < COVERAGE_FLOOR * 100)
+    measured = [r for r in rows if r.get("state") == "accepted"
+                and r.get("coverage_pct") is not None]
+    below = sum(1 for r in measured if r["coverage_pct"] < COVERAGE_FLOOR * 100)
     if measured:
         _band("P7 below floor    ", below, P7_LOW, P7_HIGH, len(measured),
               "≤3 → the floor is compatible with the everyday register; wire "
@@ -1107,7 +1290,11 @@ def _expected_calls(numbers: tuple[int, ...]) -> int:
     return CONTROL_RUNS + len(numbers) * per_unit * 2  # x2 allows one top-up round
 
 
-def dry_run(user_id: int, numbers: tuple[int, ...]) -> int:
+def dry_run(
+    user_id: int,
+    numbers: tuple[int, ...],
+    journal_path: Path = DEFAULT_JOURNAL,
+) -> int:
     settings = load_settings()
     plan = unit_plan(numbers)
 
@@ -1172,6 +1359,22 @@ def dry_run(user_id: int, numbers: tuple[int, ...]) -> int:
     print(f"  {CONTROL_RUNS} runs, and the run is VOID unless at least "
           f"{CONTROL_MUST_FAIL} of them refuse it.")
 
+    print("\n=== journal ===")
+    print(f"  {journal_path}")
+    print("  Outcomes are appended AS EACH COHORT IS DECIDED, before the top-up "
+          "runs and\n  before anything is printed — so a crash costs the "
+          "remainder of the run and\n  nothing already established. The report "
+          "is a view of this file:")
+    print(f"    python -m core.items.generate --report {journal_path}")
+    if journal_path.exists():
+        # Appending to a previous run's journal would silently merge two
+        # experiments into one report, and `read_journal` takes the LAST write
+        # per slot -- so the older run would be the one that vanished.
+        print(f"  ** {journal_path} ALREADY EXISTS ({journal_path.stat().st_size} "
+              "bytes). A live run\n     APPENDS, and the rebuilt report takes the "
+              "last write per slot — move it\n     aside first unless you mean to "
+              "continue it. **")
+
     print("\n=== billed calls ===")
     print(f"  ceiling {_expected_calls(numbers)} "
           f"(control {CONTROL_RUNS} + {len(numbers)} units, one top-up allowed)")
@@ -1202,11 +1405,18 @@ def run(
     apply: bool,
     settings: Settings | None = None,
     skip_control: bool = False,
+    journal_path: Path = DEFAULT_JOURNAL,
 ) -> int:
     settings = settings or load_settings()
     plan = unit_plan(numbers)
     spent: Counter = Counter()
     reference = coverage_reference()
+    journal = Journal(journal_path)
+    print(f"\njournal: {journal_path}")
+    print("  Every outcome is written here as its cohort is decided, BEFORE "
+          "anything\n  downstream can fail. Rebuild the whole report from it "
+          "with:")
+    print(f"    python -m core.items.generate --report {journal_path}")
 
     ceiling = _expected_calls(numbers) - (CONTROL_RUNS if skip_control else 0)
     print(f"\nAbout to make up to {ceiling} billed model calls.")
@@ -1263,8 +1473,10 @@ def run(
               "the check discriminates.")
 
     # --- the units
-    all_outcomes: list[Outcome] = []
-    per_unit: dict[int, list[Outcome]] = {}
+    #
+    # Kept ONLY for `--apply`, which needs the live `BaseItem` and its
+    # `ValidationReport`; every report below reads the journal instead.
+    accepted_outcomes: list[Outcome] = []
     for number in numbers:
         entry = plan[number]
         print("\n" + "=" * 78)
@@ -1280,47 +1492,68 @@ def run(
             reference=reference,
         )
 
+        # **WRITTEN BEFORE THE TOP-UP RUNS, and that ordering is the fix.**
+        # W10c's fourth attempt crashed inside `_top_up` and the traceback ended
+        # the process before anything printed, so eight rejection codes that had
+        # already been paid for were destroyed by a failure that came after them.
+        journal.record(outcomes)
+
         # --- one top-up round, asking for exactly the shortfall
         short = [o for o in outcomes if not o.accepted]
         if short:
             print(f"\n  {len(short)} slot(s) short — one top-up round, "
                   "with the failures fed back.")
-            outcomes = _top_up(
-                outcomes, short, entry, number, settings=settings, calls=spent
-            )
+            try:
+                outcomes = _top_up(
+                    outcomes, short, entry, number, settings=settings, calls=spent
+                )
+            except Exception:  # noqa: BLE001 — a top-up is an EXTRA, not the run
+                # **A top-up failing must cost the top-up and nothing else.** It
+                # is a second chance at slots that already failed once; letting
+                # it take down a unit whose first cohort is already on disk
+                # trades something valuable for something optional. The unit
+                # keeps its original outcomes, already journalled above.
+                logger.exception("top-up failed for unit %s; keeping the "
+                                 "cohort as first decided", number)
+                print(f"\n  ** TOP-UP FAILED for unit {number} — see the log. "
+                      "The unit keeps its\n     original outcomes, which were "
+                      "written to the journal before this ran. **")
+            else:
+                journal.record([o for o in outcomes if o.topped_up])
 
-        per_unit[number] = outcomes
-        all_outcomes.extend(outcomes)
-        _print_items(outcomes)
+        accepted_outcomes.extend(o for o in outcomes if o.accepted)
 
-    # --- the accounting
-    print("\n" + "=" * 78)
-    print("ACCOUNTING — drafted = accepted + discarded + duplicate")
-    print("=" * 78)
-    for number in numbers:
-        _print_tally(f"unit {number}", tally_of(per_unit[number]), target=ITEMS_PER_UNIT)
-    total = tally_of(all_outcomes)
-    _print_tally("TOTAL", total, target=ITEMS_PER_UNIT * len(numbers))
-
-    _print_targets(all_outcomes)
-    _print_back_translations(all_outcomes)
-    _print_cross_tab(all_outcomes)
-    print_verdicts(all_outcomes, control)
+    # --- the report, READ BACK FROM DISK
+    #
+    # Not from `outcomes` in memory. The journal is the record and this is a
+    # view of it, so `--report` on a later day prints the same thing without
+    # re-buying a call -- and so a crash between here and the end costs the
+    # printing rather than the findings.
+    rows = read_journal(journal.path)
+    print(f"\nreport rebuilt from {journal.path} ({len(rows)} rows)")
+    _print_report(rows, numbers, control)
 
     print(f"\nbilled calls this run: {sum(spent.values())} "
           f"({' · '.join(f'{k} {v}' for k, v in sorted(spent.items()))})")
     print(
-        "\n24 ITEMS, ONE SAMPLE EACH, of a stochastic system. A fail is decisive; "
-        "a pass is\nnot proof. `probe_target` is a model checking a model, "
-        "plausibly the same model\nwith correlated blind spots — a fluent item "
-        "teaching a subtly wrong point can\npass every gate above. Nobody should "
-        "later read this run as 'the items were\nverified'."
+        "\n24 ITEMS, ONE SAMPLE EACH, of a stochastic system. A fail is "
+        "decisive; a pass is\nnot proof. `probe_target` is a model checking a "
+        "model, plausibly the same model\nwith correlated blind spots — a fluent "
+        "item teaching a subtly wrong point can\npass every gate above. Nobody "
+        "should later read this run as 'the items were\nverified'."
     )
 
     if not apply:
         print("\n--live — nothing was written. Re-run with --apply to write.")
         return 0
-    return _write(user_id, all_outcomes, settings=settings)
+    # **`--apply` writes from memory, not from the journal**, and that is a real
+    # limit rather than an oversight: `insert_item` needs a `BaseItem` and a
+    # `ValidationReport`, and a journal row carries the item's VISIBLE half. It
+    # cannot be rebuilt into something the validator would vouch for, and
+    # inventing one from a projection would be exactly the second serialiser
+    # this package refuses. So a crash before this point costs the write and
+    # keeps the findings, which is the right way round.
+    return _write(user_id, accepted_outcomes, settings=settings)
 
 
 def _top_up(
@@ -1420,7 +1653,7 @@ def _measure_coverage(outcome: Outcome, reference: frozenset[str] | None) -> Non
     outcome.coverage_unknown = tuple(report.unknown_lemmas)
 
 
-def _print_items(outcomes: list[Outcome]) -> None:
+def _print_items(rows: Sequence[dict]) -> None:
     """Every slot, accepted or not. **Nothing is summarised away before a write.**
 
     `rewrite_checkpoints` prints all 24 rows before it touches any of them, for
@@ -1428,35 +1661,37 @@ def _print_items(outcomes: list[Outcome]) -> None:
     of what the model produced, and the operator reads the items from it.
     """
     print()
-    for outcome in outcomes:
-        slot = outcome.slot
-        mark = "OK " if outcome.accepted else "-- "
-        extra = " (top-up)" if outcome.topped_up else ""
-        print(f"  {mark} {slot.index + 1}. {slot.item_type:<20} {slot.target!r}{extra}")
-        if outcome.item is not None:
-            item = outcome.item
-            print(f"        prompt : {item.prompt_text}")
-            if item.answer is not None:
-                print(f"        answer : {item.answer}")
+    for row in rows:
+        accepted = row.get("state") == "accepted"
+        mark = "OK " if accepted else "-- "
+        extra = " (top-up)" if row.get("topped_up") else ""
+        print(f"  {mark} {row['slot'] + 1}. {row['item_type']:<20} "
+              f"{row['target']!r}{extra}")
+        item = row.get("item")
+        if item is not None:
+            print(f"        prompt : {item['prompt_text']}")
+            if item.get("answer") is not None:
+                print(f"        answer : {item['answer']}")
             for name in ("options", "bank", "tiles", "pairs"):
-                value = getattr(item, name, None)
-                if value:
-                    print(f"        {name:<7}: {list(value)}")
-            if item.cue_text:
-                print(f"        cue    : {item.cue_text}")
-            if item.explanation:
-                print(f"        why    : {item.explanation}")
-            if outcome.coverage_pct is not None:
-                below = outcome.coverage_pct < COVERAGE_FLOOR * 100
-                flag = "  ** BELOW THE 90% FLOOR (measured, not enforced) **" if below else ""
-                unknown = (f" unknown={list(outcome.coverage_unknown)}"
-                           if outcome.coverage_unknown else "")
-                print(f"        cover  : {outcome.coverage_pct}%{unknown}{flag}")
-        if not outcome.accepted:
-            print(f"        REJECTED at {outcome.stage}: {list(outcome.codes)}")
-        elif outcome.report is not None and outcome.report.repair_count:
-            print(f"        repaired x{outcome.report.repair_count} "
-                  f"({outcome.report.cue_applied})")
+                if item.get(name):
+                    print(f"        {name:<7}: {item[name]}")
+            if item.get("cue_text"):
+                print(f"        cue    : {item['cue_text']}")
+            if item.get("explanation"):
+                print(f"        why    : {item['explanation']}")
+        if row.get("coverage_pct") is not None:
+            below = row["coverage_pct"] < COVERAGE_FLOOR * 100
+            flag = "  ** BELOW THE 90% FLOOR (measured, not enforced) **" if below else ""
+            unknown = (f" unknown={row['coverage_unknown']}"
+                       if row.get("coverage_unknown") else "")
+            print(f"        cover  : {row['coverage_pct']}%{unknown}{flag}")
+        if not accepted:
+            print(f"        REJECTED at {row.get('stage')}: {row.get('codes')}")
+        else:
+            validation = row.get("validation") or {}
+            if validation.get("repair_count"):
+                print(f"        repaired x{validation['repair_count']} "
+                      f"({validation.get('cue_applied')})")
 
 
 def _write(user_id: int, outcomes: list[Outcome], *, settings: Settings) -> int:
@@ -1493,7 +1728,7 @@ def main(argv: list[str] | None = None) -> int:
         "writes what passed."
     )
     parser.add_argument(
-        "--user", type=int, required=True,
+        "--user", type=int,
         help="users.id to generate for. No default, deliberately — these rows "
              "are permanent and belong to a learner.",
     )
@@ -1506,11 +1741,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true",
                         help="make the calls and WRITE what passed (billed)")
     parser.add_argument(
+        "--journal", type=Path, default=DEFAULT_JOURNAL,
+        help=f"where outcomes are written as they are decided "
+             f"(default: {DEFAULT_JOURNAL})",
+    )
+    parser.add_argument(
+        "--report", type=Path, metavar="JOURNAL",
+        help="rebuild the full report from a journal file. Makes NO calls.",
+    )
+    parser.add_argument(
         "--skip-control", action="store_true",
         help="do not re-run the negative control; use the banked 3/3 result "
              "from 2026-08-27. Only valid while that result stands.",
     )
     args = parser.parse_args(argv)
+    if args.user is None and not args.report:
+        parser.error("--user is required (no default, deliberately — these rows "
+                     "are permanent and belong to a learner)")
     if args.live and args.apply:
         parser.error("--live and --apply are alternatives; --apply implies --live")
 
@@ -1527,10 +1774,12 @@ def main(argv: list[str] | None = None) -> int:
     if not numbers:
         parser.error("--units is empty")
 
+    if args.report:
+        return report_only(args.report)
     if args.live or args.apply:
         return run(args.user, numbers, apply=args.apply,
-                   skip_control=args.skip_control)
-    return dry_run(args.user, numbers)
+                   skip_control=args.skip_control, journal_path=args.journal)
+    return dry_run(args.user, numbers, journal_path=args.journal)
 
 
 if __name__ == "__main__":  # pragma: no cover

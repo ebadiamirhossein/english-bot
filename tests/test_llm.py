@@ -197,6 +197,54 @@ def test_a_truncated_response_is_logged_before_it_is_discarded(
 
 @patch("core.llm.time.sleep", return_value=None)
 @patch("core.llm.anthropic.Anthropic")
+def test_a_response_with_no_text_block_reports_WHY_it_has_nothing(
+    mock_anthropic_cls: MagicMock,
+    _mock_sleep: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """**#198's own failure, and it is the eighth appearance of the family.**
+
+    W10c's fourth `--live` attempt truncated at `output_tokens=8000` and this log
+    line reported `chars=0 item_type_count=0 head='' tail=''` — four empty fields
+    that read as *the model produced nothing*. **It had not.** `_extract_text`
+    raised with the precise reason, and the handler read
+    `except LLMError: partial = ""` — **a fix written to stop evidence being
+    discarded, containing a discard in its own error path.**
+
+    `blocks` is what the message alone cannot distinguish: an empty content list,
+    a genuinely empty text block, and a response made entirely of non-text blocks
+    are three different findings that all produce `chars=0`.
+    """
+    class _NoText:
+        thinking = "eight thousand tokens of something"
+
+    client = mock_anthropic_cls.return_value
+    response = _make_response("")
+    response.content = [_NoText()]
+    response.stop_reason = "max_tokens"
+    response.usage.output_tokens = 8000
+    client.messages.create.return_value = response
+
+    with caplog.at_level("WARNING", logger="core.llm"):
+        with pytest.raises(LLMError):
+            chat(
+                [{"role": "user", "content": "hi"}],
+                max_tokens=8000,
+                reject_truncation=True,
+                settings=_settings(),
+            )
+
+    logged = caplog.text
+    assert "chars=0" in logged
+    # The reason `_extract_text` gave, which used to be swallowed.
+    assert "extract_failed=" in logged
+    assert "no text blocks" in logged
+    # What the response actually held, which the message cannot say.
+    assert "_NoText" in logged, "the block types were not reported"
+
+
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
 def test_truncation_still_raises_and_returns_nothing(
     mock_anthropic_cls: MagicMock, _mock_sleep: MagicMock
 ) -> None:

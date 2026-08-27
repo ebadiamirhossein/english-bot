@@ -16,6 +16,7 @@ import pytest
 
 from core.items import gates
 from core.items.generate import (
+    journal_line,
     ITEMS_PER_UNIT,
     SLOT_TYPES,
     Outcome,
@@ -209,19 +210,28 @@ def test_the_payload_carries_the_target_text_and_the_type_per_slot():
 # ── the accounting identity ─────────────────────────────────────────────────
 
 
-def _outcome(state, stage=None, codes=()):
+def _row(state, stage=None, codes=()):
+    """A JOURNAL ROW, because that is what the accounting reads now.
+
+    `Tally.add` takes a row rather than an `Outcome` so the numbers are
+    recomputable from disk without re-buying a call — the property the journal
+    exists for. A test that fed it an `Outcome` would be exercising a path that
+    only works while the process is alive.
+    """
     slot = Slot(index=0, item_type="mcq", target=UNIT_1[0])
-    return Outcome(slot=slot, unit_number=1, state=state, stage=stage, codes=codes)
+    return journal_line(
+        Outcome(slot=slot, unit_number=1, state=state, stage=stage, codes=codes)
+    )
 
 
 def test_the_identity_balances():
     """drafted = accepted + discarded + duplicate."""
     tally = tally_of([
-        _outcome("accepted"),
-        _outcome("accepted"),
-        _outcome("duplicate"),
-        _outcome("discarded", "probe", ("multi_acceptable",)),
-        _outcome("discarded", "target", ("ranked_2",)),
+        _row("accepted"),
+        _row("accepted"),
+        _row("duplicate"),
+        _row("discarded", "probe", ("multi_acceptable",)),
+        _row("discarded", "target", ("ranked_2",)),
     ])
     assert (tally.drafted, tally.accepted, tally.duplicate, tally.discarded) == (5, 2, 1, 2)
     assert tally.balances
@@ -230,9 +240,9 @@ def test_the_identity_balances():
 def test_discards_are_broken_out_by_stage():
     """A total tells you the yield; the stage tells you which half to fix."""
     tally = tally_of([
-        _outcome("discarded", "judge", ("unnatural",)),
-        _outcome("discarded", "judge", ("unnatural",)),
-        _outcome("discarded", "target", ("ranked_2",)),
+        _row("discarded", "judge", ("unnatural",)),
+        _row("discarded", "judge", ("unnatural",)),
+        _row("discarded", "target", ("ranked_2",)),
     ])
     assert tally.by_stage == Counter({"judge": 2, "target": 1})
 
@@ -242,7 +252,7 @@ def test_a_short_unit_is_reported_short_and_never_padded(capsys):
     criterion is 8 — so the number is reported, not the bar moved."""
     from core.items.generate import _print_tally
 
-    tally = tally_of([_outcome("accepted")] * 6 + [_outcome("discarded", "probe")] * 2)
+    tally = tally_of([_row("accepted")] * 6 + [_row("discarded", "probe")] * 2)
     _print_tally("unit 1", tally, target=ITEMS_PER_UNIT)
     out = capsys.readouterr().out
     assert "6/8" in out

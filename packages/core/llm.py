@@ -338,17 +338,38 @@ def _anthropic_once(
         #
         # **This is a log line and nothing else.** No request field changes, so
         # CLAUDE.md §3 rule 2 does not fire.
+        # **`why` exists because THIS HANDLER'S FIRST DRAFT SWALLOWED IT.**
+        # It read `except LLMError: partial = ""`, so a response with no text
+        # block logged `chars=0 item_type_count=0 head='' tail=''` -- four empty
+        # fields that read as *the model produced nothing*. It had not:
+        # `_extract_text` had raised with the precise reason
+        # ("Anthropic response contained no text blocks") and this line threw the
+        # reason away. **A fix written to stop evidence being discarded contained
+        # a discard in its own error path**, and W10c's fourth `--live` attempt
+        # is where that cost 8,000 billed tokens of unexplained output.
+        #
+        # `blocks` is what distinguishes the cases the message cannot: an empty
+        # content list, a text block that is genuinely empty, and a response made
+        # entirely of non-text blocks are three different findings that all
+        # produced `chars=0`.
+        why = ""
         try:
             partial = _extract_text(response)
-        except LLMError:
+        except LLMError as exc:
             partial = ""
+            why = f" extract_failed={exc}"
+        blocks = [
+            type(b).__name__ for b in (getattr(response, "content", None) or [])
+        ]
         logger.warning(
             "truncated response discarded: chars=%s item_type_count=%s "
-            "head=%r tail=%r",
+            "blocks=%s head=%r tail=%r%s",
             len(partial),
             partial.count('"item_type"'),
+            blocks,
             _truncate_raw(partial),
             partial[-_JSON_RAW_LOG_LIMIT:],
+            why,
         )
         raise LLMError(
             f"response truncated stop_reason={stop_reason} "
