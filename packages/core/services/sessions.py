@@ -1164,7 +1164,12 @@ def _review_block(user_id: int, *, now: datetime) -> tuple[str, dict[str, Any]]:
         # `apps/web/components/session/copy.ts` -- and it offers watching rather
         # than inventing practice.
         return "empty", {}
-    return "ready", {"cards": [card.face() for card in queue]}
+    # `cards_service.card_face` and NOT `card.face()` (#190). The bare `face()`
+    # omits `intervals`, which the client's `CardFace` type declares as
+    # non-optional and `GradeButtons` reads unguarded — so this line shipped a
+    # session that crashed on the first card a learner graded. One contract, one
+    # producer.
+    return "ready", {"cards": [cards_service.card_face(c, now=now) for c in queue]}
 
 
 def _input_block() -> tuple[str, dict[str, Any]]:

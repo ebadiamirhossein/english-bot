@@ -669,3 +669,92 @@ def test_the_cloze_reader_writes_nothing(db, learner) -> None:
 def test_the_rating_names_are_the_four_fsrs_grades() -> None:
     assert set(RATINGS) == {"again", "hard", "good", "easy"}
     assert sorted(RATINGS.values()) == [1, 2, 3, 4]
+
+
+# --------------------------------------------------------------------------
+# #190: one contract, one producer
+# --------------------------------------------------------------------------
+
+
+def test_only_one_module_builds_a_card_face() -> None:
+    """**The rule that stops #190 coming back, and it is a rule about producers.**
+
+    W10 shipped a session whose block 1 crashed on the first card a learner
+    graded. The cause was not a typo: `Card.face()` returns the card's own
+    columns, `intervals` is computed from the scheduler, and the client's
+    `CardFace` type declares both — so a caller who reaches for `face()` gets an
+    object TypeScript believes is complete and which is not.
+    `apps/api/routers/cards.py` added the missing field; W10's
+    `core.services.sessions._review_block` did not, and nothing compared them.
+
+    So `Card.face()` may be called from exactly ONE module —
+    `core.services.cards`, where `card_face` completes it — and every producer
+    goes through that. **A second hand-assembled face is the defect returning.**
+
+    Asserted by MODULE rather than by line, because the rule is about who
+    produces a card face and not about where the call sits. Parsed and never
+    grepped: prose about the rule is not the rule being broken (#150).
+    """
+    import ast
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    roots = ("packages/core", "apps/api", "apps/worker", "apps/bot")
+
+    callers: set[str] = set()
+    for name in roots:
+        for path in sorted((repo_root / name).rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "face"
+                ):
+                    callers.add(str(path.relative_to(repo_root)))
+
+    assert callers == {"packages/core/services/cards.py"}, (
+        "`Card.face()` may be called only inside `core.services.cards`, where "
+        "`card_face` completes it with `intervals`. Callers found: "
+        + ", ".join(sorted(callers))
+    )
+
+
+def test_a_card_face_always_carries_all_four_intervals() -> None:
+    """The field the client reads unguarded, asserted where it is produced.
+
+    `GradeButtons` maps over `RATINGS` and reads `card.intervals[rating]` for
+    every one of the four. A face carrying three of them crashes exactly as a
+    face carrying none does.
+    """
+    from datetime import datetime, timezone
+
+    from core.cards import RATINGS
+    from core.cards.fsrs import initial_state
+    from core.services.cards import Card, card_face
+
+    now = datetime(2026, 8, 26, 9, 0, tzinfo=timezone.utc)
+    card = Card(
+        id=1,
+        user_id=1,
+        card_type="production",
+        source_chunk_id=None,
+        source_ref=None,
+        front="to eat quickly",
+        back="devour",
+        context_sentence=None,
+        meaning=None,
+        neutral_equivalent=None,
+        neutral_lexeme_id=None,
+        who_says_this=None,
+        lexeme_id=None,
+        cue_text=None,
+        register="neutral",
+        register_source="import_default",
+        neutral_mastered_at=None,
+        state=initial_state(due=now),
+        leech_at=None,
+    )
+    face = card_face(card, now=now)
+    assert set(face["intervals"]) == set(RATINGS)
+    assert all(isinstance(v, int) for v in face["intervals"].values())

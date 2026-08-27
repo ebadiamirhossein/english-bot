@@ -49,7 +49,6 @@ from apps.api.schemas import (
     ReviewQueueOut,
 )
 from core.cards import RATINGS
-from core.cards.fsrs import review as schedule_review
 from core.services import cards as cards_service
 from core.services.auth import AuthenticatedUser
 
@@ -83,23 +82,18 @@ def require_json(request: Request) -> None:
         )
 
 
-def _intervals(card: cards_service.Card, *, now: datetime) -> dict[str, int]:
-    """What each button would schedule, in days. Computed, never guessed.
-
-    Four scheduler calls on frozen state — `core.cards.fsrs.review` copies the
-    card before touching it, so asking "what would Easy do" cannot advance
-    anything. Shown on the buttons because a learner choosing between Hard and
-    Good is choosing between two intervals, and hiding them makes the choice
-    arbitrary.
-    """
-    out: dict[str, int] = {}
-    for name, rating in RATINGS.items():
-        out[name] = schedule_review(card.state, rating, now=now).scheduled_days or 0
-    return out
-
-
 def _face(card: cards_service.Card, *, now: datetime) -> CardFace:
-    return CardFace(**card.face(), intervals=_intervals(card, now=now))
+    """Serialise. **The shape is the service's, not this route's** (#190).
+
+    `_intervals` used to live here and ran four scheduler calls inside the
+    route — arithmetic over `core.cards.fsrs` in a layer CLAUDE.md §2 says
+    contains no business logic. It was tolerable while this route was the only
+    producer of a card face. **W10 added a second and the session shipped
+    without the intervals**, because a route-local helper is invisible to
+    everyone who is not editing that route. `cards_service.card_face` is now the
+    only place a card becomes what a browser receives.
+    """
+    return CardFace(**cards_service.card_face(card, now=now))
 
 
 def _counts(counts: cards_service.DeckCounts) -> DeckCountsOut:

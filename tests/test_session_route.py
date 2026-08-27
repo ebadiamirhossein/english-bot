@@ -21,8 +21,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import secrets
+import subprocess
+import sys
 import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -371,3 +375,125 @@ def test_an_attempt_on_someone_elses_card_is_a_404(app, db, learner) -> None:
         headers={"content-type": "application/json"},
     )
     assert response.status_code == 404
+
+
+# ── #190: the two producers of a card face must agree on the wire ───────────
+
+
+def test_the_session_serves_the_same_card_shape_as_the_review_queue(
+    app, db, learner
+) -> None:
+    """**The check that would have caught #190, and it compares two RESPONSES.**
+
+    `CardFace` in `apps/web/lib/api.ts` is one contract with two producers:
+    `GET /review/queue` and block 1 of `GET /session/today`. W10 shipped the
+    second one incomplete — `card.face()` without `intervals` — and the client
+    read `card.intervals[rating]` unguarded, so the session crashed on the first
+    card a learner graded.
+
+    **Nothing could see it.** `BlockOut.payload` is `dict[str, Any]`, so pydantic
+    validated an envelope it had no shape for, and Vitest hand-wrote its card
+    fixtures, so the client's expectation and the server's output were never
+    compared. Both suites were green.
+
+    This asserts key-for-key against two real ASGI bodies. It is deliberately
+    **not** a comparison against `card_face()` — a fixture checked against its own
+    source agrees with itself forever, which is the trap
+    `tests/test_items_route.py` records having fallen into once already.
+    """
+    _seed_due_card(db, learner)
+
+    queue_card = request(
+        app, "GET", "/review/queue", cookies=_as(learner)
+    ).json()["cards"][0]
+    session_card = request(
+        app, "GET", "/session/today", cookies=_as(learner)
+    ).json()["blocks"][0]["payload"]["cards"][0]
+
+    assert set(session_card) == set(queue_card), (
+        "the session and /review/queue disagree about what a card face is — "
+        "this is #190. Both must go through `core.services.cards.card_face`."
+    )
+
+
+def test_every_card_the_session_serves_carries_all_four_intervals(
+    app, db, learner
+) -> None:
+    """The specific field, at the specific place a learner meets it.
+
+    `GradeButtons` maps over the four ratings and reads one interval each, so a
+    face carrying three of them crashes exactly as one carrying none does. The
+    shape check above would pass on `"intervals": {}`; this one would not.
+    """
+    _seed_due_card(db, learner)
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    cards = body["blocks"][0]["payload"]["cards"]
+    assert cards, "no card was served; this check is reading nothing"
+    for card in cards:
+        assert set(card["intervals"]) == {"again", "hard", "good", "easy"}
+        assert all(isinstance(v, int) for v in card["intervals"].values())
+
+
+# ── #190: the committed fixture describes the wire, not a function ──────────
+
+FIXTURE = (
+    Path(__file__).resolve().parents[1]
+    / "apps" / "web" / "components" / "session" / "session-today.fixture.json"
+)
+EXPORTER = Path(__file__).resolve().parents[1] / "scripts" / "export_session_fixture.py"
+
+
+def test_the_session_exporter_and_fixture_both_exist() -> None:
+    """A guard for the two checks below: a missing file passes an empty
+    comparison, which is how a contract quietly stops being one."""
+    assert EXPORTER.is_file()
+    assert FIXTURE.is_file()
+
+
+def test_the_committed_session_fixture_is_current() -> None:
+    """Regenerate in memory and compare. **Not a note in a README.**
+
+    Run through the exporter's own `--check`, in a subprocess, so what is
+    verified is the command a human would run rather than a reimplementation of
+    it that could drift from the command — `tests/test_items_web_contract.py`'s
+    shape exactly.
+    """
+    result = subprocess.run(
+        [sys.executable, str(EXPORTER), "--check"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+    assert result.returncode == 0, (
+        "apps/web/components/session/session-today.fixture.json is stale — the "
+        "session's Vitest tests are rendering a card face the server no longer "
+        "serves. Re-run:\n  python scripts/export_session_fixture.py\n"
+        + result.stderr
+    )
+
+
+def test_the_committed_session_fixture_matches_the_wire(app, db, learner) -> None:
+    """**The assertion that makes the fixture a contract rather than a mock.**
+
+    The exporter builds its card in memory. If it described a *function* while
+    the route served something else, both suites would stay green and the seam
+    would silently stop meaning anything — which is #190 in a new costume, and
+    `tests/test_items_route.py` records that exact mistake being made once in
+    this repository already.
+
+    So the committed shape is compared against a real ASGI response body. Keys
+    only, not values: the fixture's card is frozen at a fixed instant on purpose
+    and a seeded card's `front` is a different string. **The shape is what
+    crashed.**
+    """
+    _seed_due_card(db, learner)
+    served = request(
+        app, "GET", "/session/today", cookies=_as(learner)
+    ).json()["blocks"][0]["payload"]["cards"][0]
+    committed = json.loads(FIXTURE.read_text(encoding="utf-8"))[0]
+
+    assert set(committed) == set(served), (
+        "the committed session fixture is not the shape the route serves. "
+        "Re-run `python scripts/export_session_fixture.py`."
+    )
+    assert set(committed["intervals"]) == set(served["intervals"])

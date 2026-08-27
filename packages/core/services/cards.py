@@ -37,6 +37,7 @@ from core.cards import (
     PREP_FORBIDDEN_REGISTERS,
     PREP_SOURCE_PREFIX,
     RATING_NAMES,
+    RATINGS,
     RECEPTIVE_FIRST_REGISTERS,
     TYPED_ANSWER_CARD_TYPES,
 )
@@ -711,6 +712,58 @@ def attempt_card(
     if card.card_type not in TYPED_ANSWER_CARD_TYPES:
         return False
     return answer_matches(card, text)
+
+
+# ---------------------------------------------------------------------------
+# the ONE card serialiser (#190)
+# ---------------------------------------------------------------------------
+
+
+def grade_intervals(card: Card, *, now: datetime) -> dict[str, int]:
+    """What each of the four buttons would schedule, in days. Computed, never guessed.
+
+    Four scheduler calls on frozen state — `core.cards.fsrs.review` copies the
+    card before touching it, so asking "what would Easy do" cannot advance
+    anything.
+
+    **This lived in `apps/api/routers/cards.py` until W10a.** It was arithmetic
+    over the scheduler sitting in a route, which CLAUDE.md §2 forbids ("a route
+    contains no business logic"), and it was tolerable only while the route was
+    the single consumer. W10 added a second — the daily session — and the
+    tolerable version became the defect below.
+    """
+    return {
+        name: review(card.state, rating, now=now).scheduled_days or 0
+        for name, rating in RATINGS.items()
+    }
+
+
+def card_face(card: Card, *, now: datetime) -> dict:
+    """**The only place a card is turned into what a learner's browser receives.**
+
+    `Card.face()` plus `intervals`, and every producer goes through here.
+
+    **This function exists because there were two producers and only one of them
+    was complete (#190).** W7's route built `CardFace(**card.face(),
+    intervals=...)`; W10's session block returned `card.face()` alone. The
+    TypeScript type declared `intervals: Record<Rating, number>` — not optional —
+    so `GradeButtons` read `card.intervals[rating]` unguarded and **the session
+    crashed on the first card a learner graded.**
+
+    Nothing caught it. `BlockOut.payload` is `dict[str, Any]`, so pydantic
+    validated an envelope it had no shape for; Vitest hand-wrote its card
+    fixtures, so the client's *expectation* and the server's *output* were never
+    compared. Both suites were green and the two halves had never met.
+
+    **The rule this establishes: one contract, one producer.** A second call site
+    that assembles a card face by hand is the defect returning, and
+    `tests/test_cards_service.py::test_only_one_function_builds_a_card_face`
+    fails the commit that adds one.
+
+    `now` is injected, like every other clock in this module, so a due-date
+    preview is assertable without freezing time (CLAUDE.md §3 rule 6).
+    """
+    return {**card.face(), "intervals": grade_intervals(card, now=now)}
 
 
 # ---------------------------------------------------------------------------

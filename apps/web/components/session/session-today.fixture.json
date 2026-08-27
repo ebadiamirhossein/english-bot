@@ -1,0 +1,42 @@
+[
+  {
+    "id": 41,
+    "card_type": "production",
+    "front": "احساس گیر افتادن\nI _____ in this job.",
+    "back": "feel trapped",
+    "cue": null,
+    "context_sentence": null,
+    "source_ref": "vocabulary",
+    "meaning": "احساس گیر افتادن",
+    "register": "neutral",
+    "neutral_equivalent": null,
+    "who_says_this": null,
+    "typed": true,
+    "intervals": {
+      "again": 0,
+      "hard": 10,
+      "good": 10,
+      "easy": 16
+    }
+  },
+  {
+    "id": 42,
+    "card_type": "recognition",
+    "front": "So that's a hard pass from me.",
+    "back": "hard pass",
+    "cue": null,
+    "context_sentence": "So that's a hard pass from me.",
+    "source_ref": "vocabulary",
+    "meaning": "a firm refusal",
+    "register": "neutral",
+    "neutral_equivalent": null,
+    "who_says_this": null,
+    "typed": false,
+    "intervals": {
+      "again": 0,
+      "hard": 10,
+      "good": 10,
+      "easy": 16
+    }
+  }
+]
