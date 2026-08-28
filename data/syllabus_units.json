@@ -13,7 +13,11 @@
       },
       {
         "target": "past simple and past continuous in the same sentence",
-        "murphy_units": "7-8"
+        "murphy_units": "7-8",
+        "contains": [
+          "past simple: regular and irregular verbs",
+          "past continuous for what was going on around it"
+        ]
       },
       {
         "target": "time linkers: then, after that, a bit later",

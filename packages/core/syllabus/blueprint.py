@@ -33,6 +33,27 @@ class ContentError(ValueError):
 class GrammarTarget:
     target: str
     murphy_units: str | None
+    #: **The sibling targets this one properly contains** (W10b, #237, operator
+    #: ruling 2026-08-28). Empty for all but a declared composite.
+    #:
+    #: **ADDITIVE, and that is the whole design.** No target text is reworded and
+    #: no `checkpoint.per_target` key changes, so **#212's rewording risk is not
+    #: triggered**: the strings that are keys everywhere else in this system are
+    #: untouched, and a target with no declaration behaves exactly as before.
+    #:
+    #: **What it is for.** Some units carry a target that names the CO-OCCURRENCE
+    #: of two others -- unit 1's *past simple and past continuous in the same
+    #: sentence* is exactly its first two targets used together. A single
+    #: sentence then instantiates both, and *which one does this demonstrate*
+    #: has no stable answer: measured at **5 of 10** on one sentence, twelve
+    #: calls, same model, same session (#237). The relation is CONTAINMENT and
+    #: containment is ASYMMETRIC, which is what makes it usable where a
+    #: rank-or-runner-up rule is not.
+    #:
+    #: **Never reaches a learner.** `core.sessions.blocks.visible_target` builds
+    #: the learner-visible dict by NAMING the one field that may travel, so this
+    #: is withheld by default exactly as `murphy_units` is (#171).
+    contains: tuple[str, ...] = ()
 
 
 def parse_murphy(spec: str) -> tuple[tuple[int, int], ...]:
@@ -93,7 +114,57 @@ def validate_grammar_targets(raw: object, *, unit_number: int) -> tuple[GrammarT
         if murphy is not None:
             parse_murphy(str(murphy))
             murphy = str(murphy).strip()
-        out.append(GrammarTarget(target, murphy))
+        raw_contains = entry.get("contains")
+        if raw_contains is None:
+            contains: tuple[str, ...] = ()
+        else:
+            if not isinstance(raw_contains, list) or not all(
+                isinstance(c, str) for c in raw_contains
+            ):
+                raise ContentError(
+                    f"unit {unit_number}: {target!r} `contains` must be a list "
+                    "of target strings"
+                )
+            contains = tuple(c.strip() for c in raw_contains)
+            if len(contains) < 2:
+                raise ContentError(
+                    f"unit {unit_number}: {target!r} declares containment of "
+                    f"{len(contains)} target(s); a co-occurrence names at least "
+                    "two, and a declaration of one is a different claim"
+                )
+            if len(set(contains)) != len(contains):
+                raise ContentError(
+                    f"unit {unit_number}: {target!r} names a contained target twice"
+                )
+            if target in contains:
+                raise ContentError(
+                    f"unit {unit_number}: {target!r} declares that it contains "
+                    "itself"
+                )
+        out.append(GrammarTarget(target, murphy, contains))
+
+    # **Second pass, because containment is checked against the WHOLE unit.**
+    # A declaration naming a target this unit does not have is the same defect
+    # `validate_checkpoint` refuses for a `per_target` key, and it is refused
+    # here for the same reason: the string is the identity, byte-exact.
+    names = {one.target for one in out}
+    for one in out:
+        missing = [c for c in one.contains if c not in names]
+        if missing:
+            raise ContentError(
+                f"unit {unit_number}: {one.target!r} declares containment of "
+                f"{missing}, which are not targets of this unit"
+            )
+        # A contained target must not itself be a composite: containment is one
+        # level deep, and nothing in the syllabus needs more. A chain would make
+        # "properly contains" a transitive question nobody has ruled on.
+        for c in one.contains:
+            child = next(x for x in out if x.target == c)
+            if child.contains:
+                raise ContentError(
+                    f"unit {unit_number}: {one.target!r} contains {c!r}, which "
+                    "is itself a composite. Containment is one level deep."
+                )
     return tuple(out)
 
 

@@ -298,6 +298,15 @@ def unit_plan(numbers: Sequence[int]) -> dict[int, dict]:
             "candidates": target_candidates(
                 number, all_targets[number], all_targets
             ),
+            # **`{composite: (the targets it properly contains)}`** (#237).
+            # Read from the syllabus, never inferred from wording: a rule that
+            # guessed containment from strings would be a fifth thing derived
+            # separately from the data it is about.
+            "contains": {
+                t.target: tuple(t.contains)
+                for t in everything[number].grammar_targets
+                if t.contains
+            },
         }
         for number in numbers
     }
@@ -429,6 +438,7 @@ def verify_lesson(
         return out
 
     # ── C2, one call per example ────────────────────────────────────────────
+    contains = info.get("contains") or {}
     off: list[str] = []
     for section in lesson.sections:
         for sentence in section.examples:
@@ -441,9 +451,39 @@ def verify_lesson(
             row = _verdict_row(verdict)
             row["sentence"] = sentence
             row["target"] = section.target
+            if verdict.ok:
+                out.example_verdicts.append(row)
+                continue
+
+            # ── CONTAINMENT, and it is ASYMMETRIC (#237, operator ruling) ──
+            #
+            # **Accepted when and only when the claimed target PROPERLY CONTAINS
+            # the one ranked first.** The claim is the composite; the judge named
+            # a part of it. The sentence does instantiate the composite -- it
+            # instantiates the part as well, because that is what a composite IS
+            # -- so the judge under-read it and the example is sound.
+            #
+            # **THE REVERSE STILL FAILS, and that is the whole reason this rule
+            # is usable where a sibling allowance was not.** A sentence claimed
+            # for a COMPONENT and ranked as the COMPOSITE instantiates more
+            # structure than it claims: the generator wrote a two-clause sentence
+            # for a one-clause target, and it is rejected. Run 2's
+            # `'My phone was ringing when I left.'` is exactly that case and
+            # stays rejected.
+            #
+            # Measured, not argued: the same sentence flips 5/10 between the
+            # composite and its part with `confidence: 'low'` on all ten, so no
+            # threshold on rank, runner-up or confidence separates the two
+            # directions. Containment does, because containment has a direction.
+            contained = contains.get(section.target, ())
+            if verdict.claimed_rank == 2 and verdict.first in contained:
+                row["accepted_by"] = "containment"
+                row["ok"] = True
+                out.example_verdicts.append(row)
+                continue
+
             out.example_verdicts.append(row)
-            if not verdict.ok:
-                off.append(sentence)
+            off.append(sentence)
     if off:
         out.state = "rejected"
         out.stage = "structure"
