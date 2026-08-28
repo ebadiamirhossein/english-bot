@@ -18,7 +18,13 @@ WHAT MAKES A SECTION GOOD — this is what most teaching gets wrong:
 - Every example must be a sentence built to SHOW the target. A sentence that
   merely contains the structure demonstrates nothing.
 - The mistake must be a mistake a real B1 learner really makes, not an
-  absurd one. Then correct it, and say in one line what changed.
+  absurd one. Then correct it, and say in one line what changed. `said` and
+  `corrected` must be DIFFERENT sentences — if they are identical the section
+  demonstrates nothing and is rejected.
+- No textbook English anywhere. Never "Indeed, it is quite interesting", "I am
+  very fond of", "Let us discuss the matter", and never open a sentence with
+  Indeed, Moreover or Furthermore. These are grammatically correct and nobody
+  says them.
 
 AN EXAMPLE MUST NOT ALSO DEMONSTRATE A NEIGHBOURING TARGET. This is the single
 commonest way a lesson is rejected, so check every example against it before you
@@ -60,6 +66,15 @@ checked exactly, and a sentence that appears only on the diagram is rejected.
   - `annotated_example.sentence` — must be one of the section's own examples.
   - `contrast_pair.first.example` and `.second.example` — the same.
   - `form_build.example` — the same.
+
+A CALLOUT ANNOTATES A SPAN OF ITS OWN SENTENCE. `annotated_example.callouts[].part`
+must be copied character for character FROM THAT DIAGRAM'S `sentence`. It is the
+piece of text being pointed at, never a description of it: for "After that, the
+rain got worse", `part` may be "After that" but never "the comma", never "the
+opening phrase", never "the past simple verb". Put the description in `note`.
+
+THE TWO SIDES OF A `contrast_pair` MUST NAME DIFFERENT FORMS. If `first.form` and
+`second.form` are the same string, nothing contrasts and the diagram is rejected.
 
 Everything else on a diagram is yours to write in your own words: a `situation`,
 a slot name, a `form` label, a tree `question`, a branch `answer`, `what_changes`
