@@ -639,18 +639,30 @@ def read_journal(path: Path) -> list[dict]:
     run.** `tests/test_lessons_journal.py` is that missing test.
     """
     rows: dict[tuple, dict] = {}
+    skipped: list[str] = []
     if not path.exists():
         return []
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        row = json.loads(line)
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            # **A crashed run can leave a half-written final line**, and a
+            # journal that cannot be read at all is the loss this whole file
+            # exists to prevent. The line is skipped and COUNTED -- silently
+            # dropping it would be the same defect one layer down.
+            skipped.append(line[:120])
+            continue
         kind = row.get("kind", "attempt")
         if kind == "control":
             key = ("control",)
         else:
             key = ("attempt", row["unit"], row.get("attempt", 1))
         rows[key] = row
+    if skipped:
+        print(f"  ** {len(skipped)} unreadable journal line(s) skipped — a run "
+              f"was probably killed mid-write. First: {skipped[0]!r} **")
     return list(rows.values())
 
 
@@ -1067,7 +1079,50 @@ def run(
                 feedback = f"The previous attempt did not match the contract: {exc}"
                 print(f"  rejected at generation: {str(exc)[:200]}")
                 continue
-            out = verify_lesson(lesson, info, reference=reference, settings=settings)
+            except item_gates.LLMError as exc:
+                out = Outcome(unit=number, state="rejected", stage="llm_error",
+                              attempt=attempt, codes=("llm_error",),
+                              details=(f"generation: {exc}",))
+                journal.record([out])
+                feedback = (
+                    "Your previous response was truncated before it finished. "
+                    "Return the SAME lesson but keep it tight: no commentary, "
+                    "no reasoning, only the JSON object."
+                )
+                print(f"  ** LLM ERROR at generation: {exc} **")
+                print("     Recorded as a failed attempt. The run continues.")
+                continue
+
+            # **A FAILED GATE CALL FAILS THE LESSON, NOT THE RUN.**
+            #
+            # On 2026-08-28 C3 returned no text block at all and the resulting
+            # `LLMError` propagated out of `verify_lesson` -> `run` -> `main` and
+            # killed the process. **~38 of 60 calls had already been spent**, and
+            # the run lost its own outcome block, its axes and its report --
+            # attempt 3 was never journaled because it was never decided.
+            #
+            # A run that has already spent money must not lose its summary to one
+            # bad response. This applies to every billed run this project will
+            # ever make, which is why it is filed on its own (#233) rather than
+            # as a W10b detail.
+            try:
+                out = verify_lesson(
+                    lesson, info, reference=reference, settings=settings
+                )
+            except item_gates.LLMError as exc:
+                out = Outcome(unit=number, state="rejected", stage="llm_error",
+                              attempt=attempt, codes=("llm_error",),
+                              details=(f"gate call failed: {exc}",),
+                              lesson=lesson)
+                out.attempt = attempt
+                journal.record([out])
+                print(f"  ** LLM ERROR in a gate: {exc} **")
+                print("     Recorded as a failed attempt. The run continues.")
+                feedback = (
+                    "A verification step could not complete on your previous "
+                    "attempt. Return the same lesson, shorter where you can."
+                )
+                continue
             out.attempt = attempt
             # **EVERY attempt is journaled the moment it is decided.** `run`
             # used to journal once per unit, with the final Outcome, so an

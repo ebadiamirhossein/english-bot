@@ -235,6 +235,28 @@ def test_every_journal_row_is_valid_json_on_one_line(journal) -> None:
         assert json.loads(line)
 
 
+def test_a_truncated_final_line_does_not_make_the_journal_unreadable(
+    tmp_path, capsys
+) -> None:
+    """A run killed mid-write leaves half a line. The rest must still be read.
+
+    **The crash of 2026-08-28 is the case**: the process died while the journal
+    held two complete attempts. A journal that cannot be read at all would be
+    the loss this whole file exists to prevent, one layer down.
+    """
+    path = tmp_path / "part.jsonl"
+    good = json.dumps({"kind": "attempt", "unit": 1, "attempt": 1,
+                       "state": "rejected", "stage": "deterministic"})
+    path.write_text(good + "\n" + good.replace('"attempt": 1', '"attempt": 2')
+                    + "\n" + '{"kind": "attempt", "unit": 1, "att',
+                    encoding="utf-8")
+
+    rows = read_journal(path)
+    assert len(attempts_of(rows)) == 2, "the readable attempts were lost"
+    # **Counted and reported, never silently dropped.**
+    assert "unreadable journal line" in capsys.readouterr().out
+
+
 def test_a_journal_from_before_the_kind_field_still_reads(tmp_path) -> None:
     """Rows written by the shipped version carry no `kind`. They are attempts.
 

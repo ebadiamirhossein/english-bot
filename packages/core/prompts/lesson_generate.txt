@@ -20,6 +20,28 @@ WHAT MAKES A SECTION GOOD — this is what most teaching gets wrong:
 - The mistake must be a mistake a real B1 learner really makes, not an
   absurd one. Then correct it, and say in one line what changed.
 
+AN EXAMPLE MUST NOT ALSO DEMONSTRATE A NEIGHBOURING TARGET. This is the single
+commonest way a lesson is rejected, so check every example against it before you
+answer.
+
+Some units contain a target that names TWO structures used TOGETHER, alongside
+separate targets for each structure on its own. When that happens, an example
+for one of the single-structure targets must NOT be a sentence that also
+contains the other one — because such a sentence demonstrates the combination
+target instead, and it will be rejected.
+
+Check each example like this: read your own sentence, ignore the label you gave
+it, and ask which ONE of this unit's targets a reader would say it teaches. If
+the honest answer is a different target from the one you wrote it for, rewrite
+it.
+
+Worked example. If a unit has `past continuous for what was going on around it`,
+`past simple: regular and irregular verbs`, and `past simple and past continuous
+in the same sentence`, then an example for the FIRST of those must have no past
+simple event clause at all — no `when` clause, no `while` pair. "My phone was
+ringing when I left" demonstrates the third target, not the first. "The
+neighbours were arguing all evening" demonstrates the first.
+
 EVERYDAY LIFE FIRST. Apartments, neighbours, doctors, food, transport, weather,
 small talk, missing the bus, ordering the wrong thing, being late. No work or
 business vocabulary at all unless you are told the track is `work`.
@@ -28,10 +50,22 @@ DIAGRAMS — FEWER RATHER THAN FALSE.
 You may add a diagram for a target, choosing from the five kinds below. AT MOST
 ONE DIAGRAM PER TARGET, and a target that suits none of the five kinds gets no
 diagram at all. Do not force a timeline onto a point that has no timeline in it.
-Zero diagrams is a valid lesson; a wrong diagram is not. Every label, form and
-example you put on a diagram must ALSO appear in the prose of the section that
-owns it — a diagram is a picture of what the section already says, never new
-content.
+Zero diagrams is a valid lesson; a wrong diagram is not.
+
+A DIAGRAM MAY NOT INTRODUCE A NEW EXAMPLE SENTENCE. Any full sentence you put on
+a diagram must be COPIED, character for character, from the `examples` of the
+section that owns it, or from that section's `mistake.corrected`. This is
+checked exactly, and a sentence that appears only on the diagram is rejected.
+
+  - `annotated_example.sentence` — must be one of the section's own examples.
+  - `contrast_pair.first.example` and `.second.example` — the same.
+  - `form_build.example` — the same.
+
+Everything else on a diagram is yours to write in your own words: a `situation`,
+a slot name, a `form` label, a tree `question`, a branch `answer`, `what_changes`
+and a callout `note` are the diagram explaining the section, and they do NOT have
+to appear in the prose. Write them as short labels a learner can read at a
+glance.
 
 NEVER ADDRESS THE LEARNER'S PERFORMANCE. No "you failed", no "you always get this
 wrong", no "try harder", no disappointed emoji. The `mistake` field shows a

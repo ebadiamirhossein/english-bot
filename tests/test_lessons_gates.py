@@ -251,3 +251,117 @@ def test_one_seam_covers_all_three_gates(seam) -> None:
     )
     lesson_gates.contradictions(_specimen())
     assert len(sent) == 3
+
+
+# ── a failed gate call must fail the LESSON, not the RUN ────────────────────
+
+
+def test_a_truncated_gate_response_fails_the_lesson_and_leaves_the_run_alive(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    """**#233. One bad response destroyed a run that had already spent ~38 calls.**
+
+    On 2026-08-28 C3 returned `output_tokens=1500 chars=0
+    blocks=['ThinkingBlock']` -- its whole budget spent thinking -- and the
+    `LLMError` propagated out of `verify_lesson` into `run` and killed the
+    process. No outcome block, no axes, no report, and the attempt in flight was
+    never journaled because it was never decided.
+
+    This drives the real `run` loop with a seam that raises exactly that error,
+    and asserts three things: the process survives, the attempt is journaled as
+    a failure with its reason, and the axis block still prints.
+    """
+    from core.items import gates as item_gates
+    from core.lessons import generate as gen
+
+    def explode(*args, **kwargs):
+        raise item_gates.LLMError(
+            "response truncated stop_reason=max_tokens output_tokens=1500 chars=0"
+        )
+
+    # The generation call succeeds; the first gate call does not.
+    monkeypatch.setattr(gen, "generate_lesson", lambda *a, **k: _specimen())
+    monkeypatch.setattr(gen.lesson_gates, "on_target", explode)
+    monkeypatch.setattr(gen, "coverage_reference", lambda: frozenset({"a"}))
+    monkeypatch.setattr(gen, "confirm", lambda *a, **k: True)
+
+    journal = tmp_path / "j.jsonl"
+    code = gen.run((1,), apply=False, journal_path=journal, skip_control=True)
+
+    out = capsys.readouterr().out
+    assert code == 0, "a gate failure killed the run"
+    assert "LLM ERROR in a gate" in out
+    assert "The run continues" in out
+
+    # The axis block still printed — the summary of a run already paid for.
+    assert "── outcome ─" in out
+    assert "0 of 1 lesson(s) SHIPPABLE" in out
+    assert "pre-registered axes" in out
+
+    # And every attempt reached disk, with the reason.
+    rows = gen.attempts_of(gen.read_journal(journal))
+    assert len(rows) == gen.MAX_REGENERATIONS + 1, (
+        "the failed attempts were not journaled"
+    )
+    assert all(r["stage"] == "llm_error" for r in rows)
+    assert "truncated" in rows[0]["details"][0]
+
+
+def test_a_truncated_generation_call_is_also_survivable(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    """The same guarantee one step earlier. W10c's attempt 1 died exactly here."""
+    from core.items import gates as item_gates
+    from core.lessons import generate as gen
+
+    def explode(*args, **kwargs):
+        raise item_gates.LLMError("response truncated stop_reason=max_tokens")
+
+    monkeypatch.setattr(gen, "generate_lesson", explode)
+    monkeypatch.setattr(gen, "coverage_reference", lambda: frozenset({"a"}))
+    monkeypatch.setattr(gen, "confirm", lambda *a, **k: True)
+
+    journal = tmp_path / "j.jsonl"
+    assert gen.run((1,), apply=False, journal_path=journal, skip_control=True) == 0
+    out = capsys.readouterr().out
+    assert "LLM ERROR at generation" in out
+    assert "0 of 1 lesson(s) SHIPPABLE" in out
+
+
+def test_the_three_lesson_gates_state_their_own_token_budgets(monkeypatch) -> None:
+    """**They inherited 400 from the items path, and C3 ran out on thinking.**
+
+    Asserted as numbers rather than as "bigger than the default", so a later
+    edit that reverts one to the inherited value fails here.
+    """
+    from core.lessons import gates as lg
+
+    assert lg.ON_TARGET_MAX_TOKENS == 2000
+    assert lg.STRUCTURE_MAX_TOKENS == 1000
+    assert lg.CONTRADICTION_MAX_TOKENS == 8000
+
+    seen: list[int] = []
+
+    def capture(messages, *, system, max_tokens, **kwargs):
+        seen.append(max_tokens)
+        return {"ranking": [CANDIDATES[0]], "confidence": "high",
+                "contradictions": []}
+
+    monkeypatch.setattr(item_gates, "_chat", capture)
+    section = _specimen().sections[0]
+    lesson_gates.on_target(section, candidates=[section.target, *CANDIDATES[1:]])
+    lesson_gates.example_demonstrates(
+        section.examples[0], claimed=section.target,
+        candidates=[section.target, *CANDIDATES[1:]],
+    )
+    lesson_gates.contradictions(_specimen())
+    assert seen == [2000, 1000, 8000], (
+        f"a lesson gate is not passing its own budget: {seen}"
+    )
+
+
+def test_the_items_probe_budget_is_unchanged(monkeypatch) -> None:
+    """The split must not have moved the items path. 96 tests already say so."""
+    from core.items.gates import TARGET_MAX_TOKENS
+
+    assert TARGET_MAX_TOKENS == 400

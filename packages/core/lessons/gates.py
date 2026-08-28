@@ -39,10 +39,36 @@ from core.items.gates import LLMError, TargetVerdict, probe_ranked
 # this record.
 from core.lessons.schema import Lesson, Section, diagram_text
 
-#: One list of contradictions over a whole lesson. Longer than a ranking, and
-#: still nowhere near a rewrite -- if it needs more than this it is listing
-#: rather than finding.
-CONTRADICTION_MAX_TOKENS = 1500
+# ── token budgets, STATED PER GATE rather than inherited ───────────────────
+#
+# **W10c recorded the lesson and W10b applied it to ONE call path.** On Sonnet 5,
+# omitting the `thinking` parameter runs ADAPTIVE THINKING; thinking tokens are
+# billed and count against `max_tokens`. `LESSON_MAX_TOKENS = 16000` was set with
+# that headroom for GENERATION -- and the three gates below silently inherited
+# `core.items.gates.TARGET_MAX_TOKENS = 400`, a number sized for ranking a short
+# list about one exercise.
+#
+# On 2026-08-28 C3 returned `output_tokens=1500 chars=0 blocks=['ThinkingBlock']`:
+# **the entire budget spent thinking, no text block at all.** The `LLMError` then
+# took the whole run with it (see `generate.run`).
+#
+# **Raising a ceiling costs nothing unless it is used** -- output tokens are
+# billed as produced -- so these are sized for the worst payload each gate sees
+# plus room to think, and they are NUMBERS IN THIS FILE rather than a default
+# inherited from another package.
+
+#: C1 reads one section: explanation, when-to, when-not-to, 2-3 examples, a
+#: wrong example and a diagram rendered to text. It returns a short ranking.
+ON_TARGET_MAX_TOKENS = 2000
+
+#: C2 reads ONE sentence and returns a short ranking. Small -- but not 400,
+#: because the thinking is about the grammar and not about the payload size.
+STRUCTURE_MAX_TOKENS = 1000
+
+#: C3 reads the WHOLE lesson -- every section, every example, every diagram --
+#: and reasons across all of it before listing what disagrees. **This is the one
+#: that ran out**, and it is the largest by a wide margin for that reason.
+CONTRADICTION_MAX_TOKENS = 8000
 
 
 def _section_payload(section: Section, diagram: str | None) -> dict:
@@ -102,6 +128,7 @@ def on_target(
         claimed=section.target,
         candidates=candidates,
         system="lesson_on_target.txt",
+        max_tokens=ON_TARGET_MAX_TOKENS,
         settings=settings,
     )
 
@@ -134,6 +161,7 @@ def example_demonstrates(
         claimed=claimed,
         candidates=candidates,
         system="lesson_structure.txt",
+        max_tokens=STRUCTURE_MAX_TOKENS,
         settings=settings,
     )
 

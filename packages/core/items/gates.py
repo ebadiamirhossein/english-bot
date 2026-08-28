@@ -458,6 +458,7 @@ def probe_ranked(
     claimed: str,
     candidates: Sequence[str],
     system: str,
+    max_tokens: int = TARGET_MAX_TOKENS,
     settings: Settings | None = None,
 ) -> TargetVerdict:
     """Rank a candidate list against a subject. **The engine, one implementation.**
@@ -477,6 +478,18 @@ def probe_ranked(
     the refusal of a claim that is not on the list, dropping inventions, and the
     ranking parse. The callers supply only *what is being classified* and *which
     prompt asks the question*.
+
+    **`max_tokens` is a parameter for the reason W10c recorded and W10b then
+    proved again the hard way: THINKING TOKENS ARE BILLED AND COUNT AGAINST THE
+    BUDGET.** An item probe ranks a short list about one exercise and 400 is
+    ample; a lesson gate reasons over a whole section or a whole lesson, and on
+    2026-08-28 one returned `output_tokens=1500 chars=0 blocks=['ThinkingBlock']`
+    -- the entire budget spent thinking, with no text at all. The default keeps
+    `probe_target` byte-identical; the lesson callers state their own.
+
+    **Raising a cap costs nothing unless it is used.** Output tokens are billed
+    as produced, so a larger ceiling buys headroom against truncation and not
+    spend.
 
     **`system` is a parameter because the question is not the same question.**
     `item_target.txt` opens *"You are reading one language exercise"* and reasons
@@ -512,7 +525,7 @@ def probe_ranked(
         [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
         system=_prompt(system),
         json_mode=True,
-        max_tokens=TARGET_MAX_TOKENS,
+        max_tokens=max_tokens,
         reject_truncation=True,
         settings=settings,
     )
