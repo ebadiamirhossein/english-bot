@@ -152,8 +152,25 @@ WHAT VERIFICATION CANNOT DO -- recorded plainly, not as an aside
 1. It is a MODEL CHECKING A MODEL, plausibly the same model, with correlated
    blind spots. A wrong-but-fluent explanation of a fine distinction can pass C1,
    C2 and C3 together. This is not equivalent to a human reading it.
-2. ONE SAMPLE PER CHECK of a stochastic system. A fail is decisive; a pass is
-   not proof.
+2. ONE SAMPLE PER CHECK of a stochastic system. **A fail is NOT decisive, and
+   that sentence used to read "a fail is decisive; a pass is not proof."**
+
+   ~~A fail is decisive; a pass is not proof.~~ **STRUCK 2026-08-28 FOR C2, AND
+   MEASURED RATHER THAN ARGUED.** The same sentence, the same candidate list,
+   the same model, the same session, twelve calls: `'I was cooking dinner when
+   the phone rang.'` ranked its claimed target FIRST in 5 of 10 and SECOND in
+   5 of 10. **Exactly even.** A single C2 rejection of that sentence carries no
+   more information than a coin.
+
+   **The old sentence remains TRUE of the deterministic checks** -- a word count
+   or a bijection does not flip -- **and it remains true of a PASS everywhere.**
+   What is false is that a single model-gate FAILURE is decisive. It was written
+   as a caution against over-reading a pass and it was read as a licence to
+   over-read a fail, including by the author of two repairs argued from two
+   samples each, one of which was wrong.
+
+   **A DIAGNOSIS DRAWN FROM ONE MODEL-GATE FAILURE IS NOT ESTABLISHED. Measure
+   the flip rate first.**
 3. NOTHING CHECKS THAT THE LESSON IS USEFUL. A section can teach its target,
    contradict nothing, sit at 96% coverage, and help nobody.
 4. NOTHING CHECKS THAT THE DIAGRAM READS. That is (a), and it is the operator's.

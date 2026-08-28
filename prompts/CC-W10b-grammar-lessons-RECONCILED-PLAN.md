@@ -918,7 +918,7 @@ the strongest reason the scope is 3 lessons and not 24.
 
 1. **A model checking a model.** A wrong-but-fluent explanation of a fine distinction can pass C1,
    C2 and C3 together. Not equivalent to a human reading it, and no number of checks makes it so.
-2. **One sample per check of a stochastic system.** A fail is decisive; a pass is not proof.
+2. **One sample per check of a stochastic system.** ~~A fail is decisive; a pass is not proof.~~ **CORRECTED 2026-08-28, and the old wording is quoted rather than deleted (#237).** **A fail is NOT decisive for a model gate.** Measured, not argued: the same sentence, same candidate list, same model, same session — C2 ranked the claimed target first in **5 of 10** and second in **5 of 10**, with `confidence: 'low'` on every one. A single C2 rejection carries no more information than a coin. **The old sentence stands for the deterministic checks and for a PASS everywhere**; what is false is that a single model-gate FAILURE is decisive. It was written to stop a pass being over-read and it was read as a licence to over-read a fail — twice, in this slice, by me.
 3. **Nothing checks that the lesson is useful.** A section can teach its target, contradict
    nothing, sit at 96% coverage, and help nobody.
 4. **Nothing checks that the diagram reads** (§5).
