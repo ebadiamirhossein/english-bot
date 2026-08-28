@@ -9,4 +9,20 @@ build/
 dist/
 .claude/
 .syllabus-stage-cache.json
+# ── generator run journals ─────────────────────────────────────────────────
+# Written at the repo root by the human-run billed generators, on whichever
+# machine runs them -- which is the PRODUCTION HOST for lessons.
+#
+# **Ignored because otherwise the generator's own output makes `git status`
+# non-empty on the host forever**, and deploy step 0a's rule is that a non-empty
+# status is a `high` finding. A guard that fires on every deploy is a guard
+# nobody reads, and training the operator to wave past step 0a would cost far
+# more than these files are worth.
+#
+# **An untracked file on one host is not a record.** The durable record is
+# `BUILD_PROGRESS.md`: `--report`'s full output is pasted into the decisions log
+# after every billed run, exactly as the run's own output already must be. The
+# journal is a working file that makes that paste free to produce and lets a
+# failed run be re-read rather than re-bought.
 w10c-journal.jsonl
+w10b-journal.jsonl

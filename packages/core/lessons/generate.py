@@ -431,7 +431,17 @@ def verify_lesson(
         out.state = "rejected"
         out.stage = "structure"
         out.codes = ("example_does_not_demonstrate",) * len(off)
-        out.details = tuple(f"{s!r}" for s in off)
+        # **The detail names what the sentence was mistaken FOR.** It used to be
+        # the sentence alone, which is why stage 1's rejection could not be read
+        # by the operator while it was on screen: three correct-looking
+        # sentences refused, with no way to see the distinction the gate drew.
+        by_sentence = {r["sentence"]: r for r in out.example_verdicts}
+        out.details = tuple(
+            f"{s!r}: claimed {by_sentence[s]['target']!r} at rank "
+            f"{by_sentence[s]['claimed_rank']}, but ranked "
+            f"{by_sentence[s]['first']!r} first"
+            for s in off
+        )
         return out
 
     # ── naturalness, ONE batched call ───────────────────────────────────────
@@ -498,6 +508,11 @@ class ControlResult:
     runs: int
     failures: int
     ranks: tuple[int | None, ...]
+    #: The full `TargetVerdict` of each run -- ranking, first, runner-up,
+    #: confidence. **Kept because a control that PASSED and was then reported as
+    #: `NOT EVALUATED` is the same loss as one that was never run**, and the
+    #: ranking is what says whether it was refused decisively or narrowly.
+    verdicts: tuple[dict, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -520,15 +535,18 @@ def run_control(*, settings: Settings | None = None) -> ControlResult:
     fixture = json.loads(CONTROL_FIXTURE.read_text(encoding="utf-8"))
     section = Section.model_validate(fixture["section"])
     ranks: list[int | None] = []
+    verdicts: list[dict] = []
     for _ in range(CONTROL_RUNS):
         verdict = lesson_gates.on_target(
             section, candidates=fixture["candidates"], settings=settings
         )
         ranks.append(verdict.claimed_rank)
+        verdicts.append(_verdict_row(verdict))
     return ControlResult(
         runs=CONTROL_RUNS,
         failures=sum(1 for r in ranks if r != 1),
         ranks=tuple(ranks),
+        verdicts=tuple(verdicts),
     )
 
 
@@ -536,7 +554,12 @@ def run_control(*, settings: Settings | None = None) -> ControlResult:
 
 
 def journal_line(out: Outcome) -> dict:
+    """One ATTEMPT, keyed `(unit, attempt)`. **Not one lesson.**
+
+    See `read_journal` for why the distinction cost a run's evidence.
+    """
     return {
+        "kind": "attempt",
         "unit": out.unit,
         "attempt": out.attempt,
         "state": out.state,
@@ -552,34 +575,115 @@ def journal_line(out: Outcome) -> dict:
     }
 
 
-class Journal:
-    """Outcomes on disk as they are decided, flushed every time.
+def control_line(control: ControlResult) -> dict:
+    """The negative control, journaled.
 
-    **This is what stopped W10c's five failed attempts being re-bought.**
-    `--report` rebuilds the whole reading from it with zero calls.
+    **It was not, and `--report` therefore read `NOT EVALUATED` over a control
+    that had passed 3 of 3.** The verdict was printed live at the terminal and
+    then lost, so the record could not describe the one result that makes every
+    other result in the run mean anything.
+    """
+    return {
+        "kind": "control",
+        "runs": control.runs,
+        "failures": control.failures,
+        "ranks": list(control.ranks),
+        "verdicts": list(control.verdicts),
+    }
+
+
+class Journal:
+    """Everything the run decides, on disk as it is decided, flushed every time.
+
+    **This is what stopped W10c's five failed attempts being re-bought**, and
+    `--report` rebuilds the whole reading from it with zero calls -- which is
+    only true if what it holds can describe the run. See `read_journal`.
     """
 
     def __init__(self, path: Path) -> None:
         self.path = path
 
-    def record(self, outcomes: Sequence[Outcome]) -> None:
+    def _append(self, rows: Sequence[dict]) -> None:
         with self.path.open("a", encoding="utf-8") as handle:
-            for out in outcomes:
-                handle.write(json.dumps(journal_line(out), ensure_ascii=False) + "\n")
+            for row in rows:
+                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
             handle.flush()
+
+    def record(self, outcomes: Sequence[Outcome]) -> None:
+        """One row per ATTEMPT. Called as each attempt is decided, not at the end."""
+        self._append([journal_line(out) for out in outcomes])
+
+    def record_control(self, control: ControlResult) -> None:
+        self._append([control_line(control)])
 
 
 def read_journal(path: Path) -> list[dict]:
-    """Last write per unit wins, ordered by file position."""
-    rows: dict[int, dict] = {}
+    """Every attempt and the control, deduplicated on `(kind, unit, attempt)`.
+
+    **THIS FUNCTION DESTROYED A RUN'S EVIDENCE AND THE MECHANISM WAS A FIX FOR A
+    DIFFERENT LOSS.** It kept the last write per UNIT, deliberately, so that a
+    stage-2 run could not clobber stage 1 -- different unit keys. Within a unit
+    it silently discarded every attempt but the last, and **the attempt worth
+    keeping is the one that got furthest**: on stage 1, attempt 2 reached C2 and
+    was rejected on three named sentences, and attempt 3 died at the free
+    deterministic checks. The report described attempt 3 and said C1, C2 and the
+    control had never been evaluated. **All three statements were false as
+    descriptions of the run.**
+
+    The C2 rankings that would settle #228 were the casualty: they were never
+    printed at the terminal -- only the sentences were -- and `run` journaled
+    once per unit with the final Outcome, so they never reached disk at all.
+
+    **The shape is one this project keeps meeting: a mechanism designed to
+    prevent one loss created another, and nothing tested that a report matched a
+    run.** `tests/test_lessons_journal.py` is that missing test.
+    """
+    rows: dict[tuple, dict] = {}
     if not path.exists():
         return []
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         row = json.loads(line)
-        rows[row["unit"]] = row
+        kind = row.get("kind", "attempt")
+        if kind == "control":
+            key = ("control",)
+        else:
+            key = ("attempt", row["unit"], row.get("attempt", 1))
+        rows[key] = row
     return list(rows.values())
+
+
+def attempts_of(rows: Sequence[dict]) -> list[dict]:
+    """Just the attempt rows, in order."""
+    return [r for r in rows if r.get("kind", "attempt") == "attempt"]
+
+
+def control_of(rows: Sequence[dict]) -> ControlResult | None:
+    """The journaled control, or None if the run never wrote one."""
+    for row in rows:
+        if row.get("kind") == "control":
+            return ControlResult(
+                runs=row["runs"],
+                failures=row["failures"],
+                ranks=tuple(row["ranks"]),
+                verdicts=tuple(row.get("verdicts", ())),
+            )
+    return None
+
+
+def final_attempts(rows: Sequence[dict]) -> list[dict]:
+    """The last attempt per unit -- what the LESSON ended up as.
+
+    Per-lesson axes read this; gate axes read every attempt, because a gate that
+    ran on attempt 2 was exercised whether or not attempt 3 reached it.
+    """
+    last: dict[int, dict] = {}
+    for row in attempts_of(rows):
+        unit = row["unit"]
+        if unit not in last or row.get("attempt", 1) >= last[unit].get("attempt", 1):
+            last[unit] = row
+    return list(last.values())
 
 
 # ── the verdicts ────────────────────────────────────────────────────────────
@@ -593,9 +697,19 @@ def print_verdicts(rows: Sequence[dict], control: ControlResult | None) -> None:
     and its sequel, and reusing the one implementation is why `band` was promoted
     to `core.runs` instead of copied.
     """
-    lessons = len(rows)
-    stages = [r.get("stage") for r in rows]
-    shippable = sum(1 for r in rows if r["state"] == "accepted")
+    # **Two different denominators, and conflating them is what made the report
+    # false.** Per-LESSON axes read the final attempt per unit -- what the
+    # lesson ended up as. GATE axes read every attempt, because a gate that ran
+    # on attempt 2 was exercised whether or not attempt 3 reached it.
+    if control is None:
+        control = control_of(rows)
+    every = attempts_of(rows)
+    finals = final_attempts(rows)
+
+    lessons = len(finals)
+    stages = [r.get("stage") for r in every]
+    shippable = sum(1 for r in finals if r["state"] == "accepted")
+    rows = finals
 
     # **THE OUTCOME, BEFORE THE AXES, and it exists because of what stage 1
     # looked like: four axes MET and four NOT EVALUATED, above a headline
@@ -625,7 +739,8 @@ def print_verdicts(rows: Sequence[dict], control: ControlResult | None) -> None:
 
     print("\n── pre-registered axes ─────────────────────────────────────────")
 
-    failed_first = sum(1 for r in rows if r.get("attempt", 1) > 1 or r["state"] != "accepted")
+    first_pass = {r["unit"]: r for r in reversed(every) if r.get("attempt", 1) == 1}
+    failed_first = sum(1 for r in first_pass.values() if r["state"] != "accepted")
     band("L1 lessons failing first pass", failed_first, L1_LOW, L1_HIGH, lessons,
          "2-3 means the GENERATOR PROMPT is wrong, not the gate. Fix the "
          "prompt, re-run, do not loosen a check.")
@@ -634,7 +749,7 @@ def print_verdicts(rows: Sequence[dict], control: ControlResult | None) -> None:
     # third. The exhausted count is printed beside it rather than folded into
     # it, because widening L1 after a run would be moving a registered axis.
     exhausted = sum(
-        1 for r in rows
+        1 for r in finals
         if r["state"] != "accepted" and r.get("attempt", 1) > MAX_REGENERATIONS
     )
     if exhausted:
@@ -643,13 +758,13 @@ def print_verdicts(rows: Sequence[dict], control: ControlResult | None) -> None:
               "measures the first pass only and says nothing about this.")
 
     reached_c1 = sum(1 for st in stages if st not in ("deterministic", "runner"))
-    sections_seen = sum(len(r.get("sections") or {}) for r in rows)
+    sections_seen = sum(len(r.get("sections") or {}) for r in every)
     drifted = sum(1 for st in stages if st == "on_target")
     band("L2 sections failing C1", drifted, L2_LOW, L2_HIGH, sections_seen,
          ">=5 means rewrite the prompt, not C1.",
          exercised=sections_seen if reached_c1 else 0)
 
-    examples_seen = sum(len(r.get("examples") or []) for r in rows)
+    examples_seen = sum(len(r.get("examples") or []) for r in every)
     off = sum(1 for st in stages if st == "structure")
     band("L3 examples failing C2", off, L3_LOW, L3_HIGH, examples_seen,
          ">=9 means the prompt is asking for examples rather than for "
@@ -663,9 +778,9 @@ def print_verdicts(rows: Sequence[dict], control: ControlResult | None) -> None:
          ">=12 means read them before touching anything.",
          exercised=examples_seen if judged else 0)
 
-    diagrams = sum(r.get("diagram_count", 0) for r in rows)
+    diagrams = sum(r.get("diagram_count", 0) for r in every)
     diagram_fails = sum(
-        1 for r in rows for c in (r.get("codes") or []) if c.startswith("diagram_")
+        1 for r in every for c in (r.get("codes") or []) if c.startswith("diagram_")
         or c in ("timeline_now", "timeline_points", "timeline_not_ordered",
                  "branch_count", "branches_not_distinct", "callout_count",
                  "callout_not_in_sentence", "form_slots", "contrast_identical")
@@ -681,6 +796,9 @@ def print_verdicts(rows: Sequence[dict], control: ControlResult | None) -> None:
     elif control.failures == control.runs:
         print(f"  L6 negative control: {control.failures} of {control.runs} "
               f"refused — predicted {CONTROL_RUNS} of {CONTROL_RUNS} — MET")
+        for i, v in enumerate(control.verdicts, 1):
+            print(f"      run {i}: claimed rank {v.get('claimed_rank')}, "
+                  f"first {v.get('first')!r}")
     elif control.ok:
         # The exact words, asserted by a test so neither reading can be quietly
         # preferred after the fact.
@@ -693,7 +811,7 @@ def print_verdicts(rows: Sequence[dict], control: ControlResult | None) -> None:
               f"**RUN VOID**")
 
     measured = [
-        pct for r in rows for pct in (r.get("coverage_pct") or {}).values()
+        pct for r in every for pct in (r.get("coverage_pct") or {}).values()
     ]
     if measured:
         low = min(measured)
@@ -863,6 +981,28 @@ def _feedback(out: "Outcome") -> str:
     return "\n".join(lines)
 
 
+def _print_gate_detail(out: "Outcome") -> None:
+    """The rankings, AT THE TERMINAL, not only in the journal.
+
+    **Stage 1's C2 rejection named three sentences and nothing else.** A reader
+    watching the run could see that three correct-looking sentences had been
+    refused and had no way to see what they had been mistaken FOR -- which is
+    the entire diagnostic content of a ranking gate. The operator stopped, and
+    could not have done otherwise.
+    """
+    for target, verdict in out.section_verdicts.items():
+        mark = "ok " if verdict["ok"] else "OFF"
+        print(f"    C1 {mark} {target!r}: rank {verdict['claimed_rank']}, "
+              f"first {verdict['first']!r}, runner-up {verdict['runner_up']!r}"
+              f", confidence {verdict['confidence']!r}")
+    for row in out.example_verdicts:
+        mark = "ok " if row["ok"] else "OFF"
+        print(f"    C2 {mark} {row['sentence']!r}")
+        print(f"         claimed {row['target']!r} at rank "
+              f"{row['claimed_rank']}; first {row['first']!r}; "
+              f"runner-up {row['runner_up']!r}")
+
+
 def run(
     numbers: tuple[int, ...],
     *,
@@ -886,8 +1026,15 @@ def run(
     control: ControlResult | None = None
     if not skip_control:
         control = run_control(settings=settings)
+        # **Journaled immediately.** It was not, and `--report` then read
+        # NOT EVALUATED over a control that had passed 3 of 3.
+        journal.record_control(control)
         print(f"\ncontrol: refused in {control.failures} of {control.runs} "
               f"(ranks {control.ranks})")
+        for i, verdict in enumerate(control.verdicts, 1):
+            print(f"    run {i}: claimed rank {verdict['claimed_rank']}, "
+                  f"first {verdict['first']!r}, "
+                  f"runner-up {verdict['runner_up']!r}")
         if not control.ok:
             print(
                 f"\n**RUN VOID.** The drifted control was refused in only "
@@ -916,11 +1063,19 @@ def run(
                 out = Outcome(unit=number, state="rejected", stage="generation",
                               attempt=attempt, codes=("schema",),
                               details=(str(exc)[:400],))
+                journal.record([out])
                 feedback = f"The previous attempt did not match the contract: {exc}"
                 print(f"  rejected at generation: {str(exc)[:200]}")
                 continue
             out = verify_lesson(lesson, info, reference=reference, settings=settings)
             out.attempt = attempt
+            # **EVERY attempt is journaled the moment it is decided.** `run`
+            # used to journal once per unit, with the final Outcome, so an
+            # attempt that reached the model gates and then lost to a later
+            # attempt left no trace at all -- which is how stage 1's C2
+            # rankings ceased to exist.
+            journal.record([out])
+            _print_gate_detail(out)
             if out.state == "accepted":
                 print(f"  accepted · {out.diagram_count} diagrams")
                 break
@@ -934,8 +1089,10 @@ def run(
                   "adjusted (CLAUDE.md §3 rule 7).")
         outcomes.append(out)
 
-    journal.record(outcomes)
-    print_verdicts([journal_line(o) for o in outcomes], control)
+    # Nothing is recorded here: every attempt and the control were journaled as
+    # they happened. The report is rebuilt FROM DISK rather than from memory,
+    # so what the operator reads is what a later `--report` will read.
+    print_verdicts(read_journal(journal.path), control)
 
     if not apply:
         print("\n--live — verified and printed. NOTHING WAS WRITTEN.")
@@ -963,13 +1120,37 @@ def report_only(journal_path: Path) -> int:
     if not rows:
         print(f"no rows in {journal_path}")
         return 1
-    print(f"{len(rows)} unit(s) from {journal_path}")
-    for row in rows:
-        print(f"  unit {row['unit']}: {row['state']}"
+    every = attempts_of(rows)
+    control = control_of(rows)
+    print(f"{len(every)} attempt(s) across {len(final_attempts(rows))} unit(s) "
+          f"from {journal_path}")
+    if control is None:
+        print("  ** no control row: this journal predates the control being "
+              "journaled, or the run used --skip-control. **")
+    else:
+        print(f"  control: refused in {control.failures} of {control.runs} "
+              f"(ranks {list(control.ranks)})")
+
+    # **Every attempt, in order, with what each gate said.** The report used to
+    # show one row per unit -- the last -- so an attempt that reached C2 and was
+    # rejected there was invisible behind an attempt that died at the free
+    # checks.
+    for row in sorted(every, key=lambda r: (r["unit"], r.get("attempt", 1))):
+        print(f"\n  unit {row['unit']} · attempt {row.get('attempt', 1)}: "
+              f"{row['state']}"
               + (f" at {row['stage']}" if row.get("stage") else "")
-              + f" · attempt {row.get('attempt', 1)}"
               + f" · {row.get('diagram_count', 0)} diagrams")
-    print_verdicts(rows, None)
+        for detail in row.get("details") or []:
+            print(f"      - {detail}")
+        for target, v in (row.get("sections") or {}).items():
+            print(f"      C1 {'ok ' if v['ok'] else 'OFF'} {target!r}: rank "
+                  f"{v['claimed_rank']}, first {v['first']!r}, runner-up "
+                  f"{v['runner_up']!r}")
+        for v in row.get("examples") or []:
+            print(f"      C2 {'ok ' if v['ok'] else 'OFF'} {v['sentence']!r}: "
+                  f"claimed {v['target']!r} at rank {v['claimed_rank']}, first "
+                  f"{v['first']!r}, runner-up {v['runner_up']!r}")
+    print_verdicts(rows, control)
     return 0
 
 
