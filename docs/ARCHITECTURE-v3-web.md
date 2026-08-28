@@ -245,11 +245,25 @@ the same day. All four are named rather than quietly reconciled.**
 | `assign_daily` | 03:30 local | build tomorrow's session; pick + pre-validate items; choose the video |
 | `pick_videos` | Sun 04:00 | refresh candidate pool from the channel list, compute coverage, cache transcripts |
 | `nudge_check` | every 30 min | push ladder, respects the 3/day ceiling |
-| `checkpoint_prep` | Fri 04:00 | build Saturday's 12-item checkpoint |
+| `checkpoint_prep` | ~~Fri 04:00~~ **NOT SCHEDULED — human-run** | ~~build Saturday's 12-item checkpoint~~ **HUMAN-RUN, NEVER UNATTENDED (operator ruling, 2026-08-27). The reason is that NO GATE CERTIFIES AN ITEM (#196) — NOT that the worker is uninstalled.** **This ruling is INDEPENDENT of #69 and does not lapse when #69 closes.** See the note below the table |
 | `weekly_report` | Sun evening | progress-first report |
 | `monthly_sweep` | 1st, 00:05 | freeze tokens → 2; anti-fossilisation re-test; placement re-test invite |
 | `backup` | daily 04:00 | `pg_dump` local **+ off-site to R2** — closes v2 known-issue #6 |
 | `heartbeat` | hourly | external cron pings; alerts if no job fired in 26h |
+
+**`checkpoint_prep` is annotated, not deleted (2026-08-27, W10r).** **Operator
+ruling: checkpoint generation is human-run and never unattended.** The reason, in
+the operator's terms: known issue #196 refused a scheduled billed pipeline on the
+grounds that **no gate certifies an item**, and nothing has changed that. The
+operator runs a command; the app never generates while a learner waits, and never
+while nobody is watching. **The ruling is independent of #69** — it would hold
+unchanged if the `english-worker` unit were installed tomorrow, and reading it as
+a consequence of the worker being blocked is how it gets reversed the day #69
+closes. **The row is kept because a later slice will look here.** Note that this
+table's **`assign_daily` row is already known to overstate what that job does**
+(#196): it builds a session row and neither generates items nor picks a video.
+**And as of 2026-08-27 no job in this table has ever fired on production** — the
+worker unit is uninstalled (#69); the backup runs from cron, not from here.
 
 **Pre-validation matters:** items are generated and gated (§PRD 4.3) *the night before*, not while the learner waits. A session must open in under a second.
 
