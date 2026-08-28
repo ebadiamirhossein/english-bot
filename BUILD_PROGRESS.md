@@ -2753,6 +2753,141 @@ Commands and taps needing only a running bot.
 
 ---
 
+## HANDOFF — W10b, for the next chat
+
+**Written 2026-08-28. Read this first; it is the whole context needed and there
+is no conversation to recover.** That is what this file is for.
+
+### Where the slice stands
+
+**Unit 1's lesson is LIVE on production and has been read once.**
+`sections 4 · diagrams 4 · verdict passed · verified_by live ·
+written_by apply-from-journal`, confirmed in `psql`. Written from the journal
+with **zero billed model calls**.
+
+**#182 is at 1 OF 3 AND DOES NOT CLOSE UNTIL THREE LESSONS ARE LIVE AND READ.**
+
+Production is at **`c353189`**, `schema_version` **17**, `Applied: 001–017,
+Pending: (none)`. No migration is outstanding. The code is complete for all
+three units; **only unit 1 has content.**
+
+### What is outstanding
+
+1. **UNIT 1's THREE COLLAPSED SECTIONS ARE UNREAD.** The operator's reading
+   covered the expanded first section only, so **one of five diagram kinds has
+   been seen** — `contrast_pair`. **`timeline`, `form_build` and
+   `annotated_example` are unread.** §10(a) assigns him *does the diagram read on
+   a phone*, which is **the one judgement in this slice he can actually make**,
+   and it is **one quarter made**. Opening the other three sections costs
+   nothing and is not a billed step.
+2. **STAGE 2 IS UNRUN** — units 9 and 20. Sequence below.
+3. **The `--live` output for units 9 and 20 must be READ before `--apply`**, the
+   same as unit 1. `--apply` writes the bytes `--live` verified (#235), so the
+   reading is of the exact row a learner renders.
+
+### Stage 2 — the exact sequence
+
+**Archive the journal first (#234).** It holds six runs with no run identifier,
+so a new run's `--report` would show stale attempts as if they belonged to it.
+**Moved, not deleted** — a failed run's evidence is what the file exists to keep.
+
+```bash
+cd /home/bot/english-bot && sudo -u bot mv w10b-journal.jsonl w10b-journal-unit1-runs-1-6.jsonl
+```
+
+```bash
+cd /home/bot/english-bot && sudo -u bot .venv/bin/python -m core.lessons.generate --units 9,20
+```
+Dry. Sends nothing. Expect `billed call ceiling: 117`.
+
+```bash
+cd /home/bot/english-bot && sudo -u bot .venv/bin/python -m core.lessons.generate --live --units 9,20 --skip-control
+```
+Ceiling **114** with `--skip-control`. **Type the number the command prints, not
+one copied from here** (#225). Drop `--skip-control` if unit 1's last control
+landed at 2 of 3 rather than 3 of 3.
+
+**THEN READ WHAT IT PRINTS.** Only after that:
+
+```bash
+cd /home/bot/english-bot && sudo -u bot .venv/bin/python -m core.lessons.generate --apply --units 9,20
+```
+Type `9,20`. Expect **`ZERO billed calls`** and `the exact bytes --live
+verified`. **If `--live` produced no accepted lesson for a unit, this REFUSES
+and names the `--live` command — it never generates.**
+
+**Then read both lessons**, unit 9 and unit 20, at `/lessons/9` and
+`/lessons/20` — **the page, not the JSON**, because the diagram judgement is a
+property of the render.
+
+**If one is wrong:**
+```bash
+cd /home/bot/english-bot && sudo -u bot .venv/bin/python -m core.lessons.remove --unit 9
+```
+Type the unit number.
+
+**What stage 2 is NOT exposed to:** unit 9's composite was measured **stable**
+(8/10, **zero** confusion with either component), and **unit 20 has no composite
+at all.** Neither needs a `contains` declaration for the run to work.
+
+### Open rulings that touch this slice
+
+- **#188** — whether block 4 repeating the same writing task daily is
+  **tolerable** until W11, or whether block 4 ships **empty**. #216's check was
+  run and closed; **this half was not answered.**
+- **#197** — the coverage floor: raise the reference, lower the floor, or accept
+  that a grammar lesson carries words outside B1. Now owed against **two**
+  numbers (items' P7 and lessons' L7).
+- **#228** — whether unit 9's `will or going to: which one and why` and unit
+  14's `when the passive is the natural choice` get `contains` declarations.
+  **Unit 9 measured stable, so there is no evidence to declare on**, and unit 1's
+  was declared on a measurement. Also carries the **W11 checkpoint-attribution**
+  question: unit 1 allocates 3 of 12 items to a target that properly contains
+  two others.
+- **#224** — whether the three-way split is the position to hold on Anthropic's
+  §D.3, now that the clause is quoted rather than summarised.
+- **#234** — a run identifier for the journal, or a per-run `--journal` path.
+- **WHETHER THE 21-UNIT SLICE RUNS AT ALL** — see the cost note below.
+
+### Issues filed in this slice
+
+**Closed:** **#235** (`--live` and `--apply` shipped different lessons — option
+(a) ruled and implemented), **#237** (a single C2 failure is a coin — option B
+ruled and implemented), **#216** (W11's sequencing blocker, discharged).
+
+**Open, `medium`:** #228 (syllabus containment → W11) · #229 (the specimen
+pre-check passed while the rule was unpassable) · #230 (`--report` could not
+describe its own run) · #231 (step 0a's guard fired on every deploy) · #232 (the
+restart/curl race) · #233 (one truncated response destroys a paid run) · #236
+(prompt and `checks.py` reconciled only by billed failures — **the cheapest next
+win**) · #239 (lesson example and practice item are the same sentence → W11).
+
+**Open, `low`:** #224 · #225 · #226 · #227 · #234 · #238.
+
+### THE COST, and it is an input to a decision rather than a note
+
+**One lesson cost roughly 250 billed API calls and about 4% of a weekly limit**,
+across six `--live` attempts on unit 1 plus the capped diagnostics. **Zero
+lessons were written by five of those six runs.**
+
+**Units 9 and 20 should be materially cheaper** and the reasons are known rather
+than hoped: **four of the six unit-1 runs failed on defects that are now fixed** —
+the diagram prose rule (#229), the journal (#230), the crash (#233), and four
+prompt rules the generator was never given (#236). **Unit 9 measured stable and
+unit 20 has no composite**, so the C2 instability that consumed two runs does not
+apply to either.
+
+**BUT THE PER-LESSON NUMBER IS THE ONE TO WATCH, AND IT IS THE REAL INPUT TO
+WHETHER THE REMAINING 21 UNITS ARE GENERATED AT ALL.** At anything near today's
+rate, 21 units is not a slice — it is a budget decision. **The honest way to
+decide it is stage 2's actual spend**, which is the first measurement taken with
+all four fixes in place: **if units 9 and 20 land near their 114 ceiling with no
+re-runs, the per-lesson cost is ~57 and the 21-unit question is arithmetic. If
+they need three attempts each, it is not.** Record stage 2's real spend against
+its ceiling for exactly that reason.
+
+---
+
 ## Next action
 
 ### W10b — Grammar lessons. **NOTHING HERE DISPLACES W10's CHECK 4, WHICH IS STILL THE HEAD OF THIS LIST AND STILL BLOCKS W11 (#216).**
