@@ -500,6 +500,47 @@ def verification_blob(out: Outcome) -> dict:
     }
 
 
+def verification_from_row(row: dict) -> dict:
+    """The verification blob for a lesson `--live` already verified.
+
+    **Rebuilt from the journal rather than recomputed**, because recomputing it
+    would mean re-running the gates, which is the billed work `--apply` no longer
+    does. Every field comes from the row the accepting run wrote.
+    """
+    return {
+        "verdict": "passed",
+        "lesson_version": LESSON_VERSION,
+        "attempt": row.get("attempt", 1),
+        "sections": row.get("sections") or {},
+        "examples": row.get("examples") or [],
+        "contradictions": list(row.get("contradictions") or []),
+        "coverage_pct": row.get("coverage_pct") or {},
+        "coverage_unknown": row.get("coverage_unknown") or {},
+        "diagram_count": row.get("diagram_count", 0),
+        # **Provenance, stated on the row itself.** A reader of
+        # `grammar_lessons.verification` can tell that these bytes are the bytes
+        # a `--live` run verified, and which attempt produced them.
+        "verified_by": "live",
+        "written_by": "apply-from-journal",
+    }
+
+
+def verified_lessons(rows: Sequence[dict]) -> dict[int, dict]:
+    """`{unit: the accepted attempt}` — the lessons `--live` passed.
+
+    The LAST accepted attempt per unit wins, which is the one a re-run of
+    `--live` most recently verified.
+    """
+    found: dict[int, dict] = {}
+    for row in attempts_of(rows):
+        if row.get("state") != "accepted" or not row.get("lesson"):
+            continue
+        unit = row["unit"]
+        if unit not in found or row.get("attempt", 1) >= found[unit].get("attempt", 1):
+            found[unit] = row
+    return found
+
+
 # ── the negative control ────────────────────────────────────────────────────
 
 
@@ -568,6 +609,11 @@ def journal_line(out: Outcome) -> dict:
         "details": list(out.details),
         "diagram_count": out.diagram_count,
         "coverage_pct": out.coverage_pct,
+        # **The one field `verification_blob` needed and the journal did not
+        # carry.** Added when `--apply` stopped generating and started writing
+        # the lesson `--live` verified: the stored verification must be the one
+        # the gates actually produced, not a reconstruction missing a column.
+        "coverage_unknown": {k: list(v) for k, v in out.coverage_unknown.items()},
         "sections": out.section_verdicts,
         "examples": out.example_verdicts,
         "contradictions": list(out.contradictions),
@@ -1018,19 +1064,24 @@ def _print_gate_detail(out: "Outcome") -> None:
 def run(
     numbers: tuple[int, ...],
     *,
-    apply: bool,
+    apply: bool = False,
     journal_path: Path = DEFAULT_JOURNAL,
     skip_control: bool = False,
     settings: Settings | None = None,
 ) -> int:
+    """`--live`: generate, verify, journal, print. **Writes no database row.**
+
+    `apply` is accepted and ignored so an old call site cannot silently write;
+    writing is `apply_journaled`, which makes no model call at all.
+    """
     settings = settings or load_settings()
     plan = unit_plan(numbers)
     ceiling = expected_calls(plan)
     journal = Journal(journal_path)
 
     print(f"units {', '.join(str(n) for n in numbers)} · ceiling {ceiling} "
-          f"billed calls · {'APPLY (writes rows)' if apply else 'LIVE (writes nothing)'}")
-    expected = ",".join(str(n) for n in numbers) if apply else str(ceiling)
+          f"billed calls · LIVE (verifies and journals; writes NO row)")
+    expected = str(ceiling)
     if not confirm("", expected):
         print("Stopped. Nothing was sent.")
         return 1
@@ -1149,23 +1200,121 @@ def run(
     # so what the operator reads is what a later `--report` will read.
     print_verdicts(read_journal(journal.path), control)
 
-    if not apply:
-        print("\n--live — verified and printed. NOTHING WAS WRITTEN.")
-        return 0
+    accepted = [o.unit for o in outcomes if o.state == "accepted"]
+    print("\n--live — verified and printed. NOTHING WAS WRITTEN.")
+    if accepted:
+        units = ",".join(str(n) for n in accepted)
+        print(f"\n  The verified lesson(s) for unit(s) {units} are IN THE "
+              f"JOURNAL at {journal_path}.")
+        print(f"  To write exactly those bytes, with ZERO billed calls:")
+        print(f"      python -m core.lessons.generate --apply --units {units}")
+    return 0
 
+
+def apply_journaled(
+    numbers: tuple[int, ...], *, journal_path: Path = DEFAULT_JOURNAL
+) -> int:
+    """`--apply`: write the lesson `--live` verified. **ZERO billed model calls.**
+
+    ═══════════════════════════════════════════════════════════════════════════
+    #235, ruled by the operator 2026-08-28. **The bytes the operator reads are
+    the bytes that ship.**
+    ═══════════════════════════════════════════════════════════════════════════
+
+    `--apply` used to GENERATE AFRESH. On 2026-08-28 `--live --units 1` passed on
+    its first attempt and `--apply --units 1`, minutes later, produced a
+    completely different lesson that failed three gates. **The operator approved
+    lesson A and lesson B would have reached the learner** -- and W10b's §9
+    justified the split as *"separated so the operator reads three lessons before
+    a row exists"*, which was not what it did. That is this project's most
+    repeated shape one level up: **a check that proves a good outcome is
+    REACHABLE, never that the shipping path TAKES it.**
+
+    **WHAT THIS GUARANTEES, STATED PRECISELY, BECAUSE IT IS NARROWER THAN IT
+    SOUNDS.** It does NOT move the operator's reading before the write, and it
+    does not need to. What it guarantees is that **the row a learner renders is
+    the artefact the gates passed and the `--live` output described.** Reading
+    still happens after the write; what changes is that the thing read and the
+    thing written are the same bytes, so the reading is about something real.
+    The half that makes that safe is `core.lessons.remove` -- a named command
+    with a typed confirmation -- because *delete it if it is bad* with no command
+    behind it is a rule that stops being followed.
+
+    **IT NEVER FALLS BACK TO GENERATING.** A unit with no verified lesson in the
+    journal is refused by name, with the `--live` command to run printed. A
+    silent fallback would reinstate exactly the divergence this closes, and it
+    would do so on the path nobody is watching.
+
+    **The free deterministic checks are re-run** on the loaded bytes -- they cost
+    nothing and they catch a journal edited by hand, a lesson written against a
+    syllabus that has since been reworded, and a format drift between the run
+    that verified and the run that writes.
+    """
     from core.services import lessons as lessons_service
+    from core.syllabus.content import units as all_units
+
+    rows = read_journal(journal_path)
+    verified = verified_lessons(rows)
+    targets_for = {
+        u.unit_number: [t.target for t in u.grammar_targets] for u in all_units()
+    }
+
+    print(f"--apply · units {', '.join(str(n) for n in numbers)} · "
+          f"**ZERO billed calls** · source {journal_path}")
+
+    missing = [n for n in numbers if n not in verified]
+    if missing:
+        units = ",".join(str(n) for n in missing)
+        print(f"\n**REFUSED. No verified lesson is journaled for unit(s) "
+              f"{units}.**")
+        print("  `--apply` writes the lesson `--live` verified and NEVER "
+              "generates one (#235).")
+        print("  A silent fallback to generating would reinstate the divergence "
+              "this closes.")
+        print(f"\n  Run this first, read what it prints, then re-run --apply:")
+        print(f"      python -m core.lessons.generate --live --units {units}")
+        return 1
+
+    print(f"\n  Verified lesson(s) found for unit(s): "
+          f"{', '.join(str(n) for n in numbers)}")
+    for number in numbers:
+        row = verified[number]
+        print(f"    unit {number}: attempt {row.get('attempt', 1)}, "
+              f"{row.get('diagram_count', 0)} diagram(s)")
+
+    if not confirm("", ",".join(str(n) for n in numbers)):
+        print("Stopped. Nothing was written.")
+        return 1
 
     written = 0
-    for out in outcomes:
-        if out.state != "accepted" or out.lesson is None:
-            print(f"  unit {out.unit}: not written ({out.state})")
+    for number in numbers:
+        row = verified[number]
+        lesson = parse_lesson(row["lesson"])
+
+        # Free, and they are not a formality: they catch a hand-edited journal, a
+        # syllabus reworded since the lesson was verified, and format drift.
+        failures = lesson_checks.deterministic_failures(
+            lesson, targets_for.get(number, [])
+        )
+        if failures:
+            print(f"\n  ** unit {number}: REFUSED. The journaled lesson no "
+                  f"longer passes the free checks: **")
+            for failure in failures:
+                print(f"       - {failure}")
+            print("     Nothing was written for this unit. Re-run --live for it.")
             continue
-        if lessons_service.insert_lesson(out.lesson, verification_blob(out)):
+
+        if lessons_service.insert_lesson(lesson, verification_from_row(row)):
             written += 1
-            print(f"  unit {out.unit}: WRITTEN")
+            print(f"  unit {number}: WRITTEN — the exact bytes --live verified")
         else:
-            print(f"  unit {out.unit}: already had a lesson; nothing written")
-    print(f"\n{written} lesson(s) written.")
+            print(f"  unit {number}: already had a lesson; nothing written. "
+                  f"To replace it: python -m core.lessons.remove --unit {number}")
+
+    print(f"\n{written} lesson(s) written. **No model call was made.**")
+    print("\n  Now READ them. If one is wrong, remove it by name:")
+    for number in numbers:
+        print(f"      python -m core.lessons.remove --unit {number}")
     return 0
 
 
@@ -1220,8 +1369,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--live", action="store_true",
                         help="make the calls and print the finding (billed)")
-    parser.add_argument("--apply", action="store_true",
-                        help="make the calls and WRITE what passed (billed)")
+    parser.add_argument(
+        "--apply", action="store_true",
+        help="write the lesson --live already verified, from the journal. "
+             "Makes NO model call and never generates (#235).",
+    )
     parser.add_argument("--journal", type=Path, default=DEFAULT_JOURNAL,
                         help=f"outcomes as they are decided "
                              f"(default: {DEFAULT_JOURNAL})")
@@ -1248,8 +1400,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return report_only(args.report)
 
     numbers = tuple(int(n) for n in args.units.split(",") if n.strip())
-    if args.live or args.apply:
-        return run(numbers, apply=args.apply, journal_path=args.journal,
+    if args.apply:
+        # **A completely separate path that makes no model call** (#235).
+        return apply_journaled(numbers, journal_path=args.journal)
+    if args.live:
+        return run(numbers, journal_path=args.journal,
                    skip_control=args.skip_control)
     return dry_run(numbers, args.journal)
 

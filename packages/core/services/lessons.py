@@ -100,6 +100,31 @@ def stale_count(units: tuple[int, ...] | None = None) -> tuple[int, int]:
     return int(below), int(total)
 
 
+def delete_lesson(unit_number: int) -> bool:
+    """Remove one unit's lesson. True if a row went, False if there was none.
+
+    **The half that makes writing-before-reading safe** (#235). `--apply` writes
+    the bytes `--live` verified, and the operator reads them afterwards -- so
+    there has to be a NAMED COMMAND for rejecting one. *"Delete it if it is
+    bad"* with nothing behind it is a rule that stops being followed the first
+    time somebody is busy.
+
+    No cascade and nothing else to clean up: `grammar_lessons` is referenced by
+    no other table, and block 3 falls back to `lesson: None` and the line saying
+    the explanation is on its way -- which is what a unit with no lesson already
+    shows, so a learner sees a coherent screen rather than a gap.
+    """
+    with connection() as conn:
+        cur = conn.cursor(row_factory=tuple_row)
+        cur.execute(
+            "DELETE FROM grammar_lessons WHERE unit_number = %s RETURNING unit_number",
+            (unit_number,),
+        )
+        row = cur.fetchone()
+        conn.commit()
+    return row is not None
+
+
 def insert_lesson(lesson: Lesson, verification: dict) -> bool:
     """Write a verified lesson. True if written, False if the unit already had one.
 
