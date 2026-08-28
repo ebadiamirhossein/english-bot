@@ -390,6 +390,19 @@ FSRS_LIBS = frozenset({"fsrs"})
 CARDS_MODEL_CALLERS = {CARDS / "probe_cloze.py"}
 MODEL_REACHING_MODULES = frozenset({"core.llm", "core.speech", "core.items.gates"})
 
+LESSONS = CORE / "lessons"
+# W10b. `gates.py` holds C1, C2 and C3; `generate.py` is the human-run generator.
+# Both reach a model and both are named, which is a TIGHTENING rather than an
+# exemption: without this set `core/lessons/` would be pure by accident rather
+# than by rule, which is verbatim what `test_cards_package_is_pure` says W8a
+# existed to fix.
+#
+# They reach it partly through `core.items.gates` -- `probe_ranked` is the
+# ranking engine C1 and C2 share with `probe_target`, reused rather than
+# reimplemented -- which is exactly why `core.items.gates` is in
+# MODEL_REACHING_MODULES above and why these two files must be named.
+LESSONS_MODEL_CALLERS = {LESSONS / "gates.py", LESSONS / "generate.py"}
+
 
 def _import_targets(tree: ast.AST) -> set[str]:
     """Every dotted name an import makes available, submodules included.
@@ -765,6 +778,56 @@ def test_only_the_fsrs_wrapper_imports_the_scheduler() -> None:
     assert offenders == [], (
         "only packages/core/cards/fsrs.py may import py-fsrs: " + "; ".join(offenders)
     )
+
+
+def test_lessons_package_is_pure() -> None:
+    """No SQL and no driver in `core/lessons/`; exactly two files may reach a model.
+
+    **W10b adds this at the moment the package first needs a provider**, which is
+    the moment W8a added the equivalent for `core/cards/` and for the same stated
+    reason: a package that happens not to import `core.llm` is pure by accident,
+    and the next file added to it inherits nothing.
+
+    `core/lessons/` gets `test_no_sql_outside_services` and
+    `test_core_imports_no_web_framework` for free -- both walk all of CORE with no
+    per-package allowlist -- so what is new here is only the model-reach rule and
+    the driver ban.
+
+    Every query against `grammar_lessons` lives in `core/services/lessons.py`, so
+    the purity rule stays unexempted and **#59 remains the only boundary
+    exemption in the project**.
+    """
+    offenders: list[str] = []
+    for path in _python_files(LESSONS):
+        rel = path.relative_to(REPO_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if _imported_roots(tree) & {"psycopg", "psycopg_pool"}:
+            offenders.append(f"{rel}: imports a database driver")
+        if path not in LESSONS_MODEL_CALLERS:
+            reaching = _import_targets(tree) & MODEL_REACHING_MODULES
+            if reaching:
+                offenders.append(f"{rel}: imports {', '.join(sorted(reaching))}")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if _looks_like_sql(node.value):
+                    offenders.append(f"{rel}:{node.lineno}: SQL")
+    assert offenders == [], (
+        "core/lessons/ is pure: every query lives in core/services/lessons.py "
+        "and only gates.py and generate.py may reach a model (CLAUDE.md §2): "
+        + "; ".join(offenders)
+    )
+
+
+def test_the_lessons_model_callers_all_exist() -> None:
+    """A name-list allowlist that names a deleted file silently stops guarding it.
+
+    The same hole `PROJECTORS` and `ITEMS_MODEL_CALLERS` have; asserted here
+    rather than left for a rename to open.
+    """
+    missing = sorted(
+        str(p.relative_to(REPO_ROOT)) for p in LESSONS_MODEL_CALLERS if not p.exists()
+    )
+    assert missing == [], f"named but absent: {missing}"
 
 
 def test_cards_package_is_pure() -> None:

@@ -195,9 +195,23 @@ describe("block 3 shows labels and no citation", () => {
     expect(container.textContent).not.toContain("exercise generator");
   });
 
-  it("still says the written explanation is on its way (#182, W10b's half)", () => {
+  /**
+   * **This assertion's MEANING inverted at W10b, and the old one is quoted here
+   * rather than deleted.** It previously read, unconditionally:
+   *
+   *     it("still says the written explanation is on its way (#182, W10b's half)")
+   *     expect(container.textContent).toContain("written explanation");
+   *
+   * The line was rendered on every block 3, because there were no lessons. It is
+   * now rendered ONLY when `payload.lesson` is null — which is still most units,
+   * since generation is human-run (#196) — so the same expectation now tests the
+   * null branch specifically. A test whose meaning inverted reads as a deletion
+   * six weeks later, so the change is recorded, not just made.
+   */
+  it("says the written explanation is on its way WHEN there is no lesson", () => {
     const { container } = render(<FocusBlock block={focus} />);
     expect(container.textContent).toContain("written explanation");
+    expect(screen.queryByTestId("lesson")).toBeNull();
   });
 });
 

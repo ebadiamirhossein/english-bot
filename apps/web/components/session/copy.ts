@@ -67,8 +67,12 @@ export const BLOCKS = {
     eyebrow: "Focus",
     title: "This week’s grammar.",
     empty: "No unit is set up yet.",
-    // #182, in one line a learner can read. The targets are real; the teaching
-    // behind them is the next slice, and the app does not pretend otherwise.
+    // #182, in one line a learner can read. **W10b built the teaching, so this
+    // line is now CONDITIONAL rather than unconditional**: it renders only when
+    // `payload.lesson` is null, which is still most units — generation is
+    // human-run (#196) — and also a stored lesson below the current
+    // `LESSON_VERSION`, which the service refuses to serve. The string is
+    // unchanged and correct in both cases.
     noLesson: "The written explanation for these is on its way.",
     // W10c: the items exist now, so the line apologising for their absence is
     // gone rather than reworded. `progress` replaces it — a position, not a

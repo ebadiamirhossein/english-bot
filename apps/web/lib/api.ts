@@ -390,6 +390,65 @@ export type SessionBlock = {
   payload: Record<string, unknown>;
 };
 
+/**
+ * A grammar lesson. W10b.
+ *
+ * **Global**: one per unit, the same for every learner. Nothing here is keyed by
+ * user, and nothing carries a translation — a gloss is per-learner by nature
+ * (#159) and one on a lesson would break that line.
+ *
+ * The diagram specs carry **no colour, font or coordinate field**. The renderer
+ * owns all of it, which is what makes "no red in the lesson UI" structural.
+ */
+export type LessonSection = {
+  target: string;
+  explanation: string;
+  when_to_use: string;
+  when_not_to: string;
+  examples: string[];
+  /** Named `mistake`/`said`, not `wrong_example`/`wrong`: the frontend
+   *  no-guilt scan reads raw source, so the identifier tripped it. The code
+   *  was renamed rather than the guard weakened. */
+  mistake: { said: string; corrected: string; why: string };
+};
+
+type DiagramBase = { target: string };
+
+export type LessonDiagram =
+  | (DiagramBase & {
+      kind: "timeline";
+      points: { label: string; at: number; now: boolean }[];
+    })
+  | (DiagramBase & {
+      kind: "contrast_pair";
+      situation: string;
+      /** `first`/`second`, never `left`/`right`: on a phone they stack. */
+      first: { form: string; example: string };
+      second: { form: string; example: string };
+      what_changes: string;
+    })
+  | (DiagramBase & { kind: "form_build"; slots: string[]; example: string })
+  | (DiagramBase & {
+      kind: "decision_tree";
+      question: string;
+      branches: { answer: string; form: string }[];
+    })
+  | (DiagramBase & {
+      kind: "annotated_example";
+      sentence: string;
+      callouts: { part: string; note: string }[];
+    });
+
+export type Lesson = {
+  unit_number: number;
+  sections: LessonSection[];
+  diagrams: LessonDiagram[];
+};
+
+export function getLesson(unitNumber: number): Promise<Lesson> {
+  return request<Lesson>(`/lessons/${unitNumber}`);
+}
+
 export type SessionToday = {
   session_id: number;
   /** The learner's **local** date, from `users.timezone`. */

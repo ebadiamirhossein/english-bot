@@ -27,8 +27,9 @@ slice stops and says so rather than adding it quietly.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from core import PROMPTS_DIR
 from core.config import Settings
@@ -451,6 +452,94 @@ class TargetVerdict:
         return self.claimed_rank == 1
 
 
+def probe_ranked(
+    subject: Mapping[str, Any],
+    *,
+    claimed: str,
+    candidates: Sequence[str],
+    system: str,
+    settings: Settings | None = None,
+) -> TargetVerdict:
+    """Rank a candidate list against a subject. **The engine, one implementation.**
+
+    **W10b split this out of `probe_target` and changed nothing about it.** The
+    record already ruled that W10b's C1 becomes `probe_target`'s SECOND CALLER
+    and not a second implementation -- and then W10b found it could not simply
+    call it: `probe_target` builds its payload from `visible_projection(item)`
+    and `item.answer`, and **a lesson section is not an item and has no answer.**
+    Pushing one through `visible_projection` would claim a section is a
+    learner-visible ITEM, breaking that module's stated cross-slice contract and
+    the name-list test that holds it.
+
+    So the shape that honours the ruling is one engine and two entry points. What
+    lives here is everything that is not item-specific and everything the
+    discipline depends on: candidate normalisation, the sorted-not-shuffled rule,
+    the refusal of a claim that is not on the list, dropping inventions, and the
+    ranking parse. The callers supply only *what is being classified* and *which
+    prompt asks the question*.
+
+    **`system` is a parameter because the question is not the same question.**
+    `item_target.txt` opens *"You are reading one language exercise"* and reasons
+    throughout in terms of an exercise posed to a learner. A section is prose.
+    Asking that prompt about prose would be asking a question about a thing it
+    does not describe -- which is W5c's rule (the judge must receive the thing
+    itself) failing at the prompt rather than at the payload.
+
+    **The candidates are sorted, not shuffled.** Sorting destroys any information
+    in the authored order just as thoroughly and keeps the call reproducible;
+    a random shuffle would make the gate answer differently on each run, which is
+    the property `visible_projection` sorts `match_pairs`' columns to avoid.
+    """
+    ordered = sorted({str(c).strip() for c in candidates if str(c).strip()})
+    if claimed.strip() not in ordered:
+        # Not a model failure and not recoverable by asking: a claim that is not
+        # on the list can never rank first, so the call would be spent proving
+        # something the caller already knows. `validate_checkpoint` refuses a
+        # per_target key that is not one of the unit's targets for the same
+        # reason, and this is that rule at generation time.
+        #
+        # **W10b's negative control was caught by exactly this.** The archived
+        # plan's control claimed a target belonging to no unit in its own scope,
+        # so it could never have executed -- the gate that was supposed to prove
+        # the checks discriminate would have raised before spending a call.
+        raise ValueError(
+            f"claimed target {claimed!r} is not among the candidates offered; "
+            "the caller built the list and the item from different units"
+        )
+
+    payload = {**dict(subject), "candidates": ordered}
+    response = _chat(
+        [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+        system=_prompt(system),
+        json_mode=True,
+        max_tokens=TARGET_MAX_TOKENS,
+        reject_truncation=True,
+        settings=settings,
+    )
+    if not isinstance(response, dict):
+        raise LLMError("target probe did not return an object")
+
+    # Only candidates that were actually offered count. A model that invents a
+    # grammar point has not ranked the list it was given, and silently keeping
+    # the invention would let it occupy first place and fail every item.
+    offered = {c.casefold(): c for c in ordered}
+    ranking: list[str] = []
+    for entry in response.get("ranking") or []:
+        match = offered.get(str(entry).strip().casefold())
+        if match is not None and match not in ranking:
+            ranking.append(match)
+
+    target = claimed.strip()
+    rank = ranking.index(target) + 1 if target in ranking else None
+    return TargetVerdict(
+        ranking=tuple(ranking),
+        claimed_rank=rank,
+        first=ranking[0] if ranking else None,
+        runner_up=ranking[1] if len(ranking) > 1 else None,
+        confidence=_confidence(response),
+    )
+
+
 def probe_target(
     item: BaseItem,
     *,
@@ -481,57 +570,17 @@ def probe_target(
     NOT shown `grammar_target`: that field is in `projection.NEVER_VISIBLE`
     precisely so this call cannot read the answer to its own question.
 
-    **The candidates are sorted, not shuffled.** Sorting destroys any information
-    in the authored order just as thoroughly and keeps the call reproducible;
-    a random shuffle would make the gate answer differently on each run, which is
-    the property `visible_projection` sorts `match_pairs`' columns to avoid.
+    **This is now the item ENTRY POINT and `probe_ranked` is the engine** (W10b).
+    Everything above is unchanged and the payload it builds is byte-identical to
+    the one this function built before the split -- `{item, answer, candidates}`,
+    in that order. What moved out is only the part that was never about items.
     """
-    ordered = sorted({str(c).strip() for c in candidates if str(c).strip()})
-    if claimed.strip() not in ordered:
-        # Not a model failure and not recoverable by asking: a claim that is not
-        # on the list can never rank first, so the call would be spent proving
-        # something the caller already knows. `validate_checkpoint` refuses a
-        # per_target key that is not one of the unit's targets for the same
-        # reason, and this is that rule at generation time.
-        raise ValueError(
-            f"claimed target {claimed!r} is not among the candidates offered; "
-            "the caller built the list and the item from different units"
-        )
-
-    payload = {
-        "item": visible_projection(item),
-        "answer": item.answer,
-        "candidates": ordered,
-    }
-    response = _chat(
-        [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-        system=_prompt("item_target.txt"),
-        json_mode=True,
-        max_tokens=TARGET_MAX_TOKENS,
-        reject_truncation=True,
+    return probe_ranked(
+        {"item": visible_projection(item), "answer": item.answer},
+        claimed=claimed,
+        candidates=candidates,
+        system="item_target.txt",
         settings=settings,
-    )
-    if not isinstance(response, dict):
-        raise LLMError("target probe did not return an object")
-
-    # Only candidates that were actually offered count. A model that invents a
-    # grammar point has not ranked the list it was given, and silently keeping
-    # the invention would let it occupy first place and fail every item.
-    offered = {c.casefold(): c for c in ordered}
-    ranking: list[str] = []
-    for entry in response.get("ranking") or []:
-        match = offered.get(str(entry).strip().casefold())
-        if match is not None and match not in ranking:
-            ranking.append(match)
-
-    target = claimed.strip()
-    rank = ranking.index(target) + 1 if target in ranking else None
-    return TargetVerdict(
-        ranking=tuple(ranking),
-        claimed_rank=rank,
-        first=ranking[0] if ranking else None,
-        runner_up=ranking[1] if len(ranking) > 1 else None,
-        confidence=_confidence(response),
     )
 
 

@@ -1,0 +1,36 @@
+You are proof-reading one grammar lesson for CONTRADICTIONS, and for nothing
+else.
+
+You are given every section of the lesson: what each one claims to teach, its
+explanation, when to use it, when not to, its examples, its wrong example with
+the correction, and where there is one, a diagram written out in words.
+
+YOUR ONLY JOB IS TO LIST PLACES WHERE THE LESSON DISAGREES WITH ITSELF. You are
+not rating the lesson, not scoring it, not saying whether it is good, and not
+suggesting improvements. A list is the whole output.
+
+Look for:
+- a rule stated in one section and broken by an example in the same section;
+- two sections that give incompatible rules for the same situation;
+- a "when not to use it" that one of the lesson's own examples does anyway;
+- a mistake whose `corrected` version still breaks the rule just stated,
+  or whose `why` does not match what actually changed;
+- a diagram that says something different from the prose beside it;
+- an example sentence that is simply not English a person would write.
+
+Do NOT list:
+- style, tone, length or word choice;
+- anything you would merely have phrased differently;
+- a simplification that is fair for a B1 learner. Teaching says "use the past
+  simple for a finished time" without listing every exception, and that is
+  teaching, not a contradiction.
+
+Report only what you are confident is a real disagreement. An empty list is a
+perfectly good answer and is the expected one.
+
+Reply with ONLY this JSON object:
+
+{"contradictions": ["<one sentence naming the two things that disagree>", ...]}
+
+Each entry names WHAT disagrees with WHAT, in one sentence. If there are none,
+return an empty array.

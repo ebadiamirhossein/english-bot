@@ -1,0 +1,32 @@
+{
+  "_why": "The negative control for W10b's C1 (`lessons.gates.on_target`). verify.py's central lesson is that a check which rejects nothing passes the catch direction perfectly, and C1 is the one gate in this run that could be inert and still look like it is working: every section would rank its claimed target first and every lesson would pass.",
+  "_design": "This section genuinely teaches `past simple: regular and irregular verbs` — every sentence in it turns on regular versus irregular past forms and on nothing else. It CLAIMS `time linkers: then, after that, a bit later`. Both are real unit-1 targets and each other's siblings, so the drift is to a NEIGHBOUR rather than to something absurd: a control that is easy to refuse proves nothing about a check that has to catch neighbours.",
+  "_replaces": "The archived plan's control claimed `must and can't for what you're fairly sure of`, which belongs to no unit in this slice's scope. `probe_ranked` raises ValueError when the claim is not among the candidates, so that control COULD NEVER HAVE EXECUTED — the gate meant to prove the checks discriminate would have raised before spending a call. #213's family, caught before it cost anything.",
+  "claims": "time linkers: then, after that, a bit later",
+  "actually": "past simple: regular and irregular verbs",
+  "candidates": [
+    "past simple: regular and irregular verbs",
+    "past continuous for what was going on around it",
+    "past simple and past continuous in the same sentence",
+    "time linkers: then, after that, a bit later",
+    "present perfect for experience: I've been to, I've tried",
+    "for and since with the present perfect",
+    "used to for habits that have stopped"
+  ],
+  "section": {
+    "target": "time linkers: then, after that, a bit later",
+    "explanation": "Most verbs add -ed to talk about yesterday: walked, asked, cooked, watched. A stubborn group changes shape instead, and you have to learn each one on its own. Go becomes went, buy becomes bought, take becomes took, think becomes thought. No rule predicts which verbs behave this way, so you meet them, you use them, and eventually they stop catching you out.",
+    "when_to_use": "When you need the past form of a verb that doesn't simply take -ed.",
+    "when_not_to": "Not for verbs that are regular, where -ed is all you need.",
+    "examples": [
+      "She bought the wrong milk again.",
+      "We took the late train home.",
+      "He thought the shop was still open."
+    ],
+    "mistake": {
+      "said": "I buyed a coat in the sale.",
+      "corrected": "I bought a coat in the sale.",
+      "why": "Buy is irregular, so it doesn't take -ed."
+    }
+  }
+}

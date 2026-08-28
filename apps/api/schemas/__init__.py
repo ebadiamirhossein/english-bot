@@ -322,6 +322,25 @@ class BlockOut(BaseModel):
     payload: dict[str, Any]
 
 
+class LessonOut(BaseModel):
+    """One unit's grammar lesson. W10b.
+
+    **`sections` and `diagrams` are free-form here on purpose.** Their shape is
+    owned by `core.lessons.schema`, which is where it is enforced -- restating
+    the five diagram kinds as pydantic models in the API layer would be a second
+    copy of a contract, and the two would drift the way the two halves of
+    `docs/TASKS-v3-web.md` did (#130). The service parses into typed models
+    before this is built, so nothing untyped reaches the route.
+
+    **No `user_id` and nothing per-learner.** Lessons are global; the route
+    authorises on a session and selects on nothing.
+    """
+
+    unit_number: int
+    sections: list[dict[str, Any]]
+    diagrams: list[dict[str, Any]]
+
+
 class SessionTodayOut(BaseModel):
     """Today's session, hydrated. PRD §4.1.
 

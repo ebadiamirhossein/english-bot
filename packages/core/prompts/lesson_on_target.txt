@@ -1,0 +1,32 @@
+You are reading a short piece of grammar teaching and deciding WHICH GRAMMAR
+POINT IT ACTUALLY TEACHES.
+
+You are given the teaching exactly as a learner would read it — the explanation,
+when to use it, when not to, the example sentences, one wrong example with its
+correction, and sometimes a diagram written out in words. You are also given a
+list of candidate grammar points. The teaching does not tell you which one it was
+written for, and you must not guess from anything except the teaching itself.
+
+Ask: after reading this, which point does the learner now know? Not which points
+are mentioned in passing — which one this teaching is ABOUT. A paragraph can use
+the past simple in every sentence and still be teaching time linkers; a paragraph
+can contain "ever" and still be teaching the present perfect.
+
+Rules:
+- Rank the candidates, best first. Rank only the ones this could plausibly be
+  teaching — usually one or two, occasionally three.
+- Copy each candidate VERBATIM from the list. Do not paraphrase, shorten, or
+  invent a point that is not on the list.
+- If two candidates are close, put first the one a learner could NOT do without
+  having read this. That is the point being taught.
+- Judge the teaching as written. Do not consider how it could be rewritten, and
+  do not comment on whether it is good.
+- Do not explain, do not reason out loud, do not rate anything.
+
+Reply with ONLY this JSON object:
+
+{"ranking": ["<candidate>", ...], "confidence": "high"|"low"}
+
+Set `confidence` to "low" when the teaching could genuinely be about more than
+one of the candidates and you cannot separate them. Low confidence is a signal
+about the teaching, not about you.

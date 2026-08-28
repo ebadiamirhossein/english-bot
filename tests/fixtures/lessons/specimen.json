@@ -1,0 +1,102 @@
+{
+  "unit_number": 1,
+  "sections": [
+    {
+      "target": "past simple: regular and irregular verbs",
+      "explanation": "Use the past simple for a finished action at a finished time. Regular verbs take -ed: walked, asked, cooked. Irregular verbs change shape instead, and you learn them one by one: go becomes went, buy becomes bought, take becomes took. There is no rule that predicts them, so the only way is to meet them often and use them.",
+      "when_to_use": "When the action is over and the time it happened in is over too.",
+      "when_not_to": "Not when the time is still open, like today or this week.",
+      "examples": [
+        "I walked home because the bus never came.",
+        "She bought the wrong milk again yesterday.",
+        "We took the late train and got soaked."
+      ],
+      "mistake": {
+        "said": "I buyed a coat in the sale.",
+        "corrected": "I bought a coat in the sale.",
+        "why": "Buy is irregular, so it doesn't take -ed."
+      }
+    },
+    {
+      "target": "past continuous for what was going on around it",
+      "explanation": "The past continuous sets the scene. It describes something already in progress, stretching across a moment rather than finishing at it. Build it with was or were plus the -ing form: I was cooking, they were waiting. You reach for it when you want the background of a story rather than the events themselves.",
+      "when_to_use": "When you want the background, the thing already happening around the moment.",
+      "when_not_to": "Not for a quick finished action, and not for states like know or want.",
+      "examples": [
+        "I was cooking when the smoke alarm went off.",
+        "They were waiting outside in the rain.",
+        "The neighbours were arguing again at midnight."
+      ],
+      "mistake": {
+        "said": "I was knowing the answer straight away.",
+        "corrected": "I knew the answer straight away.",
+        "why": "Know is a state, so it doesn't take the -ing form."
+      }
+    },
+    {
+      "target": "past simple and past continuous in the same sentence",
+      "explanation": "Put the two together and you get a story. The past continuous is the longer background, and the past simple is the shorter thing that cuts into it. Join them with when or while: while I was walking home, it started to rain. The interrupting action almost always takes the past simple.",
+      "when_to_use": "When a short event lands in the middle of something longer.",
+      "when_not_to": "Not when both actions simply followed each other in order.",
+      "examples": [
+        "While I was walking home, it started to rain.",
+        "He was sleeping when his phone rang.",
+        "We were eating when the lights went out."
+      ],
+      "mistake": {
+        "said": "While I walked home, it was starting to rain.",
+        "corrected": "While I was walking home, it started to rain.",
+        "why": "The longer background takes the continuous, not the short event."
+      }
+    },
+    {
+      "target": "time linkers: then, after that, a bit later",
+      "explanation": "Linkers hold a story together and stop it sounding like a list. Then moves you straight on to the next thing. After that does the same but feels a little slower. A bit later leaves a gap you don't have to explain. Drop them in at the front of a sentence and the order becomes obvious.",
+      "when_to_use": "When you're telling somebody several things that happened in order.",
+      "when_not_to": "Not in every sentence, or the story starts to sound like a list.",
+      "examples": [
+        "We had a coffee, then we walked to the park.",
+        "After that, the rain got much worse.",
+        "A bit later, she called to apologise."
+      ],
+      "mistake": {
+        "said": "We had a coffee. Then. We walked to the park.",
+        "corrected": "We had a coffee, then we walked to the park.",
+        "why": "Then joins the two halves, so it can't stand alone."
+      }
+    }
+  ],
+  "diagrams": [
+    {
+      "kind": "form_build",
+      "target": "past simple: regular and irregular verbs",
+      "slots": ["subject", "past form of the verb"],
+      "example": "She bought the wrong milk again yesterday."
+    },
+    {
+      "kind": "timeline",
+      "target": "past simple and past continuous in the same sentence",
+      "points": [
+        {"label": "I was walking home", "at": 1, "now": false},
+        {"label": "it started to rain", "at": 2, "now": true}
+      ]
+    },
+    {
+      "kind": "contrast_pair",
+      "target": "past continuous for what was going on around it",
+      "situation": "The neighbours were arguing again at midnight",
+      "first": {"form": "was cooking", "example": "I was cooking when the smoke alarm went off."},
+      "second": {"form": "knew", "example": "I knew the answer straight away."},
+      "what_changes": "Know is a state, so it doesn't take the -ing form."
+    },
+    {
+      "kind": "annotated_example",
+      "target": "time linkers: then, after that, a bit later",
+      "sentence": "After that, the rain got much worse.",
+      "callouts": [
+        {"part": "After that", "note": "moves the story on, a little slower than then"},
+        {"part": "the rain got much worse", "note": "the next thing that happened"}
+      ]
+    }
+  ]
+}

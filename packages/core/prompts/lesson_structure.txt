@@ -1,0 +1,31 @@
+You are reading ONE English sentence and deciding WHICH GRAMMAR POINT IT
+DEMONSTRATES.
+
+You are given the sentence alone — no label, no heading, no surrounding
+paragraph — and a list of candidate grammar points. Nothing tells you what the
+sentence was written for, and you must not guess from anything except the
+sentence.
+
+Ask: if somebody wanted to SHOW a learner this grammar point with one sentence,
+is this that sentence? Containing a structure is not the same as demonstrating
+it. "I walked home yesterday" demonstrates the past simple. "I walked home, then
+I made dinner" contains the past simple but demonstrates time linkers — the
+sentence is built to show the linker.
+
+Rules:
+- Rank the candidates, best first. Rank only the ones this sentence could
+  plausibly be demonstrating — usually one or two.
+- Copy each candidate VERBATIM from the list. Do not paraphrase, shorten, or
+  invent a point that is not on the list.
+- Put first the point the sentence is BUILT to show, not merely the ones its
+  words belong to.
+- Judge the sentence as written. Do not consider how it could be rewritten.
+- Do not explain, do not reason out loud, do not comment on the sentence.
+
+Reply with ONLY this JSON object:
+
+{"ranking": ["<candidate>", ...], "confidence": "high"|"low"}
+
+Set `confidence` to "low" when the sentence genuinely demonstrates more than one
+of the candidates equally well. Low confidence is a signal about the sentence,
+not about you.

@@ -244,6 +244,53 @@ def test_a_grammar_target_reaches_a_learner_carrying_only_its_text() -> None:
     assert visible_target(_Target()) == {"target": "third conditional"}
 
 
+def test_no_murphy_citation_reaches_the_lesson_generator() -> None:
+    """#171's constraint at the GENERATION seam, which is where it bites hardest.
+
+    **The worry #171 recorded about W10 lands harder on a lesson than on an
+    item**: a lesson built around a Murphy range would inherit the unexplained
+    contradiction #164 records, invisibly and in prose a learner will believe.
+
+    So the payload is asserted rather than the intention. `unit_plan` routes
+    every target through `core.sessions.blocks.visible_targets` -- the same
+    chokepoint block 3's serialiser and `core.items.generate` use -- which builds
+    the visible dict by NAMING the one field that may travel, so a later
+    operator-only field is withheld by default rather than remembered about.
+
+    This test is EXTENDED into the existing file rather than copied into a second
+    one, which is what W10 did for the serialisation seam and for the same reason.
+    """
+    from core.lessons.generate import build_payload, unit_plan
+
+    plan = unit_plan((1, 9, 20))
+    assert plan, "the plan is empty, so this test asserts nothing"
+
+    for number, info in plan.items():
+        blob = json.dumps(
+            build_payload(number, info["can_do"], info["targets"]),
+            ensure_ascii=False,
+        )
+        assert "murphy" not in blob.lower(), f"unit {number} payload carries a citation"
+        # And the candidate list the gates rank against, which also travels.
+        assert "murphy" not in json.dumps(
+            list(info["candidates"]), ensure_ascii=False
+        ).lower()
+
+
+def test_the_lesson_schema_has_nowhere_to_put_a_citation() -> None:
+    """Stronger than the payload check: the shape cannot carry one at all.
+
+    A field that does not exist cannot leak, which is the same argument
+    `visible_target` makes structurally rather than by discipline.
+    """
+    from core.lessons.schema import MODEL_FOR_KIND, Lesson, Section
+
+    names = set(Section.model_fields) | set(Lesson.model_fields)
+    for model in MODEL_FOR_KIND.values():
+        names |= set(model.model_fields)
+    assert not {n for n in names if "murphy" in n or "citation" in n or n == "source"}
+
+
 def test_the_real_syllabus_content_still_carries_the_operator_note() -> None:
     """**The ban must not become vacuous**, the same guard the `texts.py`
     exemption gets below.

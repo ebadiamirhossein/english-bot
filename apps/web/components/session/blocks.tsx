@@ -5,10 +5,11 @@ import { useState } from "react";
 
 import { CardRunner } from "@/components/cards/card-runner";
 import { ItemCard } from "@/components/items/item-card";
+import { LessonBody } from "@/components/lessons/lesson";
 import { BlockShell } from "@/components/session/block-shell";
 import { BLOCKS, NOTHING_DUE } from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
-import type { CardFace, ItemPresentation, SessionBlock } from "@/lib/api";
+import type { CardFace, ItemPresentation, Lesson, SessionBlock } from "@/lib/api";
 
 /**
  * The five blocks of PRD §4.1, one component each.
@@ -18,7 +19,9 @@ import type { CardFace, ItemPresentation, SessionBlock } from "@/lib/api";
  * full on day one would be inventing work, which is the thing the rules forbid.
  *
  * **Block 3 stopped being empty at W10c**, which built the generator its eight
- * items were waiting for. Its written explanation is still W10b's.
+ * items were waiting for, and **W10b filled the explanation half** — so PRD
+ * §4.1's block 3 is whole for the first time. A unit with no generated lesson
+ * still renders bare labels and says so in one line.
  */
 
 function Empty({ children }: { children: React.ReactNode }) {
@@ -133,6 +136,7 @@ export function FocusBlock({ block }: { block: SessionBlock }) {
   const canDo = block.payload.can_do as string | undefined;
   const targets =
     (block.payload.grammar_targets as { target: string }[] | undefined) ?? [];
+  const lesson = (block.payload.lesson as Lesson | null | undefined) ?? null;
   const items = (block.payload.items as ItemPresentation[] | undefined) ?? [];
   const [index, setIndex] = useState(0);
   const item = items[index];
@@ -152,19 +156,30 @@ export function FocusBlock({ block }: { block: SessionBlock }) {
           <p className="text-base leading-relaxed" data-testid="focus-can-do">
             {canDo}
           </p>
-          <ul className="space-y-2" data-testid="focus-targets">
-            {targets.map((one) => (
-              <li
-                key={one.target}
-                className="rounded-xl bg-muted px-4 py-3 text-sm leading-relaxed"
-              >
-                {one.target}
-              </li>
-            ))}
-          </ul>
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            {BLOCKS.focus.noLesson}
-          </p>
+          {/* **The labels are ANNOTATED, not replaced.** With a lesson each one
+              becomes the header of its own section; without one they stay
+              exactly as W10 shipped them. The label text is identical either
+              way — it is the same string from `visible_target`, so #171 holds
+              in both branches. */}
+          {lesson ? (
+            <LessonBody lesson={lesson} />
+          ) : (
+            <>
+              <ul className="space-y-2" data-testid="focus-targets">
+                {targets.map((one) => (
+                  <li
+                    key={one.target}
+                    className="rounded-xl bg-muted px-4 py-3 text-sm leading-relaxed"
+                  >
+                    {one.target}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {BLOCKS.focus.noLesson}
+              </p>
+            </>
+          )}
           {item ? (
             <div className="space-y-3" data-testid="focus-items">
               <p className="text-sm leading-relaxed text-muted-foreground">

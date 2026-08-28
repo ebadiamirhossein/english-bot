@@ -1192,13 +1192,14 @@ def _focus_block(unit: Any, user_id: int) -> tuple[str, dict[str, Any]]:
     """Block 3. The unit's can-do, its grammar targets, and **its eight items.**
 
     PRD §4.1 asks for "this week's grammar target: 90-second explanation + 8
-    generated items". **W10c fills the second half.** The explanation is still
-    W10b, which is approved and not started, so `lesson` stays named and NULL --
-    a reader can tell "no lesson yet" from "this shape has no lessons".
+    generated items". **W10c filled the second half and W10b fills the first**,
+    so §4.1 block 3 is whole for the first time. `lesson` is still None for a
+    unit nobody has generated for -- generation is human-run (#196) -- and a
+    reader can still tell "no lesson yet" from "this shape has no lessons".
 
     THE BLOCK-3 CONTRACT, updated once here so it is readable from the record
     rather than from a diff. `items` is now populated where W10 shipped it empty:
-    ``{unit_number, can_do, grammar_targets: [{target}], lesson: None, items: [...]}``
+    ``{unit_number, can_do, grammar_targets: [{target}], lesson, items: [...]}``
 
     **NOTHING IS GENERATED HERE.** `focus_items` is `bank_for_session` plus the
     projection -- one read, of items that were validated, target-checked and
@@ -1220,15 +1221,23 @@ def _focus_block(unit: Any, user_id: int) -> tuple[str, dict[str, Any]]:
     if unit is None:
         return "empty", {}
     from core.services import items as items_service
+    from core.services import lessons as lessons_service
 
     presentations = items_service.focus_items(
         user_id, unit_number=unit.unit_number
     )
+    # **W10b fills the field W10 named and left NULL.** `for_unit` returns None
+    # for a unit nobody has generated for -- which is most of them, because
+    # generation is human-run (#196) -- and also for a stored lesson below the
+    # current `LESSON_VERSION`, which it refuses rather than serving teaching
+    # checked by rules that no longer exist. Both cases render the same line a
+    # learner already sees, so `None` keeps meaning exactly what it meant.
+    stored = lessons_service.for_unit(unit.unit_number)
     return "ready", {
         "unit_number": unit.unit_number,
         "can_do": unit.can_do,
         "grammar_targets": [dict(one) for one in visible_targets(unit.grammar_targets)],
-        "lesson": None,
+        "lesson": stored.model_dump(mode="json") if stored else None,
         "items": [
             {
                 "id": one.id,

@@ -24,6 +24,7 @@ from apps.api.routers import cards as cards_router
 from apps.api.routers import correct as correct_router
 from apps.api.routers import health as health_router
 from apps.api.routers import items as items_router
+from apps.api.routers import lessons as lessons_router
 from apps.api.routers import session as session_router
 from core.config import Settings, load_settings
 from core.logging import configure_console_logging
@@ -189,6 +190,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(items_router.router)
     app.include_router(cards_router.router)
     app.include_router(session_router.router)
+    app.include_router(lessons_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -202,6 +204,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     items_router.router,
                     cards_router.router,
                     session_router.router,
+                    lessons_router.router,
                 )
                 for route in router.routes
             )

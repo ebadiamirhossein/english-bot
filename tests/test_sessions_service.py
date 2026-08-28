@@ -307,10 +307,12 @@ def test_block_two_is_empty_because_the_video_engine_does_not_exist(
 
 
 def test_block_three_carries_labels_a_null_lesson_and_no_items(db, learner) -> None:
-    """#182 on the wire: the targets are real and nothing teaches them.
+    """A unit with no stored lesson still serves `lesson: None`.
 
-    `lesson` is present and NULL rather than absent, so W10b has a field to fill
-    and a reader can tell "no lesson yet" from "this shape has no lessons".
+    **Kept unchanged by W10b, and that is the point.** Generation is human-run
+    (#196), so most units have no lesson and `None` still has to mean "no lesson
+    yet" rather than "this shape has no lessons". The same NULL is served for a
+    stored lesson below the current `LESSON_VERSION`, which the service refuses.
     """
     block = _blocks(svc.today(learner, now=NOW))["focus"]
     assert block.state == "ready"
@@ -321,6 +323,89 @@ def test_block_three_carries_labels_a_null_lesson_and_no_items(db, learner) -> N
     assert block.payload["grammar_targets"]
     for target in block.payload["grammar_targets"]:
         assert set(target) == {"target"}
+
+
+def test_block_three_serves_a_stored_lesson(db, learner) -> None:
+    """**W10b fills the field W10 named.** #182 reaching a screen.
+
+    The one change to `_focus_block`, exercised through the same service call a
+    learner's session makes -- not by reading the dict back out of the function
+    that built it.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    from core.lessons import LESSON_VERSION
+    from core.lessons.schema import parse_lesson
+
+    fixture = _Path(__file__).parent / "fixtures" / "lessons" / "specimen.json"
+    lesson = parse_lesson(_json.loads(fixture.read_text()))
+    payload = lesson.model_dump(mode="json")
+    db.execute("DELETE FROM grammar_lessons WHERE unit_number = 1")
+    db.execute(
+        "INSERT INTO grammar_lessons (unit_number, sections, diagrams, "
+        "verification, lesson_version) VALUES (1, %s, %s, %s, %s)",
+        (
+            _json.dumps(payload["sections"]),
+            _json.dumps(payload["diagrams"]),
+            _json.dumps({"verdict": "passed"}),
+            LESSON_VERSION,
+        ),
+    )
+    db.commit()
+    try:
+        block = _blocks(svc.today(learner, now=NOW))["focus"]
+        assert block.state == "ready"
+        assert block.payload["lesson"] is not None
+        served = block.payload["lesson"]
+        assert len(served["sections"]) == 4
+
+        # The lesson's sections and the block's labels name the same targets, in
+        # the same order, so the disclosure headers and the sections line up.
+        assert [s["target"] for s in served["sections"]] == [
+            t["target"] for t in block.payload["grammar_targets"]
+        ]
+
+        # #171 holds at this seam too: a lesson carries no citation and cannot,
+        # because nothing in its schema has anywhere to put one.
+        assert "murphy" not in _json.dumps(served).lower()
+    finally:
+        db.execute("DELETE FROM grammar_lessons WHERE unit_number = 1")
+        db.commit()
+
+
+def test_a_stale_lesson_leaves_block_three_saying_it_is_on_its_way(db, learner) -> None:
+    """A row below `LESSON_VERSION` must not reach a learner as teaching.
+
+    It still satisfies every CHECK in migration 017 -- the constraint cannot see
+    the version -- so this is the only place the refusal is observable.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    from core.lessons import LESSON_VERSION
+    from core.lessons.schema import parse_lesson
+
+    fixture = _Path(__file__).parent / "fixtures" / "lessons" / "specimen.json"
+    payload = parse_lesson(_json.loads(fixture.read_text())).model_dump(mode="json")
+    db.execute("DELETE FROM grammar_lessons WHERE unit_number = 1")
+    db.execute(
+        "INSERT INTO grammar_lessons (unit_number, sections, diagrams, "
+        "verification, lesson_version) VALUES (1, %s, %s, %s, %s)",
+        (
+            _json.dumps(payload["sections"]),
+            _json.dumps(payload["diagrams"]),
+            _json.dumps({"verdict": "passed"}),
+            LESSON_VERSION - 1,
+        ),
+    )
+    db.commit()
+    try:
+        block = _blocks(svc.today(learner, now=NOW))["focus"]
+        assert block.payload["lesson"] is None
+    finally:
+        db.execute("DELETE FROM grammar_lessons WHERE unit_number = 1")
+        db.commit()
 
 
 def test_block_four_carries_the_units_written_task_only(db, learner) -> None:
