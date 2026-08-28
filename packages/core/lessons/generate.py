@@ -181,6 +181,7 @@ from core.items.generate import coverage_reference, target_candidates, track_for
 from core.items.gates import TargetVerdict
 from core.lessons import (
     DIAGRAMS_PER_LESSON,
+    EXPLANATION_WORDS,
     LESSON_VERSION,
     MAX_REGENERATIONS,
     SCOPE_UNITS,
@@ -592,14 +593,54 @@ def print_verdicts(rows: Sequence[dict], control: ControlResult | None) -> None:
     and its sequel, and reusing the one implementation is why `band` was promoted
     to `core.runs` instead of copied.
     """
-    print("\n── pre-registered axes ─────────────────────────────────────────")
     lessons = len(rows)
     stages = [r.get("stage") for r in rows]
+    shippable = sum(1 for r in rows if r["state"] == "accepted")
+
+    # **THE OUTCOME, BEFORE THE AXES, and it exists because of what stage 1
+    # looked like: four axes MET and four NOT EVALUATED, above a headline
+    # reading UNIT 1 IS UNSHIPPABLE.** A reader scanning the axis block would
+    # have concluded the run went well. Nothing in it said the run produced
+    # nothing -- L1 read `1 of 1 - MET`, which is true of the FIRST pass and
+    # silent about the second and third.
+    #
+    # An axis block reading MET over a run that wrote nothing is the same family
+    # as a green suite over an unreachable path, which this record has counted
+    # many times. So the outcome is stated first, in its own words, and it is
+    # not an axis: axes measure how a run went, and this says WHETHER it went.
+    print("\n── outcome ─────────────────────────────────────────────────────")
+    print(f"  **{shippable} of {lessons} lesson(s) SHIPPABLE.**")
+    if shippable == 0:
+        print("  **THE RUN PRODUCED NOTHING. Every axis below is a reading of a "
+              "run that wrote no lesson.**")
+    elif shippable < lessons:
+        short = [r["unit"] for r in rows if r["state"] != "accepted"]
+        print(f"  **SHORT: unit(s) {short} are unshippable and were not "
+              "written.** Reported, not shipped with a warning, and no bar is "
+              "adjusted (CLAUDE.md §3 rule 7).")
+    for r in rows:
+        if r["state"] != "accepted":
+            print(f"    unit {r['unit']}: rejected at {r.get('stage')} on "
+                  f"attempt {r.get('attempt', 1)} of {MAX_REGENERATIONS + 1}")
+
+    print("\n── pre-registered axes ─────────────────────────────────────────")
 
     failed_first = sum(1 for r in rows if r.get("attempt", 1) > 1 or r["state"] != "accepted")
     band("L1 lessons failing first pass", failed_first, L1_LOW, L1_HIGH, lessons,
          "2-3 means the GENERATOR PROMPT is wrong, not the gate. Fix the "
          "prompt, re-run, do not loosen a check.")
+    # **L1 is about the FIRST pass and is silent about the rest**, which is
+    # exactly how it read MET over a lesson that also failed its second and
+    # third. The exhausted count is printed beside it rather than folded into
+    # it, because widening L1 after a run would be moving a registered axis.
+    exhausted = sum(
+        1 for r in rows
+        if r["state"] != "accepted" and r.get("attempt", 1) > MAX_REGENERATIONS
+    )
+    if exhausted:
+        print(f"      **and {exhausted} of {lessons} exhausted all "
+              f"{MAX_REGENERATIONS + 1} attempts and are UNSHIPPABLE.** L1 "
+              "measures the first pass only and says nothing about this.")
 
     reached_c1 = sum(1 for st in stages if st not in ("deterministic", "runner"))
     sections_seen = sum(len(r.get("sections") or {}) for r in rows)
@@ -670,13 +711,25 @@ def print_verdicts(rows: Sequence[dict], control: ControlResult | None) -> None:
         print("  L7 section coverage: NOT EVALUATED — no lesson reached the "
               "coverage measurement. **Not met, not unmet: never asked.**")
 
+    # **A MEAN IS NOT A FRACTION.** This printed `2 of 1 — predicted 2-3 — MET`
+    # on stage 1: two diagrams over one lesson rendered through `band`'s
+    # `n of m` shape, which reads as two out of one. `band` is right for a count
+    # against a denominator and wrong for an average, so L8 prints itself rather
+    # than borrowing a shape that does not fit. The AXIS is unchanged.
     per_lesson = [r.get("diagram_count", 0) for r in rows]
     if per_lesson:
-        band("L8 diagrams per lesson (mean)",
-             round(sum(per_lesson) / len(per_lesson)),
-             L8_LOW, L8_HIGH, len(per_lesson),
-             "0 on any lesson: read that unit's targets and say which kind was "
-             "declined. 4 of 4 everywhere: the generator is decorating.")
+        mean = sum(per_lesson) / len(per_lesson)
+        met = L8_LOW <= mean <= L8_HIGH
+        spread = ", ".join(
+            f"unit {r['unit']}: {r.get('diagram_count', 0)}" for r in rows
+        )
+        print(f"  L8 diagrams per lesson: mean {mean:.1f} across "
+              f"{len(per_lesson)} lesson(s) ({spread}) — predicted "
+              f"{L8_LOW}-{L8_HIGH} — {'MET' if met else 'NOT MET'}")
+        if not met:
+            print("      0 on any lesson: read that unit's targets and say "
+                  "which kind was declined. 4 of 4 everywhere: the generator "
+                  "is decorating rather than choosing.")
         for r in rows:
             if r.get("diagram_count", 0) == 0:
                 print(f"      unit {r['unit']}: ZERO diagrams — reported, not "
@@ -779,6 +832,37 @@ def generate_lesson(
     return parse_lesson({**response, "unit_number": number})
 
 
+def _feedback(out: "Outcome") -> str:
+    """What the last attempt got wrong, in a form the next one can act on.
+
+    **The failure details already carry the number** -- `explanation_length` reads
+    `36 words; 40-70 required` -- and stage 1 showed that is not enough on its
+    own: it names the miss without naming the fix, and the model produced 36 and
+    37 on consecutive attempts. So the shortfall is stated as a shortfall, with
+    the direction to move in.
+
+    **No bar is widened.** The band is untouched (rule 7); what changes is that
+    the regeneration is told how far short it fell and what to write more of.
+    """
+    lines = [
+        f"Your previous attempt was REJECTED at the {out.stage} check. "
+        "Fix exactly these and change nothing else:"
+    ]
+    for detail in out.details:
+        lines.append(f"  - {detail}")
+
+    shortfalls = [d for d in out.details if d.startswith("explanation_length")]
+    if shortfalls:
+        low, high = EXPLANATION_WORDS
+        lines.append(
+            f"  ** The explanation was TOO SHORT. It must be {low}-{high} words "
+            f"and you should aim for about {(low + high) // 2}. Do not pad it: "
+            "add the substance that is missing -- when NOT to use the form, and "
+            "one more concrete situation a learner would recognise. **"
+        )
+    return "\n".join(lines)
+
+
 def run(
     numbers: tuple[int, ...],
     *,
@@ -841,10 +925,7 @@ def run(
                 print(f"  accepted · {out.diagram_count} diagrams")
                 break
             print(f"  rejected at {out.stage}: {'; '.join(out.details)[:300]}")
-            feedback = (
-                f"The previous attempt was rejected at the {out.stage} check: "
-                + "; ".join(out.details)
-            )
+            feedback = _feedback(out)
         assert out is not None
         if out.state != "accepted":
             print(f"\n  ** UNIT {number} IS UNSHIPPABLE after "

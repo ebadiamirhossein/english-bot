@@ -13,7 +13,7 @@ from core.lessons.schema import (
     Lesson,
     Section,
     contract_block,
-    diagram_claims,
+    diagram_sentences,
     diagram_labels,
     diagram_text,
     parse_lesson,
@@ -89,30 +89,60 @@ def test_a_lesson_may_carry_no_diagrams(_=None) -> None:
     assert parse_lesson(raw).diagrams == ()
 
 
-def test_every_kind_renders_to_text_and_names_its_claims() -> None:
-    """`diagram_text` feeds C1 and C3; `diagram_claims` feeds the prose check."""
+def test_every_kind_renders_to_text() -> None:
+    """`diagram_text` feeds C1 and C3, so every kind must produce one."""
     for spec in _specimen().diagrams:
         text = diagram_text(spec)
         assert text and isinstance(text, str)
-        assert diagram_claims(spec)
-        # Claims are a SUBSET of labels: the wide set adds slot names and notes.
-        assert set(diagram_claims(spec)) <= set(diagram_labels(spec))
 
 
-def test_form_build_slots_are_labels_but_not_claims() -> None:
-    """The distinction that stopped two kinds being impossible to pass."""
+def test_sentences_are_a_subset_of_labels_for_every_kind() -> None:
+    """The wide set is for the no-guilt scan; the narrow one is string-checked."""
+    from core.lessons.schema import MODEL_FOR_KIND
+
+    seen = set()
+    for name in ("specimen.json", "specimen_unit9.json"):
+        raw = json.loads((FIXTURES / name).read_text())
+        for spec in parse_lesson(raw).diagrams:
+            seen.add(spec.kind)
+            assert set(diagram_sentences(spec)) <= set(diagram_labels(spec))
+    assert seen == set(MODEL_FOR_KIND), f"kinds never checked here: {seen}"
+
+
+def test_a_timeline_has_no_string_checked_field_and_that_is_deliberate() -> None:
+    """It carries no sentence; its labels are quote-or-paraphrase by nature."""
+    timeline = next(d for d in _specimen().diagrams if d.kind == "timeline")
+    assert diagram_sentences(timeline) == ()
+    assert diagram_labels(timeline)  # but they are still no-guilt scanned
+
+
+def test_form_build_slots_are_labels_but_not_sentences() -> None:
+    """The distinction that stopped three kinds being impossible to pass."""
     form = next(d for d in _specimen().diagrams if d.kind == "form_build")
     assert set(form.slots) <= set(diagram_labels(form))
-    assert not set(form.slots) & set(diagram_claims(form))
+    assert not set(form.slots) & set(diagram_sentences(form))
 
 
-def test_a_callout_note_is_a_label_but_not_a_claim() -> None:
+def test_a_callout_note_is_a_label_but_not_a_sentence() -> None:
     annotated = next(
         d for d in _specimen().diagrams if d.kind == "annotated_example"
     )
     notes = {c.note for c in annotated.callouts}
     assert notes <= set(diagram_labels(annotated))
-    assert not notes & set(diagram_claims(annotated))
+    assert not notes & set(diagram_sentences(annotated))
+
+
+def test_contrast_pair_commentary_is_not_string_checked() -> None:
+    """**The field that cost a billed run.** `situation` and `form` describe."""
+    contrast = next(d for d in _specimen().diagrams if d.kind == "contrast_pair")
+    sentences = set(diagram_sentences(contrast))
+    assert contrast.situation not in sentences
+    assert contrast.what_changes not in sentences
+    assert contrast.first.form not in sentences
+    assert contrast.second.form not in sentences
+    # But the EXAMPLES are, because they carry gate provenance.
+    assert contrast.first.example in sentences
+    assert contrast.second.example in sentences
 
 
 def test_every_kind_appears_in_the_contract_the_generator_is_given() -> None:

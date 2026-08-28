@@ -168,28 +168,76 @@ def test_a_timeline_with_two_points_at_one_position_is_refused() -> None:
     assert "timeline_not_ordered" in codes
 
 
-def test_a_diagram_inventing_content_is_refused() -> None:
-    """A diagram naming a form the lesson never mentions is inventing content."""
+def test_a_diagram_quoting_a_sentence_the_section_does_not_carry_is_refused() -> None:
+    """**The one thing string matching can close, and the only thing it should.**
+
+    An example sentence on a diagram that is not one of the section's own is a
+    sentence that never passed C2 or `judge_naturalness`. It would reach a
+    learner ungated, which is a specific structural gap.
+    """
     raw = _as_dict()
-    timeline = next(d for d in raw["diagrams"] if d["kind"] == "timeline")
-    timeline["points"][0]["label"] = "the pluperfect subjunctive vanished"
+    form = next(d for d in raw["diagrams"] if d["kind"] == "form_build")
+    form["example"] = "She hath finished the milk, forsooth."
     codes = {f.code for f in diagram_failures(parse_lesson(raw), UNIT_1_TARGETS)}
-    assert "diagram_label_not_in_prose" in codes
+    assert "diagram_sentence_not_in_section" in codes
 
 
-def test_a_form_build_slot_need_not_appear_in_the_prose() -> None:
-    """**The check that made two diagram kinds impossible to pass.**
+def test_a_diagram_may_quote_the_corrected_half_of_the_mistake() -> None:
+    """That sentence is gated too — it is what the section teaches as right."""
+    raw = _as_dict()
+    section = next(
+        s for s in raw["sections"] if s["target"] == UNIT_1_TARGETS[0]
+    )
+    form = next(d for d in raw["diagrams"] if d["kind"] == "form_build")
+    form["example"] = section["mistake"]["corrected"]
+    codes = {f.code for f in diagram_failures(parse_lesson(raw), UNIT_1_TARGETS)}
+    assert "diagram_sentence_not_in_section" not in codes
 
-    Slot names are grammatical metalanguage -- `subject`, `past participle`.
-    Prose teaching the past simple has no reason to contain the word *subject*,
-    and demanding it would force the lesson to recite the diagram. Found by
-    running the specimen through the checks, which is what that pre-check is for.
+
+def test_a_quoted_sentence_matches_despite_trailing_punctuation() -> None:
+    """`fold_answer`, so a regeneration is not bought for a full stop."""
+    raw = _as_dict()
+    section = next(
+        s for s in raw["sections"] if s["target"] == UNIT_1_TARGETS[0]
+    )
+    form = next(d for d in raw["diagrams"] if d["kind"] == "form_build")
+    form["example"] = section["examples"][0].rstrip(".") + "!"
+    codes = {f.code for f in diagram_failures(parse_lesson(raw), UNIT_1_TARGETS)}
+    assert "diagram_sentence_not_in_section" not in codes
+
+
+def test_no_commentary_field_of_any_kind_is_required_to_appear_in_the_prose() -> None:
+    """**The check that made THREE of the five kinds impossible to pass.**
+
+    Fixed twice for `form_build` and `annotated_example` during implementation,
+    and still live for `contrast_pair` and `decision_tree` when stage 1 ran on
+    the host -- where it cost billed calls. Every commentary field of every kind
+    is driven here, in one test, so a fourth kind cannot be missed the same way.
+
+    See the table in `checks.diagram_failures`: a field is string-checked only
+    when it must be VERBATIM, and verbatim matters only for gate provenance.
     """
     raw = _as_dict()
     form = next(d for d in raw["diagrams"] if d["kind"] == "form_build")
     form["slots"] = ["subject", "auxiliary", "past participle"]
+
+    contrast = next(d for d in raw["diagrams"] if d["kind"] == "contrast_pair")
+    contrast["situation"] = "Talking about a finished action"
+    contrast["first"]["form"] = "irregular verb: spoke"
+    contrast["second"]["form"] = "regular verb: walked"
+    contrast["what_changes"] = "Whether the verb takes -ed or changes shape."
+
+    timeline = next(d for d in raw["diagrams"] if d["kind"] == "timeline")
+    timeline["points"][0]["label"] = "the background, already running"
+
+    annotated = next(
+        d for d in raw["diagrams"] if d["kind"] == "annotated_example"
+    )
+    annotated["callouts"][0]["note"] = "a linker that moves the story on"
+
     codes = {f.code for f in diagram_failures(parse_lesson(raw), UNIT_1_TARGETS)}
-    assert "diagram_label_not_in_prose" not in codes
+    assert "diagram_sentence_not_in_section" not in codes
+    assert not [c for c in codes if "prose" in c]
 
 
 def test_a_callout_must_annotate_a_part_the_sentence_contains() -> None:

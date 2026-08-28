@@ -228,7 +228,7 @@ def diagram_labels(spec: _Diagram) -> tuple[str, ...]:
     """EVERY learner-visible string on this diagram, for the no-guilt scan.
 
     A diagram is generated content like any other, so every string on it is
-    scanned. This is the wide set; `diagram_claims` is the narrower one.
+    scanned. This is the wide set; `diagram_sentences` is the narrow one.
     """
     if isinstance(spec, TimelineDiagram):
         return tuple(p.label for p in spec.points)
@@ -248,52 +248,38 @@ def diagram_labels(spec: _Diagram) -> tuple[str, ...]:
     raise ValueError(f"unknown diagram kind: {spec!r}")
 
 
-def diagram_claims(spec: _Diagram) -> tuple[str, ...]:
-    """Only the strings that CLAIM something about the language.
+def diagram_sentences(spec: _Diagram) -> tuple[str, ...]:
+    """Only the fields that carry an EXAMPLE SENTENCE.
 
-    **These, and only these, are checked against the section's own prose.** The
-    rule is that a diagram naming a form the lesson never mentions is a diagram
-    inventing content -- and that is a rule about *content claims*, not about
-    every string a spec happens to carry.
+    **These, and only these, are matched against the section's own examples.**
+    See `checks.diagram_failures` for the full per-kind, per-field table and the
+    reasoning; the short version is the line that decides it:
 
-    **The distinction was not in the plan and was found by running the perfect
-    specimen through the checks, which is the fourth appearance of #213's family
-    in this slice and the first one the pre-check itself caught.** The first
-    version of the prose check read every string from `diagram_labels`, which
-    made two of the five kinds STRUCTURALLY IMPOSSIBLE TO PASS:
+        A field is string-checked when it must be VERBATIM, and verbatim matters
+        for exactly one reason -- gate provenance. Everything else is paraphrase
+        by nature and is checked by C1 and C3 reading the diagram as text.
 
-    - a `form_build`'s `slots` are grammatical slot names -- `subject`,
-      `past participle` -- metalanguage by construction. Prose that teaches the
-      past simple says *"regular verbs take -ed"*; it has no reason to contain
-      the word *subject*, and demanding it would force the lesson to recite the
-      diagram.
-    - an `annotated_example` callout's `note` is the diagram's OWN commentary on
-      a part of the sentence. Requiring the prose to already contain it makes the
-      callout redundant, which is the opposite of what a callout is for.
+    An example sentence on a diagram that is not one of the section's own is a
+    sentence that never went through C2 (does it demonstrate the target) or
+    `judge_naturalness` (would a real person say this). **It reaches a learner
+    ungated**, which is a specific structural gap and the only one string
+    matching can close. A `situation`, a slot name, a `form` label, a tree
+    question, a branch answer, a callout note or `what_changes` are the diagram
+    restating the section's point in its own words -- which is what a diagram is
+    FOR, and if it restates it wrongly, C1 and C3 see it.
 
-    Both are excluded here, and both remain visible to C1 and C3 through
-    `diagram_text` -- so a slot or a note that teaches a different point still
-    fails a model gate. Nothing stops being checked; it stops being checked by
-    the wrong instrument. `contrast_pair.what_changes` and `decision_tree`'s
-    `question` and branch `answer`s are excluded on the same ground: they are the
-    diagram speaking, not the diagram quoting.
-
-    A callout's `part` is not here either, because it has a stricter check of its
-    own -- it must appear in the diagram's own `sentence`.
+    **`timeline` returns nothing here, deliberately**: it has no sentence field.
+    Its point labels are quote-or-paraphrase by nature and are checked by the
+    model gates plus its own ordering rules.
     """
-    if isinstance(spec, TimelineDiagram):
-        return tuple(p.label for p in spec.points)
     if isinstance(spec, ContrastPairDiagram):
-        return (
-            spec.situation, spec.first.form, spec.first.example,
-            spec.second.form, spec.second.example,
-        )
+        return (spec.first.example, spec.second.example)
     if isinstance(spec, FormBuildDiagram):
         return (spec.example,)
-    if isinstance(spec, DecisionTreeDiagram):
-        return tuple(b.form for b in spec.branches)
     if isinstance(spec, AnnotatedExampleDiagram):
         return (spec.sentence,)
+    if isinstance(spec, (TimelineDiagram, DecisionTreeDiagram)):
+        return ()
     raise ValueError(f"unknown diagram kind: {spec!r}")
 
 
@@ -441,7 +427,18 @@ def constraint_block() -> str:
     """
     lines = [
         "  every section",
-        f"    - explanation is {EXPLANATION_WORDS[0]}-{EXPLANATION_WORDS[1]} words",
+        # **AIM AT THE CENTRE, NOT THE EDGE.** Stage 1 produced explanations of
+        # 36 and 37 words against a 40-70 band -- both just under the floor,
+        # which is what a model does when it is given a range and writes toward
+        # its lower bound. The band is UNCHANGED (rule 7); what changed is that
+        # the prompt names a target inside it and says a short one is rejected.
+        f"    - explanation is {EXPLANATION_WORDS[0]}-{EXPLANATION_WORDS[1]} "
+        f"words. **AIM FOR ABOUT "
+        f"{(EXPLANATION_WORDS[0] + EXPLANATION_WORDS[1]) // 2}**, which is four "
+        f"or five full sentences. An explanation UNDER "
+        f"{EXPLANATION_WORDS[0]} words is rejected, and a short one is the "
+        f"single most common way this fails -- write the *when not to* thinking "
+        f"out in full rather than compressing it",
         f"    - when_to_use and when_not_to are at most {CLAUSE_WORDS} words each",
         f"    - mistake.why is at most {WHY_WORDS} words",
         "    - every example sentence is at most 12 words",

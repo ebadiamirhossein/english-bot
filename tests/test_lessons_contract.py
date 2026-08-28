@@ -24,7 +24,7 @@ So both checks here answer the same question in two ways, and both run free:
 every string on a spec, including a `form_build`'s grammatical slot names and an
 `annotated_example` callout's own commentary, which made two of the five diagram
 kinds impossible to pass. That is #213's family, in the check written to prevent
-#213, caught by this file before it cost a call. See `schema.diagram_claims`.
+#213, caught by this file before it cost a call.
 """
 
 from __future__ import annotations
@@ -128,31 +128,96 @@ def _unit_targets(unit_number: int) -> list[str]:
     raise AssertionError(f"no unit {unit_number}")
 
 
-def test_a_perfect_specimen_lesson_passes_every_deterministic_check() -> None:
+#: **Two specimens, and the reason is a constraint rather than a preference.** A
+#: lesson carries at most ONE diagram per grammar target; unit 1 has four
+#: targets and there are five diagram kinds, so one fixture structurally cannot
+#: exercise them all. Unit 9 carries `decision_tree`, which `specimen.json`
+#: could not, and a second `contrast_pair` in the descriptive shape.
+SPECIMENS = (("specimen.json", 1), ("specimen_unit9.json", 9))
+
+
+def _specimen(name: str):
+    return parse_lesson(json.loads((FIXTURES / name).read_text()))
+
+
+@pytest.mark.parametrize("name,unit", SPECIMENS)
+def test_a_perfect_specimen_lesson_passes_every_deterministic_check(
+    name: str, unit: int
+) -> None:
     """Run a perfect draft through the gates. The way #213 was found.
 
     The expected value is hardcoded -- zero failures -- and never computed from
-    the checks (rule 5). The specimen is committed, so a check that tightens
+    the checks (rule 5). The specimens are committed, so a check that tightens
     against real content fails here first, before a billed run discovers it.
     """
-    lesson = parse_lesson(json.loads((FIXTURES / "specimen.json").read_text()))
-    failures = deterministic_failures(lesson, _unit_targets(1))
+    failures = deterministic_failures(_specimen(name), _unit_targets(unit))
     assert failures == (), (
-        "a hand-authored, deliberately correct lesson cannot pass the "
+        f"{name}: a hand-authored, deliberately correct lesson cannot pass the "
         "deterministic checks, so no generated one can either:\n"
         + "\n".join(f"  - {f}" for f in failures)
     )
 
 
-def test_the_specimen_is_the_real_unit_one() -> None:
-    """The specimen must be about the content that actually ships.
+@pytest.mark.parametrize("name,unit", SPECIMENS)
+def test_each_specimen_is_a_real_unit(name: str, unit: int) -> None:
+    """A specimen against invented targets passes the bijection trivially."""
+    lesson = _specimen(name)
+    assert lesson.unit_number == unit
+    assert [s.target for s in lesson.sections] == _unit_targets(unit)
 
-    A specimen against invented targets would pass the bijection trivially and
-    prove nothing about the unit a learner opens tomorrow.
+
+def test_the_specimens_exercise_EVERY_diagram_kind() -> None:
+    """**THE LIMIT OF THE PRE-CHECK, as a test. This is the whole finding.**
+
+    A perfect specimen only proves the checks pass ON THE SPECIMEN. The label
+    rule was fixed for `form_build` and `annotated_example` during
+    implementation -- caught here -- and was **still structurally unpassable for
+    `contrast_pair` and `decision_tree`, because no fixture exercised those two
+    in a realistic shape.** `decision_tree` was not exercised at all. Stage 1 hit
+    it on the host and it cost billed calls.
+
+    **The pre-check passed while the rule was unpassable. Its blind spot was
+    coverage, not logic**, so coverage is now asserted: a sixth kind cannot
+    arrive without a specimen that exercises it.
     """
-    lesson = parse_lesson(json.loads((FIXTURES / "specimen.json").read_text()))
-    assert lesson.unit_number == 1
-    assert [s.target for s in lesson.sections] == _unit_targets(1)
+    exercised = {
+        spec.kind for name, _ in SPECIMENS for spec in _specimen(name).diagrams
+    }
+    missing = sorted(set(MODEL_FOR_KIND) - exercised)
+    assert not missing, (
+        "diagram kinds no specimen exercises, so the deterministic checks are "
+        f"unproven against them and a billed run is where that is found: {missing}"
+    )
+
+
+def test_the_specimens_exercise_commentary_FIELDS_and_not_only_kinds() -> None:
+    """Coverage of kinds is not coverage of shapes, which is the same trap again.
+
+    A `contrast_pair` whose `situation` was lifted verbatim from the prose --
+    which is what the first specimen carried -- exercises the kind and not the
+    failure. So the fixtures are asserted to contain commentary that is genuinely
+    NOT a quotation of the section, in every field that class covers.
+    """
+    from core.lessons.checks import section_prose
+
+    checked = 0
+    for name, _ in SPECIMENS:
+        lesson = _specimen(name)
+        prose = {s.target: section_prose(s).casefold() for s in lesson.sections}
+        for spec in lesson.diagrams:
+            body = prose.get(spec.target, "")
+            for field in ("situation", "what_changes", "question"):
+                value = getattr(spec, field, None)
+                if value:
+                    checked += 1
+                    assert value.casefold() not in body, (
+                        f"{name}: {spec.kind}.{field} is quoted from the prose, "
+                        "so it exercises the kind but not the shape that failed"
+                    )
+    assert checked >= 3, (
+        f"only {checked} commentary fields exercised; the fixtures have drifted "
+        "back to shapes built to pass"
+    )
 
 
 def test_the_negative_control_can_actually_execute() -> None:

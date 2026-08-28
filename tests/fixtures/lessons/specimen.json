@@ -70,32 +70,55 @@
     {
       "kind": "form_build",
       "target": "past simple: regular and irregular verbs",
-      "slots": ["subject", "past form of the verb"],
+      "slots": [
+        "subject",
+        "past form of the verb"
+      ],
       "example": "She bought the wrong milk again yesterday."
     },
     {
       "kind": "timeline",
       "target": "past simple and past continuous in the same sentence",
       "points": [
-        {"label": "I was walking home", "at": 1, "now": false},
-        {"label": "it started to rain", "at": 2, "now": true}
+        {
+          "label": "I was walking home",
+          "at": 1,
+          "now": false
+        },
+        {
+          "label": "it started to rain",
+          "at": 2,
+          "now": true
+        }
       ]
     },
     {
       "kind": "contrast_pair",
       "target": "past continuous for what was going on around it",
-      "situation": "The neighbours were arguing again at midnight",
-      "first": {"form": "was cooking", "example": "I was cooking when the smoke alarm went off."},
-      "second": {"form": "knew", "example": "I knew the answer straight away."},
-      "what_changes": "Know is a state, so it doesn't take the -ing form."
+      "situation": "Talking about what was going on around a moment",
+      "first": {
+        "form": "past continuous: was cooking",
+        "example": "I was cooking when the smoke alarm went off."
+      },
+      "second": {
+        "form": "state verb: knew",
+        "example": "I knew the answer straight away."
+      },
+      "what_changes": "Use the -ing form for the background, never for a state."
     },
     {
       "kind": "annotated_example",
       "target": "time linkers: then, after that, a bit later",
       "sentence": "After that, the rain got much worse.",
       "callouts": [
-        {"part": "After that", "note": "moves the story on, a little slower than then"},
-        {"part": "the rain got much worse", "note": "the next thing that happened"}
+        {
+          "part": "After that",
+          "note": "moves the story on, a little slower than then"
+        },
+        {
+          "part": "the rain got much worse",
+          "note": "the next thing that happened"
+        }
       ]
     }
   ]

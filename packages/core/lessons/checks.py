@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from core.copy_rules import content_offenders
 from core.items.checks import MAX_SENTENCE_WORDS
+from core.items.grading import fold_answer
 from core.items.naturalness import jargon_hits, textbook_hits, uncontracted
 from core.lessons import (
     BRANCHES,
@@ -45,7 +46,7 @@ from core.lessons.schema import (
     Lesson,
     Section,
     TimelineDiagram,
-    diagram_claims,
+    diagram_sentences,
     diagram_labels,
 )
 
@@ -252,10 +253,81 @@ def diagram_failures(lesson: Lesson, targets: Sequence[str]) -> tuple[Failure, .
     """Structure, ordering, the per-target rule, and labels against the prose.
 
     **The per-target rule is a rule and not a habit**, and the reason makes it
-    one: the label check below is defined PER SECTION, so two diagrams against
-    one section makes it ambiguous which prose a label must appear in. A
+    one: the sentence check below is defined PER SECTION, so two diagrams against
+    one section makes it ambiguous whose examples a sentence must come from. A
     `contrast_pair` shared between two targets would have to name both and break
     the one-target attachment.
+
+    ═══════════════════════════════════════════════════════════════════════════
+    WHICH FIELDS ARE STRING-CHECKED, PER KIND AND PER FIELD -- re-derived after
+    a third kind turned out to be structurally unpassable, ON THE HOST, for
+    billed calls.
+    ═══════════════════════════════════════════════════════════════════════════
+
+    **THE LINE, and everything below follows from it:**
+
+        A field is string-checked when it must be VERBATIM, and verbatim matters
+        for exactly one reason -- GATE PROVENANCE. Everything else is paraphrase
+        by nature, and paraphrase is checked by C1 and C3, which read the whole
+        diagram as text.
+
+    An example sentence that is not one of the section's own is a sentence that
+    never passed C2 (does it demonstrate the target) or `judge_naturalness`
+    (would a real person say this to a friend). **It reaches a learner ungated.**
+    That is a specific structural gap and it is the only one string matching can
+    close. A label that merely *describes* is the diagram doing its job.
+
+    ┌───────────────────┬──────────────────────┬─────────────┬────────────────┐
+    │ kind              │ field                │ class       │ checked by     │
+    ├───────────────────┼──────────────────────┼─────────────┼────────────────┤
+    │ every kind        │ target               │ KEY         │ is one of the  │
+    │                   │                      │             │ unit's targets │
+    │ every kind        │ kind                 │ STRUCTURAL  │ the enum       │
+    ├───────────────────┼──────────────────────┼─────────────┼────────────────┤
+    │ timeline          │ points[].label       │ commentary  │ C1 / C3        │
+    │                   │ points[].at          │ STRUCTURAL  │ distinct       │
+    │                   │ points[].now         │ STRUCTURAL  │ exactly one    │
+    ├───────────────────┼──────────────────────┼─────────────┼────────────────┤
+    │ contrast_pair     │ situation            │ commentary  │ C1 / C3        │
+    │                   │ first/second.form    │ commentary  │ C1 / C3        │
+    │                   │ first/second.example │ **SENTENCE**│ must be the    │
+    │                   │                      │             │ section's own  │
+    │                   │ what_changes         │ commentary  │ C1 / C3        │
+    ├───────────────────┼──────────────────────┼─────────────┼────────────────┤
+    │ form_build        │ slots[]              │ commentary  │ C1 / C3        │
+    │                   │ example              │ **SENTENCE**│ section's own  │
+    ├───────────────────┼──────────────────────┼─────────────┼────────────────┤
+    │ decision_tree     │ question             │ commentary  │ C1 / C3        │
+    │                   │ branches[].answer    │ commentary  │ C1 / C3        │
+    │                   │ branches[].form      │ commentary  │ C1 / C3        │
+    │                   │ branches[]           │ STRUCTURAL  │ count, distinct│
+    ├───────────────────┼──────────────────────┼─────────────┼────────────────┤
+    │ annotated_example │ sentence             │ **SENTENCE**│ section's own  │
+    │                   │ callouts[].part      │ STRUCTURAL  │ in `sentence`  │
+    │                   │ callouts[].note      │ commentary  │ C1 / C3        │
+    └───────────────────┴──────────────────────┴─────────────┴────────────────┘
+
+    **`timeline` has NO string-checked field and that is deliberate**, not an
+    oversight: it carries no sentence, and its point labels are quote-or-
+    paraphrase by nature. Its guarantees are its ordering rules and the model
+    gates.
+
+    **WHY THIS TABLE EXISTS RATHER THAN A THIRD PATCH.** The first version of the
+    rule required EVERY string on a spec to appear in the owning section's prose.
+    That made `form_build` (slot names are grammatical metalanguage) and
+    `annotated_example` (a callout note is the diagram's own gloss) impossible to
+    pass; both were fixed during implementation, caught by the specimen. **The
+    same defect was still live for `contrast_pair` and `decision_tree`, and it
+    cost a billed stage-1 run**: three of unit 1's rejections were a descriptive
+    `situation` and a descriptive `form`.
+
+    **The pre-check passed while the rule was unpassable for a third kind,
+    because `specimen.json` did not exercise that kind in that shape.** A perfect
+    specimen only proves the checks pass ON THE SPECIMEN. That is the limit of
+    the pre-check, found by the pre-check's own blind spot, and the answer is
+    coverage: the fixtures now exercise **all five kinds**, each with realistic
+    commentary, and `tests/test_lessons_contract.py` asserts that coverage so a
+    sixth kind cannot arrive without one.
 
     **The COUNT range permits zero and permits five, and both ends are
     deliberate.** Zero because a unit whose targets suit none of the five kinds
@@ -274,7 +346,14 @@ def diagram_failures(lesson: Lesson, targets: Sequence[str]) -> tuple[Failure, .
             )
         )
 
-    prose_for = {s.target: section_prose(s) for s in lesson.sections}
+    # The sentences a section has ALREADY had gated: its examples, plus the
+    # corrected half of its mistake. A diagram may quote any of them and
+    # nothing else.
+    sentences_for = {
+        s.target: {fold_answer(e) for e in s.examples}
+        | {fold_answer(s.mistake.corrected)}
+        for s in lesson.sections
+    }
     claimed: set[str] = set()
 
     for spec in lesson.diagrams:
@@ -303,45 +382,24 @@ def diagram_failures(lesson: Lesson, targets: Sequence[str]) -> tuple[Failure, .
         if hits:
             out.append(Failure("diagram_no_guilt", f"{where}: {', '.join(hits)}"))
 
-        # Every CONTENT CLAIM must appear in the section's own prose: a diagram
-        # naming a form the lesson never mentions is a diagram inventing
-        # content. `diagram_claims` and not `diagram_labels` -- the wide set
-        # includes slot names and callout notes, and requiring those in the
-        # prose made `form_build` and `annotated_example` impossible to pass.
-        # See `diagram_claims`' docstring; found by running the specimen.
-        prose = prose_for.get(spec.target)
-        if prose is not None:
-            folded = prose.casefold()
-            for label in diagram_claims(spec):
-                text = str(label).strip()
+        # Every EXAMPLE SENTENCE on a diagram must be one the section already
+        # carries -- see the table above for why only sentences.
+        allowed = sentences_for.get(spec.target)
+        if allowed is not None:
+            for sentence in diagram_sentences(spec):
+                text = str(sentence).strip()
                 if not text:
                     continue
-                if not _echoes(text, folded):
+                if fold_answer(text) not in allowed:
                     out.append(
                         Failure(
-                            "diagram_label_not_in_prose",
-                            f"{where}: {text!r} appears on the diagram and "
-                            "nowhere in the section that owns it",
+                            "diagram_sentence_not_in_section",
+                            f"{where}: {text!r} is an example sentence this "
+                            "section does not carry, so it reached a learner "
+                            "without passing C2 or the naturalness judge",
                         )
                     )
     return tuple(out)
-
-
-def _echoes(label: str, folded_prose: str) -> bool:
-    """Is this label's content present in the prose?
-
-    Whole-string containment first, because that is the honest reading. Falling
-    back to *every word of the label appears* rather than requiring the exact
-    string keeps a legitimate diagram from being rejected for punctuation or word
-    order -- a `form_build` slot reads `have/has` where the prose reads *have or
-    has*, and rejecting that would be the check being wrong rather than the
-    lesson.
-    """
-    text = label.casefold().strip()
-    if text and text in folded_prose:
-        return True
-    tokens = [t for t in _WORD.findall(text) if len(t) > 2]
-    return bool(tokens) and all(t in folded_prose for t in tokens)
 
 
 def _shape_failures(spec, where: str) -> tuple[Failure, ...]:

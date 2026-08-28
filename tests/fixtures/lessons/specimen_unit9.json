@@ -1,0 +1,118 @@
+{
+  "unit_number": 9,
+  "sections": [
+    {
+      "target": "present continuous for arrangements: I'm seeing him Friday",
+      "explanation": "When a plan is fixed, with a time agreed and a person expecting you, English uses the present continuous and not the future. I'm seeing the dentist on Tuesday. We're meeting at eight. It sounds odd to a native speaker if you say will here, because will suggests you're deciding as you speak rather than reporting something already arranged.",
+      "when_to_use": "When the arrangement is already made and somebody else is expecting you.",
+      "when_not_to": "Not for a decision you're making right now, as you speak.",
+      "examples": [
+        "I'm seeing the dentist on Tuesday.",
+        "We're meeting Anna at eight.",
+        "They're moving flat next month."
+      ],
+      "mistake": {
+        "said": "I will see the dentist on Tuesday.",
+        "corrected": "I'm seeing the dentist on Tuesday.",
+        "why": "The time is already agreed, so English uses the continuous."
+      }
+    },
+    {
+      "target": "going to for plans and for what looks likely",
+      "explanation": "Going to covers two jobs. The first is a plan you've already decided on, even if nothing is booked: I'm going to call the landlord tonight. The second is a prediction you can see coming, as in look at those clouds. Both are about something that already exists, either in your head or in front of you.",
+      "when_to_use": "When you've already decided, or when you can see it coming.",
+      "when_not_to": "Not when the decision is happening at that very moment.",
+      "examples": [
+        "I'm going to call the landlord tonight.",
+        "Look at those clouds, it's going to pour."
+      ],
+      "mistake": {
+        "said": "I will call the landlord, I decided yesterday.",
+        "corrected": "I'm going to call the landlord tonight.",
+        "why": "The decision came first, so going to fits."
+      }
+    },
+    {
+      "target": "will for decisions made as you speak",
+      "explanation": "Will is for the decision you make in the moment. The phone rings and you say I'll get it, because nobody planned that a second ago. It also carries offers and promises, as in I'll help you carry those. If the plan existed before you opened your mouth, going to is the one waiting for you.",
+      "when_to_use": "When you decide as you speak, or offer to help.",
+      "when_not_to": "Not for something you'd already planned before the conversation.",
+      "examples": [
+        "That's the door, I'll get it.",
+        "I'll help you carry those bags."
+      ],
+      "mistake": {
+        "said": "That's the door, I'm going to get it.",
+        "corrected": "That's the door, I'll get it.",
+        "why": "The decision happens as the phone rings, so will fits."
+      }
+    },
+    {
+      "target": "will or going to: which one and why",
+      "explanation": "The test is simple: did the plan exist before you started speaking? If it did, use going to. If you're deciding right now, use will. That single question sorts almost every case, and when you're genuinely unsure, either one sounds acceptable, because the difference is small enough that nobody will stop you.",
+      "when_to_use": "Whenever you catch yourself hesitating between the two forms.",
+      "when_not_to": "Not a rule to recite mid-sentence; use it afterwards.",
+      "examples": [
+        "We're going to paint the kitchen.",
+        "Fine, I'll do it myself then."
+      ],
+      "mistake": {
+        "said": "Look at the time, I will miss the train.",
+        "corrected": "Look at the time, I'm going to miss the train.",
+        "why": "The evidence is already there, so going to fits."
+      }
+    }
+  ],
+  "diagrams": [
+    {
+      "kind": "timeline",
+      "target": "present continuous for arrangements: I'm seeing him Friday",
+      "points": [
+        {
+          "label": "the arrangement was made",
+          "at": 1,
+          "now": false
+        },
+        {
+          "label": "you are here",
+          "at": 2,
+          "now": true
+        },
+        {
+          "label": "Tuesday, the appointment",
+          "at": 3,
+          "now": false
+        }
+      ]
+    },
+    {
+      "kind": "contrast_pair",
+      "target": "going to for plans and for what looks likely",
+      "situation": "Talking about something that already exists",
+      "first": {
+        "form": "a plan you have decided on",
+        "example": "I'm going to call the landlord tonight."
+      },
+      "second": {
+        "form": "a prediction you can see coming",
+        "example": "Look at those clouds, it's going to pour."
+      },
+      "what_changes": "Whether it is in your head or in front of you."
+    },
+    {
+      "kind": "decision_tree",
+      "target": "will or going to: which one and why",
+      "question": "Was it already decided before you spoke?",
+      "branches": [
+        {
+          "answer": "yes",
+          "form": "going to"
+        },
+        {
+          "answer": "no",
+          "form": "will"
+        }
+      ]
+    }
+  ]
+}
