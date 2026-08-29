@@ -399,3 +399,88 @@ def test_the_sum_twelve_guard_is_REACHED_on_the_fill_path(monkeypatch) -> None:
         "slot_plan's sum-twelve guard is still evaluated"
     )
     assert len(slots) == 4, "and the shortfall is what comes back"
+
+
+# ── #261: the fill plan must be able to address its own drafts ─────────────
+
+
+def test_a_fill_plan_is_reindexed_from_zero() -> None:
+    """**ASSERTS INDICES, WHICH IS WHAT THE 2f80563 TESTS DID NOT.**
+
+    `test_fill_plans_the_shortfall_and_not_the_sitting` and
+    `test_fill_keeps_the_front_of_the_rotation` both passed while a fill run was
+    structurally broken: they asserted the plan's TARGETS and its COUNT and never
+    its INDICES. The kept slots carried their positions from the full twelve, so
+    `verify_cohort` read `drafts[5]` and `drafts[6]` out of a four-item response
+    and reported `missing_draft` — against the model, on whichever targets those
+    positions happened to hold.
+
+    **#256's third instance, in code written two commits after #256 was filed.**
+    """
+    from core.items.generate import unit_plan
+
+    slots = unit_plan(
+        (1,), checkpoint=True, types=NARROW, held={1: HELD_AFTER_THE_FIRST_RUN},
+    )[1]["slots"]
+    assert [one.index for one in slots] == list(range(len(slots))), (
+        "a fill plan addresses drafts[0..n-1]; anything else is missing_draft"
+    )
+    # The property in the form the defect actually took:
+    assert all(one.index < len(slots) for one in slots)
+    assert {one.cohort for one in slots} == {"checkpoint"}, "replace() carried it"
+
+
+def test_a_plan_that_cannot_address_its_own_drafts_is_refused_before_billing() -> None:
+    """**RED WITHOUT THE GUARD.** The check is at the payload, not at the response.
+
+    By the time `missing_draft` is raised the call has been paid for and the
+    failure has been attributed to the model. A plan whose indices outrun the
+    number of items it requests is a planner bug and is refused before a call.
+    """
+    from core.items.generate import Slot, build_payload
+
+    broken = (
+        Slot(index=0, item_type="cloze_cued", target="a", cohort="checkpoint"),
+        Slot(index=5, item_type="error_spot", target="b", cohort="checkpoint"),
+    )
+    with pytest.raises(ValueError, match="cannot address its own drafts"):
+        build_payload(1, "can-do", broken)
+
+
+def test_the_full_sitting_and_block_three_still_address_their_drafts() -> None:
+    """The guard must not fire on the two plans that were always correct."""
+    from core.items.generate import build_payload, unit_plan
+
+    for kwargs in ({"checkpoint": True, "types": NARROW}, {}):
+        slots = unit_plan((1,), **kwargs)[1]["slots"]
+        build_payload(1, "can-do", slots)  # must not raise
+        assert [one.index for one in slots] == list(range(len(slots)))
+
+
+def test_the_tally_denominator_is_the_plan_and_not_a_constant() -> None:
+    """**#262. `served N/M` read `ITEMS_PER_UNIT` — block 3's 8 — in every mode.**
+
+    A four-slot fill printed `served 2/8 ** SHORT BY 6 **`. It went unnoticed
+    because the first checkpoint run accepted exactly 8 and printed `served 8/8`:
+    **a wrong denominator that matches by accident reads as a right one.**
+
+    Driven through the real reporting path over a synthetic journal, so it
+    asserts what a reader would actually see.
+    """
+    import io
+    from contextlib import redirect_stdout
+
+    from core.items.generate import _print_tally, tally_of
+
+    rows = [
+        {"unit": 1, "slot": i, "state": "accepted" if i < 2 else "discarded",
+         "stage": "generation", "codes": ["missing_draft"]}
+        for i in range(4)
+    ]
+    out = io.StringIO()
+    with redirect_stdout(out):
+        _print_tally("unit 1", tally_of(rows), target=len(rows))
+    printed = out.getvalue()
+    assert "served 2/4" in printed, printed
+    assert "SHORT BY 2" in printed, printed
+    assert "2/8" not in printed and "SHORT BY 6" not in printed

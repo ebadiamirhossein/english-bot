@@ -463,7 +463,26 @@ def _shortfall_slots(
         if taken.get(one.target, 0) < wanted.get(one.target, 0):
             kept.append(one)
             taken[one.target] = taken.get(one.target, 0) + 1
-    return tuple(kept)
+    # **RE-INDEXED 0..n-1, and this line is the whole of #261.**
+    #
+    # The first version returned the kept slots carrying THEIR INDICES FROM THE
+    # FULL TWELVE. `build_payload` then asked for four items, the model returned
+    # `drafts[0..3]`, and `verify_cohort` read `drafts[slot.index]` for indices
+    # `[0, 1, 5, 6]` -- so two slots were `missing_draft` before the model's work
+    # was ever looked at, and `_top_up`'s `merged[original.slot.index]` raised
+    # `IndexError` on a length-4 list, which the top-up's own `except` turned into
+    # "TOP-UP FAILED". **The model was never at fault and its drafts were never
+    # read.**
+    #
+    # **It looked like a target problem and was positional**, because the
+    # surviving indices are always the LATER ones in the quota order -- so every
+    # small fill on unit 1 fails on past continuous, deterministically, and would
+    # have gone on looking like evidence about that target.
+    #
+    # `_reindexed_for_verifier` is the SAME function #260 needed, reused rather
+    # than re-written: it is `dataclasses.replace`, so `cohort` and every future
+    # field travel with the slot.
+    return _reindexed_for_verifier(tuple(kept))
 
 
 def target_candidates(
@@ -495,6 +514,30 @@ def target_candidates(
     return own + tuple(decoys)
 
 
+def _assert_indices_addressable(slots: tuple[Slot, ...]) -> None:
+    """**Every slot must be able to find its own draft. #261's guard.**
+
+    The model is asked for `len(slots)` items and returns them in order, so
+    `verify_cohort` reads `drafts[slot.index]`. A slot whose index is >= the
+    number requested can never be matched to a draft: it is `missing_draft`
+    before the response is looked at, and the failure is attributed to the model
+    and to whatever target that slot happened to carry.
+
+    **This is asserted where the payload is BUILT rather than where the drafts
+    come back**, because by then the run has been billed. A plan that cannot
+    address its own answers is a bug in the planner, and it is refused before a
+    call is made.
+    """
+    out_of_range = [one for one in slots if one.index >= len(slots)]
+    if out_of_range:
+        raise ValueError(
+            f"slot index {[o.index for o in out_of_range]} >= {len(slots)} "
+            f"requested items — this plan cannot address its own drafts; "
+            f"re-index with `_reindexed_for_verifier` before sending it "
+            f"(targets: {sorted({o.target for o in out_of_range})})"
+        )
+
+
 def build_payload(unit_number: int, can_do: str, slots: tuple[Slot, ...]) -> dict:
     """The user message for one unit's generation call. **No citation reaches it.**
 
@@ -505,6 +548,7 @@ def build_payload(unit_number: int, can_do: str, slots: tuple[Slot, ...]) -> dic
     citation is visible and removable, and an assumption embedded in a generated
     sentence is neither.
     """
+    _assert_indices_addressable(tuple(slots))
     return {
         "unit_number": unit_number,
         "can_do": can_do,
@@ -982,7 +1026,10 @@ class Tally:
 
         drafted  = accepted + discarded + duplicate
         accepted = passed + repaired
-        served   = accepted, against a target of ITEMS_PER_UNIT
+        served   = accepted, against THE PLAN THAT WAS BUILT (#262) —
+                   the number of distinct slots this unit's journal
+                   rows carry, so it is 8 for block 3, 12 for a
+                   checkpoint and the shortfall for a `--fill` run
 
     **A count that does not balance is printed as a finding**, not quietly
     reconciled. `balances` is checked and reported rather than asserted, because
@@ -1179,11 +1226,28 @@ def _print_report(
     print("\n" + "=" * 78)
     print("ACCOUNTING — drafted = accepted + discarded + duplicate")
     print("=" * 78)
+    # **THE DENOMINATOR IS THE PLAN THAT WAS BUILT, NOT A CONSTANT (#262).**
+    #
+    # This read `target=ITEMS_PER_UNIT` -- a hardcoded 8, block 3's number --
+    # for every run, including `--checkpoint` (12) and `--fill` (whatever the
+    # shortfall is). A four-slot fill printed `served 2/8 ** SHORT BY 6 **`,
+    # blaming the run for six items it was never asked to produce.
+    #
+    # **It went unnoticed because the first checkpoint run accepted exactly 8 and
+    # printed `served 8/8` with no SHORT flag: a wrong denominator that matches
+    # by accident reads as a right one.**
+    #
+    # `len(by_unit[number])` is the number of DISTINCT SLOTS in that unit's
+    # journal rows -- `read_journal` already keeps the last write per
+    # `(unit, slot)` -- so it is the plan that was actually built, in every mode,
+    # and it is derivable by `--report` from the journal alone with no extra
+    # state. `_expected_checkpoint_calls` branches on run mode at its own call
+    # site; this needs no branch at all, which is why it is preferred to one.
     for number in numbers:
         if number in by_unit:
             _print_tally(f"unit {number}", tally_of(by_unit[number]),
-                         target=ITEMS_PER_UNIT)
-    _print_tally("TOTAL", tally_of(rows), target=ITEMS_PER_UNIT * len(numbers))
+                         target=len(by_unit[number]))
+    _print_tally("TOTAL", tally_of(rows), target=len(rows))
 
     _print_targets(rows)
     _print_back_translations(rows)
