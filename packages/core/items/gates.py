@@ -76,10 +76,32 @@ from core.speech import SpeechError, synthesize, transcribe
 # not fire**: passing a different value to an existing parameter is not a change
 # to request construction. If a gate ever needs a parameter `chat()` does not
 # have, the slice stops and says so rather than adding one quietly.
-SOLVER_MAX_TOKENS = 400
+#: **THE FLOOR UNDER EVERY GATE BUDGET, AND IT EXISTS BECAUSE THINKING IS ON.**
+#:
+#: `claude-sonnet-5` runs **adaptive thinking by default** — `core/llm.py` sets no
+#: `thinking` parameter anywhere, and on this model omitting it means thinking is
+#: ON rather than off. **Thinking tokens count against `max_tokens`.**
+#:
+#: fill-4 is what that costs when the ceiling is too low: the probe returned
+#: `stop_reason=max_tokens output_tokens=400 chars=0 blocks=['ThinkingBlock']`,
+#: **twice**, so `probe_error` fired on an item no gate had found fault with. The
+#: budget was spent before a text block could be emitted.
+#:
+#: **`max_tokens` IS A CEILING, NOT A SPEND.** Adaptive thinking uses what it
+#: needs whatever the ceiling is, so raising it stops the truncation without
+#: materially changing the bill — which is why the repair is the ceiling and not
+#: the thinking configuration.
+#:
+#: **The thinking configuration is the BETTER repair and it is NOT made here.**
+#: `chat()` has no `thinking` or `output_config` parameter, and the note below
+#: says what to do about that: *if a gate ever needs a parameter `chat()` does not
+#: have, the slice stops and says so rather than adding one quietly.* Filed #266.
+THINKING_HEADROOM_TOKENS = 2000
+
+SOLVER_MAX_TOKENS = 4000
 
 # One verdict plus a one-word reason per sentence, up to a batch of 20.
-JUDGE_MAX_TOKENS = 1000
+JUDGE_MAX_TOKENS = 8000
 JUDGE_BATCH = 20
 
 # PRD §4.3: "if a repaired item still fails the blind-solver gate, it is
@@ -445,7 +467,7 @@ def judge_naturalness(
 TARGET_DECOYS = 3
 
 #: One ranking of a short candidate list, plus a confidence. No reasoning.
-TARGET_MAX_TOKENS = 400
+TARGET_MAX_TOKENS = 4000
 
 
 @dataclass(frozen=True, slots=True)

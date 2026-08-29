@@ -372,10 +372,32 @@ def _anthropic_once(
             why,
         )
         raise LLMError(
-            f"response truncated stop_reason={stop_reason} "
-            f"output_tokens={output_tokens} chars={len(partial)}"
+            f"{_describe_truncation(blocks, len(partial))} "
+            f"(stop_reason={stop_reason} output_tokens={output_tokens})"
         )
     return _extract_text(response)
+
+
+
+def _describe_truncation(blocks: list[str], chars: int) -> str:
+    """Why a truncated response carried no usable text. #265.
+
+    A `max_tokens` stop whose content is entirely thinking blocks has exactly one
+    cause — the budget was spent thinking — and the generic *response truncated*
+    made the operator diagnose that by hand. #198 taught this module to KEEP the
+    blocks; this says what they mean.
+    """
+    if chars == 0 and blocks and set(blocks) <= {"ThinkingBlock"}:
+        return (
+            "response truncated at max_tokens with NO text block: the whole "
+            "budget was spent on thinking. This model runs adaptive thinking by "
+            "default and thinking tokens count against max_tokens — raise the "
+            "caller's max_tokens above core.items.gates.THINKING_HEADROOM_TOKENS; "
+            f"chars={chars}"
+        )
+    if chars == 0:
+        return f"response truncated with no text; blocks={blocks}; chars={chars}"
+    return f"response truncated; chars={chars}"
 
 
 def _to_anthropic_messages(messages: list[dict]) -> list[dict]:

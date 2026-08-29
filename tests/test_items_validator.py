@@ -182,11 +182,16 @@ def test_the_retry_cap_is_two_repairs_and_three_solver_calls(monkeypatch) -> Non
     assert len(calls) == gates.MAX_REPAIRS + 1 == 3
     assert result.report.solver_calls == 3
     assert result.report.repair_count == gates.MAX_REPAIRS
-    # 400 at W5a because the probe returns a list. Still a design constraint:
-    # a response needing more than this is narrating, and `max_tokens` is an
-    # existing parameter of `chat()`, so CLAUDE.md §3 rule 2 does not fire.
+    # **The assertion is that every probe call uses the SAME budget, which is the
+    # property this test is for.** The VALUE moved 400 -> 4000 on 2026-08-29
+    # (#265): 400 was chosen at W5a on the reasoning that a longer response is
+    # narrating, and that reasoning silently assumed the model emits text first.
+    # `claude-sonnet-5` runs adaptive thinking by default and thinking counts
+    # against `max_tokens`, so 400 was spent before any text existed. Asserted
+    # against the constant and the floor rather than a literal, so the next move
+    # does not have to edit a number here too.
     assert set(calls) == {gates.SOLVER_MAX_TOKENS}
-    assert gates.SOLVER_MAX_TOKENS == 400
+    assert gates.SOLVER_MAX_TOKENS >= gates.THINKING_HEADROOM_TOKENS
 
 
 def test_a_solver_that_agrees_costs_exactly_one_call(monkeypatch) -> None:
@@ -313,3 +318,64 @@ def _recorded(response: dict):
         return response
 
     return chat
+
+
+# ── #265: a gate budget must leave room for thinking ───────────────────────
+
+
+def test_every_gate_budget_leaves_room_for_thinking() -> None:
+    """**RED BEFORE THE FIX. The probe budget was entirely consumed by thinking.**
+
+    fill-4's probe returned `stop_reason=max_tokens output_tokens=400 chars=0
+    blocks=['ThinkingBlock']`, twice — first attempt and top-up — so `probe_error`
+    fired on an item nothing had found fault with.
+
+    **`claude-sonnet-5` runs ADAPTIVE THINKING BY DEFAULT.** `core/llm.py` sets no
+    `thinking` parameter anywhere, and on this model omitting it means thinking is
+    ON, not off. **Thinking tokens count against `max_tokens`**, so a 400-token
+    ceiling is spent before a single text block is emitted.
+
+    `max_tokens` is a CEILING, not a spend: adaptive thinking uses what it needs
+    either way, so raising it prevents truncation without materially changing the
+    bill. That is why the repair is the ceiling rather than the thinking config —
+    and `gates.py`'s own note is why: *"If a gate ever needs a parameter `chat()`
+    does not have, the slice stops and says so rather than adding one quietly."*
+    Adding `thinking` is exactly that, fires CLAUDE.md §3 rule 2, and is filed
+    (#266) rather than smuggled in here.
+    """
+    from core.items import gates
+
+    for name, value in (
+        ("SOLVER_MAX_TOKENS", gates.SOLVER_MAX_TOKENS),
+        ("JUDGE_MAX_TOKENS", gates.JUDGE_MAX_TOKENS),
+        ("TARGET_MAX_TOKENS", gates.TARGET_MAX_TOKENS),
+    ):
+        assert value >= gates.THINKING_HEADROOM_TOKENS, (
+            f"{name}={value} is below the thinking headroom "
+            f"({gates.THINKING_HEADROOM_TOKENS}); a thinking-enabled model can "
+            f"consume the whole budget and emit no text block"
+        )
+
+
+def test_the_headroom_constant_is_not_quietly_lowered() -> None:
+    """The bar itself, pinned — §3 rule 7's instrument, as `test_the_floor_itself
+    _is_not_lowered` is for coverage."""
+    from core.items import gates
+
+    assert gates.THINKING_HEADROOM_TOKENS >= 2000
+
+
+def test_a_thinking_only_truncation_names_its_cause() -> None:
+    """**RED BEFORE THE FIX.** The operator had to diagnose this by hand.
+
+    `stop_reason=max_tokens` with content that is entirely `ThinkingBlock`s has
+    exactly one cause — the budget was spent thinking — and the error said only
+    that the response was truncated. #198 taught this module to keep the blocks;
+    this makes it say what they mean.
+    """
+    from core.llm import _describe_truncation
+
+    assert "thinking" in _describe_truncation(["ThinkingBlock"], 0).lower()
+    assert "max_tokens" in _describe_truncation(["ThinkingBlock"], 0)
+    # A truncation with real text is a different thing and must not claim this.
+    assert "thinking" not in _describe_truncation(["TextBlock"], 812).lower()

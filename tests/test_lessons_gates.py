@@ -360,8 +360,24 @@ def test_the_three_lesson_gates_state_their_own_token_budgets(monkeypatch) -> No
     )
 
 
-def test_the_items_probe_budget_is_unchanged(monkeypatch) -> None:
-    """The split must not have moved the items path. 96 tests already say so."""
-    from core.items.gates import TARGET_MAX_TOKENS
+def test_the_items_probe_budget_is_above_the_thinking_floor(monkeypatch) -> None:
+    """**This test PINNED THE DEFECT IT WAS WRITTEN BESIDE, and that is the point.**
 
-    assert TARGET_MAX_TOKENS == 400
+    It read `assert TARGET_MAX_TOKENS == 400` and was called *the split must not
+    have moved the items path* — written in the same slice whose own header says
+    the lessons gates *silently inherited `core.items.gates.TARGET_MAX_TOKENS =
+    400`, a number sized for ranking a short list about one exercise*, after C3
+    returned `output_tokens=1500 chars=0 blocks=['ThinkingBlock']`.
+
+    **W10b diagnosed the thinking-budget defect, fixed its own three gates, named
+    the items path as carrying the same 400 — and then asserted that 400 was
+    unchanged.** The guard was right about its intent (the split must not move the
+    items path) and, expressed as a literal, it locked the exposure in. fill-4
+    paid for it on 2026-08-29 (#265).
+
+    The intent survives and the instrument changes: the items path must sit above
+    the same floor these gates were raised over, and no literal is asserted.
+    """
+    from core.items.gates import THINKING_HEADROOM_TOKENS, TARGET_MAX_TOKENS
+
+    assert TARGET_MAX_TOKENS >= THINKING_HEADROOM_TOKENS
