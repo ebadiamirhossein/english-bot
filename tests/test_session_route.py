@@ -343,39 +343,12 @@ def test_the_session_carries_no_backlog_number_anywhere(app, db, learner) -> Non
 # ── resume ──────────────────────────────────────────────────────────────────
 
 
-def test_completing_a_block_survives_a_new_request(app, db, learner) -> None:
-    """The phone-lock check, in the suite. Resume state is on the SERVER."""
-    session_id = request(
-        app, "GET", "/session/today", cookies=_as(learner)
-    ).json()["session_id"]
-
-    done = request(
-        app, "POST", f"/session/{session_id}/block/2/complete", cookies=_as(learner)
-    )
-    assert done.status_code == 200
-    assert done.json()["blocks"][1]["state"] == "done"
-
-    again = request(app, "GET", "/session/today", cookies=_as(learner)).json()
-    assert again["session_id"] == session_id
-    assert again["blocks"][1]["state"] == "done"
-
 
 def test_opening_the_session_twice_returns_the_same_row(app, db, learner) -> None:
     first = request(app, "GET", "/session/today", cookies=_as(learner)).json()
     second = request(app, "GET", "/session/today", cookies=_as(learner)).json()
     assert first["session_id"] == second["session_id"]
 
-
-def test_a_block_outside_the_five_is_refused(app, db, learner) -> None:
-    session_id = request(
-        app, "GET", "/session/today", cookies=_as(learner)
-    ).json()["session_id"]
-    for n in (0, 6, 99):
-        response = request(
-            app, "POST", f"/session/{session_id}/block/{n}/complete",
-            cookies=_as(learner),
-        )
-        assert response.status_code == 422
 
 
 def test_someone_elses_session_is_a_404(app, db, learner) -> None:
@@ -387,12 +360,6 @@ def test_someone_elses_session_is_a_404(app, db, learner) -> None:
     )
     assert response.status_code == 404
 
-
-def test_the_block_route_requires_a_session(app) -> None:
-    assert request(app, "POST", "/session/1/block/1/complete").status_code == 401
-
-
-# ── #157 through the route ──────────────────────────────────────────────────
 
 
 def test_a_typed_attempt_is_graded_on_the_server(app, db, learner) -> None:
@@ -616,3 +583,123 @@ def test_the_committed_session_fixture_matches_the_wire(app, db, learner) -> Non
         "Re-run `python scripts/export_session_fixture.py`."
     )
     assert set(committed["intervals"]) == set(served["intervals"])
+
+
+# ── #258: a block records itself done; the manual button is gone ────────────
+#
+# OPERATOR RULING, 2026-08-29. Nobody tapped it in three days of real use, it sat
+# below five blocks on a phone, and **a signal that requires five taps below the
+# fold is not a signal — it is a form nobody fills in.**
+#
+# `block_breakdown->>'focus' = 'done'` keeps its meaning; what changed is who
+# writes it. Two alternatives were refused and are recorded so they are not
+# re-proposed: `completed_at IS NOT NULL`, for the reason `day_in_unit`'s own
+# docstring gives — a learner can finish a session having skipped block 3 — and
+# *any daily session advances*, because that makes opening the app mean
+# practising and feeds #259 the same wrong signal.
+#
+# **WHAT "ANSWERED ITS ITEMS" MEANS PER KIND, because the five are not uniform:**
+#   review  — every card it served has a `card_reviews` row for this session
+#   input   — serves nothing until W12/W13; `empty`, never `done`
+#   focus   — every item it served has an `item_attempts` row for this session
+#   output  — CANNOT self-report: `POST /correct` records no session
+#   close   — a summary, not a task; nothing to answer
+
+
+def _breakdown(db, user_id: int) -> dict:
+    row = db.execute(
+        "SELECT block_breakdown FROM sessions WHERE user_id = %s "
+        "AND task_type = 'daily' ORDER BY id DESC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    return dict((row[0] if row else None) or {})
+
+
+def test_focus_records_itself_done_when_every_item_is_answered(app, db, learner):
+    """**RED BEFORE THE FIX. This is the pacing clock's only input (#258/#245).**
+
+    `day_in_unit` counts sessions whose `focus` is `done`, and nothing on
+    production had ever written that value — so the clock read 0 for both
+    learners and block 3 was pinned to section 1 forever.
+    """
+    item_id = _seed_focus_item(db, learner)
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    focus = next(b for b in body["blocks"] if b["kind"] == "focus")
+    assert [one["id"] for one in focus["payload"]["items"]] == [item_id]
+
+    request(
+        app, "POST", f"/items/{item_id}/answer",
+        json_body={"text": "went", "session_id": body["session_id"]},
+        cookies=_as(learner),
+    )
+
+    after = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    assert next(b for b in after["blocks"] if b["kind"] == "focus")["state"] == "done"
+    assert _breakdown(db, learner.user_id)["focus"] == "done"
+
+
+def test_focus_is_not_done_while_one_item_is_unanswered(app, db, learner):
+    """Partial work is not completion — the point of an automatic signal."""
+    first = _seed_focus_item(db, learner)
+    _seed_focus_item(db, learner, prompt_text="A second ___ stem.")
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+
+    request(
+        app, "POST", f"/items/{first}/answer",
+        json_body={"text": "went", "session_id": body["session_id"]},
+        cookies=_as(learner),
+    )
+
+    after = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    assert next(b for b in after["blocks"] if b["kind"] == "focus")["state"] == "ready"
+    assert _breakdown(db, learner.user_id).get("focus") != "done"
+
+
+def test_a_block_that_served_nothing_is_empty_and_never_done(app, db, learner):
+    """`empty` and `done` are different facts and must not collapse.
+
+    Block 2 has no video engine until W12, so it serves nothing. Recording it
+    `done` would say the learner completed work that does not exist — which is
+    the collapse `_build_block` and `BLOCK_STATES` exist to prevent.
+    """
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    assert next(b for b in body["blocks"] if b["kind"] == "input")["state"] == "empty"
+    assert _breakdown(db, learner.user_id).get("input") != "done"
+
+
+def test_output_cannot_self_report_and_that_is_a_stated_gap(app, db, learner):
+    """**A named gap, not an oversight.**
+
+    Block 4 hands the learner to `POST /correct`, which records no `session_id`,
+    so nothing links a correction to the sitting it happened in. Until it does,
+    block 4 cannot know it was answered and stays `ready`. That is why
+    `sessions.completed` remains unreachable and why #259 is NARROWED rather
+    than repaired by this ruling.
+    """
+    _seed_focus_item(db, learner)
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    assert next(b for b in body["blocks"] if b["kind"] == "output")["state"] == "ready"
+    assert _breakdown(db, learner.user_id).get("output") != "done"
+
+
+def test_the_manual_done_route_is_gone(app, learner):
+    """The button went, so the route it called must go with it.
+
+    A POST left behind with no caller is #219's family — an enumeration that
+    constrains nothing, kept alive because deleting it felt riskier than leaving
+    it. It is deleted.
+    """
+    # **Asserted on the ROUTE TABLE, not on a status code.** A request to
+    # `/session/1/block/1/complete` returns 404 whether the route is gone or
+    # merely refusing another learner's session — a status check here would pass
+    # for the wrong reason and go on passing if the route came back.
+    # **Asserted on the OpenAPI path table, not on a status code and not on
+    # `app.routes`.** A request to `/session/1/block/1/complete` returns 404
+    # whether the route is gone or merely refusing another learner's session, so
+    # a status check passes for the wrong reason; and `app.routes` reports `None`
+    # for included routers, so a walk over it passes vacuously. Both were tried
+    # here before this line — a test that cannot fail is worse than no test.
+    paths = set(app.openapi()["paths"])
+    assert not [p for p in paths if "block" in p], sorted(
+        p for p in paths if "block" in p
+    )

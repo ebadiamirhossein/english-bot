@@ -42,7 +42,6 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from apps.api.deps import rate_limit, require_current_user
 from apps.api.schemas import BlockOut, SessionTodayOut
-from core.sessions import BLOCK_COUNT
 from core.services import sessions as sessions_service
 from core.services.auth import AuthenticatedUser
 
@@ -96,44 +95,3 @@ def today(
     return _out(daily)
 
 
-@router.post(
-    "/{session_id}/block/{block_n}/complete",
-    response_model=SessionTodayOut,
-    dependencies=[
-        Depends(rate_limit("session_block", per_client=200, overall=800, window_seconds=3600))
-    ],
-)
-def complete_block(
-    session_id: int,
-    block_n: int,
-    session: AuthenticatedUser = Depends(require_current_user),
-) -> SessionTodayOut:
-    """Mark one block done and return the refreshed session.
-
-    **No request body, so no `require_json` dependency**, and that is a deliberate
-    difference from the deck and item write routes rather than an omission. The
-    CSRF barrier those routes rely on is that a JSON `POST` always preflights and
-    the preflight is answered only for the two allowed origins. A bodiless POST
-    is a simple request, so the barrier here is the session cookie's `SameSite`
-    plus the fact that the whole action is idempotent and reversible by opening
-    the block again — there is nothing a forged call could destroy.
-
-    404 covers "no such session", "not yours" and "not a daily session".
-    Collapsing them matches `GET /items/{id}` and `POST /review/{id}/grade`:
-    telling a caller that an id exists but belongs to someone else is a fact
-    about the other learner.
-
-    422 for a block number outside 1..5, from the service's own ValueError —
-    which is validation of a path parameter, not business logic in the route.
-    """
-    if block_n not in range(1, BLOCK_COUNT + 1):
-        # 422 by number rather than by Starlette's constant: the spelling was
-        # renamed upstream (`..._CONTENT`) and importing either name pins this
-        # route to a version of a dependency it has no opinion about.
-        raise HTTPException(status_code=422, detail="unknown_block")
-    daily = sessions_service.complete_block(
-        session.id, session_id, block_n, now=datetime.now(timezone.utc)
-    )
-    if daily is None:
-        raise HTTPException(status_code=404, detail="not_found")
-    return _out(daily)

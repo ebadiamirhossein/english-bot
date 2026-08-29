@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+
 import {
   CloseBlock,
   FocusBlock,
@@ -10,10 +12,8 @@ import {
   ReviewBlock,
 } from "@/components/session/blocks";
 import { SESSION_DONE } from "@/components/session/copy";
-import { Button } from "@/components/ui/button";
 import {
   ApiError,
-  completeBlock,
   getSessionToday,
   type SessionToday,
 } from "@/lib/api";
@@ -52,7 +52,6 @@ function message(error: unknown): string {
 
 export function SessionRunner() {
   const [state, setState] = useState<Loading>({ kind: "loading" });
-  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -73,20 +72,6 @@ export function SessionRunner() {
     };
   }, []);
 
-  const done = useCallback(
-    async (sessionId: number, blockN: number) => {
-      setBusy(true);
-      try {
-        const session = await completeBlock(sessionId, blockN);
-        setState({ kind: "ready", session });
-      } catch (error) {
-        setState({ kind: "problem", message: message(error) });
-      } finally {
-        setBusy(false);
-      }
-    },
-    [],
-  );
 
   if (state.kind === "loading") {
     return <p className="text-sm text-muted-foreground">Opening today’s session…</p>;
@@ -138,19 +123,6 @@ export function SessionRunner() {
         return <CloseBlock key={block.n} block={block} />;
       })}
 
-      {current && current.state !== "done" ? (
-        <Button
-          type="button"
-          size="lg"
-          variant="outline"
-          disabled={busy}
-          onClick={() => void done(session.session_id, current.n)}
-          data-testid="session-block-done"
-          className="h-14 w-full rounded-2xl text-base font-semibold"
-        >
-          Done with this block
-        </Button>
-      ) : null}
 
       {session.completed ? (
         <div className="space-y-2" data-testid="session-finished">

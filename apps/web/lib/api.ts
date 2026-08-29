@@ -480,14 +480,6 @@ export function getSessionToday(): Promise<SessionToday> {
 }
 
 /** Mark one block done and get the refreshed session back. */
-export function completeBlock(
-  sessionId: number,
-  blockN: number,
-): Promise<SessionToday> {
-  return request<SessionToday>(`/session/${sessionId}/block/${blockN}/complete`, {
-    method: "POST",
-  });
-}
 
 
 /**

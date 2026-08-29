@@ -528,75 +528,11 @@ def test_an_unseeded_unit_is_empty_and_not_unavailable(
 # ── resume ──────────────────────────────────────────────────────────────────
 
 
-def test_a_completed_block_stays_completed_across_a_reopen(db, learner) -> None:
-    session = svc.today(learner, now=NOW)
-    svc.complete_block(learner, session.id, 2, now=NOW)
-    again = svc.today(learner, now=NOW)
-    assert _blocks(again)["input"].state == "done"
 
 
-def test_resume_state_lives_on_the_server(db, learner) -> None:
-    """Not on the device: a phone locked mid-session and the other phone must
-    land in the same place."""
-    session = svc.today(learner, now=NOW)
-    svc.complete_block(learner, session.id, 1, now=NOW)
-    stored = db.execute(
-        "SELECT block_breakdown FROM sessions WHERE id = %s", (session.id,)
-    ).fetchone()[0]
-    assert stored["review"] == "done"
 
 
-def test_finishing_every_block_completes_the_session_and_records_minutes(
-    db, learner
-) -> None:
-    session = svc.today(learner, now=NOW)
-    for n in range(1, 6):
-        svc.complete_block(learner, session.id, n, now=NOW + timedelta(minutes=18))
-    row = db.execute(
-        "SELECT completed, minutes, xp FROM sessions WHERE id = %s", (session.id,)
-    ).fetchone()
-    assert row[0] is True
-    assert row[1] is not None and 0 <= row[1] <= 600
-    # W19 owns the weighting; W10 writes NULL rather than inventing one.
-    assert row[2] is None
 
-
-def test_an_implausible_duration_is_stored_as_null_rather_than_as_a_lie(
-    db, learner
-) -> None:
-    """#108's rule. A session open for a week is a phone that was put down."""
-    session = svc.today(learner, now=NOW)
-    for n in range(1, 6):
-        svc.complete_block(learner, session.id, n, now=NOW + timedelta(days=7))
-    minutes = db.execute(
-        "SELECT minutes FROM sessions WHERE id = %s", (session.id,)
-    ).fetchone()[0]
-    assert minutes is None
-
-
-def test_completing_a_block_of_someone_elses_session_does_nothing(db, learner) -> None:
-    session = svc.today(learner, now=NOW)
-    assert svc.complete_block(-1, session.id, 1, now=NOW) is None
-
-
-def test_a_block_outside_the_five_is_refused(db, learner) -> None:
-    session = svc.today(learner, now=NOW)
-    with pytest.raises(ValueError, match="block must be 1..5"):
-        svc.complete_block(learner, session.id, 6, now=NOW)
-
-
-def test_yesterdays_session_leaves_nothing_on_todays(db, learner) -> None:
-    """CLAUDE.md §4: missed days shrink the task; they never pile up."""
-    yesterday = svc.today(learner, now=NOW - timedelta(days=1))
-    svc.complete_block(learner, yesterday.id, 1, now=NOW - timedelta(days=1))
-    today = svc.today(learner, now=NOW)
-    assert today.id != yesterday.id
-    # Not one block carries yesterday's progress, and nothing on today's session
-    # refers to it at all.
-    assert all(block.state != "done" for block in today.blocks)
-
-
-# ── #157: the typed answer ──────────────────────────────────────────────────
 
 
 def _card(db, learner, **over) -> int:
@@ -716,3 +652,54 @@ def test_the_l1_rides_on_the_queue_envelope_once(db, learner) -> None:
     assert queue.l1_language == "fa"
     # Once per response, never once per card.
     assert all("l1_language" not in c.face() for c in queue.cards)
+
+
+# ── #258: the manual path is gone; these are what survive of its tests ──────
+
+
+def test_a_done_block_stays_done_when_its_builder_would_now_say_empty(db, learner):
+    """**W10's property, re-expressed against the automatic path.**
+
+    It was `test_a_completed_block_stays_completed_across_a_reopen` and drove the
+    manual `complete_block`. The property is unchanged and matters more now: a
+    learner who graded every due card must not see block 1 reopen because the
+    live builder finds nothing left to serve.
+    """
+    card_id = _card(db, learner)
+    first = svc.today(learner, now=NOW)
+    review = next(b for b in first.blocks if b.kind == "review")
+    assert review.state == "ready"
+
+    cards_svc.grade_card(learner, card_id, rating=3, now=NOW, session_id=first.id)
+    done = svc.today(learner, now=NOW)
+    assert next(b for b in done.blocks if b.kind == "review").state == "done"
+
+    # Nothing is due any more, so the live builder would say `empty`.
+    again = svc.today(learner, now=NOW + timedelta(minutes=5))
+    assert next(b for b in again.blocks if b.kind == "review").state == "done"
+
+
+def test_the_session_cannot_complete_while_output_cannot_self_report(db, learner):
+    """**The honest consequence of the ruling, pinned rather than discovered.**
+
+    `sessions.completed` requires all five blocks `done`. `input` serves nothing
+    until W12/W13 and is `empty`; `output` hands the learner to `POST /correct`,
+    which records no `session_id`, so nothing can mark it answered. **So
+    `completed` stays FALSE and `minutes` is never computed** — and that is why
+    #259 is NARROWED by this ruling and not repaired: `count_active_days` filters
+    `completed = TRUE`, which a daily session still cannot reach.
+
+    Written as a test so the day `POST /correct` learns about sessions, this
+    fails and someone reads the reason rather than rediscovering it.
+    """
+    card_id = _card(db, learner)
+    first = svc.today(learner, now=NOW)
+    cards_svc.grade_card(learner, card_id, rating=3, now=NOW, session_id=first.id)
+    svc.today(learner, now=NOW)
+
+    row = db.execute(
+        "SELECT completed, minutes FROM sessions WHERE id = %s", (first.id,)
+    ).fetchone()
+    assert row[0] is False, "output cannot self-report, so the session cannot end"
+    assert row[1] is None, "and minutes is only computed on a completed session"
+

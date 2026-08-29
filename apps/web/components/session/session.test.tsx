@@ -12,7 +12,6 @@ vi.mock("@/lib/api", async () => {
   return {
     ...actual,
     getSessionToday: vi.fn(),
-    completeBlock: vi.fn(),
     attemptCard: vi.fn(),
     gradeCard: vi.fn(),
   };
@@ -64,7 +63,6 @@ function card(over: Partial<CardFaceData> = {}): CardFaceData {
 
 beforeEach(() => {
   vi.mocked(api.getSessionToday).mockReset();
-  vi.mocked(api.completeBlock).mockReset();
   vi.mocked(api.attemptCard).mockReset();
   vi.mocked(api.gradeCard).mockReset();
 });

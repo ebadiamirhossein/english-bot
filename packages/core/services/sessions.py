@@ -1048,6 +1048,7 @@ from core.sessions import (  # noqa: E402  (section import, see the banner above
     MAX_SESSION_MINUTES,
 )
 from core.sessions.blocks import (  # noqa: E402
+    breakdown_of,
     Block,
     assemble,
     first_open_block,
@@ -1379,6 +1380,88 @@ def _build_block(
         return "unavailable", {}
 
 
+
+def _answered_ids(conn, table: str, column: str, session_id: int) -> set[int]:
+    row = conn.execute(
+        f"SELECT array_agg(DISTINCT {column}) FROM {table} WHERE session_id = %s",
+        (session_id,),
+    ).fetchone()
+    return set(row["array_agg"] or []) if row else set()
+
+
+def _derive_done(conn, session_id: int, built: dict, stored_payload: dict) -> dict:
+    """**#258: a block records itself done. The manual button is gone.**
+
+    OPERATOR RULING, 2026-08-29. Nobody tapped it in three days of real use, it
+    sat below five blocks on a phone, and **a signal that requires five taps
+    below the fold is not a signal -- it is a form nobody fills in.**
+
+    `block_breakdown->>'focus' = 'done'` keeps its meaning; **what changes is who
+    writes it.** Two alternatives were refused and are recorded here so they are
+    not re-proposed: `completed_at IS NOT NULL`, for the reason `day_in_unit`'s
+    own docstring gives -- a learner can finish a session having skipped block 3
+    -- and *any daily session advances*, because that makes opening the app mean
+    practising and feeds #259 the same wrong signal.
+
+    **WHAT "ANSWERED ITS ITEMS" MEANS, PER KIND, BECAUSE THE FIVE ARE NOT
+    UNIFORM:**
+
+    * ``review`` -- every card it served has a `card_reviews` row for this
+      session. The queue is capped, so "every card served" is the right bar and
+      not "every card due".
+    * ``input`` -- serves nothing until W12/W13. **`empty`, never `done`.**
+    * ``focus`` -- every item it served has an `item_attempts` row for this
+      session.
+    * ``output`` -- **cannot self-report.** `POST /correct` records no
+      `session_id`, so nothing links a correction to the sitting it happened in.
+      It stays `ready`, and that is why `sessions.completed` is still unreachable
+      and why #259 is NARROWED by this ruling rather than repaired.
+    * ``close`` -- a summary, not a task. Nothing to answer.
+
+    **A BLOCK THAT SERVED NOTHING IS `empty`, NOT `done`**, and the two must not
+    collapse: that distinction is `_build_block`'s reason for existing and
+    `BLOCK_STATES` says so in as many words. Recording an empty block `done`
+    would claim a learner completed work that does not exist.
+    """
+    out = dict(built)
+
+    # **REVIEW'S SERVED SET HAS TO BE REMEMBERED, AND FOCUS'S DOES NOT.**
+    # `cards.due_queue` excludes a card the moment it is graded, so by the time
+    # the block is re-read the cards it served are gone and `empty` is
+    # indistinguishable from `done` -- the exact collapse `BLOCK_STATES` forbids,
+    # arriving from the other side. `focus_items` has no such filter: an answered
+    # item is still served, only ordered last, which is why focus needs no memory.
+    #
+    # So the ids block 1 served are recorded on first hydration, on
+    # `sessions.payload` -- **the same repair #269 made for the checkpoint's
+    # twelve, for the same reason.**
+    review_state, review_payload = built.get("review", ("empty", {}))
+    live = [c.get("id") for c in (review_payload.get("cards") or [])]
+    served = list(stored_payload.get("review_card_ids") or ()) or live
+    if served:
+        if not stored_payload.get("review_card_ids") and live:
+            conn.execute(
+                # COALESCE: a daily row is inserted with NO payload, and `NULL || x` is NULL —
+                # the write vanished silently until this was found by a test that
+                # asserted the RESULT rather than that the statement ran.
+                "UPDATE sessions SET payload = COALESCE(payload, '{}'::jsonb) || %s"
+                " WHERE id = %s",
+                (Jsonb({"review_card_ids": live}), session_id),
+            )
+        graded = _answered_ids(conn, "card_reviews", "card_id", session_id)
+        if all(one in graded for one in served):
+            out["review"] = ("done", review_payload)
+
+    focus_state, focus_payload = built.get("focus", ("empty", {}))
+    items = [one.get("id") for one in (focus_payload.get("items") or [])]
+    if focus_state == "ready" and items:
+        answered = _answered_ids(conn, "item_attempts", "item_id", session_id)
+        if all(one in answered for one in items):
+            out["focus"] = ("done", focus_payload)
+
+    return out
+
+
 def today(user_id: int, *, now: datetime) -> DailySession | None:
     """This learner's session for today, hydrated. ``None`` if the user is unknown.
 
@@ -1488,6 +1571,18 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
     # Second checkout, taken by `cards.due_queue` itself. The first is released.
     built["review"] = _build_block("review", lambda: _review_block(user_id, now=now))
 
+    # **DERIVED, THEN the stored value, and the order matters (#258).** A block
+    # earns `done` from the log; a stored `done` still wins afterwards so a
+    # finished block stays finished when its live builder would now say `empty`
+    # -- a learner who graded every due card must not see block 1 reopen.
+    with connection() as conn:
+        payload_row = conn.execute(
+            "SELECT payload FROM sessions WHERE id = %s", (session_id,)
+        ).fetchone()
+        session_payload = dict((payload_row["payload"] if payload_row else None) or {})
+        built = _derive_done(conn, session_id, built, session_payload)
+        conn.commit()
+
     for kind in ("review", "input", "focus", "output"):
         if stored_state(stored, kind) == "done":
             built[kind] = ("done", built[kind][1])
@@ -1502,6 +1597,20 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
         built["close"] = ("done", built["close"][1])
 
     blocks = assemble(built)
+
+    # **PERSISTED FROM A GET, and the reasoning is the one this file already
+    # accepted twice.** `day_in_unit` reads `block_breakdown ->> 'focus'`, so a
+    # derived value that is never written advances nothing. The write is
+    # IDEMPOTENT AND CONVERGENT -- the same facts produce the same breakdown, so
+    # re-reading the session writes the same row -- which is a different thing
+    # from a mutating write on a read path, exactly as `_get_or_create_daily`'s
+    # create-once is.
+    with connection() as conn:
+        conn.execute(
+            "UPDATE sessions SET block_breakdown = %s WHERE id = %s",
+            (Jsonb(breakdown_of(blocks)), session_id),
+        )
+        conn.commit()
 
     return DailySession(
         id=session_id,
@@ -1529,73 +1638,6 @@ def _current_unit_row(conn: Any, user_id: int) -> Any:
     )
 
 
-def complete_block(
-    user_id: int, session_id: int, block_n: int, *, now: datetime
-) -> DailySession | None:
-    """Mark one block done. ``None`` when the session is not this learner's.
-
-    Scoped by `user_id` in the UPDATE itself, never checked and then written:
-    "not yours" and "no such session" collapse into one answer here for the same
-    reason they do in `items.presentation_for` and `cards.get_card` -- telling a
-    caller that an id exists but belongs to someone else is a fact about another
-    learner.
-
-    **`minutes` is computed HERE, server-side, from stored timestamps**, and is
-    never reported by the browser. #108 is the standing lesson: `latency_ms` is
-    the one value W6 wrote from a number the client chose, and a phone
-    backgrounded mid-session produces a real-but-meaningless figure. Anything
-    outside 0..`MAX_SESSION_MINUTES` is stored NULL rather than as a lie.
-
-    `xp` is deliberately not written. W19 owns the effort weighting; see
-    `_close_block`.
-    """
-    if block_n not in range(1, BLOCK_COUNT + 1):
-        raise ValueError(f"block must be 1..{BLOCK_COUNT}, got {block_n}")
-    kind = BLOCK_KINDS[block_n - 1]
-
-    with connection() as conn:
-        with conn.transaction():
-            row = conn.execute(
-                """
-                SELECT id, block_breakdown, delivered_at
-                  FROM sessions
-                 WHERE id = %s AND user_id = %s AND task_type = %s
-                 FOR UPDATE
-                """,
-                (session_id, user_id, DAILY_TASK_TYPE),
-            ).fetchone()
-            if row is None:
-                return None
-
-            stored = row["block_breakdown"]
-            breakdown = dict(stored) if isinstance(stored, dict) else {}
-            breakdown[kind] = "done"
-
-            all_done = all(
-                breakdown.get(one) == "done" for one in BLOCK_KINDS
-            )
-            minutes = _session_minutes(row["delivered_at"], now) if all_done else None
-
-            conn.execute(
-                """
-                UPDATE sessions
-                   SET block_breakdown = %s,
-                       completed = CASE WHEN %s THEN TRUE ELSE completed END,
-                       completed_at = CASE WHEN %s THEN %s ELSE completed_at END,
-                       minutes = COALESCE(%s, minutes)
-                 WHERE id = %s
-                """,
-                (
-                    Jsonb(breakdown),
-                    all_done,
-                    all_done,
-                    now,
-                    minutes,
-                    session_id,
-                ),
-            )
-
-    return today(user_id, now=now)
 
 
 def _session_minutes(delivered_at: datetime | None, now: datetime) -> int | None:
