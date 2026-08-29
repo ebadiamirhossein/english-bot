@@ -59,6 +59,7 @@ def _out(sitting: checkpoints_service.Checkpoint) -> CheckpointOut:
             )
             for one in sitting.items
         ],
+        answered=sitting.answered,
         passed=sitting.passed,
         score_pct=sitting.score_pct,
         retake_due_on=sitting.retake_due_on,

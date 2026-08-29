@@ -499,6 +499,8 @@ export function completeBlock(
  * word in it. The API withholds it, so no client can render one by accident.
  */
 export type Checkpoint = {
+  /** How many of the twelve are already answered — the server's count (#269). */
+  answered: number;
   session_id: number;
   unit_number: number;
   can_do: string;

@@ -592,6 +592,61 @@ def checkpoint_held(user_id: int, *, unit_number: int) -> dict[str, int]:
         return {row[0]: int(row[1]) for row in cur.fetchall() if row[0]}
 
 
+
+def items_by_id(user_id: int, item_ids: Sequence[int]) -> list[ItemPresentation]:
+    """The named items, **in the order asked for**. #269's read.
+
+    A checkpoint sitting is a STORED fact: the twelve chosen for it live on the
+    `sessions` row, and this reads them back. That is what lets a sitting survive
+    being worked on — `checkpoint_items` filters `_UNATTEMPTED`, so re-selecting
+    mid-sitting returns fewer items every time a learner answers one, and after
+    the first answer the cohort can no longer fill its own quotas.
+
+    **`_UNATTEMPTED` IS NOT RELAXED AND MUST NOT BE.** It is what stops a sat
+    checkpoint being re-served as practice
+    (`test_a_sat_checkpoint_becomes_ordinary_practice_stock`); the repair for
+    #269 is to stop re-deriving the sitting, not to widen the selector.
+
+    **Ordered in Python and not by the query.** `= ANY(%s)` returns rows in
+    whatever order the planner likes, and the sitting's order is a fact about the
+    sitting — question 7 must be question 7 on a resume. `validator_version` is
+    NOT filtered here: these ids were chosen for this sitting and a mid-sitting
+    validator bump must not make question 7 vanish.
+    """
+    wanted = list(dict.fromkeys(int(one) for one in item_ids))
+    if not wanted:
+        return []
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            _SELECT + " WHERE items.user_id = %s AND items.id = ANY(%s)",
+            (user_id, wanted),
+        )
+        found = {row[0]: _to_stored(row) for row in cur.fetchall()}
+    return [_present(found[one]) for one in wanted if one in found]
+
+
+
+def attempts_in_session(user_id: int, session_id: int) -> int:
+    """How many items this learner has answered in one session. #269.
+
+    **The Finish button's condition, moved off the browser.** H4 could not finish
+    a sitting because `answered >= items.length` was React state that the lost
+    sitting took with it. This is the same log `checkpoints.complete` scores
+    from, so the count the learner is shown and the count they are graded on
+    cannot disagree.
+    """
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            "SELECT count(DISTINCT item_id)::int FROM item_attempts"
+            " WHERE user_id = %s AND session_id = %s",
+            (user_id, session_id),
+        )
+        row = cur.fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
+
+
 def attempt_counts(user_id: int) -> dict[str, int]:
     """Attempts and correct attempts, for W19's progress line."""
     with cursor() as cur:

@@ -29,6 +29,8 @@ it, and `outcome.score_pct` is served only on a pass.
 from __future__ import annotations
 
 import json
+
+from psycopg.types.json import Jsonb
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -63,6 +65,11 @@ class Checkpoint:
     #: not fill this sitting's quota map; `done` when it has been scored.
     state: str
     items: tuple[Any, ...] = ()
+    #: How many of the twelve this learner has already answered, counted from
+    #: `item_attempts` (#269). **The Finish button's condition, moved off the
+    #: browser** — H4 could not finish because `answered >= items.length` was
+    #: React state that the lost sitting took with it.
+    answered: int = 0
     #: Set only once the sitting is scored.
     passed: bool | None = None
     #: **Served only on a PASS.** See the module docstring.
@@ -166,6 +173,35 @@ def today(user_id: int, *, now: datetime) -> Checkpoint | None:
             score_pct=payload.get("score_pct") if did_pass else None,
         )
 
+    # **THE SITTING IS A STORED FACT, NOT A RE-DERIVED ONE (#269).**
+    #
+    # `checkpoint_items` filters `_UNATTEMPTED`, so re-selecting mid-sitting
+    # returns fewer items with every answer, and the selector refuses a cohort
+    # that cannot fill its quotas whole -- **after the FIRST answer the sitting
+    # could never be re-hydrated.** H4 hit it at question 10 of 12 and could not
+    # finish. **`_UNATTEMPTED` IS NOT TOUCHED**: it is what stops a sat
+    # checkpoint being re-served as practice, and widening it would trade this
+    # defect for that one.
+    #
+    # `sessions.payload` and not a new column -- §8 established payload as where
+    # per-task-type facts live, and this slice's only DDL is 018.
+    stored_ids = payload.get("item_ids")
+    if stored_ids:
+        stock = items_service.items_by_id(user_id, stored_ids)
+        # A stored sitting whose items have gone (deleted on the host, as id 29
+        # was) is reported as not ready rather than served short: twelve is the
+        # bar and a partial sitting is the one thing this service never returns.
+        if len(stock) == len(stored_ids):
+            return Checkpoint(
+                session_id=session_id,
+                unit_number=unit_number,
+                can_do=unit.can_do,
+                item_count=CHECKPOINT_ITEM_COUNT,
+                state="ready",
+                items=tuple(stock),
+                answered=items_service.attempts_in_session(user_id, session_id),
+            )
+
     missed = syllabus_service.missed_targets(user_id, unit_number)
     quotas = quota_map(dict(unit.checkpoint["per_target"]), missed)
     stock = items_service.checkpoint_items(
@@ -179,6 +215,17 @@ def today(user_id: int, *, now: datetime) -> Checkpoint | None:
             item_count=CHECKPOINT_ITEM_COUNT,
             state="not_ready",
         )
+
+    # **Stored on the FIRST hydration, before anything is answered**, which is
+    # the only moment the selector and the sitting agree.
+    chosen = [one.id for one in stock]
+    with connection() as conn:
+        conn.execute(
+            "UPDATE sessions SET payload = payload || %s WHERE id = %s",
+            (Jsonb({"item_ids": chosen}), session_id),
+        )
+        conn.commit()
+
     return Checkpoint(
         session_id=session_id,
         unit_number=unit_number,
@@ -186,6 +233,7 @@ def today(user_id: int, *, now: datetime) -> Checkpoint | None:
         item_count=CHECKPOINT_ITEM_COUNT,
         state="ready",
         items=tuple(stock),
+        answered=items_service.attempts_in_session(user_id, session_id),
     )
 
 

@@ -28,13 +28,22 @@ import { CHECKPOINT } from "@/components/checkpoint/copy";
 export function CheckpointRunner() {
   const [sitting, setSitting] = useState<Checkpoint | null>(null);
   const [index, setIndex] = useState(0);
+  // **Seeded from the server and not from zero (#269).** A sitting that is
+  // resumed knows how many of its twelve are already done, because the count is
+  // `item_attempts` — the same log `complete` scores from — rather than state a
+  // lost page took with it.
   const [answered, setAnswered] = useState(0);
   const [problem, setProblem] = useState(false);
 
   useEffect(() => {
     let live = true;
     getCheckpointToday()
-      .then((next) => live && setSitting(next))
+      .then((next) => {
+        if (!live) return;
+        setSitting(next);
+        setAnswered(next.answered ?? 0);
+        setIndex(Math.min(next.answered ?? 0, Math.max(next.items.length - 1, 0)));
+      })
       .catch(() => live && setProblem(true));
     return () => {
       live = false;

@@ -182,6 +182,25 @@ def _answer_all(app, learner, sitting, *, correct: int) -> None:
         assert response.status_code == 200, response.text
 
 
+
+def _answer_first(app, learner, sitting, n: int) -> None:
+    """Answer only the first `n` of the sitting, leaving the rest untouched.
+
+    Distinct from `_answer_all`, whose `correct` argument controls how many are
+    RIGHT and not how many are ANSWERED — a partially-worked sitting is the
+    whole subject of #269 and needs a helper that can produce one.
+    """
+    for item in list(sitting["items"])[:n]:
+        response = request(
+            app,
+            "POST",
+            f"/items/{item['id']}/answer",
+            json_body={"text": "went", "session_id": sitting["session_id"]},
+            cookies=_as(learner),
+        )
+        assert response.status_code == 200, response.text
+
+
 # ── the sitting ─────────────────────────────────────────────────────────────
 
 
@@ -349,3 +368,74 @@ def test_a_completed_sitting_reports_done_and_serves_no_items(app, db, learner) 
 
 def test_the_checkpoint_requires_a_session(app) -> None:
     assert request(app, "GET", "/checkpoint/today").status_code == 401
+
+
+# ── #269: the sitting is a stored fact, not a re-derived one ────────────────
+
+
+def test_a_sitting_survives_an_answer_and_a_refetch(app, db, learner) -> None:
+    """**RED BEFORE THE FIX. This is H4's blocking defect, reduced to one answer.**
+
+    The runner fetched the twelve once into browser state and the server recorded
+    nothing about which twelve it chose, so `today` re-selected on every call
+    through `checkpoint_items` — whose predicate includes `_UNATTEMPTED`. **Every
+    answer removed an item from the selectable set**, the selector refuses a
+    cohort it cannot fill whole, and after the FIRST answer the sitting could
+    never be re-hydrated. On a laptop that surfaced at question 10 of 12.
+
+    Asserting the **ids**, not the count: a refetch that returned twelve
+    different items would be just as broken and a length check cannot see it
+    (#256's family, and this file has been bitten by it twice).
+    """
+    _enter(db, learner)
+    _seed_cohort(learner.user_id)
+
+    first = request(app, "GET", "/checkpoint/today", cookies=_as(learner)).json()
+    assert first["state"] == "ready"
+    served = [one["id"] for one in first["items"]]
+    assert len(served) == 12
+
+    # One answer, through the real items route, exactly as the runner does it.
+    _answer_first(app, learner, first, 1)
+
+    again = request(app, "GET", "/checkpoint/today", cookies=_as(learner)).json()
+    assert again["state"] == "ready", "the sitting must survive being worked on"
+    assert [one["id"] for one in again["items"]] == served, (
+        "the same twelve, in the same order — a sitting is a stored fact"
+    )
+
+
+def test_the_stored_sitting_is_what_the_server_answers_from(app, db, learner) -> None:
+    """The twelve live on the `sessions` row, so resume needs no browser state.
+
+    `sessions.payload` and not a new column: §8 already established payload as
+    where per-task-type facts live, and 018 is the only DDL this slice takes.
+    """
+    _enter(db, learner)
+    _seed_cohort(learner.user_id)
+    body = request(app, "GET", "/checkpoint/today", cookies=_as(learner)).json()
+    served = [one["id"] for one in body["items"]]
+
+    row = db.execute(
+        "SELECT payload FROM sessions WHERE user_id = %s AND task_type = 'checkpoint'",
+        (learner.user_id,),
+    ).fetchone()
+    assert row is not None
+    assert list((row[0] or {}).get("item_ids") or []) == served
+
+
+def test_answered_count_is_derivable_from_the_server(app, db, learner) -> None:
+    """**The Finish button's condition stops living in the browser.**
+
+    H4 could not finish because `answered >= items.length` was React state that
+    the lost sitting took with it. The count comes from `item_attempts`, which is
+    where `complete` already scores from.
+    """
+    _enter(db, learner)
+    _seed_cohort(learner.user_id)
+    first = request(app, "GET", "/checkpoint/today", cookies=_as(learner)).json()
+    assert first["answered"] == 0
+
+    _answer_first(app, learner, first, 3)
+    again = request(app, "GET", "/checkpoint/today", cookies=_as(learner)).json()
+    assert again["answered"] == 3

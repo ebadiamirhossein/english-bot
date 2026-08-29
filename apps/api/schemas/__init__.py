@@ -427,6 +427,10 @@ class CheckpointOut(BaseModel):
     #: never served in its place (CLAUDE.md §3 rule 7).
     state: str
     items: list[ItemPresentationOut] = []
+    #: How many of the twelve are already answered (#269). Counted from
+    #: `item_attempts`, so the number the learner sees and the number they are
+    #: graded on cannot disagree — and a resumed sitting knows where it is.
+    answered: int = 0
     passed: bool | None = None
     score_pct: int | None = None
     retake_due_on: date | None = None

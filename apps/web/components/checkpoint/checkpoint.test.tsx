@@ -22,6 +22,7 @@ function sitting(over: Partial<Checkpoint> = {}): Checkpoint {
     item_count: 12,
     state: "ready",
     items: [],
+    answered: 0,
     passed: null,
     score_pct: null,
     retake_due_on: null,
