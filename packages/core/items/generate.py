@@ -1947,15 +1947,32 @@ def _top_up(
     yields 6 the run says `6/8` loudly and writes the six. The bar is not moved
     and no filler is generated (CLAUDE.md §3 rule 7).
     """
-    slots = tuple(o.slot for o in short)
-    payload = build_payload(unit_number, entry["unit"].can_do, slots)
+    # **RE-INDEXED ONCE, HERE, AND USED FOR EVERYTHING THAT IS SENT (#261).**
+    #
+    # This read `slots = tuple(o.slot for o in short)` and handed those straight
+    # to `build_payload`, so a top-up carried the ORIGINAL indices into a request
+    # for `len(short)` items. After the `_shortfall_slots` fix that stopped being
+    # a twelve-into-four problem and became a two-into-one problem: a fill of two
+    # whose second slot fails tops up with one slot still numbered 1, addressed at
+    # `drafts[1]` of a one-item response. **`_assert_indices_addressable` refuses
+    # it — correctly, and loudly, which is better than the silent `missing_draft`
+    # it produced before the guard existed, and still a broken run.**
+    #
+    # `short` keeps its ORIGINAL slots untouched: they are what
+    # `merged[original.slot.index]` maps the replacements back through, and
+    # re-indexing those would write the results to the wrong positions.
+    sent = _reindexed_for_verifier(tuple(o.slot for o in short))
+    payload = build_payload(unit_number, entry["unit"].can_do, sent)
     payload["retry"] = [
         {
-            "n": o.slot.index + 1,
+            # The position IN THIS REQUEST, not in the original plan. The model
+            # is being handed `len(short)` items and told which is which; a
+            # number from the cohort it never saw would name nothing.
+            "n": index + 1,
             "rejected_because": list(o.codes),
             "at_stage": o.stage,
         }
-        for o in short
+        for index, o in enumerate(short)
     ]
     payload["note"] = (
         "These slots were rejected. Write NEW items for them — do not resubmit "
@@ -1964,7 +1981,7 @@ def _top_up(
     drafts = generate_drafts(payload, settings=settings)
     calls["generate"] += 1
     replacements = verify_cohort(
-        _reindexed_for_verifier(slots),
+        sent,
         drafts,
         unit_number=unit_number,
         candidates=entry["candidates"],

@@ -484,3 +484,60 @@ def test_the_tally_denominator_is_the_plan_and_not_a_constant() -> None:
     assert "served 2/4" in printed, printed
     assert "SHORT BY 2" in printed, printed
     assert "2/8" not in printed and "SHORT BY 6" not in printed
+
+
+def test_a_top_up_on_a_fill_plan_re_indexes_before_it_asks(monkeypatch) -> None:
+    """**RED BEFORE THE FIX. #261's second half, on the path the first half missed.**
+
+    `_shortfall_slots` was re-indexed and `_top_up` was not. A two-slot fill whose
+    slot 1 fails tops up with ONE slot still carrying `index=1`, so
+    `build_payload` is handed a one-item request addressed at `drafts[1]` — which
+    `_assert_indices_addressable` now refuses, correctly, at `generate.py:533`.
+
+    Before that guard existed it would have gone out as `missing_draft` again.
+    **The guard turned a silent mis-attribution into a loud refusal, which is what
+    it was for — and the refusal is still a broken run.**
+
+    Drives the real `_top_up` and asserts THE INDICES OF WHAT IT ASKS FOR, which
+    is the assertion #256's third instance was filed for not making.
+    """
+    from core.items import generate as gen
+
+    slots = (
+        gen.Slot(index=0, item_type="cloze_cued", target="a", cohort="checkpoint"),
+        gen.Slot(index=1, item_type="error_spot", target="b", cohort="checkpoint"),
+    )
+    outcomes = [
+        gen.Outcome(slot=slots[0], unit_number=1, state="accepted"),
+        gen.Outcome(slot=slots[1], unit_number=1, state="discarded",
+                    stage="generation", codes=("missing_draft",)),
+    ]
+    short = [outcomes[1]]
+
+    asked: list[tuple[int, ...]] = []
+    real_payload = gen.build_payload
+
+    def spy(unit_number, can_do, sent):
+        asked.append(tuple(one.index for one in sent))
+        return real_payload(unit_number, can_do, sent)
+
+    monkeypatch.setattr(gen, "build_payload", spy)
+    monkeypatch.setattr(gen, "generate_drafts", lambda payload, settings: [])
+    monkeypatch.setattr(
+        gen, "verify_cohort",
+        lambda plan, drafts, **kw: [
+            gen._discard(one, 1, "generation", "missing_draft") for one in plan
+        ],
+    )
+
+    gen._top_up(outcomes, short, {"unit": _FakeUnit(), "candidates": ()},
+                1, settings=None, calls=Counter())
+
+    assert asked == [(0,)], (
+        "a top-up must renumber the slots it asks for; sending index 1 in a "
+        "one-item request cannot address its own draft"
+    )
+
+
+class _FakeUnit:
+    can_do = "I can tell a friend what I did yesterday."
