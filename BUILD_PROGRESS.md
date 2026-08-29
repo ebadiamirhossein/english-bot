@@ -3380,6 +3380,30 @@ attempts belonging to its sitting, so a NULL means a checkpoint would score 0 of
 12 however well it was answered. **Older rows are NULL and always will be** —
 that is the permanent half of #254 and is expected, not a failure of this check.
 
+**§13a-ter. NAME THE JOURNAL BEFORE ANY SECOND RUN. A numbered step, not a warning.**
+**The first checkpoint run's journal already exists on the host** at
+`w11-checkpoint-journal.jsonl` (`DEFAULT_CHECKPOINT_JOURNAL`), and **a run
+APPENDS.** `--report` rebuilds by taking the **last write per `(unit, slot)`**,
+so a second run into the same file does not merely add to it — **its slot 0
+overwrites the first run's slot 0 in every report built afterwards.** A fill run
+renumbers its slots from 0, so a 4-slot fill would silently replace the first
+run's first four rows and the report would be a merged fiction that looks
+complete.
+
+**PASS `--journal` WITH A NEW NAME. Do not move the old file aside.** Both work;
+naming the new one is better for two reasons. Moving aside is a manual step whose
+omission is **silent** — nothing fails, the report is just wrong — and it is the
+step that gets skipped at 23:00. And the first run's journal is **evidence**:
+`--report` over it costs zero calls and is how #260, the four failures and P7's
+0 of 6 are re-readable. Keep it where it is.
+
+```bash
+cd /home/bot/english-bot && sudo -u bot ls -l w11-checkpoint-journal.jsonl
+```
+Confirm it exists and note its size. **Then every subsequent run names its own:**
+`--journal w11-checkpoint-fill-1.jsonl`, then `-fill-2` and so on. **One journal
+per run, never reused**, and `--report <name>` reads whichever one you want.
+
 **§13a-bis. RE-SEED `syllabus_units` — unit 1's `per_target` ruling of 2026-08-29.**
 **Runs BEFORE §13b and before any further generation**, because the selector and
 the generator both read these quotas. The seed is re-runnable by design (014's
