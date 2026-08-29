@@ -573,6 +573,40 @@ def _error_spot(item: ErrorSpotItem) -> list[Failure]:
             )
         )
         return out
+    # **`prompt_text` IS THE INSTRUCTION AND THE SENTENCE LIVES IN `tiles` (#271).**
+    #
+    # `ErrorSpot` renders `prompt_text` as the stem with the tiles beneath it, and
+    # `projections.fixture.json` has always carried `prompt_text: "Tap the word
+    # that is wrong."` with the sentence in `tiles`. **That convention was real,
+    # was what the renderer implements, and was written down nowhere the
+    # generator could read** -- `schema.py`'s `error_spot` block specified tiles,
+    # `wrong_index`, `answer` and `correction` and said nothing about
+    # `prompt_text`.
+    #
+    # So the generator took the other reasonable reading and wrote the SENTENCE
+    # there. On H4 (2026-08-29) question 10 showed *"I was walk home when it
+    # started raining."* as the stem, the same words as tappable tiles below it,
+    # and **nothing telling the learner what to do** -- indistinguishable from a
+    # word bank, and the sentence rendered twice.
+    #
+    # **Every render test passed throughout, because the fixture obeyed the
+    # convention: a suite agreeing with itself.** This is the check that makes the
+    # convention enforceable rather than merely true of one committed file.
+    #
+    # SUBSTRING and not equality: a wrapper -- *"Find the mistake: I was walk
+    # home yesterday."* -- is the same defect wearing a prefix, and folding both
+    # sides means a trailing full stop cannot smuggle it past.
+    joined = fold_answer(" ".join(item.tiles))
+    if joined and joined in fold_answer(item.prompt_text):
+        out.append(
+            Failure(
+                "prompt_is_the_sentence",
+                f"prompt_text contains the tiles' own sentence; it must be the "
+                f"INSTRUCTION (the fixture's is 'Tap the word that is wrong.') "
+                f"and the sentence belongs in `tiles`",
+            )
+        )
+
     wrong = item.tiles[item.wrong_index]
     # **`answer` MUST be the tile `wrong_index` points at, and nothing checked
     # it until 2026-08-27.** `response.chosen_option` returns

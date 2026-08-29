@@ -559,6 +559,10 @@ def constraint_block(item_types: Sequence[str]) -> str:
             "the bank must NOT already be in the answer's order",
         ],
         "error_spot": [
+            "prompt_text is the INSTRUCTION and never the sentence — write "
+            "\"Tap the word that is wrong.\" The sentence lives in `tiles` and "
+            "is rendered from them; putting it in prompt_text shows it twice "
+            "and leaves the learner with no instruction at all",
             f"{TILE_COUNT[0]}-{TILE_COUNT[1]} tiles, one word each",
             "wrong_index points at the ONE wrong tile (0-based)",
             "answer is that wrong tile, copied exactly",

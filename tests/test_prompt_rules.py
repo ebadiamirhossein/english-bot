@@ -220,3 +220,20 @@ def test_the_no_inline_cue_rule_survived() -> None:
     assert "I ___ to work when it started to rain. (walk)" in text
     # The reason must stay the cue-accounting one, not the aesthetic one.
     assert "cue_type" in text and "repair ladder" in text
+
+
+def test_the_error_spot_prompt_convention_is_stated_to_the_generator() -> None:
+    """**#271: the convention existed, the renderer implemented it, and it was
+    written down nowhere the generator could read.**
+
+    Stated in BOTH places a generator sees — the prompt template and the derived
+    per-type contract block — because the item that reached a learner obeyed
+    neither, and a rule in only one of them is a rule half the pipeline has.
+    """
+    from core.items.schema import constraint_block
+
+    text = (PROMPTS_DIR / "item_generate.txt").read_text(encoding="utf-8")
+    assert "`prompt_text` IS THE INSTRUCTION AND NEVER THE SENTENCE" in text
+
+    contract = constraint_block(("error_spot",))
+    assert "prompt_text is the INSTRUCTION and never the sentence" in contract

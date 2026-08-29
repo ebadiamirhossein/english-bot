@@ -379,3 +379,83 @@ def test_a_thinking_only_truncation_names_its_cause() -> None:
     assert "max_tokens" in _describe_truncation(["ThinkingBlock"], 0)
     # A truncation with real text is a different thing and must not claim this.
     assert "thinking" not in _describe_truncation(["TextBlock"], 812).lower()
+
+
+# ── #271: an error_spot's prompt_text is the INSTRUCTION, not the sentence ──
+
+
+def _error_spot_draft(prompt_text: str) -> dict:
+    return {
+        "item_type": "error_spot",
+        "track": "life",
+        "prompt_text": prompt_text,
+        "tiles": ["I", "was", "walk", "home", "yesterday"],
+        "wrong_index": 2,
+        "answer": "walk",
+        "correction": "walking",
+        "unit_number": 1,
+    }
+
+
+def test_an_error_spot_whose_prompt_is_its_own_sentence_is_malformed() -> None:
+    """**RED BEFORE THE FIX. This is what H4 put in front of a learner.**
+
+    Question 10 rendered *"I was walk home when it started raining."* as the stem
+    with the same words as tappable tiles beneath it, and **nothing saying what
+    to do** — indistinguishable from a word bank.
+
+    **The convention was real and unstated.** `projections.fixture.json` carries
+    `prompt_text: "Tap the word that is wrong."` with the sentence in `tiles`,
+    and `ErrorSpot` renders exactly that — but `schema.py`'s `error_spot`
+    contract never told the generator, so it wrote the sentence into
+    `prompt_text` instead. **Every render test passed because the fixture obeyed
+    a convention nothing enforced: a suite agreeing with itself.**
+    """
+    from core.items.checks import deterministic_failures
+    from core.items.schema import parse
+
+    item = parse(_error_spot_draft("I was walk home yesterday."))
+    codes = {f.code for f in deterministic_failures(item)}
+    assert "prompt_is_the_sentence" in codes
+
+
+def test_an_error_spot_that_carries_the_sentence_inside_a_longer_prompt_is_too() -> None:
+    """A wrapper around the sentence is the same defect wearing a prefix."""
+    from core.items.checks import deterministic_failures
+    from core.items.schema import parse
+
+    item = parse(_error_spot_draft("Find the mistake: I was walk home yesterday."))
+    codes = {f.code for f in deterministic_failures(item)}
+    assert "prompt_is_the_sentence" in codes
+
+
+def test_a_proper_error_spot_instruction_passes() -> None:
+    """The fixture's own shape, which is the convention being written down."""
+    from core.items.checks import deterministic_failures
+    from core.items.schema import parse
+
+    item = parse(_error_spot_draft("Tap the word that is wrong."))
+    codes = {f.code for f in deterministic_failures(item)}
+    assert "prompt_is_the_sentence" not in codes
+
+
+def test_the_committed_fixture_obeys_the_convention_it_encodes() -> None:
+    """**The fixture is now checked against the rule it silently established.**
+
+    It is the artefact that hid #271 for a whole slice: every render test was
+    handed an item obeying an unstated convention, so nothing could disagree.
+    """
+    import json
+    from pathlib import Path
+
+    from core.services.paths import repo_root
+
+    fixtures = json.loads(
+        (repo_root() / "apps/web/lib/items/projections.fixture.json")
+        .read_text(encoding="utf-8")
+    )
+    spot = next(
+        e for e in fixtures if e["projection"].get("item_type") == "error_spot"
+    )
+    joined = " ".join(spot["projection"]["tiles"]).lower()
+    assert joined not in str(spot["projection"]["prompt_text"]).lower()

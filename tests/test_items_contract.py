@@ -268,6 +268,9 @@ def test_every_rejection_a_type_can_suffer_is_stated_or_named_unstatable(
             "bank_size": "tokens",
             "bank_not_a_permutation": "same words, same count",
             "bank_already_ordered": "NOT already be in the answer",
+            # #271. The rule is stated in the prompt AND in the derived
+            # per-type contract; this keys off the prompt half.
+            "prompt_is_the_sentence": "IS THE INSTRUCTION AND NEVER THE SENTENCE",
             "tile_count": "tiles",
             "wrong_index_out_of_range": "wrong_index",
             "correction_is_a_no_op": "must differ from it",

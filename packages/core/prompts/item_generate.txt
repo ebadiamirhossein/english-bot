@@ -30,6 +30,11 @@ Hard rules:
   RECOVERABLE from the rest of the sentence plus the cue — if two different
   words would both fit, the item is broken and you must rewrite it.
 - The gap must test the stated target, not an arbitrary function word.
+- FOR `error_spot`, `prompt_text` IS THE INSTRUCTION AND NEVER THE SENTENCE.
+  Write "Tap the word that is wrong." The sentence goes in `tiles`, one word per
+  tile, and the app builds it from them. A sentence in `prompt_text` is rendered
+  ABOVE the same words as tiles — the learner reads it twice and is told nothing
+  about what to do. This was live on 2026-08-29 and a learner met it.
 - NEVER WRITE A CUE INTO THE SENTENCE. No bracketed base form after the gap, no
   parenthetical hint of any kind: not "(drive)", not "(walk)", not "(past of
   go)". Two items were rejected for exactly this and both are quoted so the
