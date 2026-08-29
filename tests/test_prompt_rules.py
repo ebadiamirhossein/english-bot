@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import pytest
 
+from core import PROMPTS_DIR
+
 from core.prompt_rules import (
     ENGLISH_ONLY_RULE,
     SINGLE_LANGUAGE_RULE,
@@ -194,3 +196,27 @@ def test_captures_own_wording_survived() -> None:
     assert "max 25 words" in capture._FALLBACK_RULE_TRUE
     assert "gloss" in capture._FALLBACK_RULE_TRUE
     assert capture._FALLBACK_RULE_TRUE.endswith(SINGLE_LANGUAGE_RULE)
+
+
+def test_the_no_inline_cue_rule_survived() -> None:
+    """**The rule is the whole fix for P1's two rejections, so deleting it must
+    fail rather than pass quietly.**
+
+    Same instrument and same reason as `test_the_conversation_close_wording_did
+    _not_change` and `test_captures_own_wording_survived`: a prompt rule with no
+    check behind it is a convention, and this one was added because the prompt
+    did **not** forbid the shape the judge rejected — the generator broke no rule
+    it had.
+
+    **This asserts the rule is PRESENT, and can never assert the model OBEYS
+    it.** That is a live measurement on the next billed run, and the distinction
+    is W5a's three-level lesson: a recorded-response test proves a branch is
+    reachable and never that a model takes it.
+    """
+    text = (PROMPTS_DIR / "item_generate.txt").read_text(encoding="utf-8")
+    assert "NEVER WRITE A CUE INTO THE SENTENCE" in text
+    # The two rejected items, quoted in the prompt so the shape is unmistakable.
+    assert "We ___ to the beach yesterday. (drive)" in text
+    assert "I ___ to work when it started to rain. (walk)" in text
+    # The reason must stay the cue-accounting one, not the aesthetic one.
+    assert "cue_type" in text and "repair ladder" in text

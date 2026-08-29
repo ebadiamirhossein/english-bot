@@ -40,7 +40,7 @@ UNIT_1 = (
 
 def _outcome(slot_index=0, state="discarded", stage="generation", codes=("schema_error: x",)):
     return Outcome(
-        slot=Slot(index=slot_index, item_type="mcq", target=UNIT_1[0]),
+        slot=Slot(index=slot_index, item_type="mcq", target=UNIT_1[0], cohort="focus"),
         unit_number=1, state=state, stage=stage, codes=codes,
     )
 

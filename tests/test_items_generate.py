@@ -201,7 +201,7 @@ def test_a_low_coverage_item_is_reported_and_NOT_rejected(stub_gates):
     # `cloze_cued`, at index 0 because `verify_cohort` reads drafts by
     # `slot.index`. Changing an `mcq`'s answer without its options would fail on
     # `answer_not_an_option` and test the wrong thing.
-    slots = (Slot(index=0, item_type="cloze_cued", target=UNIT_1[0]),)
+    slots = (Slot(index=0, item_type="cloze_cued", target=UNIT_1[0], cohort="focus"),)
     draft = _draft(0, slots[0].item_type, slots[0].target)
     draft["prompt_text"] = "The landlord ___ the boiler while we were out."
     draft["answer"] = "fixed"
@@ -274,7 +274,7 @@ def _row(state, stage=None, codes=()):
     exists for. A test that fed it an `Outcome` would be exercising a path that
     only works while the process is alive.
     """
-    slot = Slot(index=0, item_type="mcq", target=UNIT_1[0])
+    slot = Slot(index=0, item_type="mcq", target=UNIT_1[0], cohort="focus")
     return journal_line(
         Outcome(slot=slot, unit_number=1, state=state, stage=stage, codes=codes)
     )
@@ -459,7 +459,7 @@ def test_a_non_string_answer_is_refused_as_a_MODEL_failure_not_a_crash(stub_gate
     failure and is labelled as one. The contract stops it being sent; this stops
     us crashing on whatever arrives anyway.
     """
-    slots = (Slot(index=0, item_type="cloze_cued", target=UNIT_1[0]),)
+    slots = (Slot(index=0, item_type="cloze_cued", target=UNIT_1[0], cohort="focus"),)
     draft = _draft(0, "cloze_cued", UNIT_1[0])
     draft["answer"] = ["was walking", "was going"]
     outcomes = verify_cohort(
@@ -486,7 +486,7 @@ def test_a_runner_crash_is_not_reported_as_the_models_schema_failure(monkeypatch
         raise AttributeError("'list' object has no attribute 'translate'")
 
     monkeypatch.setattr(module, "_draft_to_item", _boom)
-    slots = (Slot(index=0, item_type="cloze_cued", target=UNIT_1[0]),)
+    slots = (Slot(index=0, item_type="cloze_cued", target=UNIT_1[0], cohort="focus"),)
     outcomes = verify_cohort(
         slots, [_draft(0, "cloze_cued", UNIT_1[0])],
         unit_number=1, candidates=UNIT_1, calls=Counter(),
@@ -664,7 +664,7 @@ def test_a_partially_evaluated_axis_is_NOT_COMPARABLE_not_met(capsys):
     rows = []
     for index in range(8):
         rows.append(journal_line(Outcome(
-            slot=Slot(index=index, item_type="mcq", target=UNIT_1[0]),
+            slot=Slot(index=index, item_type="mcq", target=UNIT_1[0], cohort="focus"),
             unit_number=1,
             state="accepted" if index == 0 else "discarded",
             stage=None if index == 0 else "deterministic",
@@ -689,7 +689,7 @@ def test_a_fully_evaluated_axis_still_reports_met(capsys):
 
     rows = [
         journal_line(Outcome(
-            slot=Slot(index=i, item_type="mcq", target=UNIT_1[0]),
+            slot=Slot(index=i, item_type="mcq", target=UNIT_1[0], cohort="focus"),
             unit_number=1, state="accepted", stage=None,
         ))
         for i in range(4)

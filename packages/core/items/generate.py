@@ -175,7 +175,7 @@ import logging
 import sys
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, replace, replace
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -355,7 +355,16 @@ class Slot:
     index: int
     item_type: str
     target: str
-    cohort: str = "focus"
+    #: **NO DEFAULT, and that is deliberate — it was `"focus"` until 2026-08-29.**
+    #: A default meant *if you forget to say, assume block 3*, and the re-index in
+    #: `_reindexed_for_verifier` forgot to say: it rebuilt each Slot by naming
+    #: three of four fields, so every topped-up item was written `cohort:
+    #: "focus"`. That is production item id 28 (#260) -- an EXPLICIT wrong value,
+    #: so `focus_items` served a checkpoint item to block 3 by instruction rather
+    #: than by fallback, and the run reported 8 while the bank held 7.
+    #: Required, so a missing run mode raises at the point of the mistake instead
+    #: of producing a plausible wrong answer.
+    cohort: str
 
 
 def track_for(unit_number: int) -> str:
@@ -382,6 +391,7 @@ def slot_plan(unit_number: int, targets: tuple[str, ...]) -> tuple[Slot, ...]:
             index=index,
             item_type=item_type,
             target=targets[(index + unit_number) % len(targets)],
+            cohort="focus",
         )
         for index, item_type in enumerate(SLOT_TYPES)
     )
@@ -1842,11 +1852,7 @@ def _top_up(
     drafts = generate_drafts(payload, settings=settings)
     calls["generate"] += 1
     replacements = verify_cohort(
-        # The slots keep their ORIGINAL indices for reporting, but the drafts
-        # come back in the order asked for, so the plan handed to the verifier is
-        # re-indexed to match and the outcome is mapped back afterwards.
-        tuple(Slot(index=i, item_type=s.item_type, target=s.target)
-              for i, s in enumerate(slots)),
+        _reindexed_for_verifier(slots),
         drafts,
         unit_number=unit_number,
         candidates=entry["candidates"],
@@ -1861,6 +1867,23 @@ def _top_up(
             replacement.topped_up = True
             merged[original.slot.index] = replacement
     return merged
+
+
+
+def _reindexed_for_verifier(slots: tuple[Slot, ...]) -> tuple[Slot, ...]:
+    """The retry plan, renumbered 0..n-1 to match the order the drafts come back.
+
+    The slots keep their ORIGINAL indices for reporting and the outcome is mapped
+    back afterwards, so only the verifier sees these numbers.
+
+    **`dataclasses.replace` and NOT a field-by-field rebuild**, which is the fix
+    for #260 rather than a tidier spelling of the same thing. The old form named
+    `index`, `item_type` and `target` and silently took the default for `cohort`,
+    so every topped-up item was relabelled as block 3's. `replace` copies every
+    field there is, so **a field added to `Slot` later cannot be dropped here
+    again** -- the defect was the enumeration, not the one field it missed.
+    """
+    return tuple(replace(one, index=i) for i, one in enumerate(slots))
 
 
 def _measure_coverage(outcome: Outcome, reference: frozenset[str] | None) -> None:

@@ -251,3 +251,57 @@ def test_the_narrowed_ceiling_is_computed_and_its_equality_is_a_coincidence() ->
         if gates.ANSWER_FAMILY.get(s.item_type) not in gates.PROBED_FAMILIES
     )
     assert unprobed == 2, "the two match_pairs, which #192 says are ungated"
+
+
+# ── the top-up must not relabel the run (#260) ──────────────────────────────
+
+
+def test_a_topped_up_slot_keeps_the_cohort_of_the_run_that_produced_it() -> None:
+    """**RED BEFORE THE FIX. Reproduces production item id 28.**
+
+    `--checkpoint --apply` on unit 1 reported writing 8 and the independent count
+    returned **7 checkpoint items**. The eighth, id 28 (`word_bank_order`, *time
+    linkers*), carries `payload->>'cohort' = 'focus'` — **an explicit wrong
+    value, not an absent one**, so `focus_items` serves a checkpoint item to
+    block 3 BY INSTRUCTION rather than by fallback.
+
+    The cause is the re-index inside `_top_up`: it rebuilt each `Slot` by NAMING
+    three of its four fields, so `cohort` fell to the dataclass default.
+    """
+    from core.items.generate import _reindexed_for_verifier, checkpoint_slot_plan
+
+    slots = checkpoint_slot_plan(
+        1,
+        {
+            "past simple: regular and irregular verbs": 4,
+            "past continuous for what was going on around it": 3,
+            "past simple and past continuous in the same sentence": 3,
+            "time linkers: then, after that, a bit later": 2,
+        },
+        permitted=["cloze_cued", "word_bank_order", "error_spot", "match_pairs"],
+    )
+    assert {one.cohort for one in slots} == {"checkpoint"}
+
+    # The three that failed, re-indexed for the retry payload -- id 28's path.
+    short = (slots[1], slots[4], slots[9])
+    reindexed = _reindexed_for_verifier(short)
+
+    assert [one.index for one in reindexed] == [0, 1, 2], "re-indexed for the payload"
+    assert [one.cohort for one in reindexed] == ["checkpoint"] * 3, (
+        "a top-up item must carry the cohort of the run that produced it"
+    )
+    assert [one.target for one in reindexed] == [s.target for s in short]
+    assert [one.item_type for one in reindexed] == [s.item_type for s in short]
+
+
+def test_a_slot_cannot_be_built_without_saying_which_run_it_is_for() -> None:
+    """**`cohort` has NO DEFAULT, and that is the fix rather than a tidy-up.**
+
+    A default of `"focus"` meant *if you forget to say, assume block 3* — so the
+    re-index above produced a plausible wrong answer instead of an error. With no
+    default it raises at the point of the mistake, before anything is billed.
+    """
+    from core.items.generate import Slot
+
+    with pytest.raises(TypeError, match="cohort"):
+        Slot(index=0, item_type="cloze_cued", target="x")  # type: ignore[call-arg]

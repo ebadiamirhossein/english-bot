@@ -30,6 +30,23 @@ Hard rules:
   RECOVERABLE from the rest of the sentence plus the cue — if two different
   words would both fit, the item is broken and you must rewrite it.
 - The gap must test the stated target, not an arbitrary function word.
+- NEVER WRITE A CUE INTO THE SENTENCE. No bracketed base form after the gap, no
+  parenthetical hint of any kind: not "(drive)", not "(walk)", not "(past of
+  go)". Two items were rejected for exactly this and both are quoted so the
+  shape is unmistakable:
+      "We ___ to the beach yesterday. (drive)"
+      "I ___ to work when it started to rain. (walk)"
+  A third item on the same run, with no bracket, passed:
+      "I got dressed, and ___ I made coffee."
+  THE REASON IS NOT THAT IT LOOKS LIKE A TEXTBOOK. Cues are a separate mechanism
+  with a closed set — first_letter_length, l1_gloss, definition, word_bank,
+  converted_mcq — applied by the repair ladder ONLY when an item turns out to be
+  ambiguous, and recorded in `cue_type` so we can see which cue the generator
+  keeps needing. A cue written into `prompt_text` is invisible to all of that:
+  the item ships with a visible hint, `cue_type` stays NULL, the ladder never
+  runs, and every count of cue use is wrong. If the item needs the base form to
+  be answerable, put it in `definition` — that is what the reserve is for, and
+  it is shown only if the item turns out to need it.
 
 NEVER ADDRESS THE LEARNER'S PERFORMANCE. No "you failed", no "you always get
 this wrong", no "try harder", no disappointed emoji — not in a sentence, not in

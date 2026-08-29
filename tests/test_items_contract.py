@@ -363,7 +363,7 @@ def test_a_perfect_l1_to_l2_draft_now_passes_the_deterministic_gates() -> None:
     from core.items.checks import deterministic_failures
     from core.items.generate import Slot, _draft_to_item
 
-    slot = Slot(index=0, item_type="l1_to_l2_production", target="present perfect")
+    slot = Slot(index=0, item_type="l1_to_l2_production", target="present perfect", cohort="focus")
     item = _draft_to_item({
         "register": "neutral",
         "prompt_text": "من دیروز به مغازه رفتم",

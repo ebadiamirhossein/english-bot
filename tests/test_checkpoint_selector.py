@@ -93,13 +93,36 @@ def test_block_three_does_not_serve_the_checkpoint_cohort(learner) -> None:
     assert len(served) == 12, "block 3 should see the focus cohort and nothing else"
 
 
-def test_an_item_with_no_cohort_key_is_block_threes(learner) -> None:
+def test_block_three_distinguishes_legacy_from_focus_from_checkpoint(learner) -> None:
     """**The fourteen live rows carry no `cohort` key**, because they were
     written by the 8-slot block-3 run before this field existed. *Absent means
     focus* is what they ARE, not a default chosen for convenience -- so there is
-    no data pass and no backfill."""
-    _write(learner, target=T1, cohort=None, n=3, tag="legacy")
-    assert len(svc.focus_items(learner, unit_number=1, limit=20)) == 3
+    no data pass and no backfill.
+
+    **THIS TEST ASSERTED A COUNT UNTIL 2026-08-29 AND COULD NOT SEE #260.** It
+    read `_write(cohort=None, n=3)` then `assert len(focus_items(...)) == 3` --
+    three in, three out -- so **three different states collapsed onto one
+    assertion**: a legacy row (`None`), a real block-3 row (`"focus"`), and a
+    CHECKPOINT row mislabelled `"focus"` by the top-up re-index. Production item
+    id 28 was the third, and this test would have passed with it in the bank.
+
+    **#256's family, the second sighting inside this file** -- test 14 counted
+    twelve instead of naming which twelve. **A selector test must assert WHICH
+    rows came back.** So this one writes all three states at once and asserts on
+    ids: a count could not tell them apart even in principle, because the wrong
+    answer has the same cardinality as the right one.
+    """
+    legacy = _write(learner, target=T1, cohort=None, n=2, tag="legacy")
+    focus = _write(learner, target=T1, cohort="focus", n=2, tag="focus")
+    reserved = _write(learner, target=T1, cohort="checkpoint", n=2, tag="cp")
+
+    served = {one.id for one in svc.focus_items(learner, unit_number=1, limit=20)}
+    assert served == set(legacy) | set(focus), (
+        "block 3 serves the legacy rows and the declared block-3 rows"
+    )
+    assert served.isdisjoint(reserved), (
+        "and never a checkpoint row -- the assertion id 28 needed"
+    )
 
 
 def test_the_reserve_yields_rather_than_leaving_block_three_empty(learner) -> None:
