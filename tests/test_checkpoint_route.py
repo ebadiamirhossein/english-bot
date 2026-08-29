@@ -40,12 +40,30 @@ from core.syllabus.checkpoint import quota_map
 
 PASSED = ValidationReport("passed")
 
-UNIT_1 = {
-    "past simple: regular and irregular verbs": 4,
-    "past continuous for what was going on around it": 3,
-    "past simple and past continuous in the same sentence": 3,
-    "time linkers: then, after that, a bit later": 2,
-}
+def _unit_1_quotas() -> dict[str, int]:
+    """Unit 1's blueprint, READ FROM THE SYLLABUS rather than copied here.
+
+    **This was a hardcoded `{4, 3, 3, 2}` literal until 2026-08-29**, and the
+    operator's `per_target` ruling that day moved unit 1 to `{5, 4, 1, 2}` — so
+    the fixture seeded a cohort the selector then refused, and two route tests
+    failed for a reason that had nothing to do with the route. **A second
+    hand-maintained copy of the syllabus is the defect**, not the stale numbers:
+    the same shape `test_migration_014` avoids by comparing 014's CHECK against
+    `UNIT_STATES` instead of restating it.
+
+    **CLAUDE.md §3 rule 5 is respected and the distinction is worth stating.**
+    This reads the DATA FILE, which is an input; the code under test is
+    `checkpoint_items` and `quota_map`, which is a different artefact. The test
+    asserts *a cohort built to the blueprint is served whole* — and the negative,
+    *a cohort that does not match its plan is refused*, is asserted separately in
+    `test_checkpoint_selector.py` against a deliberately mismatched cohort.
+    """
+    from core.syllabus.content import units
+
+    return dict(units()[0].checkpoint["per_target"])
+
+
+UNIT_1 = _unit_1_quotas()
 
 
 @pytest.fixture(autouse=True)

@@ -223,6 +223,36 @@ W8_PER_TARGET: dict[int, tuple[int, ...]] = {
 }
 
 
+
+#: **Reductions made by operator ruling on evidence, not by redistribution.**
+#:
+#: `test_the_redistribution_did_not_flatten_the_weighting` asserts that no target
+#: ever lost an item, which is right about W8d's largest-remainder pass -- the
+#: thing it was written to police -- and **cannot distinguish an accidental
+#: flattening from a ruling made on measurement.** So a reduction is admitted
+#: only by being named here, with its unit, its target position and its EXACT
+#: new value: a bare `>=` exemption would let the next accident through on the
+#: same limb.
+#:
+#: **(1, 2) -- unit 1, `past simple and past continuous in the same sentence`,
+#: 3 -> 1. Operator ruling, 2026-08-29, assistant-recommended.** The evidence is
+#: #228's three `probe_target` rankings from the first billed checkpoint run: the
+#: composite is attributable when the ITEM FORM carries the contrast
+#: (`match_pairs`, rank 1) and not when a single sentence must imply it
+#: (`word_bank_order` and `error_spot`, both rank 2 -- the second at HIGH
+#: confidence and correctly, since its defective tile is the `-ing` form). Buying
+#: three items on a target only one form can carry spends a quarter of the
+#: checkpoint on an attribution the checkpoint cannot make.
+#:
+#: **Unit 1 ONLY. n=3, one unit, one run.** Units 9 and 14 carry structurally
+#: similar targets and are NOT touched -- declaring on wording alone is the
+#: mistake #212 and #228 have both been about.
+#:
+#: **The 12 and the 80% are untouched** (CLAUDE.md SS3 rule 7): the item moved to
+#: the two targets the same run showed are cleanly attributable, so the
+#: checkpoint still asks for twelve items at the same pass mark.
+RULED_REDUCTIONS: dict[tuple[int, int], int] = {(1, 2): 1}
+
 def test_the_redistribution_did_not_flatten_the_weighting() -> None:
     """W8d gave the freed items back to grammar without evening the weights out.
 
@@ -246,7 +276,14 @@ def test_the_redistribution_did_not_flatten_the_weighting() -> None:
             unit.checkpoint["per_target"][t.target] for t in unit.grammar_targets
         )
         assert len(after) == len(before), unit.unit_number
-        for old, new in zip(before, after):
+        for index, (old, new) in enumerate(zip(before, after)):
+            if (unit.unit_number, index) in RULED_REDUCTIONS:
+                # **The ONE evidenced exception, and it is pinned to an exact
+                # value so it cannot absorb a second, accidental one.**
+                assert new == RULED_REDUCTIONS[(unit.unit_number, index)], (
+                    unit.unit_number, index, after
+                )
+                continue
             assert new >= old, (unit.unit_number, before, after)
         for i, _ in enumerate(before):
             for j, _ in enumerate(before):
