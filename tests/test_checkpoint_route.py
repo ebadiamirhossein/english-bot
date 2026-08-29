@@ -439,3 +439,119 @@ def test_answered_count_is_derivable_from_the_server(app, db, learner) -> None:
     _answer_first(app, learner, first, 3)
     again = request(app, "GET", "/checkpoint/today", cookies=_as(learner)).json()
     assert again["answered"] == 3
+
+
+# ── #272: the checkpoint must not require a daily session first ────────────
+
+
+def test_a_learner_can_open_the_checkpoint_without_a_daily_session(
+    app, db, learner
+) -> None:
+    """**RED BEFORE THE FIX. This blocked the first Finish on H4.**
+
+    **`_enter` is deliberately NOT called** — that is the whole test.
+    `record_unit_entry` had exactly one production caller, inside
+    `GET /session/today`, so the unit-entry write was a **side effect of opening
+    the daily session** and `record_checkpoint` raised
+    `user N has no user_unit_state row` for anyone who went straight here.
+
+    Every other checkpoint test calls `_enter` in its fixture, which is precisely
+    why the suite could not see it: **the tests built the world the code assumed
+    rather than the world a learner arrives in.**
+    """
+    _seed_cohort(learner.user_id)
+
+    body = request(app, "GET", "/checkpoint/today", cookies=_as(learner)).json()
+    assert body["state"] == "ready"
+
+    row = db.execute(
+        "SELECT state FROM user_unit_state WHERE user_id = %s AND unit_number = 1",
+        (learner.user_id,),
+    ).fetchone()
+    assert row is not None, "opening the checkpoint enters the unit"
+    assert row[0] == "in_progress"
+
+
+def test_opening_the_checkpoint_cold_can_be_completed(app, db, learner) -> None:
+    """The end of the same path: sit it and finish it, with no daily session."""
+    _seed_cohort(learner.user_id)
+    sitting = request(app, "GET", "/checkpoint/today", cookies=_as(learner)).json()
+    _answer_all(app, learner, sitting, correct=12)
+    done = request(
+        app, "POST", f"/checkpoint/{sitting['session_id']}/complete",
+        cookies=_as(learner),
+    ).json()
+    assert done["state"] == "done"
+    assert done["passed"] is True
+
+
+# ── the denominator is the sitting, never the attempt count ────────────────
+
+
+def test_a_twice_answered_item_does_not_move_the_pass_mark(app, db, learner) -> None:
+    """**RED BEFORE THE FIX. Production session 86: 13 attempts on 12 items.**
+
+    `complete` counted `count(*)` from `item_attempts` and then took
+    `item_count = max(answered, CHECKPOINT_ITEM_COUNT)`, so a single re-answered
+    item made the sitting 13 items long: **9 of 13 = 69% against a pass mark of
+    11**, where the same nine correct answers are **75% against 10** on the
+    twelve the learner actually sat. Both were fails, so nothing was misgraded —
+    **on another sitting that gap decides a pass.**
+
+    **CLAUDE.md §3 rule 7: the 12 and the 80% do not move.** A denominator that
+    grows with a double tap moves both, silently, in the direction that fails
+    people.
+    """
+    _enter(db, learner)
+    _seed_cohort(learner.user_id)
+    sitting = request(app, "GET", "/checkpoint/today", cookies=_as(learner)).json()
+    assert len(sitting["items"]) == 12
+
+    _answer_all(app, learner, sitting, correct=10)
+    # The thirteenth row: one item answered a second time, as session 86 has.
+    again = sitting["items"][11]
+    request(
+        app, "POST", f"/items/{again['id']}/answer",
+        json_body={"text": "zzz-wrong", "session_id": sitting["session_id"]},
+        cookies=_as(learner),
+    )
+
+    rows = db.execute(
+        "SELECT count(*) FROM item_attempts WHERE session_id = %s",
+        (sitting["session_id"],),
+    ).fetchone()
+    assert rows[0] == 13, "the log keeps both attempts — it is append-only"
+
+    done = request(
+        app, "POST", f"/checkpoint/{sitting['session_id']}/complete",
+        cookies=_as(learner),
+    ).json()
+    assert done["passed"] is True, "10 of 12 is a pass; 10 of 13 is not"
+    assert done["score_pct"] == 83
+
+
+def test_the_first_attempt_on_an_item_is_the_one_that_counts(app, db, learner) -> None:
+    """A second try comes after the feedback has shown the answer.
+
+    Re-answering is then recall of a line just read, not production — #239's
+    distinction — so the checkpoint scores the FIRST attempt on each of its
+    twelve and ignores later ones in either direction.
+    """
+    _enter(db, learner)
+    _seed_cohort(learner.user_id)
+    sitting = request(app, "GET", "/checkpoint/today", cookies=_as(learner)).json()
+
+    _answer_all(app, learner, sitting, correct=9)
+    # Item 10 was answered WRONG above; answer it right on a second go.
+    retry = sitting["items"][9]
+    request(
+        app, "POST", f"/items/{retry['id']}/answer",
+        json_body={"text": "went", "session_id": sitting["session_id"]},
+        cookies=_as(learner),
+    )
+
+    done = request(
+        app, "POST", f"/checkpoint/{sitting['session_id']}/complete",
+        cookies=_as(learner),
+    ).json()
+    assert done["passed"] is False, "the second go must not buy a pass"

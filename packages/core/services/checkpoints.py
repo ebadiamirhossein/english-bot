@@ -161,6 +161,27 @@ def today(user_id: int, *, now: datetime) -> Checkpoint | None:
             conn, user_id, unit_number, local_date, now=now
         )
 
+        # **ENTERING THE UNIT BELONGS HERE, NOT ONLY IN THE DAILY SESSION (#272).**
+        #
+        # `record_unit_entry` had exactly one production caller -- inside
+        # `GET /session/today` -- so the entry write was a SIDE EFFECT of opening
+        # the daily session, and a learner who came straight to the checkpoint hit
+        # `record_checkpoint`'s `has no user_unit_state row`. That blocked the
+        # first Finish on H4 and had to be unblocked by a manual backfill.
+        #
+        # **Idempotent, and that is what makes it safe on a read path**: the write
+        # is `ON CONFLICT DO NOTHING` on `UNIQUE (user_id, unit_number)` and
+        # returns False on a re-entry, so this is a create-once exactly like
+        # `_get_or_create_sitting` above -- a different thing from a mutating
+        # write on a GET, and 014's unique constraint is what makes it one.
+        #
+        # **`record_checkpoint`'s raise is NOT relaxed** and must not be: it is
+        # #219's seam working, and swallowing it would put a checkpoint's first
+        # write on a unit nobody entered, carrying an `entered_at` for a moment
+        # that never happened -- #217's whole argument.
+        syllabus_service.record_unit_entry(conn, user_id, unit_number, now=now)
+        conn.commit()
+
     if completed:
         did_pass = bool(payload.get("passed"))
         return Checkpoint(
@@ -280,9 +301,13 @@ def complete(user_id: int, session_id: int, *, now: datetime) -> Checkpoint | No
             cur.execute(
                 """
                 SELECT count(*)::int,
-                       count(*) FILTER (WHERE a.correct)::int
-                  FROM item_attempts a
-                 WHERE a.session_id = %s AND a.user_id = %s
+                       count(*) FILTER (WHERE first.correct)::int
+                  FROM (
+                      SELECT DISTINCT ON (a.item_id) a.item_id, a.correct
+                        FROM item_attempts a
+                       WHERE a.session_id = %s AND a.user_id = %s
+                       ORDER BY a.item_id, a.attempted_at ASC, a.id ASC
+                  ) AS first
                 """,
                 (session_id, user_id),
             )
@@ -320,7 +345,24 @@ def complete(user_id: int, session_id: int, *, now: datetime) -> Checkpoint | No
                 score_pct=payload.get("score_pct") if did_pass else None,
             )
 
-        item_count = max(answered, CHECKPOINT_ITEM_COUNT)
+        # **THE DENOMINATOR IS THE SITTING, NEVER THE ATTEMPT COUNT.**
+        #
+        # This read `max(answered, CHECKPOINT_ITEM_COUNT)` over `count(*)` of
+        # `item_attempts`, so ONE re-answered item made a sitting thirteen items
+        # long. Production session 86: **9 of 13 = 69% against a pass mark of
+        # 11**, where the same nine are **75% against 10** on the twelve actually
+        # sat. Both were fails so nothing was misgraded -- **on another sitting
+        # that gap decides a pass.** CLAUDE.md SS3 rule 7: the 12 and the 80% do
+        # not move, and a denominator that grows with a double tap moves both,
+        # silently, in the direction that fails people.
+        #
+        # `item_attempts` legitimately holds repeats -- 012 refused a
+        # `UNIQUE (item_id, attempt_no)` because an item is re-delivered later
+        # under spacing -- so the repair is in the SCORING, not in the log.
+        #
+        # The stored twelve (#269) are the sitting; a pre-#269 row that has none
+        # falls back to the constant and **never to the attempt count**.
+        item_count = len(payload.get("item_ids") or ()) or CHECKPOINT_ITEM_COUNT
         state = syllabus_service.record_checkpoint(
             conn,
             user_id,
