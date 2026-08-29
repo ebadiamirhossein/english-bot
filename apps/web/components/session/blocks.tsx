@@ -132,7 +132,24 @@ export function InputBlock({ block }: { block: SessionBlock }) {
  * dict by naming the one field that may travel, so `murphy_units` was never in
  * the payload to render (#171, #183).
  */
-export function FocusBlock({ block }: { block: SessionBlock }) {
+/**
+ * **`sessionId` is required, not optional, and #274 is why.** This component
+ * took only `block` and rendered `ItemCard` without it, so every daily block-3
+ * attempt stored `item_attempts.session_id = NULL` — while the checkpoint's
+ * runner, which does pass it, produced rows that carry it. **#254 was fixed on
+ * one route and the other was never checked.**
+ *
+ * The cost was not cosmetic: `block_breakdown.focus` is derived from attempts
+ * belonging to the session, so it could never reach `done`, #258's automatic
+ * completion was inert, and the pacing clock read 0 whatever a learner did.
+ */
+export function FocusBlock({
+  block,
+  sessionId,
+}: {
+  block: SessionBlock;
+  sessionId: number;
+}) {
   const canDo = block.payload.can_do as string | undefined;
   const targets =
     (block.payload.grammar_targets as { target: string }[] | undefined) ?? [];
@@ -214,6 +231,7 @@ export function FocusBlock({ block }: { block: SessionBlock }) {
               <ItemCard
                 key={item.id}
                 item={item}
+                sessionId={sessionId}
                 onNext={
                   index + 1 < items.length
                     ? () => setIndex(index + 1)

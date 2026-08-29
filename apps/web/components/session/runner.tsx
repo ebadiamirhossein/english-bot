@@ -118,7 +118,14 @@ export function SessionRunner() {
           );
         }
         if (block.kind === "input") return <InputBlock key={block.n} block={block} />;
-        if (block.kind === "focus") return <FocusBlock key={block.n} block={block} />;
+        if (block.kind === "focus")
+          return (
+            <FocusBlock
+              key={block.n}
+              block={block}
+              sessionId={session.session_id}
+            />
+          );
         if (block.kind === "output") return <OutputBlock key={block.n} block={block} />;
         return <CloseBlock key={block.n} block={block} />;
       })}

@@ -241,30 +241,30 @@ describe("block 3 renders the lesson when there is one", () => {
   } as unknown as SessionBlock;
 
   it("replaces the bare label list with the lesson's own sections", () => {
-    render(<FocusBlock block={withLesson} />);
+    render(<FocusBlock block={withLesson} sessionId={90} />);
     expect(screen.getByTestId("lesson")).toBeTruthy();
     expect(screen.queryByTestId("focus-targets")).toBeNull();
   });
 
   it("stops saying the explanation is on its way", () => {
-    const { container } = render(<FocusBlock block={withLesson} />);
+    const { container } = render(<FocusBlock block={withLesson} sessionId={90} />);
     expect(container.textContent).not.toContain("written explanation");
   });
 
   it("keeps the label text byte-identical to what the server sent", () => {
-    render(<FocusBlock block={withLesson} />);
+    render(<FocusBlock block={withLesson} sessionId={90} />);
     for (const target of TARGETS) {
       expect(screen.getByText(target)).toBeTruthy();
     }
   });
 
   it("renders no Murphy citation, because none can arrive", () => {
-    const { container } = render(<FocusBlock block={withLesson} />);
+    const { container } = render(<FocusBlock block={withLesson} sessionId={90} />);
     expect(container.textContent).not.toContain("Murphy");
   });
 
   it("still shows the can-do above the lesson", () => {
-    render(<FocusBlock block={withLesson} />);
+    render(<FocusBlock block={withLesson} sessionId={90} />);
     expect(screen.getByTestId("focus-can-do").textContent).toContain("yesterday");
   });
 });

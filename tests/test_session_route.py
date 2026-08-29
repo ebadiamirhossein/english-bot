@@ -703,3 +703,55 @@ def test_the_manual_done_route_is_gone(app, learner):
     assert not [p for p in paths if "block" in p], sorted(
         p for p in paths if "block" in p
     )
+
+
+def test_an_answer_stores_the_session_it_was_given(app, db, learner):
+    """**#274: asserted on the STORED ROW, never on a 200.**
+
+    The route has carried `session_id` since W11 and the checkpoint's runner sent
+    it; **block 3's did not**, so every daily attempt stored NULL and
+    `block_breakdown.focus` could never reach `done`. A test that asserted the
+    call succeeded would have passed throughout — the call always succeeded.
+
+    This is the server half of the guard. The client half is a render test, since
+    the defect was a prop that was never passed.
+    """
+    item_id = _seed_focus_item(db, learner)
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+
+    request(
+        app, "POST", f"/items/{item_id}/answer",
+        json_body={"text": "went", "session_id": body["session_id"]},
+        cookies=_as(learner),
+    )
+
+    row = db.execute(
+        "SELECT session_id FROM item_attempts WHERE item_id = %s AND user_id = %s",
+        (item_id, learner.user_id),
+    ).fetchone()
+    assert row is not None
+    assert row[0] == body["session_id"], "the attempt must carry its session"
+
+
+def test_a_graded_card_stores_the_session_it_was_given(app, db, learner):
+    """The review block's half of the same question, checked rather than assumed.
+
+    `ReviewBlock` does pass `sessionId` to `CardRunner`, which does send it — so
+    this is expected to pass. It is written because #254 was fixed on one route
+    and the other was never checked, and *checked and correct* is evidence while
+    *not checked* is indistinguishable from broken.
+    """
+    card_id = _seed_due_card(db, learner)
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+
+    request(
+        app, "POST", f"/review/{card_id}/grade",
+        json_body={"rating": "good", "session_id": body["session_id"]},
+        cookies=_as(learner),
+    )
+
+    row = db.execute(
+        "SELECT session_id FROM card_reviews WHERE card_id = %s", (card_id,)
+    ).fetchone()
+    assert row is not None
+    assert row[0] == body["session_id"]

@@ -104,7 +104,15 @@ export function ItemCard({
   const answered = state.kind === "graded";
 
   return (
-    <section className="space-y-5" data-testid="item-card">
+    // `data-session-id` is not decoration: #274 was block 3 rendering this
+    // card with no `sessionId`, so every daily attempt stored NULL and
+    // `block_breakdown.focus` could never reach `done`. The attribute makes
+    // the seam assertable from a render test.
+    <section
+      className="space-y-5"
+      data-testid="item-card"
+      data-session-id={sessionId ?? undefined}
+    >
       <Presentation
         itemId={item.id}
         projection={item.projection}

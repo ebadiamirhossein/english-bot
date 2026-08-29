@@ -171,7 +171,7 @@ describe("block 3 shows labels and no citation", () => {
   });
 
   it("renders the can-do and the targets", () => {
-    render(<FocusBlock block={focus} />);
+    render(<FocusBlock block={focus} sessionId={90} />);
     expect(screen.getByTestId("focus-can-do").textContent).toContain("most days");
     expect(screen.getByTestId("focus-targets").textContent).toContain(
       "present simple",
@@ -179,17 +179,17 @@ describe("block 3 shows labels and no citation", () => {
   });
 
   it("renders no Murphy citation, because none arrives", () => {
-    const { container } = render(<FocusBlock block={focus} />);
+    const { container } = render(<FocusBlock block={focus} sessionId={90} />);
     expect(container.textContent).not.toContain("Murphy");
   });
 
   it("renders no practice section at all when no items were generated", () => {
-    render(<FocusBlock block={focus} />);
+    render(<FocusBlock block={focus} sessionId={90} />);
     expect(screen.queryByTestId("focus-items")).toBeNull();
   });
 
   it("no longer apologises for the generator that now exists", () => {
-    const { container } = render(<FocusBlock block={focus} />);
+    const { container } = render(<FocusBlock block={focus} sessionId={90} />);
     expect(container.textContent).not.toContain("exercise generator");
   });
 
@@ -207,7 +207,7 @@ describe("block 3 shows labels and no citation", () => {
    * six weeks later, so the change is recorded, not just made.
    */
   it("says the written explanation is on its way WHEN there is no lesson", () => {
-    const { container } = render(<FocusBlock block={focus} />);
+    const { container } = render(<FocusBlock block={focus} sessionId={90} />);
     expect(container.textContent).toContain("written explanation");
     expect(screen.queryByTestId("lesson")).toBeNull();
   });
@@ -251,14 +251,14 @@ describe("block 3 serves its generated items", () => {
   });
 
   it("renders the first item, not all of them at once", () => {
-    render(<FocusBlock block={withItems} />);
+    render(<FocusBlock block={withItems} sessionId={90} />);
     expect(screen.getByTestId("focus-items")).not.toBeNull();
     expect(screen.getByText(/there twice last year/)).not.toBeNull();
     expect(screen.queryByText(/to the shops yesterday/)).toBeNull();
   });
 
   it("shows a position and never a count of what is left", () => {
-    const { container } = render(<FocusBlock block={withItems} />);
+    const { container } = render(<FocusBlock block={withItems} sessionId={90} />);
     // CLAUDE.md §4: never present a backlog. "1 of 2" is where you are;
     // "1 remaining" would be a debt.
     expect(container.textContent).toContain("1 of 2");
@@ -266,14 +266,14 @@ describe("block 3 serves its generated items", () => {
   });
 
   it("keeps rendering the unit's targets above the practice", () => {
-    render(<FocusBlock block={withItems} />);
+    render(<FocusBlock block={withItems} sessionId={90} />);
     expect(screen.getByTestId("focus-targets").textContent).toContain(
       "past simple",
     );
   });
 
   it("carries no guilt language into the block", () => {
-    const { container } = render(<FocusBlock block={withItems} />);
+    const { container } = render(<FocusBlock block={withItems} sessionId={90} />);
     expect(container.textContent).not.toMatch(
       /wrong|incorrect|failed|missed|try harder/i,
     );
@@ -421,3 +421,42 @@ describe("the typed answer comes before the reveal", () => {
     }
   });
 });
+
+
+describe("#274 — block 3 must tell the server which session it is", () => {
+  /**
+   * **RED BEFORE THE FIX.** `FocusBlock` took only `block` and rendered
+   * `<ItemCard item={...} />` with **no `sessionId`**, so `answerItem` sent no
+   * `session_id` and every daily block-3 attempt stored NULL. The checkpoint's
+   * runner passed it and the daily runner did not — **#254 was fixed on one
+   * route and the other was never checked.**
+   *
+   * Without it `block_breakdown.focus` can never reach `done`, so #258's
+   * automatic completion is inert and the pacing clock reads 0 forever.
+   *
+   * Asserted on the PROP reaching `ItemCard`, because that is the seam that was
+   * missing; the wire itself is asserted server-side, on the stored row.
+   */
+  it("hands the session id to the item card", () => {
+    const focus = block({
+      n: 3,
+      kind: "focus",
+      payload: {
+        unit_number: 1,
+        can_do: "I can talk about what I do most days.",
+        grammar_targets: [{ target: "present simple for habits" }],
+        lesson: null,
+        items: [
+          {
+            id: 501,
+            response_mode: "typed",
+            projection: { item_type: "cloze_cued", prompt_text: "I ___ home." },
+          },
+        ],
+      },
+    });
+    const { container } = render(<FocusBlock block={focus} sessionId={90} />);
+    expect(container.querySelector("[data-session-id='90']")).not.toBeNull();
+  });
+});
+
