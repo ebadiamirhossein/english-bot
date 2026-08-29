@@ -160,6 +160,12 @@ def answer(
             self_marked=body.self_marked,
         ),
         latency_ms=body.latency_ms,
+        # W11. Before this, `item_attempts.session_id` was NULL on every row
+        # ever written: 012 shipped the column "for W10", `answer_item` took the
+        # argument, and no caller passed one. A checkpoint is scored from the
+        # attempts belonging to its sitting, so the checkpoint is the first path
+        # that cannot work without it.
+        session_id=body.session_id,
     )
     if outcome is None:
         raise HTTPException(status_code=404, detail="not_found")

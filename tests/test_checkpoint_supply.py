@@ -1,0 +1,253 @@
+"""Where a checkpoint's twelve items come from, and what stops block 3 eating them.
+
+Two properties in this file are the ones W11's plan reached review three times
+without getting right, so each is asserted against the mechanism that was WRONG
+as well as the one that shipped:
+
+* **the reserve** -- a recency proxy (`created_at DESC LIMIT 12`) protects the
+  wrong rows the moment a second generation run happens, and a unit needs two;
+* **the selector's quotas** -- filling the BLUEPRINT's `per_target` makes a
+  re-weighted retake cohort unselectable, so the fail path never opens.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from core.syllabus import CHECKPOINT_ITEM_COUNT, CHECKPOINT_PASS_PCT
+from core.syllabus.checkpoint import (
+    CheckpointError,
+    pass_mark,
+    passed,
+    quota_map,
+    score_pct,
+    slot_plan,
+)
+
+UNIT_1 = {
+    "past simple: regular and irregular verbs": 4,
+    "past continuous for what was going on around it": 3,
+    "past simple and past continuous in the same sentence": 3,
+    "time linkers: then, after that, a bit later": 2,
+}
+T1, T2, T3, T4 = list(UNIT_1)
+
+
+# ── the pass mark ───────────────────────────────────────────────────────────
+
+
+def test_ten_of_twelve_passes_and_nine_does_not() -> None:
+    """PRD §3's 80%, computed from the constants and never hardcoded."""
+    assert pass_mark(CHECKPOINT_ITEM_COUNT) == 10
+    assert passed(10)
+    assert not passed(9)
+
+
+def test_the_pass_mark_follows_its_constants_rather_than_a_literal() -> None:
+    """A 10 written as `10` keeps passing after the threshold moves.
+
+    The same drift `test_migration_014` exists to catch one layer down, where two
+    hand-maintained copies of a state set stop agreeing.
+    """
+    assert pass_mark(12) == -((-12 * CHECKPOINT_PASS_PCT) // 100)
+    assert pass_mark(10) == 8
+
+
+def test_the_stored_score_can_never_turn_a_fail_into_a_pass() -> None:
+    """`last_checkpoint_score` is rounded for a SMALLINT; the verdict is not.
+
+    014's `user_unit_state_a_pass_needs_the_threshold` compares that column
+    against 80, so a rounding that pushed a failing sitting to 80 would make the
+    database disagree with `passed()`. Checked across every possible score
+    rather than at the boundary, because the boundary is where rounding is least
+    interesting.
+    """
+    for correct in range(CHECKPOINT_ITEM_COUNT + 1):
+        stored = score_pct(correct, CHECKPOINT_ITEM_COUNT)
+        assert (stored >= CHECKPOINT_PASS_PCT) == passed(correct), correct
+
+
+# ── the quota map: ONE producer, two callers ────────────────────────────────
+
+
+def test_a_first_sitting_is_the_blueprints_own_allocation() -> None:
+    assert quota_map(UNIT_1) == UNIT_1
+    assert sum(quota_map(UNIT_1).values()) == CHECKPOINT_ITEM_COUNT
+
+
+def test_a_retake_is_reweighted_toward_the_missed_targets() -> None:
+    """The fail path's half of the map, and it is NOT the blueprint's.
+
+    This is the mismatch that would have killed the retake: a selector demanding
+    4/3/3/2 cannot be filled by a cohort built to this shape, so the two must
+    come from one producer.
+    """
+    got = quota_map(UNIT_1, [T4])
+    assert got[T4] > UNIT_1[T4]
+    assert got != UNIT_1
+    assert sum(got.values()) == CHECKPOINT_ITEM_COUNT
+
+
+def test_a_retake_still_covers_every_target_at_least_once() -> None:
+    """`blueprint.validate_checkpoint`'s own rule -- *a target nothing checks is
+    not a target* -- applied to the sitting rather than to the unit."""
+    for missed in ([T1], [T4], [T1, T2], [T1, T2, T3, T4]):
+        got = quota_map(UNIT_1, missed)
+        assert set(got) == set(UNIT_1), missed
+        assert all(count >= 1 for count in got.values()), missed
+
+
+def test_the_reweighting_is_capped_at_the_blueprints_own_maximum() -> None:
+    """**#169's arithmetic, enforced.**
+
+    Uncapped, a learner who missed a single target gets NINE of twelve items on
+    one narrow grammar point. #169 says where that leads in as many words:
+    *"Four or five items on one narrow grammar point, generated in one pass, is
+    where near-duplicates come from."* Nine is worse than the concentration that
+    row was filed about.
+
+    The cap is `max(per_target.values())` -- **the blueprint's own number** -- so
+    a retake stays inside a concentration this record has already reasoned about
+    and accepted, rather than inside one invented here.
+    """
+    cap = max(UNIT_1.values())
+    for missed in ([T1], [T4], [T2, T3]):
+        assert max(quota_map(UNIT_1, missed).values()) <= cap, missed
+
+
+def test_the_map_is_deterministic() -> None:
+    """Same inputs, same map -- `slot_plan`'s reason for being offset rather
+    than shuffled, one level up. A random plan makes a run unrepeatable."""
+    assert quota_map(UNIT_1, [T1, T3]) == quota_map(UNIT_1, [T1, T3])
+
+
+def test_a_missed_target_that_is_not_this_units_is_refused() -> None:
+    with pytest.raises(CheckpointError, match="not targets of this unit"):
+        quota_map(UNIT_1, ["something else entirely"])
+
+
+def test_a_blueprint_that_does_not_add_up_is_refused() -> None:
+    """The invariant #167 says lives in the validator and not in SQL.
+
+    Asserted here too, because this producer is the one thing both the generator
+    and the selector trust, and a map that does not sum to twelve would make a
+    short checkpoint reachable from either side.
+    """
+    with pytest.raises(CheckpointError, match="do not add up|sum to"):
+        quota_map({"a": 4, "b": 4}, [])
+
+
+# ── the slot plan ───────────────────────────────────────────────────────────
+
+
+def test_a_checkpoint_is_twelve_items_in_the_sittings_proportions() -> None:
+    """**Not eight, and not a rotation.**
+
+    `core.items.generate.slot_plan` spreads block 3's eight items evenly across a
+    unit's targets. A checkpoint is ALLOCATED. Generating one with the practice
+    plan would ignore `checkpoint.per_target` -- which, until W11, nothing in
+    this tree read for anything but validation.
+    """
+    from collections import Counter
+
+    slots = slot_plan(1, quota_map(UNIT_1), ("cloze_cued", "error_spot"))
+    assert len(slots) == CHECKPOINT_ITEM_COUNT
+    assert Counter(one.target for one in slots) == Counter(UNIT_1)
+
+
+def test_the_permitted_type_set_is_a_parameter() -> None:
+    """#207's open half can be ruled without a code change.
+
+    Seven types are permitted in all 24 blueprints and narrowing that set is the
+    operator's. Passing a narrowed set must change the plan, so the ruling lands
+    as data rather than as an edit here.
+    """
+    narrow = slot_plan(1, quota_map(UNIT_1), ("cloze_cued",))
+    assert {one.item_type for one in narrow} == {"cloze_cued"}
+    wide = slot_plan(1, quota_map(UNIT_1), ("cloze_cued", "error_spot", "match_pairs"))
+    assert len({one.item_type for one in wide}) == 3
+
+
+def test_a_plan_that_does_not_sum_to_twelve_is_refused() -> None:
+    with pytest.raises(CheckpointError, match="sum to"):
+        slot_plan(1, {"a": 3}, ("cloze_cued",))
+
+
+# ── the run-level narrowing (§3.5's mechanism, NOT #207) ────────────────────
+
+
+def test_a_run_can_narrow_the_permitted_types() -> None:
+    """**OPERATOR RULING, 2026-08-29: unit 1's checkpoint run drops
+    `l1_to_l2_production`.**
+
+    That type is **0 of 14 accepted on production** and a checkpoint cohort is
+    all-or-nothing — two failures return 10 of 12 and the run is spent for
+    nothing. Twelve slots on unit 1 included two of it.
+
+    **This is a RUN parameter and not a ruling on #207.** #207 asks whether
+    `checkpoint.item_types` narrows in `data/syllabus_units.json` across all 24
+    units; that stays open and stays the operator's. Nothing here edits the
+    data, re-seeds `syllabus_units`, or touches `SLOT_TYPES`.
+    """
+    from core.items.generate import unit_plan
+
+    narrow = ("cloze_cued", "word_bank_order", "error_spot", "match_pairs")
+    slots = unit_plan((1,), checkpoint=True, types=narrow)[1]["slots"]
+    assert len(slots) == CHECKPOINT_ITEM_COUNT
+    assert {one.item_type for one in slots} <= set(narrow)
+    assert not any(one.item_type == "l1_to_l2_production" for one in slots)
+
+
+def test_narrowing_does_not_touch_the_syllabus() -> None:
+    """The blueprint is unchanged by a run. If this ever fails, a run has been
+    allowed to answer #207 by side effect."""
+    from core.syllabus.content import units
+
+    unit_1 = next(u for u in units() if u.unit_number == 1)
+    assert "l1_to_l2_production" in unit_1.checkpoint["item_types"]
+    assert len(unit_1.checkpoint["item_types"]) == 7
+
+
+def test_a_run_may_narrow_but_never_widen() -> None:
+    """A `--types` value the blueprint does not permit would put an item in the
+    bank that its own checkpoint could never draw."""
+    from core.items.generate import unit_plan
+
+    with pytest.raises(ValueError, match="may only narrow"):
+        unit_plan((1,), checkpoint=True, types=("dictation",))
+
+
+def test_narrowing_to_nothing_usable_is_refused() -> None:
+    from core.items.generate import unit_plan
+
+    with pytest.raises(ValueError, match="cannot produce|leaves no usable"):
+        unit_plan((1,), checkpoint=True, types=("mcq",))
+
+
+def test_the_narrowed_ceiling_is_computed_and_its_equality_is_a_coincidence() -> None:
+    """**Both plans cost 65, and that is arithmetic rather than the flag failing
+    to bite** — recorded because an unchanged number is exactly what a reader
+    would take as evidence that nothing happened.
+
+    Dropping two `l1_to_l2_production` slots removes two back-translation calls;
+    the twelve slots redistribute and `cloze_cued` gains one, which is the only
+    `slot`-family type here and therefore costs `MAX_REPAIRS` (2) more. −2 +2 = 0.
+
+    The assertion is on the TERMS, not on the total: the narrowed plan must cost
+    no back-translation at all, which is the thing the ruling was made for.
+    """
+    from core.items import gates
+    from core.items.generate import _expected_checkpoint_calls, unit_plan
+
+    narrow = ("cloze_cued", "word_bank_order", "error_spot", "match_pairs")
+    plan = unit_plan((1,), checkpoint=True, types=narrow)
+    slots = plan[1]["slots"]
+    assert sum(1 for s in slots if s.item_type == "l1_to_l2_production") == 0
+    assert _expected_checkpoint_calls(plan) == _expected_checkpoint_calls(
+        unit_plan((1,), checkpoint=True)
+    ), "if this diverges the arithmetic above has changed, not the flag"
+    unprobed = sum(
+        1 for s in slots
+        if gates.ANSWER_FAMILY.get(s.item_type) not in gates.PROBED_FAMILIES
+    )
+    assert unprobed == 2, "the two match_pairs, which #192 says are ungated"

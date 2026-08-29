@@ -155,6 +155,25 @@ class ValidationReport:
     naturalness_reason: str | None = None
     probe_confidence: str | None = None
 
+    #: **`probe_target`'s verdict, stored rather than printed (#194).** W10c's
+    #: `TargetVerdict` carried the ranking, the claimed rank, the runner-up and a
+    #: confidence; `--live` printed all four and then dropped them, so the
+    #: evidence for *this item tests its target* survived only in a run's stdout.
+    #:
+    #: **The runner-up is the sharp loss.** On an item that PASSED, second place
+    #: is the distinction it came closest to blurring -- the single most useful
+    #: line for whoever rewrites the generator prompt.
+    #:
+    #: **This is #119's exact shape, one slice later and in a gate that was
+    #: written knowing about #119**, which is why it was filed at `medium` rather
+    #: than shrugged off. No migration: `items.validation` is JSONB and 012's
+    #: CHECK requires three keys rather than forbidding a fourth.
+    target_ranking: tuple[str, ...] = ()
+    target_claimed_rank: int | None = None
+    target_first: str | None = None
+    target_runner_up: str | None = None
+    target_confidence: str | None = None
+
     validator_version: int = VALIDATOR_VERSION
 
     @property
@@ -176,6 +195,11 @@ class ValidationReport:
             "solver_calls": self.solver_calls,
             "naturalness_reason": self.naturalness_reason,
             "probe_confidence": self.probe_confidence,
+            "target_ranking": list(self.target_ranking),
+            "target_claimed_rank": self.target_claimed_rank,
+            "target_first": self.target_first,
+            "target_runner_up": self.target_runner_up,
+            "target_confidence": self.target_confidence,
             "validator_version": self.validator_version,
         }
 

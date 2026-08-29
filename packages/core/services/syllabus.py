@@ -14,11 +14,13 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 
 from psycopg.rows import tuple_row
 
+from core.db import connection
 from core.lexicon.states import COVERED_STATES
-from core.syllabus import TARGET_LEXEME_FLOOR, UNIT_COUNT
+from core.syllabus import CHECKPOINT_RETAKE_DAYS, TARGET_LEXEME_FLOOR, UNIT_COUNT
 from core.syllabus.content import Unit
 
 logger = logging.getLogger(__name__)
@@ -377,12 +379,16 @@ __all__ = [
     "SeedCounts",
     "StoredUnit",
     "below_floor",
+    "missed_targets",
     "missing_lemmas",
     "orphan_unit_lexemes",
     "reconcile_unit_lexemes",
+    "record_checkpoint",
+    "record_unit_entry",
     "stored_units",
     "target_counts",
     "unit_rows",
+    "unit_section_index",
     "unit_target_lexemes",
     "upsert_units",
     "validate_items_fk",
@@ -468,3 +474,292 @@ def unit_for_session(conn, unit_number: int) -> StoredUnit | None:
         output_task_written=row[5],
         checkpoint=row[6],
     )
+
+
+# ── W11: the first writes to `user_unit_state` ──────────────────────────────
+#
+# **THIS MODULE IS THE ONLY WRITER, AND THERE ARE TWO FUNCTIONS IN IT.**
+# `record_unit_entry` creates the row; `record_checkpoint` moves it. Each calls
+# the guard that applies to it and neither calls the other's:
+#
+#   record_unit_entry  -> states.may_enter   (the only caller in production)
+#   record_checkpoint  -> states.may_move    (the only caller in production)
+#
+# **`record_checkpoint` has NO no-row branch, deliberately.** An earlier draft
+# had it call `may_enter` "when there is no row" -- which, once
+# `record_unit_entry` always creates the row first, is a branch the real path
+# never reaches, and #219's guard would have been reached only by a code path
+# that never runs. That is #219's own family arriving inside the fix for it. It
+# raises instead: a checkpoint on a unit nobody entered is a bug in the caller.
+#
+# **WHY THE SEAM IS PYTHON AND NOT SQL, since 014 already has CHECKs.**
+# Migration 014's six CHECK constraints are ROW-LOCAL. A `CHECK` never sees the
+# predecessor row, and the only Postgres construct that could is a trigger,
+# which this project does not use anywhere. So "let the CHECKs be the only
+# guard" is not a lighter option -- it is NO transition guard at all, and 014
+# specifically permits `passed -> in_progress` as an UPDATE nulling `passed_at`,
+# the one move `ALLOWED_TRANSITIONS` forbids outright. The CHECKs stay the
+# row-local guard; this is the transition guard; the two are deliberately not
+# the same instrument.
+#
+# The reason an enumeration was chosen over an ordering is W4's and it cost this
+# project a production defect: `source_rank` was an ORDERING, and 231 of one
+# learner's 2,000 floor lemmas fell out of `known`. See `core.syllabus.states`.
+
+
+def record_unit_entry(conn, user_id: int, unit_number: int, *, now) -> bool:
+    """Create this learner's first row for a unit. ``True`` if it created one.
+
+    Called from `core.services.sessions.today()` -- a READ path that already
+    writes. That is not the objection it looks like, and the distinction is the
+    one `_get_or_create_daily` already makes:
+
+    * `_get_or_create_daily` and this function are **idempotent create-once**
+      statements, `INSERT ... ON CONFLICT DO NOTHING`, decided by a UNIQUE index
+      rather than by a read-then-write. A refetch changes nothing.
+    * a **mutating, non-idempotent** write on a read path -- an incrementing
+      counter, say -- would double-count on exactly the refetch the route's own
+      rate-limit comment records ("a phone that backgrounds and resumes
+      refetches"). That is why the within-unit position is COMPUTED and not
+      stored; see `unit_section_index`.
+
+    `may_enter` is called before the SQL, not after, and a refusal RAISES. The
+    state written is `in_progress`, which is what operator ruling 2026-08-29
+    (#217, candidate b) widened `may_enter` to admit. **Ruling 2 of 2026-08-27
+    is untouched: nothing here writes `available`.**
+    """
+    from core.syllabus import states
+
+    incoming = "in_progress"
+    if not states.may_enter(incoming):
+        raise ValueError(
+            f"{incoming!r} is not a legal first state for a unit "
+            f"(core.syllabus.states.may_enter)"
+        )
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            INSERT INTO user_unit_state (user_id, unit_number, state, entered_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id, unit_number) DO NOTHING
+            RETURNING id
+            """,
+            (user_id, unit_number, incoming, now),
+        )
+        created = cur.fetchone() is not None
+    if created:
+        logger.info(
+            "unit entered user_id=%s unit=%s state=%s", user_id, unit_number, incoming
+        )
+    return created
+
+
+def record_checkpoint(
+    conn,
+    user_id: int,
+    unit_number: int,
+    *,
+    correct: int,
+    item_count: int,
+    now,
+    retake_days: int = CHECKPOINT_RETAKE_DAYS,
+) -> str:
+    """Score one checkpoint sitting onto `user_unit_state`. Returns the new state.
+
+    **Raises if the learner has no row for this unit.** `record_unit_entry`
+    creates it when they first open a session on the unit; a checkpoint reaching
+    here without one is a caller bug, and inventing an entry would give
+    `entered_at` a value that is a fact about a moment that never happened.
+
+    **The CALLER is responsible for the attempt key.** This function is not
+    idempotent and is not meant to be: two calls are two sittings.
+    `apps/api/routers/checkpoint.py` claims the sitting's `sessions` row with
+    `UPDATE ... WHERE completed = FALSE RETURNING id` before calling, so a double
+    submit never reaches here. Migration 018's
+    `sessions_one_checkpoint_per_user_per_date` is what makes that claim sound --
+    without it a refetch could create two sittings, both claiming cleanly, and
+    the two would read as two genuine retakes.
+
+    PRD SS3's fail path: the unit stays `in_progress`, `checkpoint_attempts` is
+    bumped, `last_checkpoint_score` records what was scored, and `retake_due_on`
+    is four days out **in the learner's own local date** -- passed in as `now`'s
+    date by the caller, never `CURRENT_DATE`, so it cannot drift with the
+    server's clock.
+    """
+    from core.syllabus import states
+    from core.syllabus.checkpoint import passed as checkpoint_passed
+    from core.syllabus.checkpoint import score_pct
+
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT state, checkpoint_attempts
+              FROM user_unit_state
+             WHERE user_id = %s AND unit_number = %s
+             FOR UPDATE
+            """,
+            (user_id, unit_number),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise ValueError(
+                f"user {user_id} has no user_unit_state row for unit "
+                f"{unit_number}: a checkpoint cannot be scored on a unit the "
+                "learner has not entered (record_unit_entry creates the row)"
+            )
+        current, attempts = str(row[0]), int(row[1])
+
+        did_pass = checkpoint_passed(correct, item_count)
+        incoming = "passed" if did_pass else "in_progress"
+        if not states.may_move(current, incoming):
+            raise ValueError(
+                f"{current!r} -> {incoming!r} is not a legal transition "
+                f"(core.syllabus.states.ALLOWED_TRANSITIONS)"
+            )
+
+        score = score_pct(correct, item_count)
+        if did_pass:
+            cur.execute(
+                """
+                UPDATE user_unit_state
+                   SET state = %s,
+                       passed_at = COALESCE(passed_at, %s),
+                       last_checkpoint_score = %s,
+                       checkpoint_attempts = %s,
+                       retake_due_on = NULL,
+                       updated_at = %s
+                 WHERE user_id = %s AND unit_number = %s
+                """,
+                (incoming, now, score, attempts + 1, now, user_id, unit_number),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE user_unit_state
+                   SET state = %s,
+                       last_checkpoint_score = %s,
+                       checkpoint_attempts = %s,
+                       retake_due_on = %s,
+                       updated_at = %s
+                 WHERE user_id = %s AND unit_number = %s
+                """,
+                (
+                    incoming,
+                    score,
+                    attempts + 1,
+                    (now.date() if hasattr(now, "date") else now)
+                    + timedelta(days=retake_days),
+                    now,
+                    user_id,
+                    unit_number,
+                ),
+            )
+    logger.info(
+        "checkpoint scored user_id=%s unit=%s state=%s attempt=%s",
+        user_id, unit_number, incoming, attempts + 1,
+    )
+    return incoming
+
+
+def missed_targets(user_id: int, unit_number: int) -> tuple[str, ...]:
+    """The grammar targets this learner got wrong in their last FAILED sitting.
+
+    **Computed, never stored** (PRODUCT-PRINCIPLES SS3). The rows already exist:
+    `item_attempts.session_id` points at the checkpoint's `sessions` row,
+    `correct` is `BOOLEAN NOT NULL`, and `items.payload->>'grammar_target'` is
+    the one handle in this system that names one of the 82 targets. Storing the
+    list would materialise per-user state that a join already determines, and it
+    would go stale the moment a retake happened.
+
+    **NOT keyed on `error_type`, and that is the finding this function exists on
+    the far side of.** `items.error_type` is `TEXT REFERENCES error_types(code)`
+    over NINETEEN coarse codes -- and three of unit 1's four grammar targets
+    collapse onto `verb_tense_past` while the fourth, *time linkers*, has no code
+    in the set at all. Worse: `error_type` is in
+    `core.items.schema.NOT_THE_GENERATORS`, so **every generated item carries
+    NULL there**. A re-queue keyed on the journal's taxonomy could not name the
+    target and, on the live rows, could not name anything.
+
+    **A composite target returns ITSELF and is not expanded into its
+    components.** #228's first sub-question -- whether failing a composite item
+    re-queues the components too -- is unruled and is the operator's. Expanding
+    here would answer it by accident.
+    """
+    with connection() as conn:
+        with conn.cursor(row_factory=tuple_row) as cur:
+            cur.execute(
+                """
+                WITH last_failed AS (
+                    SELECT s.id
+                      FROM sessions s
+                     WHERE s.user_id = %s
+                       AND s.task_type = 'checkpoint'
+                       AND s.completed IS TRUE
+                       AND (s.payload ->> 'unit_number')::int = %s
+                       AND (s.payload ->> 'passed') = 'false'
+                     ORDER BY s.date DESC, s.id DESC
+                     LIMIT 1
+                )
+                SELECT DISTINCT i.payload ->> 'grammar_target'
+                  FROM item_attempts a
+                  JOIN items i ON i.id = a.item_id
+                 WHERE a.session_id = (SELECT id FROM last_failed)
+                   AND a.correct IS FALSE
+                   AND i.payload ->> 'grammar_target' IS NOT NULL
+                 ORDER BY 1
+                """,
+                (user_id, unit_number),
+            )
+            return tuple(str(r[0]) for r in cur.fetchall())
+
+
+def unit_section_index(conn, user_id: int, unit_number: int, *, local_today) -> int:
+    """0-based lesson section this learner has reached in this unit.
+
+    **The number of PRIOR daily sessions in which they completed the FOCUS
+    BLOCK, since they entered this unit.** Zero on the first session.
+
+    OPERATOR RULING 2026-08-29 (#245): *section advances per completed session,
+    not per calendar day -- a learner who skips a day loses nothing and sees the
+    next section when they next open a session.*
+
+    **A calendar clock was the live alternative and it is what this replaces.**
+    Under one, a learner who skips three days lands on section 4 and never sees
+    2 and 3: teaching deleted by the calendar. CLAUDE.md SS4 says missed days
+    shrink the task and never pile up; under a calendar rule they do neither.
+
+    **`block_breakdown->>'focus' = 'done'` and NOT `completed_at IS NOT NULL`,
+    and this is the strict reading of the ruling.** A learner can complete a
+    session having skipped block 3; counting that would advance them past a
+    section they never saw, which is the one failure the ruling exists to
+    prevent. `block_breakdown` is 016's resume state and `focus = 'done'` is
+    written by `complete_block`, so *the teaching block was actually finished*
+    is a fact the system already records.
+
+    **Computed, not stored** (PRODUCT-PRINCIPLES SS3): a `section_index` column
+    would materialise what the session log already determines and would need
+    something to advance it -- a job that does not exist (#69) or a write on a
+    read path. The computed form also self-heals: a corrected session row moves
+    the index with it.
+
+    **`local_today` is PASSED IN, in the learner's timezone**, so both sides of
+    the date comparison are computed the same way and no test depends on the
+    wall clock (CLAUDE.md SS3 rule 6).
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT count(*)::int
+              FROM sessions s
+              JOIN user_unit_state u
+                ON u.user_id = s.user_id AND u.unit_number = %s
+             WHERE s.user_id = %s
+               AND s.task_type = 'daily'
+               AND s.date >= (u.entered_at AT TIME ZONE 'UTC')::date
+               AND s.date < %s
+               AND s.block_breakdown ->> 'focus' = 'done'
+            """,
+            (unit_number, user_id, local_today),
+        )
+        row = cur.fetchone()
+    return int(row[0]) if row and row[0] is not None else 0

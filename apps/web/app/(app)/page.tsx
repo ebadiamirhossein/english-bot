@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { ApiStatus } from "@/components/api-status";
+import { SaturdayLink } from "@/components/checkpoint/saturday-link";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 
@@ -20,6 +21,12 @@ import { Button } from "@/components/ui/button";
  *
  * The two links below the button are links, not a second decision: `/practice`
  * and `/write` are places you go on purpose, and neither is ever asked for.
+ *
+ * **W11 adds a third, on Saturdays only, and it is still not a second
+ * decision.** The checkpoint is Saturday's shape (PRD §4.2) and it is a LINK
+ * rather than a second button: two full-width buttons on one screen is the menu
+ * this page exists to refuse. It renders only when there is a sitting to go to,
+ * so six days a week this page is byte-for-byte what W10 shipped.
  */
 export default function TodayPage() {
   return (
@@ -54,6 +61,7 @@ export default function TodayPage() {
           </Link>
           .
         </p>
+        <SaturdayLink />
       </section>
 
       <ApiStatus />

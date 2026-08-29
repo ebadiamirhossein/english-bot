@@ -111,6 +111,39 @@ class BaseItem(BaseModel):
     #: must never see it.
     grammar_target: str | None = None
 
+    #: **Which POPULATION this item was generated for: block 3's practice, or a
+    #: checkpoint sitting.** W11.
+    #:
+    #: `focus_items` excludes an unattempted `checkpoint` item and
+    #: `checkpoint_items` selects one, so a checkpoint cohort generated on Friday
+    #: is still there on Saturday instead of having been served as practice --
+    #: `focus_items` orders least-recently-attempted NULLS FIRST, so without this
+    #: the freshly generated cohort is exactly what block 3 reaches for.
+    #:
+    #: **DECLARED, NOT INFERRED, and the alternative was live.** W11's plan
+    #: reached review three times carrying a recency proxy -- *withhold the
+    #: newest twelve unattempted items of the unit* -- which holds only while the
+    #: checkpoint run is the unit's most recent generation. A unit needs 8 + 12 =
+    #: 20 items, so there are TWO runs; a block-3 top-up after the checkpoint run
+    #: makes the newest twelve *eight top-up items plus four checkpoint ones*,
+    #: and the reserve then protects the wrong rows **silently**.
+    #:
+    #: **`grammar_target`'s precedent, one slice on.** No migration: `payload_of`
+    #: derives `items.payload` by SUBTRACTING the promoted columns, so this
+    #: persists from the moment it exists and `StoredItem.as_item` rehydrates it
+    #: through `**payload`. `content_hash` does not read `payload`
+    #: (`item_type`, folded stem, discriminator), so **no existing row's hash
+    #: moves**.
+    #:
+    #: **ABSENT MEANS `focus`, and that is what the fourteen live rows ARE**
+    #: rather than a default chosen for convenience: they were written by the
+    #: 8-slot block-3 run (`ITEMS_PER_UNIT = 8`). No data pass, no backfill.
+    #:
+    #: In `NOT_THE_GENERATORS` -- the run's mode is not the model's to choose --
+    #: and in `projection.NEVER_VISIBLE`, because telling a learner (or the blind
+    #: solver) that an item is a checkpoint item is a category hint.
+    cohort: Literal["focus", "checkpoint"] | None = None
+
     #: Shown after grading, never before — see `projection.visible_projection`.
     explanation: str | None = None
 
@@ -305,6 +338,7 @@ NOT_THE_GENERATORS: frozenset[str] = frozenset(
         "track",
         "unit_number",
         "grammar_target",
+        "cohort",
         "cue_type",
         "cue_text",
         # **Added 2026-08-27, and the rule-2 call is what found them.** Both are

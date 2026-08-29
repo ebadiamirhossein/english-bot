@@ -26,3 +26,4 @@ dist/
 # failed run be re-read rather than re-bought.
 w10c-journal.jsonl
 w10b-journal.jsonl
+w11-checkpoint-journal.jsonl

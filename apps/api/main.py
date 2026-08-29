@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 
 from apps.api.routers import auth as auth_router
 from apps.api.routers import cards as cards_router
+from apps.api.routers import checkpoint as checkpoint_router
 from apps.api.routers import correct as correct_router
 from apps.api.routers import health as health_router
 from apps.api.routers import items as items_router
@@ -191,6 +192,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(cards_router.router)
     app.include_router(session_router.router)
     app.include_router(lessons_router.router)
+    app.include_router(checkpoint_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -205,6 +207,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     cards_router.router,
                     session_router.router,
                     lessons_router.router,
+                    checkpoint_router.router,
                 )
                 for route in router.routes
             )

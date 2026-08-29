@@ -91,15 +91,56 @@ def may_move(current: str, incoming: str) -> bool:
     return incoming in ALLOWED_TRANSITIONS[current]
 
 
+#: The legal FIRST states for a learner with no row yet. See `may_enter`.
+#:
+#: **W11 widened this from `{"available"}` on the operator's ruling of
+#: 2026-08-29 (#217, candidate b), and the ruling did NOT touch ruling 2 of
+#: 2026-08-27: W11 still writes no `available` row.**
+ENTRY_STATES: frozenset[str] = frozenset({"available", "in_progress"})
+
+
 def may_enter(incoming: str) -> bool:
     """Is `incoming` a legal FIRST state for a learner with no row yet?
 
-    Only `available` is. A unit cannot be created already in progress: the
-    `entered_at` of a row that skipped `available` would be a fact about a
-    moment that never happened, and W19's history reads these timestamps.
+    **`available` and `in_progress`.** `passed` and `mastered` are refused, and
+    `locked` never reaches here -- `validate` raises for it first.
+
+    THIS DOCSTRING READ, UNTIL 2026-08-29:
+
+        "Only `available` is. A unit cannot be created already in progress: the
+        `entered_at` of a row that skipped `available` would be a fact about a
+        moment that never happened, and W19's history reads these timestamps."
+
+    **Quoted rather than deleted, because the objection it raises is real and is
+    what the restatement of `entered_at` answers.** Operator ruling 2026-08-29
+    (#217, candidate b): `entered_at` no longer means *the moment the unit became
+    available*; it means **"when this learner first reached this unit"**, which is
+    the fact W19's history actually wants and the only one W11 can honestly write.
+    Under ruling 2 (2026-08-27) nothing writes `available` at all -- that
+    predicate is W9's and W9 does not exist -- so the old rule left PRD SS3's fail
+    path with no row to write to. See #217.
+
+    **WHAT THIS STILL REFUSES, stated because a rule that admits everything is
+    not a rule:**
+
+    * `passed` -- a first row in `passed` claims a checkpoint pass for a unit no
+      row records the learner as ever having reached. **Migration 014 would
+      accept it**: `user_unit_state_a_pass_needs_the_threshold` is satisfied by
+      any directly-inserted row carrying `passed_at` and a score >= 80, so this
+      function is the only thing that stops it -- and it is exactly the write
+      `record_checkpoint` would produce if an entry write were ever skipped.
+    * `mastered` -- worse in kind: it would claim a 21-day retention interval on
+      a row created seconds ago. 014 refuses *that particular* row only because
+      `mastered_at >= passed_at + 21 days` cannot hold when both are `NOW()`,
+      which is a coincidence of the data rather than a statement about entry.
+      This says the thing directly.
+    * `locked` -- `validate` raises its own message before this returns.
+
+    So the widening moves exactly ONE value across the line, and the rule still
+    divides the four storable states two-and-two.
     """
     validate(incoming)
-    return incoming == "available"
+    return incoming in ENTRY_STATES
 
 
 def validate(state: str) -> None:
@@ -121,6 +162,7 @@ def validate(state: str) -> None:
 __all__ = [
     "ALLOWED_TRANSITIONS",
     "COMPLETED_STATES",
+    "ENTRY_STATES",
     "LOCKED",
     "SCORED_STATES",
     "UNIT_STATES",

@@ -118,10 +118,42 @@ export function Section({
   );
 }
 
-export function LessonBody({ lesson }: { lesson: Lesson }) {
-  // Deterministic and cheap: the first section is open. See the note above on
-  // why it is not the section the block's items are on.
-  const [open, setOpen] = useState(0);
+export function LessonBody({
+  lesson,
+  section,
+  teachingComplete = false,
+}: {
+  lesson: Lesson;
+  /**
+   * Which section to open, 0-based. `null` opens none.
+   *
+   * **Operator ruling, 2026-08-29 (#245): a section advances per COMPLETED
+   * SESSION, not per calendar day** — so a learner who skips a day loses
+   * nothing and sees the next section when they next open a session. The index
+   * is computed server-side from the session log
+   * (`core.services.syllabus.unit_section_index`); this component only renders
+   * what it is given.
+   *
+   * `undefined` means "no pacing information" — the `/lessons/{unit}` operator
+   * route, and the pre-W11 shape — and opens the first section, unchanged.
+   */
+  section?: number | null;
+  /**
+   * The learner has been through every section of this unit's teaching.
+   *
+   * **Distinct from "this unit has no lesson", which is a different screen
+   * entirely.** When the sections run out before Saturday, block 3 shows
+   * PRACTICE ONLY: no new teaching and no repeated section. The labels stay
+   * reachable; nothing is opened.
+   */
+  teachingComplete?: boolean;
+}) {
+  // Deterministic and cheap. Pre-W11 this read `useState(0)` unconditionally
+  // and every learner saw section 1 on every day of the unit — which is what
+  // #245 was filed about.
+  const initial =
+    teachingComplete ? -1 : section === undefined || section === null ? 0 : section;
+  const [open, setOpen] = useState(initial);
   const diagramFor = new Map(lesson.diagrams.map((d) => [d.target, d]));
 
   return (

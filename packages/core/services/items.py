@@ -335,6 +335,22 @@ _SELECT = """
 #: and is here before the bank exists rather than after it does.
 _CURRENT_VALIDATOR = " AND items.validator_version = %s"
 
+#: **Which POPULATION a row belongs to, read from the declared tag.** W11.
+#:
+#: `coalesce(..., 'focus')` is the whole backfill and there is nothing to back
+#: fill: the fourteen live rows carry no `cohort` key because they were written
+#: by the 8-slot block-3 run, so *absent means focus* is what they ARE rather
+#: than a default chosen for convenience.
+_COHORT = "coalesce(items.payload ->> 'cohort', 'focus')"
+
+#: An item nobody has answered yet. The reserve is computed over exactly these.
+_UNATTEMPTED = """
+    AND NOT EXISTS (
+        SELECT 1 FROM item_attempts a
+         WHERE a.item_id = items.id AND a.user_id = items.user_id
+    )
+"""
+
 
 def list_bank(
     user_id: int, *, item_type: str | None = None, limit: int = 50
@@ -367,11 +383,90 @@ def list_bank(
 
 
 def bank_for_session(user_id: int, *, unit_number: int, limit: int = 20) -> list[StoredItem]:
-    """Unit-scoped stock, least recently attempted first.
+    """Unit-scoped stock, least recently attempted first. **Block 3's read.**
 
     W10 owns the session mix; this is only the read it will need. Ordering by
     last attempt rather than by creation is what stops the same freshly-written
     items being served every night while older validated stock is never seen.
+
+    **W11: AN UNATTEMPTED CHECKPOINT ITEM IS WITHHELD, AND THE WITHHOLDING IS
+    SUSPENDED WHEN IT WOULD LEAVE BLOCK 3 EMPTY.**
+
+    The problem it solves is this function's own ordering: `NULLS FIRST` means
+    unattempted items come first, so a checkpoint cohort generated on Friday is
+    *exactly* what block 3 reaches for, and one session eats eight of the twelve.
+
+    **The reserve is read from the declared `cohort` tag, not inferred from
+    recency.** A recency proxy -- withhold the newest twelve -- holds only while
+    the checkpoint run is the unit's most recent generation, and a unit needs
+    8 + 12 = 20 items, so there are TWO runs. A block-3 top-up after the
+    checkpoint run makes the newest twelve *eight top-up items plus four
+    checkpoint ones*, and the reserve then protects the wrong rows SILENTLY.
+
+    **THE PRECEDENCE RULE: daily practice beats a weekly checkpoint.** If the
+    unit holds nothing but the reserve, this serves the reserve and the
+    checkpoint refuses that week -- loudly, on a not-ready surface. A learner
+    with an empty block 3 has lost their day; a learner with no checkpoint has
+    lost a Saturday, and only one of those is recoverable.
+
+    **The reserve releases itself three ways** and nothing has to remember to do
+    it: the sitting gives the twelve `item_attempts` rows so they leave the
+    unattempted set and become ordinary practice stock; a pass advances
+    `current_unit` so this unit's reserve stops being consulted; and the
+    suspension bounds the case where a cohort is generated and never sat.
+    """
+    reserved = " AND NOT (" + _COHORT + " = 'checkpoint'" + _UNATTEMPTED + ")"
+    order = """
+              ORDER BY (
+                  SELECT MAX(a.attempted_at) FROM item_attempts a
+                   WHERE a.item_id = items.id
+              ) ASC NULLS FIRST, items.created_at ASC
+              LIMIT %s
+            """
+    where = " WHERE items.user_id = %s AND items.unit_number = %s" + _CURRENT_VALIDATOR
+    args = (user_id, unit_number, VALIDATOR_VERSION, limit)
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(_SELECT + where + reserved + order, args)
+        rows = cur.fetchall()
+        if not rows:
+            # The suspension. Withholding would have left block 3 empty, so the
+            # reserve yields -- and `checkpoint_items` will find these attempted
+            # and refuse, which is the loud failure this trade prefers.
+            cur.execute(_SELECT + where + order, args)
+            rows = cur.fetchall()
+        return [_to_stored(row) for row in rows]
+
+
+def checkpoint_items(
+    user_id: int, *, unit_number: int, quotas: dict[str, int]
+) -> list[ItemPresentation]:
+    """The twelve for one sitting, or **nothing**. Never a short checkpoint.
+
+    `quotas` comes from `core.syllabus.checkpoint.quota_map` -- **the same
+    producer `core.items.generate.checkpoint_slot_plan` called to build the
+    cohort**, so the generator and the selector cannot disagree about what a
+    sitting is made of. That is not tidiness:
+
+        An earlier draft had this fill the BLUEPRINT's `per_target` while the
+        fail path re-weighted a RETAKE toward the missed targets. Both cannot
+        hold. A retake cohort in 6/3/2/1 cannot fill a 4/3/3/2 demand, so this
+        would refuse and **the retake would never open** -- and the retake is
+        half of what W11 promises.
+
+    **The 12 and the 80% do not move** (CLAUDE.md SS3 rule 7). What differs
+    between a first sitting and a retake is which targets the twelve are spread
+    across.
+
+    **A cohort that cannot fill its own plan is refused WHOLE.** A short return
+    would be a checkpoint measuring something other than what it claims, and a
+    stale cohort partially served would be last week's sitting wearing this
+    week's name. The number short is the generator's to report, never padded
+    here.
+
+    Only `cohort = 'checkpoint'` rows, and only ones this learner has never
+    attempted -- so a sat checkpoint is never re-served, and the reserve
+    `bank_for_session` withholds is exactly the set this selects from.
     """
     with cursor() as cur:
         cur.row_factory = tuple_row
@@ -379,16 +474,38 @@ def bank_for_session(user_id: int, *, unit_number: int, limit: int = 20) -> list
             _SELECT
             + " WHERE items.user_id = %s AND items.unit_number = %s"
             + _CURRENT_VALIDATOR
-            + """
-              ORDER BY (
-                  SELECT MAX(a.attempted_at) FROM item_attempts a
-                   WHERE a.item_id = items.id
-              ) ASC NULLS FIRST, items.created_at ASC
-              LIMIT %s
-            """,
-            (user_id, unit_number, VALIDATOR_VERSION, limit),
+            + " AND " + _COHORT + " = 'checkpoint'"
+            + _UNATTEMPTED
+            + " ORDER BY items.created_at ASC, items.id ASC",
+            (user_id, unit_number, VALIDATOR_VERSION),
         )
-        return [_to_stored(row) for row in cur.fetchall()]
+        stock = [_to_stored(row) for row in cur.fetchall()]
+
+    by_target: dict[str, list[StoredItem]] = {}
+    for one in stock:
+        target = (one.payload or {}).get("grammar_target")
+        if target:
+            by_target.setdefault(str(target), []).append(one)
+
+    chosen: list[StoredItem] = []
+    for target, wanted in quotas.items():
+        available = by_target.get(target, [])
+        if len(available) < wanted:
+            logger.info(
+                "checkpoint not ready user_id=%s unit=%s target_short=%s "
+                "have=%s want=%s",
+                user_id, unit_number, target[:40], len(available), wanted,
+            )
+            return []
+        chosen.extend(available[:wanted])
+
+    # **Projected HERE, not by the caller.** `visible_projection` may be called
+    # from exactly three modules
+    # (`test_core_boundary::test_exactly_one_module_projects_an_item`), and the
+    # bucketing above needs `payload['grammar_target']`, which is in
+    # `NEVER_VISIBLE`. So the hidden half is read inside this function and never
+    # leaves it -- the same shape `focus_items` has.
+    return [_present(one) for one in chosen]
 
 
 #: PRD §4.1 block 3: "90-second explanation + **8 generated items**".

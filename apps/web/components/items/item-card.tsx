@@ -32,10 +32,19 @@ export function ItemCard({
   item,
   onAnswered,
   onNext,
+  sessionId,
 }: {
   item: ItemPresentation;
   onAnswered?: () => void;
   onNext?: () => void;
+  /**
+   * The session this attempt belongs to, when there is one. W11.
+   *
+   * Optional because free practice outside a session is a first-class path —
+   * 012's own reason for making `item_attempts.session_id` nullable — and
+   * `/practice` still has no session behind it.
+   */
+  sessionId?: number;
 }) {
   const [draft, setDraft] = useState<Draft>({});
   const [state, setState] = useState<AnswerState>({ kind: "idle" });
@@ -62,6 +71,7 @@ export function ItemCard({
       const result = await answerItem(item.id, {
         ...submitted,
         latency_ms: Date.now() - shownAt.current,
+        session_id: sessionId,
       });
       setState({ kind: "graded", result });
       onAnswered?.();

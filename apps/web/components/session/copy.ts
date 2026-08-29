@@ -78,6 +78,22 @@ export const BLOCKS = {
     // gone rather than reworded. `progress` replaces it — a position, not a
     // count of what is left, because CLAUDE.md §4 forbids presenting a backlog.
     progress: "Practice · {n} of {total}",
+    // W11, and every word of it is load-bearing.
+    //
+    // **Not "you've completed the unit"** — the checkpoint has not happened, so
+    // there is nothing to congratulate and a congratulation here would make the
+    // checkpoint read as optional.
+    //
+    // **Not an apology and not a backlog** — it says what IS available, never
+    // what is not (CLAUDE.md §4, #160). "You've seen all of it" would read as
+    // an accusation on the day a learner is told there is no new teaching.
+    //
+    // **It must not be `noLesson`.** A learner who has read all four sections
+    // being told "the written explanation is on its way" is a lie the screen
+    // cannot be distinguished from the truth — the same reason `empty` and
+    // `unavailable` are two block states rather than one.
+    teachingComplete:
+      "That’s all of this week’s grammar. The sections stay open above — practice below.",
   },
   output: {
     eyebrow: "Output",

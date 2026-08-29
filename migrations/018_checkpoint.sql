@@ -1,0 +1,146 @@
+-- W11: the checkpoint sitting needs to be ONE ROW. `sessions`, one partial
+-- unique index, and nothing else.
+--
+-- Plain, non-idempotent DDL, per 009's note and 010's, 012's, 013's, 014's,
+-- 015's, 016's and 017's: core.db.migrate wraps each file in one transaction
+-- and gates it on schema_version, which is what makes a re-run impossible.
+-- Guards would only buy the impression that a re-run is safe. This file writes
+-- NO schema_version row -- the runner does that (core/db.py), and only 001
+-- inserts one itself.
+--
+-- NOTHING IS SEEDED HERE.
+--
+-- ---------------------------------------------------------------
+-- WHY THIS FILE EXISTS, AND IT IS A FINDING THAT WAS PUBLISHED WRONG TWICE
+-- ---------------------------------------------------------------
+-- W11's plan recorded "W11 NEEDS NO MIGRATION" as a POSITIVE FINDING through
+-- two revisions, on a check that was correct and insufficient:
+--
+--   `sessions.task_type` is a bare TEXT NOT NULL with no CHECK (001:107), so
+--   the new value 'checkpoint' needs no constraint widened and #47 does not
+--   fire. That was checked, and it is still true -- 016's header records the
+--   same check for 'daily', with `errors.source` (whose CHECK DID have to be
+--   widened once, at 012) as the contrast.
+--
+-- **"Nothing forbids the VALUE" and "nothing forbids two ROWS" are different
+-- questions, and only the first was asked.** 016's uniqueness index is
+--
+--   CREATE UNIQUE INDEX sessions_one_daily_per_user_per_date
+--       ON sessions (user_id, date) WHERE task_type = 'daily';
+--
+-- -- PARTIAL, on 'daily'. It does not reach a checkpoint row. So
+-- `GET /checkpoint/today`'s `INSERT ... ON CONFLICT DO NOTHING` had nothing to
+-- conflict ON, and a refetch -- which the session route's own rate-limit
+-- comment records as ordinary ("a phone that backgrounds and resumes
+-- refetches") -- would have created TWO sittings. Both `completed = FALSE`,
+-- both claiming cleanly against the attempt key, and the writer would have read
+-- them as two genuine retakes: `checkpoint_attempts` bumped twice and
+-- `retake_due_on` moved twice.
+--
+-- The attempt key rested on a row nothing guaranteed was singular.
+--
+-- ---------------------------------------------------------------
+-- #185's FIFTH OCCURRENCE, TAKEN HONESTLY RATHER THAN AVOIDED
+-- ---------------------------------------------------------------
+-- The count is against #185's own row, not asserted from anywhere else: that
+-- row records THREE in its title (W4b renumbered eight rows, W8f five, W10b's
+-- plan four), and docs/TASKS-v3-web.md records the FOURTH once W10b actually
+-- took 017. This is the fifth. W11 had no reserved number, so taking 018 shifts
+-- W12 -> 019, W13a -> 020, W14 -> 021, W18 -> 022, in BOTH halves of that
+-- document and in the same commit as this file.
+--
+-- Taking a number above everything claimed -- say 023 -- is refused for W4b's
+-- recorded reason: it WORKS on production, where db.py's pending set is a set
+-- difference, and BREAKS REPLAY on a fresh database, where the runner applies
+-- in ascending numeric order. W12's later 018 would then run before 023 there
+-- and after it here, and W12's file would have to be correct against two
+-- different parent schemas.
+--
+-- This is NOT #49. #49 was a slice shipping a number the table did not know
+-- about. Here the table is corrected in the same commit and the renumbered
+-- slices HAVE NOT BEEN WRITTEN: nothing on disk, nothing applied anywhere, no
+-- schema_version row moved.
+--
+-- #185's own recorded alternative -- **assign a number when the FILE is
+-- written, not when the slice is planned** -- is restated here as the thing a
+-- fifth occurrence is evidence for. It is NOT adopted by this slice: adopting a
+-- numbering policy inside a checkpoint slice is the silent widening CLAUDE.md
+-- §8 forbids.
+--
+-- ---------------------------------------------------------------
+-- #167, RECORDED HERE BECAUSE THIS IS THE PLACE ITS ROW ASKED FOR
+-- ---------------------------------------------------------------
+-- #167: migration 014 mirrors `item_count = 12` and `pass_pct = 80` into a SQL
+-- CHECK and does not mirror the third invariant, `sum(per_target) +
+-- lexeme_items = item_count`. The row offers two ways out: add the sum to the
+-- CHECK, or **record in the migration why the validator is the only place it
+-- lives**. W11's plan could take neither for two revisions because it had no
+-- .sql file. It has one now, so the second is taken as written.
+--
+-- **THE VALIDATOR STAYS THE ONLY PLACE IT LIVES.** `core.syllabus.blueprint`
+-- raises ContentError unless the blocks sum to `item_count` (blueprint.py:249),
+-- and `test_every_checkpoints_blocks_sum_to_twelve` asserts it for all 24 units
+-- -- every unit sums to 12 today and that is a gate holding, not luck.
+--
+-- The reason for not adding the CHECK is #170's and it is a DATED one:
+-- blueprint.py:249 reads `sum(per_target) + lexeme_items`, `lexeme_items` is
+-- pinned at 0 in all 24 rows, and **#170 hands that second term back at W13**
+-- when a checkpoint's vocabulary block is re-sourced from the learner's own
+-- FSRS due cards. A CHECK written now would need widening two slices later,
+-- over a table whose only writer (`upsert_units`) takes validated content. The
+-- gap is exactly as #167 filed it: a row written by a path that bypasses the
+-- validator -- a hand UPDATE, a restore from a hand-edited dump -- is still
+-- accepted with blocks that do not add up.
+--
+-- Written down here rather than in a decisions-log entry alone, so the next
+-- person to open a migration touching `syllabus_units` finds the decision
+-- beside a file that had the opportunity to make it and declined.
+--
+-- ---------------------------------------------------------------
+-- #48 IS NOT TRIGGERED
+-- ---------------------------------------------------------------
+-- There is no ALTER TABLE users in this file, so the paired
+-- `CREATE OR REPLACE VIEW approved_onboarded_users` is not required and is
+-- deliberately absent. Stated rather than omitted silently: #48 has recurred
+-- because each case looked like the one where the rule did not apply, so the
+-- rule being considered is recorded even when it does not fire.
+--
+-- ---------------------------------------------------------------
+-- PRODUCT-PRINCIPLES §2 and §3
+-- ---------------------------------------------------------------
+-- §2, which every slice touching user-keyed data must state: this file adds
+-- **no table and no column**. It is an index on `sessions`, whose `user_id` has
+-- referenced `users(id)` since migration 011, and it adds no new dependency on
+-- a Telegram id. W11's other writes go to `user_unit_state`, which 014 already
+-- keys on `users(id)` -- confirmed by
+-- `test_migration_014::test_user_unit_state_is_keyed_on_the_internal_id`.
+--
+-- §3: this materialises nothing. It forbids a duplicate. W11's two derived
+-- facts -- the missed targets of a failed sitting, and a learner's position
+-- within a unit -- are both COMPUTED from rows that already exist, and neither
+-- gets a column here.
+
+-- ---------------------------------------------------------------
+-- 1. one checkpoint sitting per learner per LOCAL date
+-- ---------------------------------------------------------------
+-- WHOSE DATE: THE LEARNER'S, exactly as 016 established for `daily`.
+-- `sessions.date` is computed through `core.services.sessions.local_today(tz,
+-- now)` from `users.timezone`, which is how every `sessions.date` in this table
+-- is computed across twelve task types. This index enforces one row per date
+-- and CANNOT tell you the date was computed wrongly -- which is why the
+-- convention is named here as well as in the service.
+--
+-- ONE PER DATE, NOT ONE PER UNIT, and the difference is the whole point: PRD §3
+-- puts a failed checkpoint's retake FOUR DAYS out, which is a different date, so
+-- this constraint separates a double submit from a genuine retake without
+-- needing to know which is which. A `UNIQUE (user_id, unit_number)` would have
+-- forbidden the retake.
+--
+-- PARTIAL, not a plain UNIQUE (user_id, date): the other twelve task types
+-- legitimately have several rows on one date -- two voice exchanges, a quiz and
+-- a reading -- and a total UNIQUE would refuse every one of them. Same
+-- instrument and same reasoning as 016's index and 015's
+-- `cards_one_card_per_lemma`.
+CREATE UNIQUE INDEX sessions_one_checkpoint_per_user_per_date
+    ON sessions (user_id, date)
+ WHERE task_type = 'checkpoint';

@@ -154,6 +154,23 @@ class ItemAnswerRequest(BaseModel):
     #: stores NULL rather than a lie for anything outside its range (#108).
     latency_ms: int | None = Field(default=None, ge=0)
 
+    #: **Which session this attempt happened in.** W11.
+    #:
+    #: `item_attempts.session_id` has existed since migration 012, whose comment
+    #: says *"W10 needs it for `block_breakdown`"* -- and **nothing has ever
+    #: written it**: `answer_item` took the argument, the route never passed one,
+    #: and the column is NULL on every attempt this system has recorded.
+    #:
+    #: W11 is the first path that cannot work without it. A checkpoint is scored
+    #: by counting the attempts that belong to its sitting, so an attempt that
+    #: cannot say which sitting it belongs to cannot be counted -- and a
+    #: checkpoint would score 0 of 12 however well it was answered.
+    #:
+    #: Nullable, because free practice outside a session is a first-class path
+    #: (012's own reason for making the column nullable) and `/items` is still
+    #: reachable without one.
+    session_id: int | None = Field(default=None, ge=1)
+
 
 class ItemAnswerResult(BaseModel):
     """The verdict and the teaching half.
@@ -383,3 +400,33 @@ __all__ = [
     "Session",
     "SessionTodayOut",
 ]
+
+
+class CheckpointOut(BaseModel):
+    """One checkpoint sitting, as the learner receives it. W11, PRD §3.
+
+    **`score_pct` IS NULL ON A FAILURE, AND THAT IS THE POINT.**
+    `user_unit_state.last_checkpoint_score` is stored because migration 014
+    requires a `passed` row to name the score that passed -- storing it is not
+    licence to show it. v2's carried rule is *drops are silent, raises are
+    announced*, and a fraction on a screen after a failed checkpoint is a
+    punishment screen with no banned word in it. `pass_mark` travels for the
+    same reason it does not: it is served only on a pass.
+
+    `items` carries `ItemPresentationOut`, the SAME projection block 3 uses --
+    not a second serialiser. See `core/services/items.py`'s "what a learner is
+    allowed to receive" banner.
+    """
+
+    session_id: int
+    unit_number: int
+    can_do: str
+    item_count: int
+    #: ``ready`` | ``not_ready`` | ``done``. `not_ready` is an HONEST state: the
+    #: bank could not fill this sitting's quota map, and a SHORT checkpoint is
+    #: never served in its place (CLAUDE.md §3 rule 7).
+    state: str
+    items: list[ItemPresentationOut] = []
+    passed: bool | None = None
+    score_pct: int | None = None
+    retake_due_on: date | None = None

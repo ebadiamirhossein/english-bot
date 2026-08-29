@@ -38,6 +38,14 @@ CHECKPOINT_PASS_PCT = 80
 # one in six months.
 MASTERY_RETENTION_DAYS = 21
 
+# PRD §3's failure path: "the unit stays `in_progress`, the missed targets are
+# injected into the next week's review queue, and **you retake in 4 days**."
+#
+# A constant rather than a literal in the writer, for `MASTERY_RETENTION_DAYS`'
+# reason one line up: a number the PRD states is a number a test should be able
+# to assert against its source.
+CHECKPOINT_RETAKE_DAYS = 4
+
 # ── target lexemes ──────────────────────────────────────────────────────────
 #
 # PRD §3 says "~40 target lexemes"; the W8 row says ">=30". They are not the

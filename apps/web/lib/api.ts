@@ -177,6 +177,16 @@ export type ItemAnswer = {
   pairs?: Record<string, string>;
   self_marked?: boolean;
   latency_ms?: number;
+  /**
+   * Which session this attempt belongs to. W11.
+   *
+   * `item_attempts.session_id` has existed since migration 012 and **nothing
+   * ever wrote it** — the column was added "for W10", the service took the
+   * argument, and no caller passed one. A checkpoint is scored by counting the
+   * attempts that belong to its sitting, so it is the first path that cannot
+   * work without it.
+   */
+  session_id?: number;
 };
 
 /**
@@ -475,6 +485,43 @@ export function completeBlock(
   blockN: number,
 ): Promise<SessionToday> {
   return request<SessionToday>(`/session/${sessionId}/block/${blockN}/complete`, {
+    method: "POST",
+  });
+}
+
+
+/**
+ * The Saturday checkpoint. PRD §3: twelve items, 80% to pass.
+ *
+ * **`score_pct` is null on a failure and that is deliberate, not missing data.**
+ * v2's carried rule is *drops are silent, raises are announced*: a fraction on
+ * the screen after a failed checkpoint is a punishment screen with no banned
+ * word in it. The API withholds it, so no client can render one by accident.
+ */
+export type Checkpoint = {
+  session_id: number;
+  unit_number: number;
+  can_do: string;
+  item_count: number;
+  /**
+   * `ready` — twelve items are waiting.
+   * `not_ready` — the bank could not fill this sitting, and **a short
+   *   checkpoint is never served in its place** (CLAUDE.md §3 rule 7).
+   * `done` — it has been sat.
+   */
+  state: "ready" | "not_ready" | "done";
+  items: ItemPresentation[];
+  passed: boolean | null;
+  score_pct: number | null;
+  retake_due_on: string | null;
+};
+
+export function getCheckpointToday(): Promise<Checkpoint> {
+  return request<Checkpoint>("/checkpoint/today");
+}
+
+export function completeCheckpoint(sessionId: number): Promise<Checkpoint> {
+  return request<Checkpoint>(`/checkpoint/${sessionId}/complete`, {
     method: "POST",
   });
 }

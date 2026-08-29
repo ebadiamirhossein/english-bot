@@ -78,11 +78,45 @@ def test_a_unit_cannot_be_skipped_straight_to_passed() -> None:
     assert not may_move("available", "mastered")
 
 
-def test_a_learner_enters_only_at_available() -> None:
-    """A first row in any other state would carry an `entered_at` for a moment
-    that never happened, and W19's history reads these timestamps."""
+def test_a_learner_enters_at_available_or_in_progress() -> None:
+    """The legal FIRST states. **Widened by operator ruling, 2026-08-29.**
+
+    THIS TEST READ, UNTIL THAT RULING -- quoted rather than deleted, because the
+    assertion it dropped is the one a later reader will want to find:
+
+        def test_a_learner_enters_only_at_available() -> None:
+            '''A first row in any other state would carry an `entered_at` for a
+            moment that never happened, and W19's history reads these
+            timestamps.'''
+            assert may_enter("available")
+            for state in ("in_progress", "passed", "mastered"):
+                assert not may_enter(state), state
+
+    **`in_progress` moved across the line and nothing else did.** #217: under
+    operator ruling 2 of 2026-08-27, W11 writes `passed` only and never
+    `available` -- that predicate is W9's and W9 does not exist -- so the old
+    rule left PRD SS3's fail path with no row to write to. Candidate (b) was
+    ruled: widen `may_enter`, and restate `entered_at` as **"when this learner
+    first reached this unit"**, which is what `record_unit_entry` can honestly
+    write and what W19's history actually wants.
+
+    **Ruling 2 is untouched.** Nothing in W11 writes `available`.
+    """
     assert may_enter("available")
-    for state in ("in_progress", "passed", "mastered"):
+    assert may_enter("in_progress")
+
+
+def test_a_first_row_still_cannot_claim_a_pass() -> None:
+    """The half of the old rule that SURVIVED, asserted on its own.
+
+    A widened rule that is not shown to still refuse anything is not shown to be
+    a rule. **Migration 014 would accept a directly-inserted `passed` first row**
+    -- `user_unit_state_a_pass_needs_the_threshold` is satisfied by any row
+    carrying `passed_at` and a score >= 80 -- so `may_enter` is the only thing
+    that stops it, and it is exactly the write `record_checkpoint` would produce
+    if an entry write were ever skipped.
+    """
+    for state in ("passed", "mastered"):
         assert not may_enter(state), state
 
 

@@ -138,6 +138,12 @@ export function FocusBlock({ block }: { block: SessionBlock }) {
     (block.payload.grammar_targets as { target: string }[] | undefined) ?? [];
   const lesson = (block.payload.lesson as Lesson | null | undefined) ?? null;
   const items = (block.payload.items as ItemPresentation[] | undefined) ?? [];
+  // **W11: the lesson is paced.** Operator ruling 2026-08-29 (#245) — a section
+  // advances per COMPLETED SESSION, not per calendar day, so a skipped day
+  // loses nothing. The index is computed server-side; this reads it.
+  const lessonSection =
+    (block.payload.lesson_section as number | null | undefined) ?? null;
+  const teachingComplete = Boolean(block.payload.teaching_complete);
   const [index, setIndex] = useState(0);
   const item = items[index];
 
@@ -162,7 +168,25 @@ export function FocusBlock({ block }: { block: SessionBlock }) {
               way — it is the same string from `visible_target`, so #171 holds
               in both branches. */}
           {lesson ? (
-            <LessonBody lesson={lesson} />
+            <>
+              <LessonBody
+                lesson={lesson}
+                section={lessonSection}
+                teachingComplete={teachingComplete}
+              />
+              {/* **Running out of teaching and having none are different facts,
+                  and the learner may only see one of them.** Without this line
+                  a learner who has finished the unit's four sections sees four
+                  closed labels and nothing saying why — which reads as the
+                  lesson having failed to load. It is not congratulation either:
+                  the checkpoint has not happened, so there is nothing to
+                  congratulate. */}
+              {teachingComplete ? (
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {BLOCKS.focus.teachingComplete}
+                </p>
+              ) : null}
+            </>
           ) : (
             <>
               <ul className="space-y-2" data-testid="focus-targets">

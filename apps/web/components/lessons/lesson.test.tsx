@@ -268,3 +268,53 @@ describe("block 3 renders the lesson when there is one", () => {
     expect(screen.getByTestId("focus-can-do").textContent).toContain("yesterday");
   });
 });
+
+describe("the lesson is paced — one section per completed session (#245)", () => {
+  // OPERATOR RULING, 2026-08-29: a section advances per COMPLETED SESSION, not
+  // per calendar day, so a learner who skips a day loses nothing. The index is
+  // computed server-side; these assert only that the component renders what it
+  // is given.
+
+  it("opens the section it is given, not always the first", () => {
+    // The fixture has two sections, so section 1 is the second and last one.
+    render(<LessonBody lesson={LESSON} section={1} />);
+    const bodies = screen.getAllByTestId("lesson-section-body");
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].textContent).toContain(TARGETS[1].slice(0, 12));
+  });
+
+  it("opens the first section when it is given no pacing at all", () => {
+    // `/lessons/{unit}` is an operator route with no learner behind it, and the
+    // pre-W11 shape had no index either. Both must keep working unchanged.
+    render(<LessonBody lesson={LESSON} />);
+    const bodies = screen.getAllByTestId("lesson-section-body");
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].textContent).toContain(TARGETS[0].slice(0, 12));
+  });
+
+  it("opens NOTHING once the teaching is finished, and repeats nothing", () => {
+    // The ruling's two clauses, one each: no new teaching AND no repeated
+    // section. Repeating the last one is the behaviour it names and forbids.
+    render(<LessonBody lesson={LESSON} teachingComplete />);
+    expect(screen.queryAllByTestId("lesson-section-body")).toHaveLength(0);
+  });
+
+  it("keeps every label reachable when the teaching is finished", () => {
+    // Nothing is hidden. A learner who has read all four sections can still
+    // open any of them — they are simply not opened FOR them.
+    render(<LessonBody lesson={LESSON} teachingComplete />);
+    for (const target of TARGETS) {
+      expect(screen.getByText(target)).toBeTruthy();
+    }
+    expect(screen.getAllByTestId("lesson-section-toggle")).toHaveLength(
+      TARGETS.length,
+    );
+  });
+
+  it("still opens on a tap once the teaching is finished", async () => {
+    render(<LessonBody lesson={LESSON} teachingComplete />);
+    const toggles = screen.getAllByTestId("lesson-section-toggle");
+    await userEvent.click(toggles[1]);
+    expect(screen.getAllByTestId("lesson-section-body")).toHaveLength(1);
+  });
+});

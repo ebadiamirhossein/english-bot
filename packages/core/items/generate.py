@@ -175,7 +175,7 @@ import logging
 import sys
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -194,6 +194,9 @@ from core.items.schema import (
 )
 from core.runs import band, confirm
 from core.sessions.blocks import visible_targets
+from core.syllabus import CHECKPOINT_ITEM_COUNT
+from core.syllabus.checkpoint import quota_map as checkpoint_quotas
+from core.syllabus.checkpoint import slot_plan as checkpoint_plan
 
 logger = logging.getLogger(__name__)
 
@@ -309,6 +312,15 @@ def coverage_reference() -> frozenset[str]:
 #: thing somebody has to know.
 DEFAULT_JOURNAL = Path("w10c-journal.jsonl")
 
+#: Where a `--checkpoint` run writes, so a checkpoint cohort and a block-3 cohort
+#: never append to one journal -- `read_journal` takes the LAST write per
+#: `(unit, slot)`, and two runs sharing a file would make the older one vanish
+#: from the report. **In `.gitignore` beside the other two (#231)**: the run
+#: writes it at the repo root on the production host, and deploy step 0a's rule
+#: is that a non-empty `git status` is a `high` finding -- a guard that fires on
+#: every deploy is a guard nobody reads.
+DEFAULT_CHECKPOINT_JOURNAL = Path("w11-checkpoint-journal.jsonl")
+
 
 #: The negative control. Committed so the fixture the check is proved against is
 #: readable beside the check.
@@ -332,11 +344,18 @@ P7_LOW, P7_HIGH = 4, 10
 
 @dataclass(frozen=True, slots=True)
 class Slot:
-    """One of the eight: which type, testing which target."""
+    """One of the eight -- or, in `--checkpoint`, one of the twelve.
+
+    `cohort` is what the item is written FOR, and it travels onto the item so
+    `focus_items` and `checkpoint_items` can tell the two populations apart. See
+    `core.items.schema.BaseItem.cohort` for why it is declared rather than
+    inferred from recency.
+    """
 
     index: int
     item_type: str
     target: str
+    cohort: str = "focus"
 
 
 def track_for(unit_number: int) -> str:
@@ -365,6 +384,39 @@ def slot_plan(unit_number: int, targets: tuple[str, ...]) -> tuple[Slot, ...]:
             target=targets[(index + unit_number) % len(targets)],
         )
         for index, item_type in enumerate(SLOT_TYPES)
+    )
+
+
+def checkpoint_slot_plan(
+    unit_number: int,
+    per_target: dict[str, int],
+    permitted: Sequence[str],
+    missed: Sequence[str] = (),
+) -> tuple[Slot, ...]:
+    """The TWELVE slots for one checkpoint sitting. **A different rule from
+    `slot_plan`, and the difference is the whole reason this exists.**
+
+    `slot_plan` spreads eight practice items evenly across a unit's targets by
+    rotation. A checkpoint is ALLOCATED: the blueprint says how many items each
+    target gets, and a RETAKE re-weights that toward the targets the learner
+    missed. Rotating a checkpoint would ignore `checkpoint.per_target`, which
+    until W11 nothing in this tree had ever read for anything but validation.
+
+    **The quota map is `core.syllabus.checkpoint.quota_map`'s, and this function
+    does not compute it.** `core.services.items.checkpoint_items` calls the same
+    producer to know what to SELECT, so the generator and the selector cannot
+    disagree -- and if they did, a re-weighted retake cohort could never be
+    selected and the fail path would refuse every time.
+    """
+    quotas = checkpoint_quotas(per_target, missed)
+    return tuple(
+        Slot(
+            index=one.index,
+            item_type=one.item_type,
+            target=one.target,
+            cohort="checkpoint",
+        )
+        for one in checkpoint_plan(unit_number, quotas, tuple(permitted))
     )
 
 
@@ -494,6 +546,7 @@ def _draft_to_item(raw: dict, slot: Slot, unit_number: int) -> BaseItem:
     draft["track"] = track_for(unit_number)
     draft["unit_number"] = unit_number
     draft["grammar_target"] = slot.target
+    draft["cohort"] = slot.cohort
 
     answer = draft.get("answer")
     if answer is not None and not isinstance(answer, str):
@@ -739,6 +792,24 @@ def verify_cohort(
         )
         spent["target"] += 1
         outcome.target = verdict
+        # #194. The verdict was printed and then lost, so the evidence for
+        # "this item tests its target" survived only in a run's stdout. It now
+        # travels into `items.validation` on the report that will be written --
+        # including the RUNNER-UP, which on a PASSING item is the distinction it
+        # came closest to blurring. No migration: `items.validation` is JSONB and
+        # 012's CHECK requires three keys rather than forbidding a fourth.
+        # `replace` and not attribute assignment: `ValidationReport` is
+        # `frozen=True, slots=True`, so the mutating form raises at runtime and
+        # would have done so on the first real run.
+        if outcome.report is not None:
+            outcome.report = replace(
+                outcome.report,
+                target_ranking=tuple(verdict.ranking),
+                target_claimed_rank=verdict.claimed_rank,
+                target_first=verdict.first,
+                target_runner_up=verdict.runner_up,
+                target_confidence=verdict.confidence,
+            )
         if not verdict.ok:
             _fail(outcome, "target", f"ranked_{verdict.claimed_rank or 'absent'}")
             continue
@@ -1266,7 +1337,13 @@ def run_control(*, settings: Settings | None = None) -> ControlResult:
 # ── loading the syllabus, through its one door ──────────────────────────────
 
 
-def unit_plan(numbers: tuple[int, ...]) -> dict[int, dict]:
+def unit_plan(
+    numbers: Sequence[int],
+    *,
+    checkpoint: bool = False,
+    missed: dict[int, tuple[str, ...]] | None = None,
+    types: Sequence[str] | None = None,
+) -> dict[int, dict]:
     """Everything the run needs about each unit. **The Murphy strip is here.**
 
     `core.sessions.blocks.visible_targets` and NOT `unit.grammar_targets`. That
@@ -1283,6 +1360,7 @@ def unit_plan(numbers: tuple[int, ...]) -> dict[int, dict]:
     from core.syllabus.content import units
 
     everything = {u.unit_number: u for u in units()}
+    missed = missed or {}
     all_targets = {
         number: tuple(t["target"] for t in visible_targets(unit.grammar_targets))
         for number, unit in everything.items()
@@ -1303,11 +1381,53 @@ def unit_plan(numbers: tuple[int, ...]) -> dict[int, dict]:
                 f"unit {number} does not permit {sorted(set(unknown))}; "
                 f"it permits {list(permitted)}"
             )
+        if checkpoint:
+            # **The permitted set is a RUN-LEVEL PARAMETER, and `--types` is how
+            # a narrowing is exercised without touching the syllabus.**
+            #
+            # Three layers, narrowest last: the unit's blueprint says which types
+            # a checkpoint MAY use; `SLOT_TYPES` says which this generator can
+            # produce; `--types` says which THIS RUN should use. A `--types`
+            # value the blueprint does not permit is refused below rather than
+            # silently honoured -- narrowing a run is a run decision, and
+            # WIDENING past the blueprint would put an item in the bank its own
+            # checkpoint could never draw.
+            #
+            # **This is deliberately NOT a way to answer #207.** That row asks
+            # whether `checkpoint.item_types` narrows in `data/syllabus_units.json`
+            # across all 24 units, and it is the operator's. A flag on one run
+            # changes nothing in the data and leaves the question open.
+            chosen = [t for t in SLOT_TYPES if t in permitted]
+            if types is not None:
+                outside = [t for t in types if t not in permitted]
+                if outside:
+                    raise ValueError(
+                        f"unit {number} does not permit {sorted(set(outside))}; "
+                        f"--types may only narrow, never widen"
+                    )
+                unproducible = [t for t in types if t not in SLOT_TYPES]
+                if unproducible:
+                    raise ValueError(
+                        f"this generator cannot produce {sorted(set(unproducible))}; "
+                        f"it produces {sorted(set(SLOT_TYPES))}"
+                    )
+                chosen = [t for t in chosen if t in types]
+                if not chosen:
+                    raise ValueError(f"unit {number}: --types leaves no usable type")
+            slots = checkpoint_slot_plan(
+                number,
+                dict(unit.checkpoint["per_target"]),
+                permitted=chosen or list(permitted),
+                missed=missed.get(number, ()) if missed else (),
+            )
+        else:
+            slots = slot_plan(number, targets)
         plan[number] = {
             "unit": unit,
             "targets": targets,
-            "slots": slot_plan(number, targets),
+            "slots": slots,
             "candidates": target_candidates(number, targets, all_targets),
+            "checkpoint": checkpoint,
         }
     return plan
 
@@ -1328,18 +1448,97 @@ def _expected_calls(numbers: tuple[int, ...]) -> int:
     return CONTROL_RUNS + len(numbers) * per_unit * 2  # x2 allows one top-up round
 
 
+def _expected_checkpoint_calls(plan: dict[int, dict]) -> int:
+    """The ceiling for a `--checkpoint` run, itemised **from the actual slot
+    plan** rather than from a constant.
+
+    **Every term is derived at call time**, so a change to `gates.ANSWER_FAMILY`
+    or `gates.PROBED_FAMILIES` -- or to which types a unit permits -- moves this
+    number instead of leaving a stale literal behind. `_expected_calls` above
+    hardcodes `len(SLOT_TYPES)` because its plan is a constant; this one's is
+    not.
+
+    Per unit, from that unit's twelve slots:
+
+        1                     generation
+      + 1                     one batched naturalness call for the cohort
+      + n_probed              probes. A slot whose type's ANSWER_FAMILY is not
+                              in PROBED_FAMILIES is never probed -- `match_pairs`
+                              is `exact`, which is #192.
+      + MAX_REPAIRS * n_slot  cue re-probes, for the slot-family items only
+      + len(slots)            probe_target, one per surviving item
+      + n_l1                  back-translation, per l1_to_l2_production
+      + 1                     **#169's checkpoint-level uniqueness pass over the
+                              twelve as a SET.** One batched call per cohort.
+
+    times 2, which allows exactly one top-up round -- and the x2 covers the #169
+    re-pass too, because a #169 rejection tops the cohort up and the replacement
+    set must be re-checked as a set.
+
+    plus CONTROL_RUNS for the negative control.
+
+    **The #169 term was missing from the first three drafts of W11's plan while
+    the test list described that call as "on the ceiling".** A ceiling that omits
+    a call the run makes is the defect this function exists to prevent, so the
+    term is named in the arithmetic rather than in a comment beside it.
+    """
+    total = CONTROL_RUNS
+    for entry in plan.values():
+        slots = entry["slots"]
+        n_probed = sum(
+            1 for one in slots
+            if gates.ANSWER_FAMILY.get(one.item_type) in gates.PROBED_FAMILIES
+        )
+        n_slot = sum(
+            1 for one in slots if gates.ANSWER_FAMILY.get(one.item_type) == "slot"
+        )
+        n_l1 = sum(1 for one in slots if one.item_type == "l1_to_l2_production")
+        per_unit = (
+            1
+            + 1
+            + n_probed
+            + MAX_REPAIRS * n_slot
+            + len(slots)
+            + n_l1
+            + 1
+        )
+        total += per_unit * 2
+    return total
+
+
 def dry_run(
     user_id: int,
     numbers: tuple[int, ...],
     journal_path: Path = DEFAULT_JOURNAL,
+    *,
+    checkpoint: bool = False,
+    missed: dict[int, tuple[str, ...]] | None = None,
+    types: Sequence[str] | None = None,
 ) -> int:
     settings = load_settings()
-    plan = unit_plan(numbers)
+    plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types)
 
     print("=== model ===")
     print(settings.llm_model)
+    per_unit = CHECKPOINT_ITEM_COUNT if checkpoint else ITEMS_PER_UNIT
+    kind = "CHECKPOINT cohort" if checkpoint else "block-3 practice"
     print(f"\n=== target ===\nusers.id = {user_id} · units {list(numbers)} · "
-          f"{ITEMS_PER_UNIT} items each")
+          f"{per_unit} items each · {kind}")
+    if checkpoint:
+        print("  cohort tag written onto every item: `cohort: \"checkpoint\"`.")
+        print("  `focus_items` will not serve these; `checkpoint_items` selects "
+              "only these.")
+        for number in numbers:
+            quotas: dict[str, int] = {}
+            for one in plan[number]["slots"]:
+                quotas[one.target] = quotas.get(one.target, 0) + 1
+            were = dict(plan[number]["unit"].checkpoint["per_target"])
+            reweighted = bool(missed and missed.get(number))
+            how = "RETAKE, re-weighted" if reweighted else "first sitting, the blueprint"
+            print(f"  unit {number} quota map ({how}):")
+            for target, count in quotas.items():
+                mark = " *" if missed and target in (missed.get(number) or ()) else ""
+                print(f"    {count} (blueprint {were.get(target, 0)}) {target}{mark}")
 
     print("\n=== system (item_generate.txt, contract substituted) ===")
     # **`generator_system_prompt()` and NOT the template file.** The first draft
@@ -1422,7 +1621,10 @@ def dry_run(
               "continue it. **")
 
     print("\n=== billed calls ===")
-    print(f"  ceiling {_expected_calls(numbers)} "
+    ceiling = (
+        _expected_checkpoint_calls(plan) if checkpoint else _expected_calls(numbers)
+    )
+    print(f"  ceiling {ceiling} "
           f"(control {CONTROL_RUNS} + {len(numbers)} units, one top-up allowed)")
     print("  ZERO TTS and ZERO STT: no audio type is permitted by these units.")
 
@@ -1448,9 +1650,12 @@ def run(
     settings: Settings | None = None,
     skip_control: bool = False,
     journal_path: Path = DEFAULT_JOURNAL,
+    checkpoint: bool = False,
+    missed: dict[int, tuple[str, ...]] | None = None,
+    types: Sequence[str] | None = None,
 ) -> int:
     settings = settings or load_settings()
-    plan = unit_plan(numbers)
+    plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types)
     spent: Counter = Counter()
     reference = coverage_reference()
     journal = Journal(journal_path)
@@ -1460,7 +1665,9 @@ def run(
           "with:")
     print(f"    python -m core.items.generate --report {journal_path}")
 
-    ceiling = _expected_calls(numbers) - (CONTROL_RUNS if skip_control else 0)
+    ceiling = (
+        _expected_checkpoint_calls(plan) if checkpoint else _expected_calls(numbers)
+    ) - (CONTROL_RUNS if skip_control else 0)
     print(f"\nAbout to make up to {ceiling} billed model calls.")
     print("Nothing is written to any database by this step." if not apply
           else f"Accepted items WILL BE WRITTEN to items for users.id = {user_id}.")
@@ -1783,13 +1990,40 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true",
                         help="make the calls and WRITE what passed (billed)")
     parser.add_argument(
-        "--journal", type=Path, default=DEFAULT_JOURNAL,
+        "--journal", type=Path, default=None,
         help=f"where outcomes are written as they are decided "
-             f"(default: {DEFAULT_JOURNAL})",
+             f"(default: {DEFAULT_JOURNAL}, or "
+             f"{DEFAULT_CHECKPOINT_JOURNAL} with --checkpoint)",
     )
     parser.add_argument(
         "--report", type=Path, metavar="JOURNAL",
         help="rebuild the full report from a journal file. Makes NO calls.",
+    )
+    parser.add_argument(
+        "--checkpoint", action="store_true",
+        help=f"generate a CHECKPOINT cohort ({CHECKPOINT_ITEM_COUNT} items per "
+             "unit, allocated by the blueprint's per_target) instead of block "
+             f"3's {ITEMS_PER_UNIT} practice items. Every item is tagged "
+             "`cohort: checkpoint` so block 3 will not serve it.",
+    )
+    parser.add_argument(
+        "--retake", action="store_true",
+        help="with --checkpoint: re-weight the twelve toward the targets this "
+             "learner missed in their last FAILED sitting of that unit, capped "
+             "at the blueprint's own maximum per target. Reads the database; "
+             "makes no model call. Requires --user.",
+    )
+    parser.add_argument(
+        "--types",
+        # The help text deliberately does not spell the syllabus content file's
+        # path: `test_only_the_content_loader_reads_the_syllabus_data_files`
+        # scans source text and cannot tell prose from a second parser, and it is
+        # right not to try. The guard is the point; the wording yields.
+        help="comma-separated item types to use for THIS RUN. May only NARROW "
+             "what the unit's blueprint permits, never widen it. **A run-level "
+             "parameter, not a ruling on #207** — it edits no content file, "
+             "re-seeds nothing, and leaves every unit's `checkpoint.item_types` "
+             "exactly as it is.",
     )
     parser.add_argument(
         "--skip-control", action="store_true",
@@ -1797,11 +2031,22 @@ def main(argv: list[str] | None = None) -> int:
              "from 2026-08-27. Only valid while that result stands.",
     )
     args = parser.parse_args(argv)
+    if args.journal is None:
+        args.journal = (
+            DEFAULT_CHECKPOINT_JOURNAL if args.checkpoint else DEFAULT_JOURNAL
+        )
     if args.user is None and not args.report:
         parser.error("--user is required (no default, deliberately — these rows "
                      "are permanent and belong to a learner)")
     if args.live and args.apply:
         parser.error("--live and --apply are alternatives; --apply implies --live")
+    if args.retake and not args.checkpoint:
+        parser.error("--retake only means anything with --checkpoint")
+    chosen_types = None
+    if args.types:
+        chosen_types = tuple(t.strip() for t in args.types.split(",") if t.strip())
+        if not chosen_types:
+            parser.error("--types is empty")
 
     # #140. This module spends money, and core/llm.py's per-call token lines are
     # dropped on the floor by any script that leaves the root logger bare.
@@ -1818,10 +2063,28 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.report:
         return report_only(args.report)
+
+    # **The missed targets are READ, not passed in.** A retake's re-weighting is
+    # a fact about what this learner got wrong, and asking an operator to type it
+    # is asking them to be the source of truth for something the database holds.
+    missed: dict[int, tuple[str, ...]] | None = None
+    if args.retake:
+        from core.services.syllabus import missed_targets
+        missed = {n: tuple(missed_targets(args.user, n)) for n in numbers}
+        for number, targets in missed.items():
+            if not targets:
+                parser.error(
+                    f"--retake: unit {number} has no failed sitting for user "
+                    f"{args.user} to re-weight against. A retake without a "
+                    "failure is a first sitting; drop --retake."
+                )
+
     if args.live or args.apply:
         return run(args.user, numbers, apply=args.apply,
-                   skip_control=args.skip_control, journal_path=args.journal)
-    return dry_run(args.user, numbers, journal_path=args.journal)
+                   skip_control=args.skip_control, journal_path=args.journal,
+                   checkpoint=args.checkpoint, missed=missed, types=chosen_types)
+    return dry_run(args.user, numbers, journal_path=args.journal,
+                   checkpoint=args.checkpoint, missed=missed, types=chosen_types)
 
 
 if __name__ == "__main__":  # pragma: no cover

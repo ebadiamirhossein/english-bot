@@ -1188,7 +1188,9 @@ def _input_block() -> tuple[str, dict[str, Any]]:
     return "empty", {}
 
 
-def _focus_block(unit: Any, user_id: int) -> tuple[str, dict[str, Any]]:
+def _focus_block(
+    unit: Any, user_id: int, *, section_index: int | None = None
+) -> tuple[str, dict[str, Any]]:
     """Block 3. The unit's can-do, its grammar targets, and **its eight items.**
 
     PRD §4.1 asks for "this week's grammar target: 90-second explanation + 8
@@ -1233,11 +1235,39 @@ def _focus_block(unit: Any, user_id: int) -> tuple[str, dict[str, Any]]:
     # checked by rules that no longer exist. Both cases render the same line a
     # learner already sees, so `None` keeps meaning exactly what it meant.
     stored = lessons_service.for_unit(unit.unit_number)
+
+    # **W11: THE LESSON IS PACED.** Operator ruling 2026-08-29 (#245): a section
+    # advances per COMPLETED SESSION, not per calendar day, so a learner who
+    # skips a day loses nothing and sees the next section when they next open a
+    # session. When the sections run out before Saturday, block 3 shows PRACTICE
+    # ONLY -- no new teaching and no repeated section.
+    #
+    # **TWO KEYS, NOT ONE, because running out of teaching and having no
+    # teaching are different facts and the learner can only see one of them on
+    # the screen.** That is `BLOCK_STATES`' own `empty`-versus-`unavailable`
+    # reasoning applied one level in: a unit with no lesson must keep saying
+    # "the explanation is on its way", and a learner who has read all four
+    # sections must not be told the same thing about teaching they have finished.
+    #
+    #   lesson None                  -> section None, complete False  (most units)
+    #   index < len(sections)        -> section index, complete False
+    #   index >= len(sections)       -> section None,  complete TRUE
+    sections = (stored.sections if stored else ()) or ()
+    lesson_section: int | None = None
+    teaching_complete = False
+    if stored and sections:
+        if section_index is None or section_index < len(sections):
+            lesson_section = min(section_index or 0, len(sections) - 1)
+        else:
+            teaching_complete = True
+
     return "ready", {
         "unit_number": unit.unit_number,
         "can_do": unit.can_do,
         "grammar_targets": [dict(one) for one in visible_targets(unit.grammar_targets)],
         "lesson": stored.model_dump(mode="json") if stored else None,
+        "lesson_section": lesson_section,
+        "teaching_complete": teaching_complete,
         "items": [
             {
                 "id": one.id,
@@ -1402,6 +1432,43 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
         unit = unit_holder.get("unit") if unit_state == "ready" else None
         unit_failed = unit_state == "unavailable"
 
+        # **W11: the learner's first row for this unit, created here.**
+        #
+        # A read path that writes -- and the shape matters. This is an
+        # `INSERT ... ON CONFLICT DO NOTHING` decided by 014's
+        # `UNIQUE (user_id, unit_number)`, exactly like `_get_or_create_daily`
+        # above it: idempotent create-once, race-free, and a refetch changes
+        # nothing. What must NOT go on a read path is a MUTATING write -- an
+        # incrementing counter would double-count on the refetch this route's own
+        # rate-limit comment records, which is why the within-unit position is
+        # computed rather than stored.
+        #
+        # It runs BEFORE the blocks are built because block 3 needs the row:
+        # `unit_section_index` counts sessions since `entered_at`, so without it
+        # the very first render of a unit is the one that cannot be paced.
+        # Hanging this off `POST /session/{id}/block/{n}/complete` -- the only
+        # POST on this router -- would fire after blocks 3 and 4 were already
+        # served, which is too late by exactly one session.
+        from core.services import syllabus as syllabus_service
+
+        section_index: int | None = None
+        if unit is not None:
+            try:
+                syllabus_service.record_unit_entry(
+                    conn, user_id, unit.unit_number, now=now
+                )
+                section_index = syllabus_service.unit_section_index(
+                    conn, user_id, unit.unit_number, local_today=local_date
+                )
+            except Exception:  # noqa: BLE001 -- the session must still open
+                # An unpaced block 3 is the pre-W11 behaviour and is survivable;
+                # a session that will not open is not. Logged with ids and route
+                # names only (PRD §10).
+                logger.exception(
+                    "unit entry/pacing failed user_id=%s unit=%s",
+                    user_id, unit.unit_number,
+                )
+
         built: dict[str, tuple[str, dict[str, Any]]] = {
             "input": _input_block(),
             # A unit read that FAILED is `unavailable` for both blocks that
@@ -1409,7 +1476,10 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
             # both. Two facts, kept apart even though they come from one query.
             "focus": ("unavailable", {})
             if unit_failed
-            else _build_block("focus", lambda: _focus_block(unit, user_id)),
+            else _build_block(
+                "focus",
+                lambda: _focus_block(unit, user_id, section_index=section_index),
+            ),
             "output": ("unavailable", {})
             if unit_failed
             else _build_block("output", lambda: _output_block(unit)),

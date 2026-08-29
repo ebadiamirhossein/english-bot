@@ -59,6 +59,11 @@ NEVER_VISIBLE: frozenset[str] = frozenset(
         # is asked to recover that category from the item alone, so showing it
         # would make that gate unfalsifiable in the most direct way available.
         "grammar_target",
+        # W11. Telling a learner -- or the blind solver, which sees exactly what
+        # a learner sees -- that an item belongs to a checkpoint is a hint about
+        # the population it was drawn from, and `probe_target` must never be able
+        # to tell a checkpoint item from a practice one.
+        "cohort",
         "track",
         "register",
         "register_tag",
