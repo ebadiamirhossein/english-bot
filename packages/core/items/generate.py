@@ -430,6 +430,42 @@ def checkpoint_slot_plan(
     )
 
 
+
+def _shortfall_slots(
+    slots: tuple[Slot, ...],
+    demand: dict[str, int],
+    held: dict[str, int],
+) -> tuple[Slot, ...]:
+    """The sitting's plan, minus what the learner already holds. **`--fill`.**
+
+    **THE SUBTRACTION HAPPENS AFTER THE PLAN, NOT INSTEAD OF IT, AND THAT IS THE
+    WHOLE DESIGN.** `core.syllabus.checkpoint.slot_plan` REFUSES a quota map that
+    does not sum to twelve -- *a sitting is twelve* -- and that guard is right and
+    is not relaxed. So the full twelve are planned first, through the single
+    producer and past its guard, and the surplus is dropped here. Nothing
+    recomputes what to generate; this only removes.
+
+    **THE FRONT OF THE ROTATION IS KEPT** (operator ruling, 2026-08-29). Within a
+    target the retained slots are the first N, so the choice is deterministic and
+    a fill run's type mix is the front of the sitting's rotation rather than the
+    sitting's mix. That is intended: **the sitting's type mix is a property of the
+    sitting, and the bank only needs items on the target.**
+
+    A target already at or over its demand yields nothing. A held count larger
+    than the demand is not an error -- a re-weighted retake can want fewer of a
+    target than a first sitting bought -- so it clamps at zero rather than
+    raising.
+    """
+    wanted = {t: max(0, demand.get(t, 0) - held.get(t, 0)) for t in demand}
+    kept: list[Slot] = []
+    taken: dict[str, int] = {}
+    for one in slots:
+        if taken.get(one.target, 0) < wanted.get(one.target, 0):
+            kept.append(one)
+            taken[one.target] = taken.get(one.target, 0) + 1
+    return tuple(kept)
+
+
 def target_candidates(
     unit_number: int, targets: tuple[str, ...], other_units: dict[int, tuple[str, ...]]
 ) -> tuple[str, ...]:
@@ -1353,6 +1389,7 @@ def unit_plan(
     checkpoint: bool = False,
     missed: dict[int, tuple[str, ...]] | None = None,
     types: Sequence[str] | None = None,
+    held: dict[int, dict[str, int]] | None = None,
 ) -> dict[int, dict]:
     """Everything the run needs about each unit. **The Murphy strip is here.**
 
@@ -1424,12 +1461,21 @@ def unit_plan(
                 chosen = [t for t in chosen if t in types]
                 if not chosen:
                     raise ValueError(f"unit {number}: --types leaves no usable type")
+            demand = dict(unit.checkpoint["per_target"])
             slots = checkpoint_slot_plan(
                 number,
-                dict(unit.checkpoint["per_target"]),
+                demand,
                 permitted=chosen or list(permitted),
                 missed=missed.get(number, ()) if missed else (),
             )
+            if held is not None:
+                slots = _shortfall_slots(
+                    slots,
+                    checkpoint_quotas(
+                        demand, missed.get(number, ()) if missed else ()
+                    ),
+                    held.get(number, {}),
+                )
         else:
             slots = slot_plan(number, targets)
         plan[number] = {
@@ -1524,9 +1570,10 @@ def dry_run(
     checkpoint: bool = False,
     missed: dict[int, tuple[str, ...]] | None = None,
     types: Sequence[str] | None = None,
+    held: dict[int, dict[str, int]] | None = None,
 ) -> int:
     settings = load_settings()
-    plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types)
+    plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types, held=held)
 
     print("=== model ===")
     print(settings.llm_model)
@@ -1663,9 +1710,10 @@ def run(
     checkpoint: bool = False,
     missed: dict[int, tuple[str, ...]] | None = None,
     types: Sequence[str] | None = None,
+    held: dict[int, dict[str, int]] | None = None,
 ) -> int:
     settings = settings or load_settings()
-    plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types)
+    plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types, held=held)
     spent: Counter = Counter()
     reference = coverage_reference()
     journal = Journal(journal_path)
@@ -2037,6 +2085,13 @@ def main(argv: list[str] | None = None) -> int:
              "makes no model call. Requires --user.",
     )
     parser.add_argument(
+        "--fill", action="store_true",
+        help="with --checkpoint: plan only the SHORTFALL against what this "
+             "learner already holds, instead of re-buying the whole sitting. "
+             "Reads the bank through the same predicate the selector uses. "
+             "Requires --user.",
+    )
+    parser.add_argument(
         "--types",
         # The help text deliberately does not spell the syllabus content file's
         # path: `test_only_the_content_loader_reads_the_syllabus_data_files`
@@ -2065,6 +2120,22 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--live and --apply are alternatives; --apply implies --live")
     if args.retake and not args.checkpoint:
         parser.error("--retake only means anything with --checkpoint")
+    if args.fill and not args.checkpoint:
+        parser.error("--fill only means anything with --checkpoint")
+    if args.fill and args.retake:
+        # **The error says WHY, not just no.** Both adjust the twelve and they
+        # adjust it from opposite directions: `--retake` RE-WEIGHTS a fresh
+        # sitting toward the targets a learner missed, and `--fill` SUBTRACTS the
+        # items already banked. Combining them has a defensible meaning -- top up
+        # a re-weighted sitting -- and nobody has needed it, so it is refused
+        # rather than given a semantics invented at the parser.
+        parser.error(
+            "--fill and --retake cannot be combined. --retake re-weights a fresh "
+            "sitting toward missed targets; --fill subtracts what is already "
+            "banked. Both adjust the same twelve from opposite directions, and no "
+            "combined meaning has been ruled. Run the retake plan, then --fill "
+            "against what it leaves short."
+        )
     chosen_types = None
     if args.types:
         chosen_types = tuple(t.strip() for t in args.types.split(",") if t.strip())
@@ -2091,6 +2162,15 @@ def main(argv: list[str] | None = None) -> int:
     # a fact about what this learner got wrong, and asking an operator to type it
     # is asking them to be the source of truth for something the database holds.
     missed: dict[int, tuple[str, ...]] | None = None
+    held = None
+    if args.fill:
+        # **Read HERE and passed in, exactly as `--retake` reads `missed_targets`
+        # below.** `unit_plan` stays pure -- no database -- which is what lets its
+        # tests run without one and what keeps the planner testable.
+        from core.services.items import checkpoint_held
+
+        held = {n: checkpoint_held(args.user, unit_number=n) for n in numbers}
+
     if args.retake:
         from core.services.syllabus import missed_targets
         missed = {n: tuple(missed_targets(args.user, n)) for n in numbers}
@@ -2105,9 +2185,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.live or args.apply:
         return run(args.user, numbers, apply=args.apply,
                    skip_control=args.skip_control, journal_path=args.journal,
-                   checkpoint=args.checkpoint, missed=missed, types=chosen_types)
+                   checkpoint=args.checkpoint, missed=missed, types=chosen_types,
+                   held=held)
     return dry_run(args.user, numbers, journal_path=args.journal,
-                   checkpoint=args.checkpoint, missed=missed, types=chosen_types)
+                   checkpoint=args.checkpoint, missed=missed, types=chosen_types,
+                   held=held)
 
 
 if __name__ == "__main__":  # pragma: no cover

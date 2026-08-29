@@ -72,6 +72,18 @@ def _cohort(learner: int, cohort: str | None, tag: str):
         _write(learner, target=target, cohort=cohort, n=count, tag=tag)
 
 
+
+def _write_stale(learner: int, *, target: str, cohort: str, n: int, tag: str):
+    """Rows validated by an older gate. `_CURRENT_VALIDATOR` excludes them."""
+    made = _write(learner, target=target, cohort=cohort, n=n, tag=tag)
+    with psycopg.connect(load_settings().database_url, autocommit=True) as conn:
+        conn.execute(
+            "UPDATE items SET validator_version = validator_version - 1 "
+            " WHERE id = ANY(%s)",
+            (list(made),),
+        )
+    return made
+
 def _attempt(learner: int, item_id: int) -> None:
     with psycopg.connect(load_settings().database_url, autocommit=True) as conn:
         conn.execute(
@@ -245,3 +257,49 @@ def test_a_checkpoint_never_serves_an_item_this_learner_has_attempted(learner) -
     chosen = svc.checkpoint_items(learner, unit_number=1, quotas=quota_map(UNIT_1))
     assert len(chosen) == 12
     assert made[0] not in {one.id for one in chosen}
+
+
+# ── the counter and the selector must not drift apart ───────────────────────
+
+
+def test_checkpoint_held_cannot_diverge_from_checkpoint_items(learner) -> None:
+    """**`--fill` subtracts what `checkpoint_held` counts, so it must count
+    exactly what `checkpoint_items` would serve.**
+
+    Sharing `_COHORT` and `_UNATTEMPTED` separately was the earlier shape and it
+    is the weaker one: nothing stops a clause being added to one caller and not
+    the other, and the symptom would be silent — `--fill` plans against a set the
+    selector refuses, so the generator reports the bank full while the checkpoint
+    never becomes ready.
+
+    So both compose from ONE constant, `_CHECKPOINT_STOCK`, and this test drives
+    the property rather than the constant: **an item `checkpoint_items` would
+    refuse must not be counted as held.** Three refusable rows, one of each kind
+    the predicate excludes.
+
+    Demonstrated red by giving `checkpoint_held` its own copy of the filter.
+    """
+    ok = _write(learner, target=T1, cohort="checkpoint", n=2, tag="ok")
+
+    # (1) attempted -- the reserve is unattempted rows only.
+    sat = _write(learner, target=T1, cohort="checkpoint", n=1, tag="sat")
+    _attempt(learner, sat[0])
+
+    # (2) the wrong cohort entirely.
+    _write(learner, target=T1, cohort="focus", n=3, tag="focus")
+
+    # (3) a stale validator version -- never servable.
+    _write_stale(learner, target=T1, cohort="checkpoint", n=2, tag="stale")
+
+    held = svc.checkpoint_held(learner, unit_number=1)
+    servable = svc.checkpoint_items(learner, unit_number=1, quotas={T1: 2})
+
+    assert held.get(T1) == 2, (
+        "only the two rows the selector can actually serve are held"
+    )
+    assert len(servable) == 2
+    assert {one.id for one in servable} == set(ok)
+    # The property, stated so a future filter added to one side breaks this:
+    assert held.get(T1) == len(
+        svc.checkpoint_items(learner, unit_number=1, quotas={T1: held.get(T1, 0)})
+    ), "held must equal what the selector will serve at that quota"

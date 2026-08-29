@@ -12,6 +12,8 @@ as well as the one that shipped:
 
 from __future__ import annotations
 
+from collections import Counter
+
 import pytest
 
 from core.syllabus import CHECKPOINT_ITEM_COUNT, CHECKPOINT_PASS_PCT
@@ -305,3 +307,95 @@ def test_a_slot_cannot_be_built_without_saying_which_run_it_is_for() -> None:
 
     with pytest.raises(TypeError, match="cohort"):
         Slot(index=0, item_type="cloze_cued", target="x")  # type: ignore[call-arg]
+
+
+# ── --fill: plan the shortfall, not the sitting ─────────────────────────────
+
+
+HELD_AFTER_THE_FIRST_RUN = {
+    "past simple: regular and irregular verbs": 3,
+    "past continuous for what was going on around it": 2,
+    "past simple and past continuous in the same sentence": 1,
+    "time linkers: then, after that, a bit later": 2,
+}
+NARROW = ("cloze_cued", "word_bank_order", "error_spot", "match_pairs")
+
+
+def test_fill_plans_the_shortfall_and_not_the_sitting() -> None:
+    """Production's real numbers: 8 held against a 5/4/1/2 demand is FOUR."""
+    from core.items.generate import unit_plan
+
+    slots = unit_plan(
+        (1,), checkpoint=True, types=NARROW,
+        held={1: HELD_AFTER_THE_FIRST_RUN},
+    )[1]["slots"]
+    counted = Counter(one.target for one in slots)
+    assert len(slots) == 4
+    assert counted["past simple: regular and irregular verbs"] == 2
+    assert counted["past continuous for what was going on around it"] == 2
+    assert "past simple and past continuous in the same sentence" not in counted
+    assert "time linkers: then, after that, a bit later" not in counted
+    assert {one.cohort for one in slots} == {"checkpoint"}
+
+
+def test_fill_keeps_the_front_of_the_rotation() -> None:
+    """Operator ruling, 2026-08-29. Deterministic, and the sitting's own order."""
+    from core.items.generate import unit_plan
+
+    full = unit_plan((1,), checkpoint=True, types=NARROW)[1]["slots"]
+    fill = unit_plan(
+        (1,), checkpoint=True, types=NARROW, held={1: HELD_AFTER_THE_FIRST_RUN},
+    )[1]["slots"]
+    for target in {one.target for one in fill}:
+        kept = [one.item_type for one in fill if one.target == target]
+        front = [one.item_type for one in full if one.target == target][: len(kept)]
+        assert kept == front, target
+
+
+def test_a_target_already_over_its_demand_yields_nothing_rather_than_raising() -> None:
+    """A re-weighted retake can want fewer of a target than a first sitting bought."""
+    from core.items.generate import unit_plan
+
+    over = dict(HELD_AFTER_THE_FIRST_RUN)
+    over["past simple: regular and irregular verbs"] = 99
+    slots = unit_plan((1,), checkpoint=True, types=NARROW, held={1: over})[1]["slots"]
+    assert not any(
+        one.target == "past simple: regular and irregular verbs" for one in slots
+    )
+    assert len(slots) == 2
+
+
+def test_the_sum_twelve_guard_is_REACHED_on_the_fill_path(monkeypatch) -> None:
+    """**The guard must be shown to RUN on a fill run, not merely to still exist.**
+
+    `--fill` keeps `slot_plan`'s *a sitting is twelve* guard by ORDERING: the full
+    twelve are planned first, past the guard, and the surplus is dropped after.
+    **That is exactly the shape in which a guard quietly stops being exercised** --
+    a later refactor that built the shortfall map directly would skip it, four
+    slots would still come back, and every assertion above would still pass.
+
+    So this asserts what `slot_plan` was HANDED: a map summing to twelve. Asserting
+    `len(slots) == 4` cannot see the difference, which is the whole point.
+    """
+    from core.syllabus import checkpoint as checkpoint_mod
+    from core.items import generate as gen
+
+    seen: list[dict[str, int]] = []
+    real = checkpoint_mod.slot_plan
+
+    def spy(unit_number, quotas, permitted):
+        seen.append(dict(quotas))
+        return real(unit_number, quotas, permitted)
+
+    monkeypatch.setattr(gen, "checkpoint_plan", spy)
+
+    slots = gen.unit_plan(
+        (1,), checkpoint=True, types=NARROW, held={1: HELD_AFTER_THE_FIRST_RUN},
+    )[1]["slots"]
+
+    assert len(seen) == 1, "the planner ran exactly once"
+    assert sum(seen[0].values()) == CHECKPOINT_ITEM_COUNT, (
+        "the fill path must plan the FULL sitting and subtract after, so "
+        "slot_plan's sum-twelve guard is still evaluated"
+    )
+    assert len(slots) == 4, "and the shortfall is what comes back"

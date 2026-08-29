@@ -352,6 +352,27 @@ _UNATTEMPTED = """
 """
 
 
+
+#: **THE CHECKPOINT RESERVE'S PREDICATE, IN ONE PLACE, READ BY BOTH CONSUMERS.**
+#:
+#: `checkpoint_items` SELECTS from it and `checkpoint_held` COUNTS it, and they
+#: must never disagree about what "the learner already holds" means: a filter
+#: added to one and not the other makes `--fill` plan against a set the selector
+#: would refuse, and the symptom is a checkpoint that never becomes ready while
+#: the generator insists the bank is full.
+#:
+#: **Composing the two readers from ONE constant is the guarantee** -- sharing
+#: `_COHORT` and `_UNATTEMPTED` separately was the earlier shape and it is the
+#: weaker one, because nothing stops a third clause being added to one caller.
+#: `test_checkpoint_held_cannot_diverge_from_checkpoint_items` is demonstrated
+#: red by giving `checkpoint_held` its own copy of this text.
+_CHECKPOINT_STOCK = (
+    " WHERE items.user_id = %s AND items.unit_number = %s"
+    + _CURRENT_VALIDATOR
+    + " AND " + _COHORT + " = 'checkpoint'"
+    + _UNATTEMPTED
+)
+
 def list_bank(
     user_id: int, *, item_type: str | None = None, limit: int = 50
 ) -> list[StoredItem]:
@@ -472,10 +493,7 @@ def checkpoint_items(
         cur.row_factory = tuple_row
         cur.execute(
             _SELECT
-            + " WHERE items.user_id = %s AND items.unit_number = %s"
-            + _CURRENT_VALIDATOR
-            + " AND " + _COHORT + " = 'checkpoint'"
-            + _UNATTEMPTED
+            + _CHECKPOINT_STOCK
             + " ORDER BY items.created_at ASC, items.id ASC",
             (user_id, unit_number, VALIDATOR_VERSION),
         )
@@ -539,6 +557,39 @@ def focus_items(
         _present(row)
         for row in bank_for_session(user_id, unit_number=unit_number, limit=limit)
     ]
+
+
+
+def checkpoint_held(user_id: int, *, unit_number: int) -> dict[str, int]:
+    """How many unattempted checkpoint items this learner already holds, per target.
+
+    **What `--fill` subtracts from the blueprint's demand**, so a second
+    generation run buys the SHORTFALL instead of re-buying the sitting. Unit 1
+    after the first billed run holds 3 past simple, 2 past continuous, 1
+    composite and 2 time linkers; against a 5/4/1/2 demand that is four items,
+    not twelve.
+
+    **It counts EXACTLY what `checkpoint_items` would select** -- same
+    `_CHECKPOINT_STOCK` predicate, not a second copy of it -- because a counter
+    that disagreed with the selector would let `--fill` plan against a set the
+    selector refuses, and the symptom would be a checkpoint that never becomes
+    ready while the generator reports the bank full.
+
+    Rows with no `grammar_target` are not counted. They cannot fill a quota
+    either -- `checkpoint_items` groups by that key and skips a row without one --
+    so counting them would overstate the bank in exactly the direction that
+    starves the fill.
+    """
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            "SELECT items.payload ->> 'grammar_target', count(*)::int"
+            "  FROM items"
+            + _CHECKPOINT_STOCK
+            + " GROUP BY 1",
+            (user_id, unit_number, VALIDATOR_VERSION),
+        )
+        return {row[0]: int(row[1]) for row in cur.fetchall() if row[0]}
 
 
 def attempt_counts(user_id: int) -> dict[str, int]:
