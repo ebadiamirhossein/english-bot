@@ -541,3 +541,73 @@ def test_a_top_up_on_a_fill_plan_re_indexes_before_it_asks(monkeypatch) -> None:
 
 class _FakeUnit:
     can_do = "I can tell a friend what I did yesterday."
+
+
+def test_a_single_type_forces_the_shortfall_slot(monkeypatch) -> None:
+    """**A one-type `--types` forces every slot to that type, and it is
+    STRUCTURAL rather than lucky — but it was never asserted.**
+
+    `chosen = [t for t in SLOT_TYPES if t in types]` filtered to one type yields a
+    list every element of which IS that type, so `slot_plan`'s rotation
+    (`permitted[(index + unit_number) % len(permitted)]`) can only pick it,
+    whatever the index or the unit. It holds for a type appearing twice in
+    `SLOT_TYPES` (`cloze_cued`) and for one appearing once (`match_pairs`).
+
+    **Pinned rather than built.** The behaviour already existed and nothing
+    depended on it in a test, so a later edit to `SLOT_TYPES` or to the rotation
+    could have removed it silently — and it is the only way to steer a one-slot
+    fill at a type, which is what answering the bracket bar needs.
+    """
+    from core.items.generate import unit_plan
+
+    nearly_full = {
+        "past simple: regular and irregular verbs": 5,
+        "past continuous for what was going on around it": 3,
+        "past simple and past continuous in the same sentence": 1,
+        "time linkers: then, after that, a bit later": 2,
+    }
+    for forced in ("cloze_cued", "word_bank_order", "error_spot", "match_pairs"):
+        slots = unit_plan(
+            (1,), checkpoint=True, types=(forced,), held={1: nearly_full},
+        )[1]["slots"]
+        assert len(slots) == 1
+        assert slots[0].item_type == forced, forced
+        assert slots[0].index == 0
+
+
+def test_a_schema_rejected_draft_keeps_its_prompt_text(monkeypatch) -> None:
+    """**RED BEFORE THE FIX. #263: the draft was billed and thrown away.**
+
+    A draft rejected at stage 0 left its slot, target, stage and code — and not
+    one word the model wrote. fill-2's only `cloze_cued` died there, so the
+    pre-registered bracket question could not be answered from the journal.
+
+    The raw draft is recorded under `rejected_draft`, a key that names it as
+    something a gate REFUSED, so no later reader can mistake it for content.
+    """
+    from core.items import generate as gen
+
+    slot = gen.Slot(index=0, item_type="cloze_cued", target="a", cohort="checkpoint")
+    bad = {
+        "item_type": "cloze_cued",
+        "track": "life",
+        "prompt_text": "We ___ to the beach yesterday. (drive)",
+        "answer": "drove",
+        "l1_gloss_note": "an invented field",
+    }
+    outcomes = gen.verify_cohort(
+        (slot,), [bad], unit_number=1, candidates=("a",),
+        settings=None, calls=Counter(), reference=frozenset(),
+    )
+    assert len(outcomes) == 1
+    assert outcomes[0].state == "discarded"
+    assert any("schema_error" in c for c in outcomes[0].codes)
+    assert outcomes[0].rejected_draft is not None
+    assert outcomes[0].rejected_draft["prompt_text"] == (
+        "We ___ to the beach yesterday. (drive)"
+    )
+
+    line = gen.journal_line(outcomes[0])
+    assert line["rejected_draft"]["prompt_text"] == (
+        "We ___ to the beach yesterday. (drive)"
+    ), "and it must survive into the journal, which is where --report reads it"

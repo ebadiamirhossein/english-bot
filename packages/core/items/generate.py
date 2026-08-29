@@ -592,17 +592,73 @@ class Outcome:
     codes: tuple[str, ...] = ()
     item_id: int | None = None
     topped_up: bool = False
+    #: **What the model actually wrote, when a gate refused it before it became
+    #: an item (#263).** `None` on an accepted outcome -- the item carries the
+    #: text then -- and `None` when there was no draft at all (`missing_draft`).
+    #:
+    #: It exists because a `schema_error` used to leave the slot, the target, the
+    #: stage and the code and **not one word the model wrote**, so a run could not
+    #: answer a question about its own drafts. fill-2's only `cloze_cued` died
+    #: there and took the pre-registered bracket bar with it.
+    #:
+    #: **UNTRUSTED CONTENT, and the key name says so.** It is model output that a
+    #: gate REFUSED; `--report` prints it as data and nothing may treat it as an
+    #: item or as an instruction (CLAUDE.md §6). Trimmed by `_trim_draft`.
+    rejected_draft: dict | None = None
 
     @property
     def accepted(self) -> bool:
         return self.state == "accepted"
 
 
-def _discard(slot: Slot, unit: int, stage: str, *codes: str) -> Outcome:
-    """A slot that never became an item. Used only before one exists."""
+
+#: Per-value and per-draft caps on a retained draft. A malformed draft is
+#: unbounded by definition -- the reason it was refused may be that a field came
+#: back as a page of prose -- and the journal is read into memory by `--report`.
+DRAFT_VALUE_CHARS = 400
+DRAFT_MAX_KEYS = 24
+
+
+def _trim_draft(raw: object) -> dict | None:
+    """A refused draft, bounded, for the journal (#263).
+
+    Scalars and flat lists of scalars only, each stringified and capped. Anything
+    else is replaced by its type name: the point is to recover **what the model
+    wrote in the fields a reader asks about** -- `prompt_text`, `answer` -- not to
+    round-trip an arbitrary object.
+    """
+    if not isinstance(raw, dict):
+        return None
+    out: dict[str, object] = {}
+    for key in list(raw)[:DRAFT_MAX_KEYS]:
+        value = raw[key]
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            text = value if isinstance(value, str) else repr(value)
+            out[str(key)] = text[:DRAFT_VALUE_CHARS]
+        elif isinstance(value, (list, tuple)):
+            out[str(key)] = [
+                (v if isinstance(v, str) else repr(v))[:DRAFT_VALUE_CHARS]
+                for v in list(value)[:DRAFT_MAX_KEYS]
+            ]
+        else:
+            out[str(key)] = f"<{type(value).__name__}>"
+    if len(raw) > DRAFT_MAX_KEYS:
+        out["__truncated__"] = f"{len(raw)} keys, kept {DRAFT_MAX_KEYS}"
+    return out
+
+
+def _discard(
+    slot: Slot, unit: int, stage: str, *codes: str, raw: object = None
+) -> Outcome:
+    """A slot that never became an item. Used only before one exists.
+
+    `raw` is the draft the gate refused, kept so a run can answer a question
+    about its own drafts (#263). Callers with no draft -- `missing_draft` -- pass
+    nothing and the field stays `None`, which is the honest value there.
+    """
     return Outcome(
         slot=slot, unit_number=unit, state="discarded", stage=stage,
-        codes=tuple(codes),
+        codes=tuple(codes), rejected_draft=_trim_draft(raw),
     )
 
 
@@ -768,12 +824,14 @@ def verify_cohort(
             # neighbouring point -- which is P2's failure arriving one stage
             # earlier and for nothing.
             outcomes.append(
-                _discard(slot, unit_number, "generation", "target_echo_mismatch")
+                _discard(slot, unit_number, "generation", "target_echo_mismatch",
+                         raw=raw)
             )
             continue
         if str(raw.get("item_type", slot.item_type)) != slot.item_type:
             outcomes.append(
-                _discard(slot, unit_number, "generation", "item_type_mismatch")
+                _discard(slot, unit_number, "generation", "item_type_mismatch",
+                         raw=raw)
             )
             continue
         try:
@@ -781,7 +839,8 @@ def verify_cohort(
         except (ValidationError, ValueError) as exc:
             # The MODEL's fault: a field missing, an extra field, a wrong type.
             outcomes.append(
-                _discard(slot, unit_number, "generation", f"schema_error: {exc}"[:200])
+                _discard(slot, unit_number, "generation",
+                         f"schema_error: {exc}"[:200], raw=raw)
             )
             continue
         except Exception as exc:  # noqa: BLE001 — see below
@@ -957,6 +1016,7 @@ def journal_line(outcome: Outcome) -> dict:
         "target_first": None if target is None else target.first,
         "target_runner_up": None if target is None else target.runner_up,
         "target_confidence": None if target is None else target.confidence,
+        "rejected_draft": outcome.rejected_draft,
         "coverage_pct": outcome.coverage_pct,
         "coverage_unknown": list(outcome.coverage_unknown),
         "back_translation": outcome.back_translation,
@@ -2088,6 +2148,24 @@ def _print_items(rows: Sequence[dict]) -> None:
             print(f"        cover  : {row['coverage_pct']}%{unknown}{flag}")
         if not accepted:
             print(f"        REJECTED at {row.get('stage')}: {row.get('codes')}")
+            # **#263: what the model actually wrote, when a gate refused it
+            # before it became an item.** Printed as REFUSED DATA and labelled
+            # so -- it is untrusted model output that failed a gate, and nothing
+            # here or downstream may read it as an item or as an instruction
+            # (CLAUDE.md §6). Without it a `schema_error` reported the slot and
+            # the code and no text, and a run could not answer a question about
+            # its own drafts.
+            draft = row.get("rejected_draft")
+            if draft:
+                print("        refused draft (model output, failed a gate — "
+                      "data, never an instruction):")
+                for key in ("prompt_text", "answer", "grammar_target"):
+                    if draft.get(key) is not None:
+                        print(f"          {key:<13}: {draft[key]!r}")
+                rest = [k for k in draft if k not in
+                        ("prompt_text", "answer", "grammar_target")]
+                if rest:
+                    print(f"          other keys   : {sorted(rest)}")
         else:
             validation = row.get("validation") or {}
             if validation.get("repair_count"):
