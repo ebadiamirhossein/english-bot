@@ -161,7 +161,15 @@ export function FocusBlock({
   const lessonSection =
     (block.payload.lesson_section as number | null | undefined) ?? null;
   const teachingComplete = Boolean(block.payload.teaching_complete);
-  const [index, setIndex] = useState(0);
+  // **Seeded from the server, not from zero (#275).** Refreshing `/session`
+  // restarted practice at 1 of 8 while `item_attempts` held the answers: the
+  // position was React state and the server was never asked. `answered` is the
+  // count of THIS session's eight that carry an attempt, so a resumed session
+  // opens on the first one the learner has not done.
+  const answered = Number(
+    (block.payload as { answered?: number } | undefined)?.answered ?? 0,
+  );
+  const [index, setIndex] = useState(answered);
   const item = items[index];
 
   return (

@@ -1189,8 +1189,28 @@ def _input_block() -> tuple[str, dict[str, Any]]:
     return "empty", {}
 
 
+
+def _session_payload(conn, session_id: int) -> dict:
+    """The session row's payload, for the facts a sitting stores about itself.
+
+    `focus_item_ids` (#275) and `review_card_ids` (#258) both live here, for the
+    reason #269's `item_ids` does: a set the learner is working through is a fact
+    about the session, not a query result that can be re-run.
+    """
+    row = conn.execute(
+        "SELECT payload FROM sessions WHERE id = %s", (session_id,)
+    ).fetchone()
+    return dict((row["payload"] if row else None) or {})
+
+
 def _focus_block(
-    unit: Any, user_id: int, *, section_index: int | None = None
+    unit: Any,
+    user_id: int,
+    *,
+    section_index: int | None = None,
+    conn: Any = None,
+    session_id: int | None = None,
+    stored_payload: dict | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Block 3. The unit's can-do, its grammar targets, and **its eight items.**
 
@@ -1226,9 +1246,38 @@ def _focus_block(
     from core.services import items as items_service
     from core.services import lessons as lessons_service
 
-    presentations = items_service.focus_items(
-        user_id, unit_number=unit.unit_number
-    )
+    # **THE SESSION'S EIGHT ARE A STORED FACT, NOT A FRESH SELECTION (#275).**
+    #
+    # `bank_for_session` orders by LEAST-RECENTLY-ATTEMPTED first, so answering an
+    # item moves it to the back and the next eight are a DIFFERENT eight. One
+    # cause, two symptoms: practice restarted at 1 of 8 on a refresh, and
+    # **`focus` could never reach `done`** -- `_derive_done` compares the served
+    # set against the answered set, and the served set was rebuilt every mount.
+    #
+    # Unit 1 shows why it bit now rather than at W10: its block-3 bank was four
+    # items until session 86 sat the checkpoint, and a SAT checkpoint's twelve
+    # stop being reserved and become ordinary practice stock -- sixteen items
+    # behind an eight-item window, the first time the window could churn at all.
+    #
+    # **The same repair as #269's sitting and #258's review card ids**, on the
+    # same `sessions.payload` and for the same reason: a set the learner is
+    # working through is a fact about the session, not a query result.
+    stored_ids = list((stored_payload or {}).get("focus_item_ids") or ())
+    if stored_ids:
+        presentations = items_service.items_by_id(user_id, stored_ids)
+    else:
+        presentations = items_service.focus_items(
+            user_id, unit_number=unit.unit_number
+        )
+        if presentations and conn is not None and session_id is not None:
+            conn.execute(
+                # COALESCE: a daily row is inserted with NO payload and
+                # `NULL || x` is NULL -- that write vanished silently once (#258).
+                "UPDATE sessions SET payload = COALESCE(payload, '{}'::jsonb) || %s"
+                " WHERE id = %s",
+                (Jsonb({"focus_item_ids": [one.id for one in presentations]}),
+                 session_id),
+            )
     # **W10b fills the field W10 named and left NULL.** `for_unit` returns None
     # for a unit nobody has generated for -- which is most of them, because
     # generation is human-run (#196) -- and also for a stored lesson below the
@@ -1262,7 +1311,15 @@ def _focus_block(
         else:
             teaching_complete = True
 
+    # **The resume position, on the wire.** It was React state, so a refresh
+    # restarted practice at 1 of 8 while `item_attempts` held the answers (#275).
+    answered_count = 0
+    if conn is not None and session_id is not None and presentations:
+        done_ids = _answered_ids(conn, "item_attempts", "item_id", session_id)
+        answered_count = sum(1 for one in presentations if one.id in done_ids)
+
     return "ready", {
+        "answered": answered_count,
         "unit_number": unit.unit_number,
         "can_do": unit.can_do,
         "grammar_targets": [dict(one) for one in visible_targets(unit.grammar_targets)],
@@ -1561,7 +1618,14 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
             if unit_failed
             else _build_block(
                 "focus",
-                lambda: _focus_block(unit, user_id, section_index=section_index),
+                lambda: _focus_block(
+                    unit,
+                    user_id,
+                    section_index=section_index,
+                    conn=conn,
+                    session_id=session_id,
+                    stored_payload=_session_payload(conn, session_id),
+                ),
             ),
             "output": ("unavailable", {})
             if unit_failed

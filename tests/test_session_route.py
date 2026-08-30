@@ -755,3 +755,90 @@ def test_a_graded_card_stores_the_session_it_was_given(app, db, learner):
     ).fetchone()
     assert row is not None
     assert row[0] == body["session_id"]
+
+
+# ── #275: block 3's position and its served eight are server facts ──────────
+
+
+def test_block_three_serves_the_same_eight_after_a_refetch(app, db, learner):
+    """**RED BEFORE THE FIX. #269's shape on the daily path.**
+
+    The checkpoint was fixed to read its sitting from the server; block 3 still
+    re-selected on every mount. `bank_for_session` orders by
+    **least-recently-attempted first**, so answering an item moves it to the back
+    and the next eight are a DIFFERENT eight.
+
+    That is one cause with two symptoms: practice restarts at 1 of 8 on refresh,
+    **and `focus` can never reach `done`** — `_derive_done` compares the served
+    set against the answered set, and the served set is rebuilt fresh each time.
+    """
+    served_ids = [_seed_focus_item(db, learner, prompt_text=f"Stem {n} ___ here.")
+                  for n in range(10)]
+    assert len(served_ids) == 10
+
+    first = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    focus = next(b for b in first["blocks"] if b["kind"] == "focus")
+    eight = [one["id"] for one in focus["payload"]["items"]]
+    assert len(eight) == 8
+
+    for item_id in eight[:3]:
+        request(
+            app, "POST", f"/items/{item_id}/answer",
+            json_body={"text": "went", "session_id": first["session_id"]},
+            cookies=_as(learner),
+        )
+
+    again = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    payload = next(b for b in again["blocks"] if b["kind"] == "focus")["payload"]
+    assert [one["id"] for one in payload["items"]] == eight, (
+        "the same eight — a session's practice set is a stored fact"
+    )
+
+
+def test_block_three_reports_how_many_of_its_eight_are_answered(app, db, learner):
+    """**The resume position, on the wire rather than in browser state.**
+
+    Refreshing `/session` restarted practice at 1 of 8 while `item_attempts` held
+    the answers — the position was React state and the server was never asked.
+    """
+    for n in range(10):
+        _seed_focus_item(db, learner, prompt_text=f"Stem {n} ___ here.")
+
+    first = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    focus = next(b for b in first["blocks"] if b["kind"] == "focus")
+    assert focus["payload"]["answered"] == 0
+
+    for item_id in [one["id"] for one in focus["payload"]["items"]][:3]:
+        request(
+            app, "POST", f"/items/{item_id}/answer",
+            json_body={"text": "went", "session_id": first["session_id"]},
+            cookies=_as(learner),
+        )
+
+    again = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    payload = next(b for b in again["blocks"] if b["kind"] == "focus")["payload"]
+    assert payload["answered"] == 3
+
+
+def test_focus_reaches_done_when_a_churning_bank_would_never_let_it(app, db, learner):
+    """**The second symptom of the same cause, asserted on its own.**
+
+    With ten items in the unit and eight served, answering all eight must finish
+    the block — even though answering them pushes each to the back of
+    `bank_for_session`'s ordering and a fresh selection would return two items
+    nobody has seen.
+    """
+    for n in range(10):
+        _seed_focus_item(db, learner, prompt_text=f"Stem {n} ___ here.")
+
+    first = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    focus = next(b for b in first["blocks"] if b["kind"] == "focus")
+    for item_id in [one["id"] for one in focus["payload"]["items"]]:
+        request(
+            app, "POST", f"/items/{item_id}/answer",
+            json_body={"text": "went", "session_id": first["session_id"]},
+            cookies=_as(learner),
+        )
+
+    again = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    assert next(b for b in again["blocks"] if b["kind"] == "focus")["state"] == "done"
