@@ -842,3 +842,35 @@ def test_focus_reaches_done_when_a_churning_bank_would_never_let_it(app, db, lea
 
     again = request(app, "GET", "/session/today", cookies=_as(learner)).json()
     assert next(b for b in again["blocks"] if b["kind"] == "focus")["state"] == "done"
+
+
+def test_block_three_never_serves_the_same_item_twice_in_one_call(app, db, learner):
+    """**#276: can `bank_for_session` duplicate within ONE call? No — pinned.**
+
+    The learner reported the same item twice inside one sitting, so the query was
+    checked rather than assumed. `_SELECT`'s only join is
+    `LEFT JOIN error_types et ON et.code = items.error_type`, and
+    `error_types.code` is a PRIMARY KEY — so it matches at most one row per item
+    and cannot fan out. Items with a code and items with NULL are both covered
+    here, because a LEFT JOIN's NULL branch is the case a fan-out argument
+    usually forgets.
+
+    **The within-sitting repeat was #275**, not this: before that fix a refresh
+    reset the position to 1 *and* re-selected a churned eight, so an item already
+    answered reappeared at question 1 of the same sitting.
+    """
+    for n in range(10):
+        _seed_focus_item(db, learner, prompt_text=f"Dup probe {n} ___ here.")
+    db.execute(
+        "UPDATE items SET error_type = 'verb_tense_past' WHERE user_id = %s "
+        "AND id IN (SELECT id FROM items WHERE user_id = %s LIMIT 5)",
+        (learner.user_id, learner.user_id),
+    )
+    db.commit()
+
+    body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    ids = [
+        one["id"]
+        for one in next(b for b in body["blocks"] if b["kind"] == "focus")["payload"]["items"]
+    ]
+    assert len(ids) == len(set(ids)), f"a duplicate inside one call: {ids}"
