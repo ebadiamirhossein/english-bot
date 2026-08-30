@@ -7,7 +7,7 @@ import { CardRunner } from "@/components/cards/card-runner";
 import { ItemCard } from "@/components/items/item-card";
 import { LessonBody } from "@/components/lessons/lesson";
 import { BlockShell } from "@/components/session/block-shell";
-import { BLOCKS, NOTHING_DUE } from "@/components/session/copy";
+import { BLOCKS, SEEN_BEFORE, NOTHING_DUE } from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
 import type { CardFace, ItemPresentation, Lesson, SessionBlock } from "@/lib/api";
 
@@ -236,6 +236,14 @@ export function FocusBlock({
                   .replace("{n}", String(index + 1))
                   .replace("{total}", String(items.length))}
               </p>
+              {(item as { seen?: boolean }).seen ? (
+                <p
+                  className="text-sm leading-relaxed text-muted-foreground"
+                  data-testid="focus-seen-before"
+                >
+                  {SEEN_BEFORE}
+                </p>
+              ) : null}
               <ItemCard
                 key={item.id}
                 item={item}

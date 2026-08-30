@@ -1314,9 +1314,22 @@ def _focus_block(
     # **The resume position, on the wire.** It was React state, so a refresh
     # restarted practice at 1 of 8 while `item_attempts` held the answers (#275).
     answered_count = 0
+    seen_before: set[int] = set()
     if conn is not None and session_id is not None and presentations:
         done_ids = _answered_ids(conn, "item_attempts", "item_id", session_id)
         answered_count = sum(1 for one in presentations if one.id in done_ids)
+        # **#276 (c), operator ruling: when block 3 serves an item the learner
+        # has met before, the surface says so.** BEFORE THIS SESSION, not
+        # earlier in it -- telling someone they have answered a question they
+        # answered ninety seconds ago is noise, and the fact worth stating is
+        # that the bank has come round again.
+        row = conn.execute(
+            "SELECT array_agg(DISTINCT item_id) FROM item_attempts"
+            " WHERE user_id = %s AND item_id = ANY(%s)"
+            "   AND (session_id IS NULL OR session_id <> %s)",
+            (user_id, [one.id for one in presentations], session_id),
+        ).fetchone()
+        seen_before = set((row["array_agg"] or []) if row else [])
 
     return "ready", {
         "answered": answered_count,
@@ -1331,6 +1344,7 @@ def _focus_block(
                 "id": one.id,
                 "response_mode": one.response_mode,
                 "projection": one.projection,
+                "seen": one.id in seen_before,
             }
             for one in presentations
         ],

@@ -1686,6 +1686,56 @@ def _expected_checkpoint_calls(plan: dict[int, dict]) -> int:
     return total
 
 
+
+def _print_rotation(
+    user_id: int, numbers: tuple[int, ...], *, checkpoint: bool, adding: int
+) -> None:
+    """**#276's number, printed before anything is spent rather than argued in prose.**
+
+    A learner meets the same sentences on a cycle of `practice_bank / 8` days,
+    because block 3's window is `ITEMS_PER_UNIT` and `bank_for_session` rotates
+    by least-recently-attempted. Unit 1's bank is sixteen, so the cycle is two
+    days -- **which is the defect a person felt, and the arithmetic nobody had
+    written down.**
+
+    **§3.2a's `8 + 12 = 20` IS ABOUT COEXISTENCE AND NOT ABOUT REPETITION, and
+    this is the finding worth reading before deciding what to buy:** eight
+    practice items behind an eight-item window is a **ONE-DAY** cycle -- the same
+    sentences every morning, which is worse than what the learner is complaining
+    about. The number that governs repetition is `practice_bank`, not the total.
+
+    An unattempted checkpoint cohort is RESERVED and does not count as practice
+    stock; a sat one does. So a fresh cohort lengthens the cycle only after it is
+    sat, and that is stated because it is the opposite of the obvious guess.
+    """
+    from core.services import items as items_service
+
+    print("\n=== rotation (#276) ===")
+    for number in numbers:
+        practice = len(
+            items_service.bank_for_session(user_id, unit_number=number, limit=10_000)
+        )
+        cycle = practice // ITEMS_PER_UNIT
+        print(
+            f"  unit {number}: practice bank {practice} against an "
+            f"{ITEMS_PER_UNIT}-item window -> "
+            f"{'a ' + str(cycle) + '-day cycle' if cycle else 'FEWER THAN ONE FULL DAY'}"
+        )
+        if checkpoint:
+            after = practice + adding // max(len(numbers), 1)
+            print(
+                f"    this run adds {adding // max(len(numbers), 1)} RESERVED "
+                f"cohort items: the cycle is unchanged at {cycle} until they are "
+                f"sat, then becomes {after // ITEMS_PER_UNIT} "
+                f"({after} practice items)"
+            )
+        print(
+            f"    for an N-day cycle unit {number} needs "
+            f"{ITEMS_PER_UNIT} x N practice items: "
+            f"3 days = {ITEMS_PER_UNIT * 3}, 7 days = {ITEMS_PER_UNIT * 7}"
+        )
+
+
 def dry_run(
     user_id: int,
     numbers: tuple[int, ...],
@@ -1760,6 +1810,10 @@ def dry_run(
     print(f"generate {GENERATE_MAX_TOKENS} · probe {gates.SOLVER_MAX_TOKENS} · "
           f"judge {gates.JUDGE_MAX_TOKENS} · target {gates.TARGET_MAX_TOKENS} "
           "(reject_truncation=True on all four)")
+
+    _print_rotation(user_id, numbers, checkpoint=checkpoint, adding=len(
+        [one for entry in plan.values() for one in entry["slots"]]
+    ))
 
     reference = coverage_reference()
     print("\n=== coverage ===")

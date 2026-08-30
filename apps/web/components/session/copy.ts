@@ -132,3 +132,17 @@ export const TYPED = {
   // comparison is a single-string fold that cannot see a good paraphrase.
   unmatched: "Here it is:",
 } as const;
+
+/**
+ * **#276 (c), operator ruling 2026-08-29.** Unit 1's practice bank is sixteen
+ * items behind an eight-a-day window, so a learner meets the same sentences on a
+ * two-day rotation. Ruling (b) — hiding sat checkpoint items — was REFUSED: it
+ * would take the bank from sixteen to four and trade a repetition defect for an
+ * emptiness one.
+ *
+ * So the app says it plainly instead. **No apology, no "again", no count of how
+ * many times** — a tally is a score, and a score on repetition is a reproach.
+ * It states the fact and stops. Covered by the `.tsx` no-guilt scan like every
+ * other string here.
+ */
+export const SEEN_BEFORE = "You've answered this one before.";

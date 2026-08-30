@@ -874,3 +874,38 @@ def test_block_three_never_serves_the_same_item_twice_in_one_call(app, db, learn
         for one in next(b for b in body["blocks"] if b["kind"] == "focus")["payload"]["items"]
     ]
     assert len(ids) == len(set(ids)), f"a duplicate inside one call: {ids}"
+
+
+def test_an_item_met_before_today_says_so_and_one_met_today_does_not(app, db, learner):
+    """**#276 (c), operator ruling: the surface says it plainly.**
+
+    Ruling (b) — hiding sat checkpoint items — was refused, so the repetition
+    stays and the app acknowledges it instead. `seen` means **before this
+    session**: telling someone they have answered a question they answered ninety
+    seconds ago is noise, and the fact worth stating is that the bank came round.
+    """
+    item_id = _seed_focus_item(db, learner)
+    first = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    payload = next(b for b in first["blocks"] if b["kind"] == "focus")["payload"]
+    assert payload["items"][0]["seen"] is False
+
+    request(
+        app, "POST", f"/items/{item_id}/answer",
+        json_body={"text": "went", "session_id": first["session_id"]},
+        cookies=_as(learner),
+    )
+    same = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    again = next(b for b in same["blocks"] if b["kind"] == "focus")["payload"]
+    assert again["items"][0]["seen"] is False, "answered in THIS session is not 'before'"
+
+    # An attempt from another session is what `seen` is for.
+    db.execute(
+        "INSERT INTO item_attempts (user_id, item_id, correct, graded_by) "
+        "VALUES (%s, %s, TRUE, 'deterministic')",
+        (learner.user_id, item_id),
+    )
+    db.commit()
+    later = request(app, "GET", "/session/today", cookies=_as(learner)).json()
+    assert next(
+        b for b in later["blocks"] if b["kind"] == "focus"
+    )["payload"]["items"][0]["seen"] is True
