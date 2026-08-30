@@ -265,19 +265,34 @@ def test_a_chunk_derived_card_is_invisible_until_the_backfill_runs(
 
 
 def test_tier_resolves_to_tier_and_never_to_ti(db, learner) -> None:
-    """`lemmatize("tier") == "ti"` — a WRONG resolution, not a failed one.
+    """`lemmatize("tier")` — a WRONG resolution, not a failed one.
 
-    `tier` is absent from the seed list, so the suffix step strips `-er`,
-    proposes `ti`, and `ti` IS a known lemma (rank 9,856, an OpenSubtitles
-    artefact). Nothing was invented and the answer is still wrong. Migration 013
+    `tier` is absent from the seed list, so the suffix step stripped `-er`,
+    proposed `ti`, and `ti` IS a known lemma (rank 9,856, an OpenSubtitles
+    artefact). Nothing was invented and the answer was still wrong. Migration 013
     says `lexeme_id` is what `grade_card` writes the ledger from, so a card
     pointing at `ti` would corrupt the ledger on every grade — and it would have
     read GREEN, because the importer makes the same error on the same input.
+
+    **THE FIX ARRIVED IN W12a AND THIS IS THE FILE IT WAS ASKED TO EXPLAIN.**
+    The pin read ``assert lemmatize("tier") == "ti"`` and was described as
+    *pinned so a future fix explains this file*. W12a (#177) deleted the `-er`
+    and `-est` branches of ``_suffix_candidates``, so `tier` no longer resolves
+    at all and the assertion becomes ``is None``. **The pin is UPDATED, not
+    deleted**: the surrounding test is the one that proves
+    ``resolve_capture_lemma`` never routed through `lemmatize` in the first
+    place, and that is still worth asserting.
+
+    Why `None` and not `tier`: `lemmatize` resolves, it does not create. `tier`
+    is not in the seed list, so the honest answer is *I cannot account for
+    this*, and an unresolved token counts unknown — coverage reads low rather
+    than falsely high. Growing `tier` into a lexeme is
+    ``resolve_capture_lemma``'s job, which is what the rest of this test checks.
     """
     from core.lexicon.normalize import lemmatize
 
-    # The defect this test guards, pinned so a future fix explains this file.
-    assert lemmatize("tier") == "ti"
+    # W12a. Was `== "ti"`; the artefact resolution is gone, not re-pointed.
+    assert lemmatize("tier") is None
 
     lexeme_id, _path = svc.resolve_capture_lemma(db, "tier", grow=True)
     db.rollback()

@@ -219,6 +219,30 @@ def build_lexemes(
     return rows, {row["lemma"]: tuple(sorted(tags[row["lemma"]])) for row in rows}
 
 
+def repair_silent_e(form: str, lemma: str) -> str:
+    """`lemminflect` spells some `-e`-final comparatives by appending, not by
+    dropping the `e`: `free` → `freeer`, `blue` → `blueest`.
+
+    It gets `nice` → `nicer` and `true` → `truest` right, so the fault is
+    per-lemma rather than systematic, which is why it produced only eleven bad
+    rows across six lemmas and why nothing noticed. **A lemma ending in `e`
+    always drops that `e` before `-er`/`-est`** — there is no exception in
+    English — so this repair is safe to apply unconditionally.
+
+    **Scoped to those two suffixes on purpose.** `-ed` and `-ing` are NOT
+    touched: `being`, `ageing`, `queueing`, `bingeing` and `tieing` are all
+    correct English, and the scan that found this bug listed them only because
+    it was matching the *shape* `lemma + suffix`, not a fault. Widening this to
+    them would move rows with no defect behind them. See **#282**.
+    """
+    if not lemma.endswith("e"):
+        return form
+    for suffix in ("est", "er"):
+        if form == lemma + suffix:
+            return lemma[:-1] + suffix
+    return form
+
+
 def build_inflections(
     rows: list[dict], tags: dict[str, tuple[str, ...]]
 ) -> list[tuple[str, str]]:
@@ -251,7 +275,9 @@ def build_inflections(
             for spellings in getAllInflections(lemma, upos=upos).values():
                 forms.update(spellings)
         for spelling in forms:
-            form = spelling.lower()
+            # Repaired BEFORE the filters below, so the corrected spelling is
+            # what gets rank-compared and written (#282).
+            form = repair_silent_e(spelling.lower(), lemma)
             if form == lemma or not SURFACE.match(form) or len(form) > 64:
                 continue
             incumbent = best.get(form)

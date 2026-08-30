@@ -14,7 +14,9 @@ word-tokenising regex anywhere in ``core`` or ``apps``.
 Resolving is not creating. ``lemmatize`` returns ``None`` for a form it cannot
 account for — it can fail, but it cannot invent a lemma. Growing the lexicon is
 ``core.services.lexicon.ensure_lexeme``, called only from an explicit tap with
-a surface form the learner actually produced.
+a surface form the learner actually produced. **It can still resolve WRONGLY,
+which is a different guarantee and was confused with this one for eight slices
+— see ``lemmatize``'s docstring and #177.**
 """
 
 from __future__ import annotations
@@ -268,6 +270,15 @@ def lemmatize(surface: str, vocabulary: frozenset[str] = frozenset()) -> str | N
        it is already a known lemma**. That check is what turns a guess into a
        lookup — the function can fail to resolve, but it cannot invent.
 
+    **That last claim was true literally and false in effect until W12a.** The
+    accepted candidate has to be a known lemma, but the seed list holds
+    OpenSubtitles artefacts — `ti` at rank 9,856, `tru`, `we` — so `tier`
+    resolved to `ti` through a rule that never invented anything. *Cannot
+    invent* is not the same guarantee as *cannot resolve wrongly*, and reading
+    it as though it were is what let the defect stand from W4 to W12a. **W12a
+    (#177) deleted the `-er` and `-est` rules**; comparatives come from the
+    inflection table, which was repaired in the same commit (#282).
+
     The table is consulted *before* the identity check, and the order is
     load-bearing for homographs. `saw` earns a lexeme row of its own at rank
     10,415 off `sawing`/`sawed`, while `see` sits at rank 49; identity-first
@@ -323,16 +334,18 @@ def _suffix_candidates(word: str):
         yield word[:-3] + "e"                    # making → make
         if length > 5 and word[-4] == word[-5]:  # running → run
             yield word[:-4]
-    if word.endswith("est") and length > 4:
-        yield word[:-3]
-        yield word[:-2]
-        if length > 5 and word[-4] == word[-5]:
-            yield word[:-4]
-    if word.endswith("er") and length > 3:
-        yield word[:-2]
-        yield word[:-1]
-        if length > 4 and word[-3] == word[-4]:
-            yield word[:-3]
+    # `-er` and `-est` were HERE and were deleted in W12a (#177). They stripped
+    # a derivational `-er` onto whatever stem happened to be a known lemma:
+    # `tier` → `ti` (an OpenSubtitles artefact at rank 9,856), `router` →
+    # `route`, `blogger` → `blog`. Measured over the 11,215 `-er`/`-est` words
+    # in `/usr/share/dict/words`, they bought 2,814 resolutions, of which the
+    # comparatives were `freer`, `freest`, `bluer`, `bluest`, `eerier`,
+    # `eeriest`, `vaguer` and `vaguest` — all eight now answered by the
+    # inflection table, which was repaired in the same commit (#282). Every
+    # remaining one of the 2,814 pointed at a NOUN or VERB lemma and so read
+    # coverage HIGH, which is the unsafe direction this module refuses
+    # everywhere else. Comparatives are the inflection table's job; `bigger`,
+    # `happiest` and `nicer` were always answered at step 1 and still are.
     if word.endswith("ily") and length > 4:
         yield word[:-3] + "y"
     if word.endswith("ly") and length > 3:

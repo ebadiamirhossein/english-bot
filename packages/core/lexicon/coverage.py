@@ -88,13 +88,14 @@ def compute_coverage(
     detect_proper_nouns = casing == "conventional"
 
     tagged = cefr_tagged_lemmas()
+    names = _name_forms(tokens, tagged)
     counted = 0
     excluded = 0
     by_state: dict[str, int] = {}
     unknown: dict[str, None] = {}
 
     for token in tokens:
-        if _is_excluded(token, detect_proper_nouns, tagged):
+        if _is_excluded(token, detect_proper_nouns, names):
             excluded += 1
             continue
         counted += 1
@@ -128,17 +129,47 @@ def compute_coverage(
     )
 
 
-def _is_excluded(token: Token, detect_proper_nouns: bool, tagged: frozenset[str]) -> bool:
+def _name_forms(tokens: list[Token], tagged: frozenset[str]) -> frozenset[str]:
+    """#89. The lowercased forms that appear capitalised **mid-sentence**
+    anywhere in this text.
+
+    A capital that is not sentence-initial is the only evidence raw text
+    carries that a word is a name. Reading it per-token, as this module did
+    until W12a, made the *first word of a sentence* undecidable: `Sarah went to
+    the shop` counted `Sarah` unknown, so a transcript of dialogue read harder
+    than it is, and W12 selects on that number.
+
+    Collecting the evidence over the whole text first is #89's own named fix —
+    *mark any token that appears capitalised mid-sentence anywhere in the text
+    as a name everywhere in it.* One mid-sentence `Sarah` now vouches for every
+    sentence-initial `Sarah` in the same text.
+
+    The CEFR tag is the discriminator because the frequency list is lowercased:
+    `sarah` sits at rank 1221 with no tag, `internet` at 2113 with A1.
+
+    **The residue is deliberate and is pinned by a test, not merely described.**
+    A name that appears ONLY sentence-initially in an entire text still counts
+    as unknown, because nothing in the text distinguishes it from an ordinary
+    word that happens to open a sentence. Coverage then reads LOW, which is the
+    safe direction. Widening it — excluding every capitalised token wherever it
+    stands — would exclude the first word of every sentence in the language.
+    """
+    return frozenset(
+        token.lower
+        for token in tokens
+        if token.is_capitalised
+        and not token.sentence_initial
+        and token.lower not in tagged
+    )
+
+
+def _is_excluded(token: Token, detect_proper_nouns: bool, names: frozenset[str]) -> bool:
     if token.is_numeric or token.is_filler:
         return True
     if not detect_proper_nouns:
         return False
-    # A capitalised token that is not starting a sentence, and that no
-    # vocabulary syllabus levels, is a name. The CEFR tag is the discriminator
-    # because the frequency list is lowercased: `sarah` sits at rank 1221 with
-    # no tag, `internet` at 2113 with A1.
-    return (
-        token.is_capitalised
-        and not token.sentence_initial
-        and token.lower not in tagged
-    )
+    # Still requires the capital AT THIS OCCURRENCE. `names` says the form is
+    # used as a name in this text; a lowercase occurrence is a different word
+    # (`Mark` the person, `mark` the noun), and excluding it would bias
+    # coverage HIGH — the drowning direction.
+    return token.is_capitalised and token.lower in names

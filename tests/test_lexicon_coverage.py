@@ -129,11 +129,163 @@ def test_a_transcript_full_of_names_does_not_read_as_hard() -> None:
     )
     report = compute_coverage(with_names, known)
     assert report.proper_nouns_detected
-    # Seven capitalised tokens sit mid-sentence and are excluded: Michael,
-    # Jonathan, Persephone, Bartholomew, Anastasia, and Sarah and Michael
-    # again. The opening `Sarah` is sentence-initial and is NOT excluded.
-    assert report.excluded_tokens == 7
+    # EIGHT. Seven capitalised tokens sit mid-sentence — Michael, Jonathan,
+    # Persephone, Bartholomew, Anastasia, and Sarah and Michael again — and
+    # since W12a the opening `Sarah` is excluded too, because `Sarah` is
+    # attested mid-sentence later in the same text (#89).
+    #
+    # This assertion read `== 7` until W12a, above the comment *"The opening
+    # `Sarah` is sentence-initial and is NOT excluded"* — the defect written
+    # down as expected behaviour, which is why #89 sat open from W4.
+    assert report.excluded_tokens == 8
     assert report.coverage > 0.85
+
+
+# ── #177 and #89, both fixed in W12a ────────────────────────────────────────
+
+
+def test_a_derivational_er_is_not_stripped_onto_a_stem() -> None:
+    """#177. `-er` is a derivational suffix far more often than a comparative one.
+
+    Every expected value below is HAND-WRITTEN (CLAUDE.md §3 rule 5). Asking
+    `lemmatize` what it thinks `router` is would pass against the defect.
+
+    `tier` was the reported case and it is the mildest: the stem `ti` is an
+    OpenSubtitles artefact, so the accept-only-a-known-lemma guard passed on a
+    non-word. `router → route` and `blogger → blog` are worse, because they are
+    real lemmas and the resolution still credits a learner who knows `route`
+    with knowing `router`. Coverage then reads HIGH, which is the direction this
+    module refuses everywhere else.
+    """
+    assert lemmatize("tier") is None
+    assert lemmatize("router") is None
+    assert lemmatize("blogger") is None
+    assert lemmatize("renter") is None
+    assert lemmatize("influencer") is None
+    assert lemmatize("toner") is None
+
+
+def test_deleting_the_er_rules_did_not_cost_a_single_comparative() -> None:
+    """The other half of #177, and the half that can actually fail.
+
+    A test that only states what a fix repairs cannot go red when the fix
+    breaks something else. These five were always answered by the inflection
+    table at step 1, so the deleted branches never saw them.
+    """
+    assert lemmatize("bigger") == "big"
+    assert lemmatize("biggest") == "big"
+    assert lemmatize("happier") == "happy"
+    assert lemmatize("easiest") == "easy"
+    assert lemmatize("nicer") == "nice"
+
+
+def test_the_eight_comparatives_the_deletion_would_have_cost_are_in_the_table() -> None:
+    """#282. The eight resolutions that hung off the deleted branches.
+
+    `data/inflections.tsv` held `freeer` and `blueest` — `lemminflect` spells
+    an `-e`-final comparative by appending — so the real spellings were absent
+    and only the suffix rules answered them. **A defect in the data was masked
+    by a defect in the code.** Deleting the branches without repairing the rows
+    would have lost these eight; repairing the rows without deleting the
+    branches would have left `tier → ti`. Neither fix alone is correct, which
+    is the finding.
+
+    `truer`, `weer` and `weest` are here as well and were never in the eight:
+    they resolved to `tru` and `we` — the `ti` artefact class again — so the
+    repair CORRECTED them rather than preserving them.
+    """
+    assert lemmatize("freer") == "free"
+    assert lemmatize("freest") == "free"
+    assert lemmatize("bluer") == "blue"
+    assert lemmatize("bluest") == "blue"
+    assert lemmatize("eerier") == "eerie"
+    assert lemmatize("eeriest") == "eerie"
+    assert lemmatize("vaguer") == "vague"
+    assert lemmatize("vaguest") == "vague"
+    # Repaired, not preserved. These read `tru`, `we`, `we` before W12a.
+    assert lemmatize("truer") == "true"
+    assert lemmatize("weer") == "wee"
+    assert lemmatize("weest") == "wee"
+
+
+def test_no_malformed_e_final_comparative_remains_in_the_table() -> None:
+    """#282, asserted against the data rather than against the eleven names.
+
+    Named rows would pass while a twelfth sat beside them. This states the
+    RULE — a lemma ending in `e` always drops it before `-er`/`-est` — and
+    checks every row, so a regenerated file that reintroduces the bug goes red
+    here even for a lemma nobody has met.
+    """
+    offenders = [
+        (form, lemma)
+        for form, lemma in inflections().items()
+        if lemma.endswith("e") and form in (lemma + "er", lemma + "est")
+    ]
+    assert offenders == [], f"`-e`-final lemma + er/est without dropping the e: {offenders}"
+
+
+def test_a_sentence_initial_name_is_excluded_when_the_text_attests_it() -> None:
+    """#89, and the assertion NAMES the lemma rather than counting exclusions.
+
+    A count could not see the wrong twelve in W11 and it could not see the
+    wrong name here. `Sarah` opens the first sentence and sits mid-sentence in
+    the second; one mid-sentence capital is the evidence, and it now vouches
+    for both occurrences.
+    """
+    known = frozenset({"go", "to", "the", "shop", "i", "see", "yesterday"})
+    text = "Sarah went to the shop. I saw Sarah yesterday."
+    report = compute_coverage(text, known)
+
+    assert report.proper_nouns_detected
+    assert "sarah" not in report.unknown_lemmas
+    # Both occurrences, not merely the mid-sentence one.
+    assert report.excluded_tokens == 2
+    assert report.counted_tokens == 7
+
+
+def test_a_name_that_only_ever_opens_a_sentence_is_still_counted() -> None:
+    """#89's RESIDUE, pinned rather than described. See #284.
+
+    Nothing in `Sarah went to the shop.` distinguishes `Sarah` from an ordinary
+    word opening a sentence, so it stays in the denominator and reads unknown.
+    Coverage is understated, which is the safe direction — the alternative,
+    excluding every sentence-initial capital, would drop the first word of
+    every sentence in the language.
+
+    This is asserted because a residue named in a docstring and not in a test
+    is a residue that gets rediscovered as a bug.
+    """
+    known = frozenset({"go", "to", "the", "shop"})
+    report = compute_coverage("Sarah went to the shop.", known)
+
+    assert report.excluded_tokens == 0
+    assert "sarah" in report.unknown_lemmas
+    assert report.counted_tokens == 5
+
+
+def test_a_lowercase_occurrence_of_a_name_form_is_still_counted() -> None:
+    """The bound on #89's fix, in the direction that would do damage.
+
+    #89's wording is *mark it as a name everywhere in the text*. Read as *every
+    occurrence whatever its case*, `Jack` the person would drag `jack` the tool
+    out of the denominator with it, and coverage would read HIGH — which is
+    what puts a learner in front of material they cannot follow. So the capital
+    is still required AT the occurrence; what W12a dropped is only the demand
+    that the capital be mid-sentence.
+
+    `jack` is the fixture because it is untagged. A tagged homograph never
+    reaches this rule at all — `mark`, `bill`, `rose` and `will` all carry CEFR
+    tags, which is what
+    `test_a_capitalised_word_the_syllabus_levels_is_not_treated_as_a_name`
+    covers.
+    """
+    assert "jack" not in cefr_tagged_lemmas()
+    known = frozenset({"i", "see", "at", "the", "shop", "use", "a", "to", "lift", "car", "he"})
+    text = "I saw Jack at the shop. He used a jack to lift the car."
+    report = compute_coverage(text, known)
+
+    assert report.excluded_tokens == 1       # the capitalised person, excluded
+    assert "jack" in report.unknown_lemmas   # the lowercase tool, still counted
 
 
 def test_a_capitalised_word_the_syllabus_levels_is_not_treated_as_a_name() -> None:
