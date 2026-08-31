@@ -250,6 +250,142 @@ statement grants *use*, not *redistribution*.
 | English Vocabulary Profile | CEFR level tags | Cambridge proprietary, browse-only | **No** |
 | Oxford 3000/5000 | level bands | proprietary | **No** |
 
+## W12b's video pipeline — the gate that ran on 2026-08-30, and the operator's ruling against it
+
+Run before any code was written, as W4's, W7's, W8's, W8c's and W10b's were.
+**This is the first time the gate's finding and the decision taken have gone in
+opposite directions**, so both are recorded, the clauses are quoted rather than
+summarised (W10b's precedent: the verbatim read found three things the summary
+had lost), and the debt is named.
+
+### What is committed here, and what is not
+
+`data/video_channels.json` is **original work** — eleven operator-approved
+channels, each with an id, an authored accent, a track tag and one line of why
+it is in the pool. Nothing in it is transcribed from a third party.
+
+**No transcript, caption, title or thumbnail is committed to this repository.**
+Transcripts live in `videos.transcript` in the database and are purged after 30
+calendar days. Video is never downloaded and never re-hosted: PRD §7.1's
+mechanism is the YouTube IFrame Player embed, which is W13's.
+
+### The finding: there is no licit route to a third party's captions, at any permission level
+
+Established before the ruling and **not re-argued** — it is the fact the ruling
+was taken against, and it is what makes the debt real rather than theoretical.
+
+- `captions.download` requires permission to **edit the video**, which we do not
+  have for somebody else's channel.
+- `captions.list` requires **OAuth** and returns no caption **text**.
+
+So the API cannot supply what the pipeline needs, at any scope. The clauses that
+bear on doing it another way, verbatim:
+
+**YouTube Terms of Service — Permissions and Restrictions.** The permission:
+
+> "You may also show YouTube videos through the embeddable YouTube player."
+
+Restriction 1:
+
+> "access, reproduce, download, distribute, transmit, broadcast, display, sell, license, alter, modify or otherwise use any part of the Service or any Content except: (a) as expressly authorized by the Service; or (b) with prior written permission from YouTube and, if applicable, the respective rights holders;"
+
+Restriction 3:
+
+> "access the Service using any automated means (such as robots, botnets or scrapers) except (a) in the case of public search engines, in accordance with YouTube's robots.txt file; or (b) with YouTube's prior written permission;"
+
+**YouTube API Services — Developer Policies §III.E.6:**
+
+> "You and your API Clients must not, and must not encourage, enable, or require others to, directly or indirectly, scrape YouTube Applications or Google Applications, or obtain scraped YouTube data or content."
+
+**Developer Policies §III.E.1.a:**
+
+> "You and your API Clients must not, and must not encourage, enable, or require others to, download, import, backup, cache, or store copies of YouTube audiovisual content without YouTube's prior written approval."
+
+**Developer Policies §III.E.4.c and §III.E.4.d** — the retention limits:
+
+> "API Clients may store all other types of Authorized Data not identified in section (III.E.4.b) for as long as is necessary for the purposes of the specific consent granted by an active user and for no longer than 30 calendar days."
+>
+> "API Clients may temporarily store limited amounts of Non-Authorized Data for as long as is necessary for the purposes of the API Client but not longer than 30 calendar days."
+
+**Developer Policies — Definitions:**
+
+> "'Non-Authorized Data' means API Data accessible by an API Client without User Credentials."
+
+**API Services Terms of Service §1**, defining API Data:
+
+> "data, content (including audiovisual content) and information provided to API Clients through the YouTube API services"
+
+**Apify General Terms & Conditions §6.2, §11.1, §5.8 and §13.1** — where the
+liability sits:
+
+> "You must use the Services to process only the Customer Data that you are authorized to access and that is in compliance with all applicable laws and regulations."
+>
+> "Should you use the Services or Actors to extract Customer Data from unauthorized sources, you shall be responsible for compensating any damages incurred by and/or any claims of the affected third parties."
+>
+> "You are solely responsible for the legality, accuracy, quality, appropriateness, and use of all Customer Data."
+>
+> "We are not obliged to verify the manner in which you or other Users or customers use the Website or Services, and we shall not be liable for the manner of such usage."
+
+Apify's terms place the liability **on us**, not on the actor's developer and not
+on Apify.
+
+### The ruling — the operator's, in his own words, 2026-08-30
+
+> VOA Learning English is too boring, the learners will not watch it, and a
+> library nobody opens is worth nothing.
+
+Transcripts are taken with scraping tools. **Option D of four.** The declined
+alternative was a pool restricted to public-domain and explicitly-licensed
+sources, which the operator judged unwatchable — and an unwatched library
+supplies no comprehensible input at all, which is the entire point of PRD §7.
+
+**PRODUCT-PRINCIPLES §3's commercial test is knowingly NOT MET on this point.**
+§3 requires that a licence answer hold for a commercial product and not only for
+a private one, and this one does not. **The debt is recorded as: revisit before
+commercial launch.**
+
+### A distinction that must not be lost, because losing it would invent a permission
+
+**§III.E.4.d does not license thirty days of scraped transcript.** It caps
+"Non-Authorized Data", which is **defined** as *API Data* accessible without user
+credentials — and API Data is, by the API ToS §1 definition above, what is
+"provided to API Clients through the YouTube API services".
+
+A scraped transcript did not come through the API. **It is not API Data, and
+§III.E.4.d does not reach it** — which is precisely why the gate refused the API
+route in the first place.
+
+So, in `migrations/019_video.sql` and in the purge that implements it:
+
+- the **30-day cap on the metadata** (`title`, `duration_s`, `published_at`) is
+  §III.E.4.d **compliance**;
+- the **30-day purge of `transcript`** is **conservative policy** — storing
+  scraped text indefinitely is worse than storing it briefly — **and is not
+  compliance with anything**, because no clause reaches it.
+
+Recorded at this length because a reader who finds the purge and not this
+paragraph concludes §III.E.4.d permits caching transcripts for thirty days,
+which is the **opposite** of what the gate found.
+
+**`youtube_id` and `video_assignments` survive the purge.** A video id is a
+public identifier the learner reads off the URL, and the purge exists to bound
+stored **content**; nulling them would destroy the repeat-suppression penalty and
+the learner's own history for no compliance gain.
+
+### The transcript actor
+
+`johnvc/YoutubeTranscripts`, ruled 2026-08-31 over
+`pintostudio/youtube-transcript-scraper` on four measured counts: it reports the
+manual/auto caption kind PRD §7.2 requires, reports it **free** via `list_only`,
+polls channels at all, and bills **one dataset row per video** where the
+alternative publishes no output schema and so has no knowable per-video cost.
+`codepoetry/youtube-transcript-ai-scraper` is the named fallback. The actor is
+`APIFY_TRANSCRIPT_ACTOR`, one environment variable, per CLAUDE.md §2.
+
+**Nothing about the licence position turns on which actor is used.** The ruling
+above settled *that* transcripts are scraped; the actor choice is an engineering
+and cost decision underneath it.
+
 ## If the share-alike condition has to go
 
 Replace **source 1** — the frequency half is what carries BY-SA. Candidates to

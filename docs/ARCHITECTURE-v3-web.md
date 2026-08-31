@@ -125,13 +125,49 @@ Existing 15 tables are untouched. New:
 | `card_reviews` | **the append-only review log** — one row per grade, with the state before and after (corrected at W7; see below) |
 | `items` | validated exercise items + their validation record (§PRD 4.3) |
 | `item_attempts` | per-question outcome log — **closes v2 known-issue #20** (calibration was an approximation because per-question outcomes were never logged) |
-| `videos` | youtube_id, channel, captions_type, duration, transcript_ref, coverage cache |
-| `video_assignments` | user × video × date, segment start/end, completion |
+| `videos` | youtube_id, channel_id, **accent, track**, title, duration_s, published_at, transcript, **`captions_kind`**, transcript_status/attempts, metadata_refreshed_at — ~~captions_type~~, ~~transcript_ref~~, ~~coverage cache~~ |
+| `video_coverage` | **user × video**: coverage, counted/excluded tokens, `proper_nouns_detected`, `casing`, `lexicon_digest` — **added W12b; see the correction below** |
+| `video_assignments` | user × video × date, **resume position**, completion, score_breakdown — ~~segment start/end~~ |
 | `placement_bank` | fixed calibrated placement items |
 | `placement_runs` | each sitting: per-skill scores, CEFR band, vocab estimate |
 | `speech_attempts` | scores only — never audio, never transcripts of the diary |
 | `subtitle_ladder` | user × source_type (`youtube_curated` / `native_series`): current step, check history, reveal counts |
 | `sessions` | **extended**, not replaced: block breakdown, minutes, XP |
+
+**W12b corrected this section on 2026-08-31, in three places, and the
+corrections are named rather than quietly reconciled** — the same way W7 and W6
+corrected it before.
+
+**1. `coverage cache` was on the wrong row, and it could not have been right.**
+Coverage is `% of tokens whose lemma this LEARNER knows`, so it is a fact about
+a learner *and* a video. A column on the global `videos` row can only hold one
+of the two learners' numbers, and nothing says which. Migration 019 adds
+**`video_coverage`**, keyed `(user_id, video_id)` — the same shape and the same
+reason `syllabus_unit_lexemes` has no `user_id` while the per-learner diff is
+computed against it.
+
+It is an **audit record and not a cache**, which is the second half of the
+correction. `core.video.assign` recomputes coverage on every run and never reads
+the stored value back, so the table has **no invalidation rule** — and saying so
+is the honest statement, where a rule nothing consults would be a guarantee
+nobody checks. `lexicon_digest` is therefore **provenance**: W12a moved one real
+transcript from 88.24% to 75.76%, so a figure written before it means something
+measurably different from one written after, and the digest is what tells them
+apart.
+
+**2. `captions_type` was the wrong name for what the column holds.** It holds a
+*kind* — `manual` or `generated` — and it exists only because the ruled actor
+genuinely reports that distinction. A column wearing a kind's name while holding
+a presence flag is #257's defect exactly: a scanner enforces the form of a claim
+and not its truth. It is `captions_kind`, and had no actor reported a kind the
+column would not exist and PRD §7.2's human-captions preference would have been
+filed unmet rather than worked around.
+
+**3. `segment start/end` is gone, by the operator's ruling of 2026-08-30** — the
+full video is shown, not a three-minute segment. `video_assignments` carries a
+**resume position** instead: where the learner stopped, not where a chooser cut.
+The ruling and the operator's reason for it are quoted in `docs/PRD-v3-web.md`
+§7.2, which is corrected in the same commit.
 
 **W7 corrected this section on 2026-08-25, and the correction is named rather
 than quietly reconciled** — the same way W6 corrected §6.
@@ -242,8 +278,8 @@ the same day. All four are named rather than quietly reconciled.**
 
 | Job | Schedule | Action |
 |---|---|---|
-| `assign_daily` | 03:30 local | build tomorrow's session; pick + pre-validate items; choose the video |
-| `pick_videos` | Sun 04:00 | refresh candidate pool from the channel list, compute coverage, cache transcripts |
+| `assign_daily` | 03:30 local | build tomorrow's session; pick + pre-validate items; ~~choose the video~~ **CHOOSING THE VIDEO IS HUMAN-RUN and is not this job's** (operator ruling, 2026-08-30) — it is `python -m core.video.assign`, dry by default. It refuses rather than assigning fewer than three videos, and a job cannot refuse to anybody |
+| `pick_videos` | ~~Sun 04:00~~ **NOT SCHEDULED — human-run** | ~~refresh candidate pool from the channel list, compute coverage, cache transcripts~~ **HUMAN-RUN, NEVER UNATTENDED (operator ruling, 2026-08-30).** Two reasons, and **neither is #69**: **Apify bills per run**, so an unattended job is an unattended invoice; and the **30-day retention purge runs inside the same command**, so a scheduled refresh would silently re-stamp the retention clock on every video every week. It is `python -m core.video.refresh`, dry by default, with `--live` making only quota-costing YouTube calls and **`--apply` the only mode that spends money**. **This ruling is INDEPENDENT of #69 and does not lapse when #69 closes** — the same standing `checkpoint_prep`'s ruling has, and recorded the same way so it is not reversed the day the worker is installed |
 | `nudge_check` | every 30 min | push ladder, respects the 3/day ceiling |
 | `checkpoint_prep` | ~~Fri 04:00~~ **NOT SCHEDULED — human-run** | ~~build Saturday's 12-item checkpoint~~ **HUMAN-RUN, NEVER UNATTENDED (operator ruling, 2026-08-27). The reason is that NO GATE CERTIFIES AN ITEM (#196) — NOT that the worker is uninstalled.** **This ruling is INDEPENDENT of #69 and does not lapse when #69 closes.** See the note below the table |
 | `weekly_report` | Sun evening | progress-first report |

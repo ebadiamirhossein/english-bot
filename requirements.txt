@@ -11,12 +11,19 @@ openai>=1.40
 webauthn>=2.5,<3
 pydantic>=2.7,<3
 fsrs>=6.3.2,<7
+# W12b promoted httpx from a test dependency to a runtime one: core/video_api.py
+# imports it directly, so pyproject.toml declares it and this block mirrors that.
+# It has been installed all along for the ASGI test transport, which is why
+# nothing had to be added to the deploy sequence -- but a runtime import resting
+# on a test-only declaration is exactly the undeclared dependency this block
+# exists to prevent.
+httpx>=0.27
 # apps/api (W1b)
 fastapi>=0.115
 uvicorn[standard]>=0.30
 # apps/worker (W1b) — already pulled in by python-telegram-bot[job-queue],
 # declared here because the worker imports it directly.
 APScheduler>=3.10
-# tests — httpx drives the API through its real ASGI transport
+# tests — httpx drives the API through its real ASGI transport, and is declared
+# in the packages/core block above since W12b made it a runtime dependency too.
 pytest>=8.0
-httpx>=0.27

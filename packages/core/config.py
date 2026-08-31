@@ -21,6 +21,12 @@ _REQUIRED_KEYS = ("DATABASE_URL", "ANTHROPIC_API_KEY")
 _PG_SCHEMES = ("postgresql", "postgres")
 _KNOWN_STT_PROVIDERS = frozenset({"openai"})
 _KNOWN_TTS_PROVIDERS = frozenset({"openai"})
+# W12b. The actor ruled on 2026-08-31, and the ruled fallback. This set drives a
+# WARNING and never a refusal -- see the note beside the check in load_settings.
+_DEFAULT_TRANSCRIPT_ACTOR = "johnvc/YoutubeTranscripts"
+_RULED_TRANSCRIPT_ACTORS = frozenset(
+    {_DEFAULT_TRANSCRIPT_ACTOR, "codepoetry/youtube-transcript-ai-scraper"}
+)
 _DEFAULT_RUNTIME_DIR = Path.home() / "english-bot-runtime"
 _DEFAULT_LOG_MAX_BYTES = 5_000_000
 _DEFAULT_LOG_BACKUP_COUNT = 3
@@ -70,6 +76,29 @@ class Settings:
     # learner can see and say so about, while an over-assumption selects
     # material they drown in silently.
     lexicon_assumed_known_top_n: int = 2000
+    # W12b — the video pipeline. Both keys live on production only; neither is
+    # required at load, because apps/api and every pure test must boot without
+    # them and the two CLIs that need them say so themselves. Absent means the
+    # pipeline refuses to run, not that it runs degraded.
+    #
+    # repr=False on both, for the reason the R2 secret and the auth salt carry
+    # it: one `logger.info("%s", settings)` in any file holding a Settings would
+    # put a live credential in a log file for good, and CLAUDE.md §5 says logs
+    # carry user ids and route names and nothing else.
+    youtube_api_key: str = field(default="", repr=False)
+    apify_token: str = field(default="", repr=False)
+    # CLAUDE.md §2: "Swapping providers must be one environment variable." The
+    # transcript actor is a provider, so it is this variable and not a constant.
+    #
+    # The default is the RULED actor (operator, 2026-08-31). It was chosen over
+    # pintostudio/youtube-transcript-scraper on four measured counts: it reports
+    # the manual-vs-generated caption kind that PRD §7.2 requires and W12b's
+    # coverage instrument depends on; its `list_only` mode reports that kind
+    # WITHOUT being charged; it polls channels, which the alternative cannot do
+    # at all; and it bills one dataset row per video, where the alternative
+    # publishes no output schema and so has no knowable per-video cost.
+    # `codepoetry/youtube-transcript-ai-scraper` is the ruled fallback.
+    apify_transcript_actor: str = "johnvc/YoutubeTranscripts"
     # S18 hardening — operator alerts + runtime files (optional ids).
     operator_telegram_id: int | None = None
     runtime_dir: str = ""
@@ -251,6 +280,35 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         os.environ.get("LEXICON_ASSUMED_KNOWN_TOP_N", "2000"),
         errors,
     )
+
+    # --- W12b video pipeline ---------------------------------------------
+    youtube_api_key = os.environ.get("YOUTUBE_API_KEY", "").strip()
+    apify_token = os.environ.get("APIFY_TOKEN", "").strip()
+    apify_transcript_actor = (
+        os.environ.get("APIFY_TRANSCRIPT_ACTOR", "").strip()
+        or _DEFAULT_TRANSCRIPT_ACTOR
+    )
+    # Shape, not membership, and the divergence from _KNOWN_STT_PROVIDERS is
+    # deliberate. That pattern rejects an unlisted value, which is right for a
+    # provider the code has a branch for; here the whole point is that swapping
+    # actors is a data change, so an allow-list would put the next actor behind
+    # a code edit and defeat CLAUDE.md §2's rule. A typo is still caught -- it
+    # cannot look like `username/name` by accident -- and an actor that is not
+    # one of the two ruled ones is warned about rather than refused.
+    if "/" not in apify_transcript_actor or apify_transcript_actor.count("/") != 1:
+        errors.append(
+            "APIFY_TRANSCRIPT_ACTOR must be an Apify actor in username/name "
+            f"form (got {apify_transcript_actor!r})"
+        )
+    elif apify_transcript_actor not in _RULED_TRANSCRIPT_ACTORS:
+        logger.warning(
+            "APIFY_TRANSCRIPT_ACTOR is %r, which is not one of the actors ruled "
+            "on 2026-08-31 (%s). It will be called anyway. Its output field "
+            "names and its billing unit are its own, and core/video_api.py has "
+            "no adapter for it.",
+            apify_transcript_actor,
+            ", ".join(sorted(_RULED_TRANSCRIPT_ACTORS)),
+        )
 
     operator_telegram_id = _parse_optional_int(
         "OPERATOR_TELEGRAM_ID",
@@ -497,6 +555,9 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         conversation_max_turns=conversation_max_turns,
         conversation_history_max_messages=conversation_history_max_messages,
         lexicon_assumed_known_top_n=lexicon_assumed_known_top_n,
+        youtube_api_key=youtube_api_key,
+        apify_token=apify_token,
+        apify_transcript_actor=apify_transcript_actor,
         operator_telegram_id=operator_telegram_id,
         runtime_dir=runtime_dir,
         log_file=log_file,

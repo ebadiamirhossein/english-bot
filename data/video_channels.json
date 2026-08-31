@@ -1,0 +1,159 @@
+{
+  "_README": [
+    "W12b's channel pool. AUTHORED, NEVER INFERRED.",
+    "",
+    "`channel_id` is the authority and `handle` is a convenience: handles change,",
+    "channel ids do not. Every id here is resolved once by",
+    "`python -m core.video.resolve_channels` against the YouTube Data API and",
+    "pasted in. A NULL id is not a placeholder to be filled in by guessing --",
+    "core.video.channels REFUSES to load an entry whose id is null or whose id",
+    "still looks like a handle, so the refresh path cannot run against a guess.",
+    "",
+    "`accent` is authored on the CHANNEL, never detected from a video, and has",
+    "exactly two values by operator ruling (2026-08-30): two accents that are",
+    "actually rotated beat six with no channels behind them. Adding a third later",
+    "is a data change -- one value here and one literal in migration 019's CHECK.",
+    "A NULL accent is refused for the same reason a null id is.",
+    "",
+    "`track` uses the vocabulary of `users.track_weights` (migration 012) so that",
+    "`topic_match` compares like with like: life | curiosity | work.",
+    "",
+    "PRODUCT-PRINCIPLES §3: this file is GLOBAL CONFIGURATION THAT BECOMES",
+    "PER-USER IF THE TWO LEARNERS' INTERESTS DIVERGE. Today both share the pool",
+    "and `users.track_weights` does the per-learner work. When it diverges it",
+    "gains a users-keyed table, not a second file."
+  ],
+
+  "_POOL_BALANCE": [
+    "The target is Life & Social 50 / Curiosity 30 / Work 20 (PRD §4.6).",
+    "BY CHANNEL COUNT THIS POOL IS 55 / 36 / 9, AND IT DOES NOT MEET THE TARGET.",
+    "That is recorded here rather than left to be discovered from the assignments.",
+    "",
+    "It does not have to meet it, and the reason is worth stating so nobody",
+    "'fixes' it later: THE WEIGHTS ARE SCORING TERMS, NOT QUOTAS. `topic_match` is",
+    "one 0.20 term in a weighted sum (PRD §7.2); nothing enforces a ratio, and the",
+    "realised mix runs roughly channel-proportional. A slice that promised",
+    "50/30/20 and delivered 55/36/9 would be reporting a target as a result.",
+    "",
+    "THE WORK TRACK HAS ONE CHANNEL, AND THEREFORE ONE ACCENT. So `accent_rotation`",
+    "(0.15) and `topic_match` (0.20) are structurally in conflict there: a work",
+    "video can only ever be British. Filed as a known issue with a target rather",
+    "than worked around here."
+  ],
+
+  "channels": [
+    {
+      "handle": "@EnglishTeacherClaire",
+      "channel_id": null,
+      "name": "English Teacher Claire",
+      "accent": null,
+      "track": "life",
+      "why": "Conversational everyday English at a deliberate pace; operator-approved as a Life & Social anchor.",
+      "_unresolved": "accent NOT AUTHORED -- see _UNRESOLVED below."
+    },
+    {
+      "handle": "@Friends",
+      "channel_id": null,
+      "name": "Friends (official)",
+      "accent": "american",
+      "track": "life",
+      "why": "Real scripted conversation between friends -- the register PRD §4.6 exists to protect, and the one thing a teaching channel cannot supply."
+    },
+    {
+      "handle": "@EasyEnglish",
+      "channel_id": null,
+      "name": "Easy English (street interviews)",
+      "accent": "british",
+      "track": "life",
+      "why": "Unscripted strangers answering a question in the street: the closest thing in the pool to how people actually speak."
+    },
+    {
+      "handle": "@LearnEnglishWithTVSeries",
+      "channel_id": null,
+      "name": "Learn English With TV Series",
+      "accent": null,
+      "track": "life",
+      "why": "Connected speech and reductions taught from real clips, which is PRD §7.5's stated failure mode for a learner with good grammar.",
+      "_unresolved": "accent NOT AUTHORED -- see _UNRESOLVED below."
+    },
+    {
+      "handle": "@SpeakEnglishWithVanessa",
+      "channel_id": null,
+      "name": "Speak English With Vanessa",
+      "accent": "american",
+      "track": "life",
+      "why": "Everyday phrases in full sentences at natural speed; a steady mid-B1 supply."
+    },
+    {
+      "handle": "@rachelsenglish",
+      "channel_id": null,
+      "name": "Rachel's English",
+      "accent": "american",
+      "track": "life",
+      "why": "Explicit General American pronunciation and reductions; the American half of the accent rotation."
+    },
+    {
+      "handle": "@TEDEd",
+      "channel_id": null,
+      "name": "TED-Ed",
+      "accent": null,
+      "track": "curiosity",
+      "why": "Short narrated explainers on one idea; dense but clearly structured, and the transcripts are unusually clean.",
+      "_unresolved": "accent NOT AUTHORED -- see _UNRESOLVED below. TED-Ed is the structural case, not merely the uncertain one."
+    },
+    {
+      "handle": "@Vox",
+      "channel_id": null,
+      "name": "Vox",
+      "accent": "american",
+      "track": "curiosity",
+      "why": "Explanatory journalism; real adult subject matter rather than material written for learners."
+    },
+    {
+      "handle": "@johnnyharris",
+      "channel_id": null,
+      "name": "Johnny Harris",
+      "accent": "american",
+      "track": "curiosity",
+      "why": "One narrator, strong narrative drive; holds attention through a longer runtime than the pool's average."
+    },
+    {
+      "handle": "@bbclearningenglish",
+      "channel_id": null,
+      "name": "BBC Learning English (News Review)",
+      "accent": "british",
+      "track": "curiosity",
+      "why": "Current news retold with the vocabulary made explicit; the British half of the accent rotation."
+    },
+    {
+      "handle": "@EnglishwithLucy",
+      "channel_id": null,
+      "name": "English with Lucy",
+      "accent": "british",
+      "track": "work",
+      "why": "The pool's only Work-track channel; formal register and British pronunciation."
+    }
+  ],
+
+  "_UNRESOLVED": [
+    "THREE ACCENTS ARE DELIBERATELY NULL, AND THIS IS A FINDING RATHER THAN AN",
+    "OMISSION. `accent` is authored, and authoring it means knowing it -- writing",
+    "a plausible value would be the same defect as writing a plausible channel id.",
+    "",
+    "  @EnglishTeacherClaire     -- not established by the author of this file.",
+    "  @LearnEnglishWithTVSeries -- not established by the author of this file.",
+    "",
+    "  @TEDEd -- NOT UNCERTAINTY BUT A STRUCTURAL MISMATCH. TED-Ed lessons are",
+    "  narrated by many different voices, so the channel HAS NO SINGLE ACCENT and",
+    "  a per-channel field cannot hold the truth about it. The three honest",
+    "  options are: drop TED-Ed from the pool; author the accent per VIDEO for",
+    "  this channel only (a schema change, since `videos.accent` is currently",
+    "  copied from the channel); or accept a nominal value and know that",
+    "  `accent_rotation` is lying by that much. THIS IS THE OPERATOR'S RULING TO",
+    "  MAKE, and it is filed rather than chosen here.",
+    "",
+    "Until each is filled, core.video.channels refuses to load that entry and",
+    "`core.video.refresh` will not poll it. The pool runs with the eight that are",
+    "complete; it does not silently run with a guess."
+  ]
+}

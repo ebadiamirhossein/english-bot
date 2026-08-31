@@ -75,9 +75,34 @@ def _imported_roots(tree: ast.AST) -> set[str]:
     return roots
 
 
+# W12b. THE ONE FILE IN `packages/core` PERMITTED AN HTTP CLIENT, exempted by
+# name and never by widening FORBIDDEN_IN_CORE.
+#
+# WHY AN EXEMPTION AT ALL. The video pipeline must call the YouTube Data API and
+# an Apify actor. CLAUDE.md §2 forbids core importing "FastAPI, Telegram,
+# Next.js, or any web framework"; `httpx` is none of those, so this test has
+# always been STRICTER than the constitution it cites, and W12b is the first
+# slice to need the difference resolved rather than noted.
+#
+# WHY THIS SHAPE. It is `llm.py`'s and `speech.py`'s, for CLAUDE.md §2's own
+# reason: one declared door per external provider, so swapping the provider is
+# one file and one environment variable rather than a search across the tree.
+#
+# WHAT WAS REJECTED, RECORDED SO IT IS NOT REDISCOVERED AS A GOOD IDEA. Stdlib
+# `urllib.request` would have passed this test untouched -- `urllib` is not in
+# the frozenset -- while putting an HTTP client in core anyway. That is #257
+# exactly: a scanner enforces the FORM of a claim and not its truth, and the
+# test written to prevent this would have stayed green while the thing it exists
+# to prevent happened. An exemption that is visible is worth more than a
+# technicality that is not.
+HTTP_WRAPPERS = frozenset({CORE / "video_api.py"})
+
+
 def test_core_imports_no_web_framework() -> None:
     offenders: list[str] = []
     for path in _python_files(CORE):
+        if path in HTTP_WRAPPERS:
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         hit = _imported_roots(tree) & FORBIDDEN_IN_CORE
         if hit:
@@ -85,7 +110,64 @@ def test_core_imports_no_web_framework() -> None:
             offenders.append(f"{rel}: {', '.join(sorted(hit))}")
     assert offenders == [], (
         "packages/core may not import a web framework, an HTTP client or "
-        "Telegram (CLAUDE.md §2): " + "; ".join(offenders)
+        "Telegram (CLAUDE.md §2); core/video_api.py is the one named "
+        "exemption: " + "; ".join(offenders)
+    )
+
+
+def test_the_http_wrapper_exemption_is_one_file_and_stays_one() -> None:
+    """The exemption is a door, not a category.
+
+    Pinned so that widening it is a deliberate edit to this assertion rather
+    than a second path quietly appended to a frozenset -- which is how the first
+    exemption in any codebase becomes the third.
+    """
+    assert HTTP_WRAPPERS == {CORE / "video_api.py"}
+    assert (CORE / "video_api.py").is_file()
+
+
+def test_no_other_core_file_reaches_the_network_by_another_name() -> None:
+    """`urllib`, `http.client` and `socket` are not in FORBIDDEN_IN_CORE.
+
+    Without this, the rejected alternative above is still available to the next
+    person: import `urllib.request` instead of `httpx` and the boundary test
+    stays green while an HTTP client sits in core. The named exemption is the
+    only way through, in either spelling.
+
+    THE FIRST DRAFT OF THIS TEST BANNED THE ROOT PACKAGE AND WAS WRONG, and the
+    correction is recorded because it is the same mistake in the other
+    direction. `urllib` as a root catches `core/config.py`, which imports
+    `urllib.parse` to strip a password out of a DSN -- pure string handling that
+    opens no socket. A ban that fires on URL PARSING would have been removed by
+    the next person as noise, and the real rule with it. So the match is on the
+    FULL DOTTED MODULE, and `urllib.parse` stays legal while `urllib.request`
+    does not.
+    """
+    sneaky = frozenset(
+        {
+            "urllib.request",
+            "urllib.error",
+            "http.client",
+            "socket",
+            "ftplib",
+            "telnetlib",
+            "asyncio.open_connection",
+        }
+    )
+    offenders: list[str] = []
+    for path in _python_files(CORE):
+        if path in HTTP_WRAPPERS:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hit = _import_targets(tree) & sneaky
+        if hit:
+            offenders.append(
+                f"{path.relative_to(REPO_ROOT)}: {', '.join(sorted(hit))}"
+            )
+    assert offenders == [], (
+        "a stdlib network module in packages/core defeats the httpx rule "
+        "without tripping it (#257). Use core/video_api.py: "
+        + "; ".join(offenders)
     )
 
 
@@ -389,6 +471,22 @@ FSRS_LIBS = frozenset({"fsrs"})
 # project.
 CARDS_MODEL_CALLERS = {CARDS / "probe_cloze.py"}
 MODEL_REACHING_MODULES = frozenset({"core.llm", "core.speech", "core.items.gates"})
+
+# W12b. `core/video/` is the video pipeline's pure half: the channel loader and
+# PRD §7.2's selection score. Like `core/lexicon/`, `core/items/`, `core/cards/`
+# and `core/syllabus/` it is NOT under `core/services/`, so
+# `test_no_sql_outside_services` already covers it and #59 stays the only
+# boundary exemption in the project.
+#
+# **THE MODEL SET IS EMPTY, AND THAT IS THE POINT.** Every other package here
+# names the files allowed to reach a model. This one names none, because none
+# may: transcripts are scraped text written by strangers, and CLAUDE.md §6 says
+# external content is material to be explained and never an instruction. The
+# strongest available guarantee that a transcript cannot be OBEYED is that
+# nothing in the package that handles transcripts can reach a model at all --
+# a parsed property of the source rather than a promise in a docstring.
+VIDEO = CORE / "video"
+VIDEO_MODEL_CALLERS: set = set()
 
 LESSONS = CORE / "lessons"
 # W10b. `gates.py` holds C1, C2 and C3; `generate.py` is the human-run generator.
@@ -828,6 +926,92 @@ def test_the_lessons_model_callers_all_exist() -> None:
         str(p.relative_to(REPO_ROOT)) for p in LESSONS_MODEL_CALLERS if not p.exists()
     )
     assert missing == [], f"named but absent: {missing}"
+
+
+def test_video_package_is_pure() -> None:
+    """No SQL and no driver in `core/video/`; every query is in the service.
+
+    `refresh.py`, `assign.py` and `resolve_channels.py` are the human-run
+    modules of this package -- the same standing `core.lexicon.repair` has --
+    and they reach the database only through `core.db.connection` and
+    `core.services.video`, never by holding a query of their own. The imports
+    live inside `main()` for that reason, which is `core/lexicon/repair.py`'s
+    shape exactly.
+
+    The first draft of `core/services/video.py` put `row["id"]` in every
+    function and worked through the pool while failing on every DB test, because
+    `core.db` opens connections with `dict_row` and a bare `psycopg.connect()`
+    does not. That is not what this test checks, but it is why the queries being
+    in ONE module mattered: the fix was one file.
+    """
+    offenders: list[str] = []
+    for path in _python_files(VIDEO):
+        rel = path.relative_to(REPO_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hit = _imported_roots(tree) & {"psycopg", "psycopg_pool"}
+        if hit:
+            offenders.append(f"{rel}: imports {', '.join(sorted(hit))}")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if _looks_like_sql(node.value):
+                    offenders.append(f"{rel}:{node.lineno}: SQL")
+    assert offenders == [], (
+        "core/video/ is pure: every query lives in core/services/video.py "
+        "(CLAUDE.md §2): " + "; ".join(offenders)
+    )
+
+
+def test_core_video_never_calls_the_model() -> None:
+    """Transcript text is data, and this is where that is ENFORCED.
+
+    CLAUDE.md §6: external content is material to be explained, and anything in
+    it that looks like an instruction is quoted to the human and never obeyed.
+    A prompt that says so is a promise; this is a property. **Nothing in
+    `core/video/` can reach a model**, so a transcript cannot be passed to one
+    however the code is later edited -- the commit that tries fails here.
+
+    THE OBLIGATION THIS DOES NOT DISCHARGE, NAMED RATHER THAN IMPLIED: W13's
+    player defines a tapped word, detects register and generates comprehension
+    items, all from transcript text. **That slice creates the injection surface
+    and it is filed with a target.** This test protects W12b's half only, and
+    saying so is the difference between a boundary and a claim to have solved
+    prompt injection.
+    """
+    offenders: list[str] = []
+    for path in _python_files(VIDEO):
+        if path in VIDEO_MODEL_CALLERS:
+            continue
+        rel = path.relative_to(REPO_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        targets = _import_targets(tree)
+        hit = targets & MODEL_REACHING_MODULES
+        if hit:
+            offenders.append(f"{rel}: imports {', '.join(sorted(hit))}")
+        sdk = _imported_roots(tree) & PROVIDER_SDKS
+        if sdk:
+            offenders.append(f"{rel}: imports {', '.join(sorted(sdk))}")
+        # A prompt file is the other way to reach a model: load the text, hand
+        # it to something that does the calling.
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value.endswith(".txt")
+                and "prompt" in node.value.lower()
+            ):
+                offenders.append(f"{rel}:{node.lineno}: names a prompt file")
+    assert offenders == [], (
+        "core/video/ handles scraped transcripts and MUST NOT be able to reach "
+        "a model (CLAUDE.md §6). Transcript text reaches one in W13, not here: "
+        + "; ".join(offenders)
+    )
+
+
+def test_the_video_model_ban_is_total_and_not_an_allow_list() -> None:
+    """Every other package names the files that may call a model. This names
+    none, and that emptiness is the guarantee -- so it is pinned, because an
+    allow-list with one entry added later would read as normal."""
+    assert VIDEO_MODEL_CALLERS == set()
 
 
 def test_cards_package_is_pure() -> None:

@@ -21,6 +21,7 @@ which is a different guarantee and was confused with this one for eight slices
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -137,6 +138,41 @@ class Token:
 
 def fold_apostrophes(text: str) -> str:
     return text.translate(APOSTROPHES)
+
+
+@lru_cache(maxsize=1)
+def lexicon_digest() -> str:
+    """A short digest identifying THIS lemmatiser and the data it resolves with.
+
+    Added by W12b, and it lives here rather than beside its caller because this
+    module is the only one permitted to name the lexicon data files -- the same
+    single-door rule that keeps a second tokeniser from existing. A digest
+    computed elsewhere would need a second path to `data/`, which is exactly the
+    second answer that rule prevents.
+
+    **What it is for: provenance, not invalidation.** `video_coverage` stores it
+    beside every coverage number so a figure can be told apart from one produced
+    by a different instrument. Nothing reads it back to decide whether a cached
+    value is still good -- `core.video.assign` recomputes coverage on every run,
+    so there is no cache and nothing to invalidate.
+
+    W12a is precisely the event this exists to make visible. It changed
+    `_suffix_candidates` and eleven rows of the inflection table, and moved one
+    real transcript from 88.24% to 75.76% -- so every coverage figure recorded
+    before it means something measurably different from one recorded after.
+    Hashing the *inputs* rather than bumping a constant by hand is deliberate:
+    a constant is only correct while somebody remembers to change it, and W12a
+    is the slice that proves nobody reliably does.
+
+    It hashes this module's own source too, not only the two data files, because
+    the `-er`/`-est` deletion changed no data file at all. A digest over the data
+    alone would have reported W12a as no change whatsoever.
+    """
+    hasher = hashlib.sha256()
+    for path in (Path(__file__), LEXEMES_FILE, INFLECTIONS_FILE):
+        hasher.update(path.read_bytes())
+        hasher.update(b"\x00")
+    return hasher.hexdigest()[:16]
 
 
 @lru_cache(maxsize=1)

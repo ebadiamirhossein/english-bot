@@ -38,6 +38,19 @@ dependencies = [
     # deck's first day to it would buy a document match and cost a migration
     # slice later.
     "fsrs>=6.3.2,<7",
+    # W12b. `core/video_api.py` is the ONLY module in `packages/core` that
+    # imports it, and that file is exempted BY NAME in
+    # tests/test_core_boundary.py -- every other file in core still fails on an
+    # httpx import, which is the point of routing the video pipeline's HTTP
+    # through one door the way `llm.py` and `speech.py` are the only doors to a
+    # provider SDK.
+    #
+    # It already arrives in every venv transitively (via `anthropic`) and
+    # `requirements.txt` has carried it since W3 for the ASGI test transport, so
+    # declaring it here turns an undeclared transitive dependency into a declared
+    # one -- a tightening. `pip install -e packages/core` is already step 3 of
+    # the settled deploy sequence, so the sequence gains no step.
+    "httpx>=0.27",
 ]
 
 # `core` is this directory itself, so the package root maps to ".".
@@ -51,7 +64,10 @@ dependencies = [
 # walked into the same hole, so both are declared. W7 added `core.cards` and
 # W8 `core.syllabus` in the same spirit: a package that only works because the
 # install is editable is a package that vanishes the first time it is not.
-packages = ["core", "core.services", "core.lexicon", "core.items", "core.cards", "core.syllabus"]
+# W12b adds `core.video` here in the same commit that creates it, rather than
+# discovering at the first wheel build that it was never listed -- which is the
+# exact hole this comment was written about after `core.lexicon` fell into it.
+packages = ["core", "core.services", "core.lexicon", "core.items", "core.cards", "core.syllabus", "core.video"]
 
 [tool.setuptools.package-dir]
 core = "."
