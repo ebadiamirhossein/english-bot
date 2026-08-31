@@ -183,13 +183,39 @@ def _youtube_get(path: str, params: dict[str, Any], *, api_key: str) -> dict:
             "YOUTUBE_API_KEY is not set. It lives on production only; this "
             "command cannot run without it and does not run degraded."
         )
+    # **THE KEY GOES IN A HEADER, NEVER IN THE QUERY STRING (#311).**
+    #
+    # It was `params={**params, "key": api_key}` until 2026-08-31, and
+    # `httpx._client` logs the full URL at INFO -- so a production run of
+    # `core.video.resolve_channels` printed the live key eleven times, once per
+    # handle, into a shell history and a chat transcript.
+    #
+    # **THE COMMENT THAT USED TO BE HERE SAID THE KEY "MUST NEVER REACH A LOG
+    # LINE", AND IT WAS TRUE OF THE CODE IT GUARDED.** The exception below does
+    # not carry it. The leak came out of the HTTP library, which a comment about
+    # our own raise statement could not see -- so the invariant is now enforced
+    # by where the credential is PUT rather than asserted about where it is not
+    # printed. `tests/test_video_api_credentials.py` holds it.
+    #
+    # **WHY NOT SILENCE httpx's LOGGER INSTEAD**, which was the other option
+    # offered: setting this module's httpx logger to WARNING hides today's line
+    # and leaves the credential in the URL for the next thing that prints one --
+    # a proxy, an error report, a retry wrapper, a future httpx. A credential
+    # absent from the URL cannot be logged by anything.
+    #
+    # Verified against the live API before it was written, not assumed:
+    # `X-goog-api-key` alone returns **400 `API key expired`**, and no
+    # credential at all returns **403 `Method doesn't allow unregistered
+    # callers`**. 403 -> 400 is the proof the header was read.
     with httpx.Client(timeout=_TIMEOUT) as client:
         response = client.get(
-            f"{YOUTUBE_API}/{path}", params={**params, "key": api_key}
+            f"{YOUTUBE_API}/{path}",
+            params=params,
+            headers={"X-goog-api-key": api_key},
         )
     if response.status_code != 200:
-        # The key is in `params` and must never reach a log line or an
-        # exception message (CLAUDE.md §5).
+        # `response.text` is the API's error body and carries no credential --
+        # the key is in a request header, and this reads the RESPONSE.
         raise VideoApiError(
             f"YouTube {path} returned {response.status_code}: "
             f"{response.text[:300]}"
@@ -328,9 +354,20 @@ def _run_actor(
         )
     endpoint = f"{APIFY_API}/acts/{actor.replace('/', '~')}/run-sync-get-dataset-items"
     try:
+        # **THE SAME DEFECT AS `_youtube_get`'s, FOUND BY LOOKING FOR THE CLASS
+        # RATHER THAN FOR THE INSTANCE (#311).** This was
+        # `params={"token": token}`. It has never been seen in a log because no
+        # actor run has been made outside a test -- so it was a leak waiting for
+        # its first production run, not one that had happened.
+        #
+        # Verified against the live API on the free `GET /v2/users/me`, which is
+        # not an actor run and cost nothing: `Authorization: Bearer` returns
+        # **200**, and no credential returns **401**.
         with httpx.Client(timeout=timeout) as client:
             response = client.post(
-                endpoint, params={"token": token}, json=payload
+                endpoint,
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
             )
     except httpx.HTTPError as exc:
         # A transport failure is retryable by construction: nothing about the
