@@ -120,6 +120,46 @@ What *is* shared: the Saturday couple challenge, the leaderboard, and watch-toge
 
 ---
 
+## 2.6 Levels — beginners through advanced. **A DIRECTION, NOT SCOPE.**
+
+**Operator ruling, 2026-08-31, recorded as his:**
+
+> The product must be usable for all types of users — beginners and advanced. Beginners get flashcards with icons to learn words, intermediate learners too. Vocabulary learning with flashcards and images. Think professionally so the platform is usable and works.
+
+**`docs/PRODUCT-PRINCIPLES.md` §3 governs this section and nothing here overrides it: *nothing is to be built FOR imagined users* — but *choices that are cheap now and expensive later are called out when they are made.* Everything below is a flag. None of it is scope, and no slice is scheduled by this section alone.**
+
+### 2.6.1 The good news, and it is the substantive finding: the selection mechanism is already level-agnostic
+
+**Coverage is computed against THIS learner's own known-word ledger, not against a fixed list.** `coverage_for` reads `user_lexemes` for the user and nothing else, so **a learner with 800 words and a learner with 8,000 each receive material at 93–98% of their own level** — the same code, no branch, no second implementation. §2.1's ledger and §7.2's `coverage_fit` term were built this way from the start.
+
+**So the hard part of multi-level is already done, and what is hardcoded is narrower and nameable.** That is the reason this is a section of flags rather than a rebuild.
+
+### 2.6.2 Three hardcoded assumptions, each with the condition that makes it blocking
+
+Each is filed in `BUILD_PROGRESS.md` with an owning slice and an explicit **becomes blocking when** — so nothing is built early for users who do not exist, and nothing is discovered late.
+
+| # | The assumption | Becomes blocking when |
+|---|---|---|
+| **#94** | **The assumed-known floor is GLOBAL.** `LEXICON_ASSUMED_KNOWN_TOP_N` (default **2000**) is one number for every learner, materialised into each learner's ledger as `state = 'known', source = 'assumption'`. For two B1→B2 adults it is approximately right; **for a beginner it is badly wrong, and because coverage reads the ledger, every coverage figure for them is INFLATED** — the app hands them material far too hard while reporting 95%. **Video selection, item selection and lesson reporting all rest on that one number.** | **a learner joins whose level differs materially from B1→B2.** Not before. |
+| **#304** | **The syllabus is a single fixed ladder.** Units 1–20 target B1→B2. **A beginner needs A1/A2; an advanced learner needs C1** — and `data/lexemes.tsv` carries **no C1 or C2 rows at all** (#136). | **a learner is admitted outside B1→B2.** |
+| **#159** | **The item schema admits two L1s.** `users.native_language` is already a per-user column and has been since migration 001, and the rendering consumers read it — **but `L1ToL2ProductionItem.l1` is `Literal["fa", "lt"]`, defaulting to `"fa"`, and the generator prompt is still not told the target language** (#159's third consumer, still open). | **a learner is admitted whose L1 is neither Farsi nor Lithuanian.** |
+
+**Changing an L1 does not translate existing cards.** Glosses are generated per learner, so the cost lands on the generation prompt and on the deck that already exists — not on a settings toggle.
+
+### 2.6.3 Image cards — an addition for picturable words, never a replacement
+
+**Where images work:** concrete nouns — *spoon*, *ladder*, *elbow*. A picture paired with a word is retained better than a word alone.
+
+**Where they do not:** abstract vocabulary, phrasal verbs and collocations — *feel trapped*, *fine print*, *sign a lease* — **which is most of what a B1→B2 learner actually needs.** A picture cannot carry them. **The existing sentence-context card can and does** (§5).
+
+**So images ADD a face for picturable words and replace nothing.** Written here because *"add images to flashcards"*, read loosely, would replace the card design that works for the harder half of the vocabulary.
+
+**THE REAL WORK IS LICENSING, NOT DISPLAY, AND THE GATE RUNS BEFORE THE CODE.** PRODUCT-PRINCIPLES §3 requires the licence check **before any third-party data enters the repo**, and **the answer must hold for a commercial product.** Clauses are **quoted verbatim, never summarised** — W10b's verbatim read found three things its own summary had lost (#224), and W12b's gate **refused a whole mechanism**. Candidate sources are those whose licence permits **commercial use with attribution** — Openverse, Wikimedia Commons CC-BY, openly licensed photo libraries. **A scrape is not a source.** **If the gate refuses a source, that is a finding, not an obstacle to route around.**
+
+**An image is a per-word asset shared across every learner, so it belongs in a GLOBAL table, not a user-keyed one** — the same reasoning migration 019 gave `videos`.
+
+---
+
 ## 3. The journey — 24 weeks, six stages
 
 The thing v2 was missing. This is a visible map on the home screen, with your dot on it.
