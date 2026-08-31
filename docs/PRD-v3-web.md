@@ -62,7 +62,7 @@ Populated by: placement test, words tapped in a transcript, words you skipped ov
 
 This unlocks everything the good apps do and v2 could not:
 
-- **Automatic content selection.** For any video or text, compute *known-word coverage* = % of tokens whose lemma is in `known`/`mastered`. Comprehensible input means **95–98% coverage** — the "i+1" every single one of those YouTube transcripts talks about. Below 90% the learner drowns; above 99% they learn nothing. The app selects material by coverage, not by a hand-typed CEFR guess.
+- **Automatic content selection.** For any video or text, compute *known-word coverage* = % of tokens whose lemma is in `known`/`mastered`. Comprehensible input means **93–98% coverage** — the "i+1" every single one of those YouTube transcripts talks about. Below 90% the learner drowns; above 99% they learn nothing. The app selects material by coverage, not by a hand-typed CEFR guess. *(**Corrected 2026-08-31 (W12b), old text quoted rather than deleted: this read **95–98%**.** **Closes #88**, which recorded that the three source documents disagreed — this section said 95–98%, §7.2's formula said `0.95–0.98`, and `docs/TASKS-v3-web.md`'s W12 acceptance criterion said 93–98% — and that W12 must pick one and say so. **The operator ruled 93–98% and all three sites are corrected in the same commit.** A **fourth** site existed that #88's own row did not name, at §3's daily-session line below; it is corrected too, and finding it is #88's own shape — a slice reading only its own row would have fixed two of three and left the record still disagreeing with itself. **#289 remains open against this number and is NOT closed here:** the band was ruled on figures produced before W12a corrected the lemmatiser, and a band selects a set rather than a threshold, so it is re-validated against real transcript coverage in W12b's Phase B.)*
 - **Honest progress.** "You know 4,180 words" is a real number that goes up. Streak days are not.
 - **Vocabulary targets.** B1 ≈ 2,500–3,000 lemmas. B2 ≈ 4,000–5,000. The gap is roughly **1,500–2,000 new words in six months ≈ 10–12 new words a day.** That is the vocabulary budget of the whole programme, and it should be visible on the home screen.
 
@@ -150,7 +150,7 @@ Each stage = 4 weekly units. Each **unit** ships with:
   `murphy_units` is nullable per target, exactly as it is for the six
   `error_types` rows covering collocation, register and pronunciation,
 - ~40 **target lexemes** chosen by frequency band ∩ topic ∩ *not already in your known-word ledger*,
-- 3 **video/audio items** at 95–98% coverage,
+- 3 **video/audio items** at 93–98% coverage, *(corrected 2026-08-31, W12b — read **95–98%**. **The fourth site of #88's three-way disagreement, which #88's own row does not name.**)*
 - 1 **output task** (spoken and written variant),
 - 1 **checkpoint** (12 items, 80% to pass).
 
@@ -321,15 +321,25 @@ Three curated videos a week (Mon/Wed/Fri) plus two series episodes (Tue/Thu).
 Given the channel list, for each candidate video:
 
 ```
-score = coverage_fit(0.95–0.98 known-word coverage)   ×  weight 0.40
+score = coverage_fit(0.93–0.98 known-word coverage)   ×  weight 0.40
       + topic_match(user interest weights)             ×  weight 0.20
       + accent_rotation(least-exposed accent bonus)    ×  weight 0.15
       + target_hit(contains this week's grammar/lexis) ×  weight 0.15
-      + length_fit(prefer 4–12 min, segmentable to 3)  ×  weight 0.10
+      + length_fit(prefer 4–12 min)                    ×  weight 0.10
 minus  seen_penalty
 ```
 
-Hard requirements carried from v2's M16: prefer human-written captions over auto-generated; return **one 3-minute segment**, not a whole video; track accent exposure per user and actively push toward unfamiliar accents.
+Hard requirements carried from v2's M16: prefer human-written captions over auto-generated; ~~return **one 3-minute segment**, not a whole video~~ **the FULL VIDEO is shown**; track accent exposure per user and actively push toward unfamiliar accents.
+
+> **OVERRULED 2026-08-30 BY THE OPERATOR. The old text is struck above rather than deleted, and the reason is recorded as his, in his words:** *cutting part of a video out leaves the learner without the topic, and a learner who does not understand the subject learns nothing from clean audio.*
+>
+> **What follows from it, built in W12b:** `video_assignments` stores a **resume position**, not `segment_start_s`/`segment_end_s`; **coverage is computed over the whole transcript**; and `length_fit` still prefers shorter videos but **feeds no segment chooser** — which is why "segmentable to 3" is struck from the formula above as well.
+>
+> **A consequence nobody would have gone looking for, recorded because it is a real improvement to the instrument:** known issue **#284** — a proper noun appearing only at the start of a sentence is still counted as an unknown word — is *reduced* by this ruling. Its own text says *"W12b selects on three-minute segments, which is exactly where a name can appear once, at the front."* That premise is now gone: over a whole transcript a name has many occurrences, so W12a's mid-sentence evidence rule finds one. **#284's clause is corrected in place, with its old text quoted.**
+>
+> **Also corrected in the same commit:** `docs/ARCHITECTURE-v3-web.md` §5, whose `video_assignments` row still listed "segment start/end".
+
+**On "prefer human-written captions" — verified rather than assumed, and it turned out to be load-bearing.** W12b's licence gate found no licit API route to a third party's captions at any permission level, so under the operator's ruling of 2026-08-30 transcripts are scraped; the ruled actor (`johnvc/YoutubeTranscripts`) reports the manual/auto distinction as `transcript_type` and reports it **free** through its `list_only` mode. This is not only a quality preference: `core/lexicon/coverage.py` switches its proper-noun rule **off** on text that is not conventionally cased, and auto-generated captions are typically all-lowercase — so on an auto-captioned transcript the personal names sitting inside the top-2,000 frequency floor are counted as **known** and coverage reads **high**, the drowning direction (**#288**). **The caption kind decides which coverage algorithm runs.**
 
 **Apify does three jobs in this product** (the account is already connected):
 
@@ -447,6 +457,64 @@ Anywhere in the app: paste or tap anything you didn't understand and get back me
 
 ---
 
+## 8.6 The conversation surface — **operator ruling, 2026-08-31**
+
+**THE RULING, IN THE OPERATOR'S OWN WORDS, RECORDED AS HIS:**
+
+> A section where the learner can have a conversation with the app. Every time a new attractive topic. The learner can send a message or a voice note and talk with the app.
+
+**Why this is its own section and not a line in §8, said before anything else, because the overlap is real.** §8's fourth speaking surface is already *"Converse — the v2 voice partner, ported, now with a visible turn counter and a transcript you can read afterwards"*, and `docs/TASKS-v3-web.md` schedules it inside **W15**. **The difference is what the surface is FOR.** §8's Converse is a **rung on a speaking ladder** — reached after shadow, retell and answer, scored, and part of a progression. This is a **daily-loop surface**: one topic per session, two input modes, and replies held to the learner's coverage band. **Whichever ships first owns the turn loop and the other consumes it. That is not resolved here, and it is written down so W15's plan meets it rather than rediscovers it.**
+
+### 8.6.1 The topic
+
+**One per session, chosen and not browsed** — the same rule §7.4 states for video, for the same reason: *browsing a library is a decision, and decisions are where sessions die.*
+
+The topic **rotates**, it is **concrete enough to have something to say about**, and it **draws on what the learner has been studying**: this week's grammar target, the unit's lexis, and words recently added from block 1. **A topic that reuses what has just been learned is the point; a generic prompt is not** — a conversation the learner could have had on day one measures nothing and teaches nothing new.
+
+§4.6's track weights apply here unchanged — **Life & Social 50%, Curiosity 30%, Work 20%, and Work is capped** — and §4.6's naturalness gate governs the app's own turns.
+
+### 8.6.2 Two input modes
+
+**Typed text, and voice.** Voice is transcribed by **ElevenLabs Scribe v2**, which `docs/ACCOUNTS-AND-PURCHASES.md` already prices and rules on — $0.22/hour, 98%+, **word-level timestamps**, chosen there over Whisper.
+
+**Audio is transcribed and discarded.** §12's rule, and it holds here without exception: never written to disk, never uploaded. Only the transcript's corrections and scores survive the turn.
+
+**VERIFIED RATHER THAN ASSUMED, AND IT IS A COST THIS SECTION WILL NOT UNDERSTATE: SCRIBE v2 AND AZURE SPEECH ARE DECISIONS AND PRICES, NOT REACHABLE CAPABILITIES.** `packages/core/speech.py` implements **OpenAI only**; `packages/core/config.py` validates against `_KNOWN_STT_PROVIDERS = frozenset({"openai"})`, so **`STT_PROVIDER=elevenlabs` is REJECTED AT LOAD**; and the settings carry **no `ELEVENLABS_API_KEY` and no `AZURE_SPEECH_KEY` at all.** Adopting either vendor is **a wrapper change inside `speech.py` plus a credential** — never a provider SDK anywhere else (CLAUDE.md §2) — and it is real work owned by this slice or by W14, not a configuration flip. *(Swapping providers being one environment variable is the standing rule; it is true of the two OpenAI paths and is not yet true of these two vendors.)*
+
+### 8.6.3 The reply is level-controlled — the distinctive requirement
+
+**Every generated turn is coverage-checked before it is shown.** `coverage_for` exists (W12a) and this is the surface that makes it a gate rather than a selector.
+
+The reason is the product's own premise: **§2.1 puts comprehensible input at 93–98% coverage**, and an app that serves block 2 inside that band and then answers in block 4 at 70% **has two different ideas of who it is talking to.** A reply outside the learner's band is a reply the learner cannot use.
+
+**OPEN QUESTION 1 — WHAT HAPPENS WHEN A TURN FAILS THE CHECK: REGENERATE, SIMPLIFY, OR SHIP AND RECORD?** **Not decided here.** Each carries a different cost: **regeneration bills a second call on every failure**; **simplification risks unnatural English**, which §4.6's naturalness gate exists to refuse; **ship-and-record** lets one out-of-band turn reach the learner and buys a measurement of how often it happens. **The operator's ruling, outstanding.**
+
+### 8.6.4 Correction, and how much
+
+**A conversation that corrects every error stops being a conversation. A conversation that corrects nothing teaches nothing.** The tension is stated here and **is not resolved**.
+
+What already binds whatever is chosen, so the ruling is made inside a fence rather than on a blank page: **§4.6's tone** (everyday English, contractions, no textbook register); **the no-guilt rule of §12**, which governs every learner-facing string in this product — no *you failed*, no disappointed anything, and **no tally presented as a score, because a score on repetition is a reproach**; and **W16's journal precedent of at most two corrections**, which is the nearest existing number in this document.
+
+**OPEN QUESTION 2 — HOW MUCH CORRECTION, AND WHERE IT APPEARS: inline, after each turn, or collected at the end of the session. The operator's ruling, outstanding.**
+
+### 8.6.5 Pronunciation
+
+Azure Speech returns accuracy / fluency / completeness / prosody **plus per-phoneme scores** (§8), priced in ACCOUNTS at **€0–6/month** on the free tier, and §8 already calls it *the highest-value purchase on this list*.
+
+**OPEN QUESTION 3 — DOES A SPOKEN TURN GET A PRONUNCIATION SCORE, AND DOES THE LEARNER SEE IT?** **Two decisions, not one** — scoring silently and showing a score are different acts with different costs. Stated and not answered, and the reason it is not obvious is worth writing down: **a score on every turn may be exactly the thing that makes someone stop speaking.** **The operator's ruling, outstanding.**
+
+### 8.6.6 Where it lives — outstanding, and the document does not choose
+
+Block 4 is already the output block: *"Speak or write. Corrected. Errors → journal."*
+
+**OPEN QUESTION 4 — DOES THE CONVERSATION REPLACE BLOCK 4, EXTEND IT, OR BECOME A SIXTH BLOCK?** **Five blocks is a deliberate design decision and a sixth would overturn it.** §4.1 targets 45 minutes with a **hard floor of 12**, and a block added is time taken from another block or a longer session — which is a claim about what a tired person will finish on a phone, not about screen layout. **Marked outstanding. This section states the choice and refuses to make it.**
+
+### 8.6.7 The cap is part of the design, not a later patch
+
+**OPEN QUESTION 5 — THE PER-LEARNER, PER-DAY CEILING ON BILLED TURNS.** This is **the first surface in the product where a learner's own action spends money in an unbounded loop**: every message is an LLM call and every voice note is an STT call. The cap belongs in the design; **its number is the operator's**, and what the learner sees when they reach it is governed by §12's no-guilt rule like every other string.
+
+---
+
 ## 9. Gamification — the honest kind
 
 The brief was explicit: *really learn English, not play.* So:
@@ -518,3 +586,4 @@ Unchanged, and the tests that enforce them move to the new repo:
 2. **Does the partner want the same syllabus stage, or independent progression?** (Recommendation: independent progression, shared Saturday challenge.)
 3. **Series choice for Tue/Thu, weeks 1–8.** HIMYM is a good B1→B2 fit; The Office is harder (overlapping speech, mumbling).
 4. **Retire the bot at which point** — recommendation: after web parity on correction + quiz + review is verified live, keep notifications only.
+5. **The conversation surface — five open decisions, all listed in §8.6 and deliberately NOT repeated here** (what happens to an out-of-band turn; how much correction and where it appears; whether a spoken turn is scored and whether the score is shown; whether it replaces block 4, extends it, or becomes a sixth block; and the per-learner per-day cap on billed turns). **One copy, in §8.6** — two copies of a list of open questions drift, and the drift is silent.
