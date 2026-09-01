@@ -216,6 +216,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 
 Record every decision that deviates from or resolves ambiguity in the spec. Newest first.
 
+| 2026-09-01 | **BOTH INNOCENT EXPLANATIONS ARE REFUTED — (c) BY THE DIGESTS AND MY OWN ROUNDING ARTEFACT BY THE FOUR-DECIMAL READ. THE QUESTION NARROWS TO ONE NUMBER, AND `by_state` IS NOT IT.** **Q2:** user 1 covered **2000** `88d54d44…`; user 2 covered **2003** `00ac7ecf…`; user 3 covered **2003** `477ba0b7…`. **Three different digests, and users 2 and 3 share a COUNT while differing in CONTENT** — so the covered sets are not identical and **(c) is dead.** **Q1:** the stored figures are identical to **four decimals** — `0.9649 / 0.8571 / 0.7581 / 0.8291 / 0.9021 / 0.8821` — with `counted_tokens` and `excluded_tokens` matching too. **My rounding artefact is dead as well**, and it was mine to raise and mine to lose. · **THE DECIDING ARGUMENT, AND IT IS SHARPER THAN THE `by_state` TEST I PROPOSED LAST TURN. I AM CORRECTING MY OWN PROPOSAL.** Read `compute_coverage`: a lemma in one learner's COVERED set and not another's is `known` for the first and either `learning` or `unknown` for the second — **covered for one, not covered for the other.** **So if any differing lemma occurs even once in a transcript, that transcript's coverage MUST differ between those two learners.** The stored figures are identical to four decimals. **Therefore: occurrences == 0 ⟹ (a), and occurrences > 0 ⟹ (b). One integer decides it.** **`by_state` IS A GOOD FINGERPRINT AND A BAD ADJUDICATOR, WHICH IS WHY THE RULE IS BEING CHANGED BEFORE THE RUN RATHER THAN AFTER.** `by_state` differing proves the ledger is read — that direction is sound. **But `by_state` IDENTICAL does NOT prove (b):** it is also what *no differing lemma of any kind occurring* looks like, and user 3 has 68 non-covered extras that could have moved `by_state` without moving coverage. **A test whose null result is ambiguous is not the test to hang #289 on.** It is still printed, as corroboration. · **THE OCCURRENCE COUNT IS TAKEN THROUGH `compute_coverage` ITSELF, NOT BY A SUBSTRING SEARCH.** Handing it the differing lemmas as the *entire* covered set makes `by_state['known']` exactly the number of tokens in the text resolving to one of them — **the real tokeniser, the real lemmatiser, no private imports and no re-implementation.** `'the' in 'theatre'` is why the naive version would be wrong, and **it is checked: on a text where the letter-run `the` appears 9 times the lemma resolves once.** · **AND THE TEST WAS PROVED ABLE TO FAIL BEFORE IT WAS SHIPPED (#257, CLAUDE.md §3 rule 4).** Fired synthetically on **both** branches: differing lemmas ABSENT → `hits=0` and coverage(union) == coverage(intersection); differing lemmas PRESENT → `hits=2` and the two coverages diverge. **Plus a control: an empty covered set returns exactly 0.0**, so the comparison demonstrably moves. **A diagnostic that cannot distinguish the two hypotheses would have produced a confident answer either way**, which is the shape of every defect this week. · **ONE CAVEAT ON THE `AT MOST SIX` FIGURE, RAISED BECAUSE IT IS LOAD-BEARING FOR HOW SURPRISING THE COINCIDENCE IS.** *2000, 2003, 2003 ⟹ at most six differ* holds **only if user 1's covered set is a SUBSET of the other two.** The digests cannot say. If a tap downgraded a seed lemma out of user 2's covered set — which `states.py` documents as exactly what a tap means — then user 2 gained four and lost one, and the differing set is larger. **The script names the actual lemmas per pair, so the bound is replaced by a list.** · **NOTHING IS CONCLUDED IN THIS COMMIT. #289 AND #88 STAY PROVISIONAL.** The script is written, its logic is validated, and it has not been run against production. |
 | 2026-09-01 | **O1 CAME BACK WITH THREE DIFFERENT LEDGERS AND IDENTICAL COVERAGE. BRANCH (b) IS REFUTED BY READING THE CHAIN LINE BY LINE; A THIRD BRANCH THE DICHOTOMY MISSED IS THE LIKELY ANSWER AND IS STRONGER THAN (a); AND ONE OF THE TWO QUERIES THAT PRODUCED THIS QUESTION WAS MINE AND ROUNDED THE ANSWER AWAY. #289 AND #88 ARE MARKED PROVISIONAL UNTIL THE HOST ANSWERS.** **THE READING, END TO END, EVERY LINK NAMED SO IT CAN BE CHECKED RATHER THAN TRUSTED.** `_recompute_coverage` (`refresh.py`) loops `for user_id in users: for row in rows:` and calls `coverage_for(conn, user_id, row.transcript)` — the id is in the loop, not outside it. `coverage_for` (`services/lexicon.py`) calls `ledger(conn, user_id)`. `ledger` is `SELECT l.lemma, ul.state ... WHERE ul.user_id = %s` — **the filter is present and parameterised.** `coverage_for` then builds `covered = frozenset(l for l, s in rows.items() if s in COVERED_STATES)` from that dict and passes it plus `ledger=rows` and `vocabulary=frozenset(rows)`. `compute_coverage` reads `state = ledger.get(lemma, UNKNOWN)` and returns `covered/counted`. `record_coverage` writes `(user_id, video_id)` as the primary key. **THERE IS NO LINE ON THIS PATH WHERE `user_id` IS DROPPED, DEFAULTED OR SHADOWED.** · **BUT THE DICHOTOMY HAS A THIRD BRANCH AND IT IS THE ONE THE ARITHMETIC POINTS AT. (c) THE LEDGERS DIFFER IN SIZE WHILE THE *COVERED SUBSETS* ARE IDENTICAL.** `user_lexemes` has four states — `seen`, `learning`, `known`, `mastered` — and **`COVERED_STATES` is only the last two**, by PRD §2.1's ruling that *`learning` does not count*. All three learners were seeded by `assume_top_frequency_known(top_n=2000)`, which writes **exactly 2000 rows at `known`**. The extra **6** and **71** rows are later ingestion — corrections, taps, readings — and **a tap is documented in `states.py` as *proof of NOT knowing***. **If every extra row is `seen` or `learning`, all three covered sets are the same 2000 lemmas and the coverage figures are FORCED to coincide.** **AND (c) IS A PROOF WHERE (a) IS ONLY AN OBSERVATION, WHICH IS WHY IT IS WORTH SEPARATING.** Read `compute_coverage`: **`counted += 1` happens BEFORE `lemmatize`**, and the exclusion test `_is_excluded` depends on the token, the casing profile and `cefr_tagged_lemmas()` — **all global.** So `counted_tokens` and `excluded_tokens` are *entirely independent of the learner*. `covered` sums only `known`/`mastered`. **Therefore `coverage` depends on the ledger through the covered set and through nothing else: identical covered sets ⟹ identical coverage for EVERY POSSIBLE TEXT**, not a coincidence about these six transcripts. (a) would have to be re-proved for every future video; (c) never needs proving again. · **THE DIAGNOSTIC THAT DISCRIMINATES ALL THREE IN ONE RUN, AND THE SIGNATURE IT LOOKS FOR IS THE INTERESTING PART: `by_state`.** A lemma in user 3's ledger but not user 1's makes `lemmatize` resolve for user 3 and return `None` for user 1 — so that token lands in `by_state['learning']` for one and `by_state['unknown']` for the other. **Neither is covered, so `coverage` does not move — but `by_state` does.** **`by_state` DIFFERING WHILE `coverage` MATCHES IS POSITIVE EMPIRICAL PROOF THAT THE PER-USER LEDGER IS BEING READ**, and it arrives from the same run that explains the coincidence. It is a stronger result than either branch as posed, because it is a fingerprint rather than an absence. · **AND ONE OF THE TWO QUERIES THAT MANUFACTURED THIS QUESTION WAS MINE. `video_coverage.coverage` IS `NUMERIC(5,4)` AND I REPORTED IT WITH `round(c.coverage*100, 1)`.** `0.9650` and `0.9647` both print as **96.5**. **So "identical to one decimal" may be an artefact of my own rounding rather than a property of the data**, and the four-decimal values have never been looked at. That possibility is checked first because it is the cheapest and would settle everything innocently. **This is the third time this week a reporting layer has been the thing that misled** (#320's `$0.0000`, #323's `unknown 5`, #326's invocation) — and this one is mine, in a query I wrote two turns ago while filing #326 about exactly this. · **#289's ANSWER AND #88's CLOSURE ARE MARKED PROVISIONAL, NOT WITHDRAWN.** The six figures are the evidence both rest on. **If O1 returns branch (b), they are one learner's numbers wearing three names and both must reopen** — the *ordering* by register would survive, since it is a fact about the six texts against a single ledger, but *whose* coverage it is would not. **If it returns (a) or (c), nothing changes and the closure stands as written.** Marking them provisional rather than reopening them is the honest state: **the question is open, the answer is not yet in, and pretending either way would be the failure this record is built against.** · **WHAT I WILL NOT DO IS ASSUME (a) BECAUSE THE RUN LOOKED RIGHT.** The chain reads clean and I have said so with the lines named; **that is exactly the evidence #257 says is not enough**, and it is the same standard I applied to the operator's reported seam two turns ago. The script runs the REAL `coverage_for` per learner per transcript and prints full precision, `counted`, `excluded` and `by_state`. **Read-only, free, no billed call.** |
 | 2026-09-01 | **#289 IS ANSWERED AND THE ANSWER IS THAT THE INSTRUMENT IS RIGHT AND THE CONTENT IS WRONG. THE BAND STANDS AT 93-98% UNCHANGED, #88 CLOSES ON IT, AND THE POOL IS FILED `high` AS #329. MY OWN PREDICTION FAILED AND THE FAILURE IS THE MOST USEFUL THING IN THIS ENTRY.** **THE SIX NUMBERS, PRODUCTION 2026-09-01, IDENTICAL FOR ALL THREE LEARNERS:** `y_525lzqbg0` Friends 3.5min **generated 96.5% IN BAND**; `ScmC5E7titM` Lucy 0.9min generated 90.2%; `5E5tNu4NsxM` Friends 0.3min generated 85.7%; `9sSD2IFGSLw` Lucy 13.8min **manual** 88.2%; `l29K-ZkARmE` TED-Ed 4.7min **manual** 82.9%; `QyRqlTV60zM` TED-Ed 5.7min **manual** 75.8%. **One in band, five below, none above. Min 75.8, max 96.5.** · **THE PREDICTION FAILED, AND IT FAILED IN THE DIRECTION THAT SAVED THE RUN.** I wrote — before the numbers, deliberately so it could not be fitted to them — that **three of the six would be excluded by #288** because auto-generated captions are lowercase, the proper-noun rule switches off, and the coverage comes back inflated. **`proper_nouns_detected` is TRUE on all six and `casing` is conventional on all six. `degraded_288 = 0`. Nothing was excluded.** **THE PREMISE WAS WRONG, NOT THE INFERENCE: THIS ACTOR RETURNS CONVENTIONALLY CASED TEXT EVEN FOR AUTO-GENERATED TRACKS.** *YouTube auto-captions are lowercase* is a true statement about YouTube's own caption payloads and a **false** one about `johnvc/YoutubeTranscripts`' output, and every line in this record that reasons from *generated therefore lowercase therefore inflated* inherited it — **the 1a fetch ruling, #318b's reporting, `--allow-degraded`, and `_print_pool`'s starvation warning.** **AND IT WAS LOAD-BEARING: THE SINGLE IN-BAND VIDEO IS AUTO-GENERATED.** Had the prediction held, the three generated rows would have been excluded and **the admissible pool would have been zero.** The 1a ruling — *a video with only auto-generated captions IS FETCHED* — turns out to have been right for a better reason than the one given: there is no inflation to compensate, because the rule fires normally. · **THE RULING, OPERATOR'S, 2026-09-01: THE POOL IS MIS-TARGETED AND THE BAND IS CORRECT.** Do not widen the band, do not pass `--allow-degraded`, do not rank around the gate. **KIND DOES NOT PREDICT COVERAGE; REGISTER DOES**, and the data is monotonic in register with no exception: **Friends 96.5 · Lucy 90.2 / 88.2 · TED-Ed 82.9 / 75.8.** All three MANUAL tracks are far below the band and the one video that passes is auto-generated. **75.8% is TED-Ed's Plato lesson — ship of state, mutiny, navigator — where a B1 learner knows three words in four. The instrument is right about that video.** The one that fits is a three-minute Friends clip: conversational, everyday, the register the product exists for. · **TWO OF THE SIX NUMBERS SHOULD NOT BE READ AS EVIDENCE ABOUT THEIR CHANNEL, AND THIS IS SAID BECAUSE ONE OF THEM LOOKS LIKE A COUNTER-EXAMPLE.** `5E5tNu4NsxM` is **17 seconds, 234 characters**, and reads 85.7% — the *other* Friends video. **A coverage percentage over 234 characters measures one short paragraph, not a learner's coverage**, and it will land wherever those few tokens happen to fall. `ScmC5E7titM` at 53 seconds is the same shape one step less severe. **Discount both and the register ordering is cleaner still, not weaker.** Length is SCORED (`length_fit` gives the 17-second clip 0.07) and never GATED, which is how a 234-character transcript reaches a band comparison at all. · **SO #289 IS ANSWERED RATHER THAN RE-TARGETED, AND #88 CLOSES ON 93-98% UNCHANGED.** All four sites were already corrected to 93-98% in Phase A; what was missing was the validation, and this is it. **The band admitted exactly the video it should have admitted and refused five it should have refused.** CLAUDE.md §3 rule 7 is not being invoked to stop the slice — **the bar was met by the instrument and missed by the content**, which is a different finding and a better one. · **#329 FILED `high` AGAINST THE CHANNEL LIST. THIS IS #314 ARRIVING WITH NUMBERS.** #314 recorded on 2026-08-31 that **the pool contains no unscripted authentic speech at all** — seven of eleven channels are teachers explaining English — and it was `medium` on an argument. **It is now `high` on a measurement: five of six videos are below the comprehensible-input floor, and the single one that clears it is the closest thing in the pool to unscripted conversation.** TED-Ed and Lucy's long-form teach ABOVE B1-B2. **The fix is content and the ruling is the operator's.** · **AN OBSERVATION I AM RECORDING AND NOT CONCLUDING FROM: THE SIX FIGURES ARE IDENTICAL FOR ALL THREE LEARNERS.** Coverage is supposed to be *a fact about a learner AND a video* — that is why migration 019 gave it a two-key table rather than a column. **Identical across three learners means the three ledgers are identical**, which is consistent with all three having been seeded from the frequency floor and none having diverged (**#308**: the v3 web loop has one live user, and every `items` row is `user_id = 3`). **It is also what a bug that ignores `user_id` would look like.** One query separates them and it is written into the Next action. |
 | 2026-09-01 | **THE REPORTED SEAM DOES NOT EXIST, AND THE ARITHMETIC THAT SHOWS IT ALSO SHOWS WHAT DOES: THE BILLED PATH'S OUTPUT CANNOT IDENTIFY ITS OWN INVOCATION. #326 AND #327 FILED; #324 AND #322 CLOSED.** **SAID FIRST, BECAUSE THE INSTRUCTION ASKED ME TO NAME A SEAM WITH ITS LINE AND THERE IS NONE TO NAME.** `fetch_transcripts` has **exactly one caller in the tree** (`refresh.py:479`), it sits **inside `if pending:`** (`refresh.py:376`), and `pending` is what the `N candidate(s)` line counts three lines above it. There is no worker, no cron and no second entry point — `grep -rn 'fetch_transcripts' packages apps scripts` returns that one call site and four comments. **An invocation cannot both print `0 candidate(s)` and make a fetch.** · **WHAT ACTUALLY HAPPENED, RECONSTRUCTED AND THEN CHECKED AGAINST ALL THREE CONSOLE COUNTERS INDEPENDENTLY. THE FIT IS EXACT ON EVERY ONE.** **There were two `--live --apply` invocations.** The first did all of the work; the second found nothing to do and said so truthfully. **The first:** after the reset, id 3 `ok` and ids 1, 2, 4, 5, 6 `pending` — **five candidates** at `--limit 5`. One free listing call, then the five split into **three query groups** (`any`/`["en"]` for the three auto-only videos, `manual`/`["en-GB"]` for `9sSD2IFGSLw`, and a third for `l29K-ZkARmE`, which is not in the committed listing) — **so 1 + 3 = four actor runs and four dump files, which is exactly what `/home/bot/phase-b-fixtures/run2/` holds.** Five stored, plus id 3 already `ok` = **six**. **The second invocation then correctly found 0 candidates, made no call, logged no POST, and reported `Pool: ok 6`.** · **THE THREE COUNTERS, EACH BY DIFFERENT ARITHMETIC, AND ALL THREE LAND EXACTLY.** **`Actor Start 7`** = 2 (first billed run) + 1 (the #324 confirmation probe) + 4 (this run's listing and three fetches). **`Video Processed 7`** = 1 + 1 + 5 — the *fetched* videos only, which is consistent with the actor documenting `list_only` as **not charged as a videoprocessed event**. **`Dataset item stored 21`** = (5 listing rows + 5 fetch rows) + 1 + (5 listing rows + 5 fetch rows). **Three counters, three different formulas, no residual on any of them.** That is the standard #324 set for itself and it is the standard used here. · **BUT THE FRAMING IN THE INSTRUCTION IS RIGHT AND THE DEFECT IS REAL — IT IS ONE LAYER UP FROM WHERE IT WAS LOOKED FOR, AND IT IS FILED `high` AS #326.** **The billed path's output does not identify its own invocation, and neither does its dump directory.** `_projection`, `_print_query_plan`, the dump-path line and the stored count are **all inside `if pending:`**, so **the one invocation shape whose answer is "nothing happened" is the one that says least** — and it closes on `Pool: ok 6`, the same line a fully successful run closes on. **And `_dump_target`'s counter restarts at 1 every invocation** (`video_api.py:547`, `:732`), so two runs against one `--dump` path overwrite each other file for file, while a run that fetches nothing leaves the previous run's files standing with nothing marking them stale. **#317 ruled the dump in as the archival artefact of ONE response; a file that cannot be attributed to a run is not that.** **SO AN OPERATOR HOLDING FOUR DUMP FILES, THREE CONSOLE COUNTERS AND ONE RUN'S STDOUT CONCLUDED THE FETCH HAPPENS OUTSIDE THE BLOCK THAT COUNTS CANDIDATES. THE CODE WAS RIGHT AND ITS OUTPUT COULD NOT PROVE IT.** That is the same shape as the FLOOR reading `$0.0000`, as `unknown 5` over readable kinds, and as `NoTranscriptFound` over a query bug — **arriving in the reporting layer instead of the compute layer.** **HERE IT UNDERSTATED. THE IDENTICAL OUTPUT WOULD FOLLOW A RUN THAT BOUGHT NOTHING BECAUSE THE POOL WAS ACCIDENTALLY EMPTY, AND THEN IT OVERSTATES.** · **AND A SECOND ONE FOUND WHILE CHECKING WHY THE LOG SHOWED NO POST — #327, `medium`. THE BILLED PATH NARRATES ON STDOUT AND EVIDENCES ON STDERR.** The narrative is `print()`; the httpx per-request INFO lines — **the only in-process proof that money was spent** — go through `logging.basicConfig` (`refresh.py:210`) to **stderr**. Redirect or pipe stdout and it becomes block-buffered while stderr stays unbuffered, **so a captured log shows the POSTs before the narrative that precedes them, in chunks.** For the one command in this project that spends money, the account and the evidence are on two channels with different flush behaviour and no common ordering. · **THE PAYOFF, RECORDED WITH THE ONE DIGIT THAT IS NOT YET EVIDENCE MARKED AS SUCH.** **Six transcripts stored against one, and `captions_kind` matches the listing exactly on all six** — #324's fix is verified on its own terms, independent of any cost figure. **The console total is still $0.58**, and that is **consistent**: it includes the first run, so "unchanged" means the second added less than the display's own resolution. **WHAT IS NOT YET A MEASUREMENT IS `1.7396 CU`, UNCHANGED TO FOUR DECIMAL PLACES AFTER FOUR MORE ACTOR STARTS.** That requires the four new runs to have cost **≤0.00005 CU together — 0.18 GB-seconds for four actor starts** — which is not a plausible number for any actor, let alone one measured at ~32 GB. **The likelier reading is a stale or period-filtered console figure.** **THE DIRECTION IS WELL SUPPORTED AND THE PRECISE CLAIM IS NOT**, and the distinction is exactly the one #321 already cost this record once: *eliminating one explanation is not establishing another.* **Free to settle: the per-run cost detail on the four new runs.** · **NOTHING WAS FIXED IN THIS COMMIT AND THAT IS DELIBERATE.** The instruction was to **file**. #326's fix is four lines — move the cost line out of `if pending:`, print a `NOTHING WAS BOUGHT` statement on the empty path, stamp the invocation, and refuse to reuse a `--dump` directory that already holds files — and it is a change to the money path, which is the operator's to rule on rather than mine to slip into a records commit. |
@@ -3740,144 +3741,202 @@ first because it is cheapest and would settle everything innocently.**
 
 ---
 
-#### Q. **O1 — WHOSE COVERAGE IS IT? FREE, READ-ONLY, NO BILLED CALL.**
+#### Q. **~~O1~~ — ANSWERED IN PART. (c) AND THE ROUNDING ARTEFACT ARE BOTH REFUTED; ONE TEST REMAINS.**
 
-**Q1 — the cheap check first: the stored values at full precision.**
+**Q1 and Q2 are in.** Covered sets: **2000 / 2003 / 2003, three different
+digests** — so the sets differ and **(c) is dead.** Stored coverage: **identical
+to four decimals**, `counted_tokens` and `excluded_tokens` too — so **the
+`NUMERIC(5,4)` rounding artefact I raised against my own query is dead as well.**
 
-```bash
-set +H; sudo -u bot psql -d english_bot -c "SELECT v.youtube_id, c.user_id, c.coverage, c.counted_tokens, c.excluded_tokens FROM video_coverage c JOIN videos v ON v.id = c.video_id ORDER BY v.youtube_id, c.user_id;"
-```
+**WHAT DECIDES IT IS ONE INTEGER, AND IT IS NOT `by_state`.** A lemma in one
+learner's covered set and not another's is `known` for the first and
+`learning`/`unknown` for the second. **So if any differing lemma occurs even once
+in a transcript, that transcript's coverage MUST differ between those two
+learners.** The figures are identical to four decimals. Therefore:
 
-**If the four-decimal values differ, the question dissolves** — the ledgers
-differ, the coverage differs, and my earlier report rounded it away.
+* **differing-lemma occurrences == 0** → **(a).** The coincidence is real and
+  forced; `coverage_for` is reading the ledger; **#289 and #88 close as written.**
+* **occurrences > 0** → **(b).** Coverage should have differed and did not;
+  **#289 reopens** and every coverage figure in this record is one learner's.
 
-**Q2 — the covered sets, which is what coverage actually depends on.**
+**I AM WITHDRAWING THE `by_state` DECISION RULE I PROPOSED LAST TURN, BEFORE THE
+RUN RATHER THAN AFTER.** `by_state` *differing* does prove the ledger is read.
+But `by_state` *identical* does **not** prove (b) — it is equally what *no
+differing lemma occurring at all* looks like, and user 3 has 68 non-covered
+extras that could move `by_state` without moving coverage. **A test whose null
+result is ambiguous is not the one to hang #289 on.** It is still printed, as
+corroboration rather than as the verdict.
 
-```bash
-set +H; sudo -u bot psql -d english_bot -c "SELECT ul.user_id, count(*) AS rows_total, count(*) FILTER (WHERE ul.state IN ('known','mastered')) AS covered, md5(string_agg(l.lemma, ',' ORDER BY l.lemma) FILTER (WHERE ul.state IN ('known','mastered'))) AS covered_digest FROM user_lexemes ul JOIN lexemes l ON l.id = ul.lexeme_id GROUP BY 1 ORDER BY 1;"
-```
+**THE OCCURRENCE COUNT GOES THROUGH `compute_coverage` ITSELF** — the differing
+lemmas handed in as the entire covered set, so `by_state['known']` is exactly the
+number of tokens resolving to one of them. Real tokeniser, real lemmatiser, no
+private imports. **Not a substring search:** on a text where the letter-run `the`
+appears nine times the lemma resolves once, and that is checked.
 
-**Three identical `covered_digest` values prove branch (c) outright** and the
-coverage figures are correct for all three learners by construction. **Three
-different digests and identical coverage is branch (b)** and #289 reopens.
+**AND THE TEST WAS PROVED ABLE TO FAIL BEFORE IT WAS WRITTEN INTO THIS FILE.**
+Fired synthetically on both branches — absent → `hits=0`, coverages equal;
+present → `hits=2`, coverages diverge — plus a control in which an empty covered
+set returns exactly `0.0`. **A diagnostic that cannot separate the two hypotheses
+would answer confidently either way**, which is the shape of every defect this
+week.
 
-**Q3 — the authoritative run: the REAL `coverage_for`, per learner, per
-transcript, at full precision, with `by_state`.** Read-only; it opens a
-connection, never commits, and makes no external call of any kind.
-
-**THE SIGNATURE TO READ IS `by_state`, AND IT IS THE POINT OF THIS RUN.** A
-lemma in user 3's ledger but not user 1's makes `lemmatize` resolve for one and
-return `None` for the other, so that token lands in `by_state['learning']` for
-one and `by_state['unknown']` for the other. **Neither is covered, so `coverage`
-does not move — but `by_state` does.** **`by_state` differing while `coverage`
-matches is positive proof that the per-user ledger IS being read**, and it
-explains the coincidence in the same breath. **Identical `by_state` across three
-different ledgers is the opposite finding and is branch (b).**
+**Q3 — read-only, free, no billed call, and it rolls back explicitly** because
+`psycopg_pool`'s context manager commits on a clean exit and nothing here should
+ever write.
 
 ```bash
 set +H; cd /home/bot/english-bot && sudo -u bot .venv/bin/python - <<'PY'
-"""O1. Is `coverage_for` reading the user's ledger? READ-ONLY. No billed call.
+"""Q3. Whose coverage is it? READ-ONLY. No billed call. No write.
 
-Two independent legs, because "the code looks right" is what this record
-distrusts:
+(c) is refuted: the three covered sets differ. (a) and (b) remain, and they
+make INCOMPATIBLE predictions about one number.
 
-  LEG 1  Are the INPUTS distinct? The covered sets, per user, compared
-         directly. If they are identical, coverage MUST be identical for
-         EVERY text -- compute_coverage sums only known/mastered, and
-         `counted` is incremented BEFORE lemmatize, so a wider vocabulary
-         cannot move the denominator either. That settles it without
-         reference to these six transcripts at all.
+THE DECIDING ARGUMENT, DERIVED FROM `compute_coverage` RATHER THAN GUESSED:
+a lemma in one learner's COVERED set and not another's is `known` for the
+first and either `learning` or `unknown` for the second -- covered for one,
+not covered for the other. So IF ANY DIFFERING LEMMA OCCURS EVEN ONCE IN A
+TRANSCRIPT, THAT TRANSCRIPT'S COVERAGE MUST DIFFER BETWEEN THOSE TWO
+LEARNERS. The stored figures are identical to four decimals. Therefore:
 
-  LEG 2  What does the REAL function return, at full precision? The stored
-         column is NUMERIC(5,4) and the earlier report rounded it to one
-         decimal, so a real difference could have been hidden by the query
-         rather than absent from the data.
+    occurrences == 0  ->  (a). The coincidence is REAL and forced, and
+                          `coverage_for` is reading the ledger.
+    occurrences  > 0  ->  (b). Coverage should have differed and did not.
+
+Step 3 counts those occurrences THROUGH `compute_coverage` ITSELF, by handing
+it the differing lemmas as the entire covered set: `by_state['known']` is then
+exactly the number of tokens in the text that resolve to one of them. No
+private imports, no re-implementation of the tokenizer, no substring matching
+(`'the' in 'theatre'` is why that would be wrong).
+
+Step 4 is the sensitivity control. A comparison that cannot move proves
+nothing (#257), so an EMPTY covered set must return 0.0 on every text.
 """
 import hashlib
 from core.db import connection
+from core.lexicon.coverage import compute_coverage
 from core.lexicon.states import COVERED_STATES
 from core.services.lexicon import ledger, coverage_for
 from core.services import video as svc
 
 
-def digest(lemmas):
-    return hashlib.md5(",".join(sorted(lemmas)).encode()).hexdigest()[:12]
+def md5(lemmas):
+    return hashlib.md5(",".join(sorted(lemmas)).encode()).hexdigest()
 
 
 with connection() as conn:
     rows = svc.selectable(conn)
     users = sorted({r["user_id"] for r in
                     conn.execute("SELECT DISTINCT user_id FROM video_coverage")})
-    if not users:
-        users = svc.onboarded_user_ids(conn)
-    print(f"users in video_coverage: {users}   stored transcripts: {len(rows)}\n")
+    print(f"users: {users}   stored transcripts: {len(rows)}")
 
-    # --- LEG 1 --------------------------------------------------------------
-    covered = {}
+    # ---- 1. Does `ledger()` return a DIFFERENT set per user? ---------------
+    # This is branch (b) tested at its source, in process, through the real
+    # function -- not through SQL, and not by reading the WHERE clause.
+    print("\n=== 1. the ledgers, through the real ledger() ===")
+    led, cov, vocab = {}, {}, {}
     for u in users:
-        led = ledger(conn, u)
-        covered[u] = frozenset(l for l, s in led.items() if s in COVERED_STATES)
+        led[u] = ledger(conn, u)
+        cov[u] = frozenset(l for l, s in led[u].items() if s in COVERED_STATES)
+        vocab[u] = frozenset(led[u])
         states = {}
-        for s in led.values():
+        for s in led[u].values():
             states[s] = states.get(s, 0) + 1
-        print(f"user {u}: rows={len(led):<6} covered={len(covered[u]):<6} "
-              f"digest={digest(covered[u])}  states={dict(sorted(states.items()))}")
+        print(f"  user {u}: rows={len(led[u]):<5} covered={len(cov[u]):<5} "
+              f"md5={md5(cov[u])[:16]}  states={dict(sorted(states.items()))}")
+    print("  (a python md5 need not equal postgres's -- ORDER BY uses the DB "
+          "collation. The SET comparison below is what counts.)")
 
-    base = users[0]
-    diff = set()
-    for u in users[1:]:
-        d = covered[u] ^ covered[base]
-        if d:
-            print(f"\n  user {base} vs {u}: {len(d)} covered lemma(s) differ")
-            print(f"    {sorted(d)}")
-        diff |= d
-    print(f"\nCOVERED SETS IDENTICAL ACROSS ALL USERS: {not diff}")
-    if not diff:
-        print("  -> identical coverage is FORCED for every possible text.")
-        print("     Not a coincidence about these six transcripts.")
+    union = frozenset().union(*cov.values())
+    inter = frozenset.intersection(*cov.values())
+    DIFF = union - inter
+    print(f"\n  union={len(union)}  intersection={len(inter)}  DIFFERING={len(DIFF)}")
+    print(f"  THE DIFFERING LEMMAS: {sorted(DIFF)}")
+    for i, a in enumerate(users):
+        for b in users[i + 1:]:
+            only_a, only_b = sorted(cov[a] - cov[b]), sorted(cov[b] - cov[a])
+            print(f"  user {a} vs {b}: only in {a}: {only_a} | only in {b}: {only_b}")
+    print(f"\n  LEDGERS ARE USER-SPECIFIC: {len({md5(c) for c in cov.values()}) > 1}"
+          "   <- if False, branch (b) is confirmed here and nothing below matters")
 
-    # --- LEG 2 --------------------------------------------------------------
-    print("\nrecomputed through the real coverage_for, full precision:")
-    print(f"{'youtube_id':<14} {'user':>6} {'coverage':>14} {'counted':>8} "
-          f"{'excl':>6}  by_state")
-    disagree = []
+    V = frozenset().union(*vocab.values())
+
+    # ---- 2. the real coverage_for, full precision, with the by_state print --
+    print("\n=== 2. coverage_for, per learner, per transcript ===")
+    print(f"  {'youtube_id':<14} {'user':>5} {'coverage':>14} {'cnt':>5} {'exc':>4}"
+          f"  by_state")
+    differs = []
     for row in rows:
-        seen = {}
+        vals = set()
         for u in users:
             r = coverage_for(conn, u, row.transcript)
-            seen[u] = r.coverage
-            print(f"{row.youtube_id:<14} {u:>6} {r.coverage:>14.10f} "
-                  f"{r.counted_tokens:>8} {r.excluded_tokens:>6}  "
+            vals.add(round(r.coverage, 10))
+            print(f"  {row.youtube_id:<14} {u:>5} {r.coverage:>14.10f} "
+                  f"{r.counted_tokens:>5} {r.excluded_tokens:>4}  "
                   f"{dict(sorted(r.by_state.items()))}")
-        if len(set(seen.values())) > 1:
-            disagree.append(row.youtube_id)
-        if diff:
-            low = row.transcript.lower()
-            present = sorted(l for l in diff if l in low)
-            print(f"{'':14} differing covered lemmas appearing in this text: "
-                  f"{present if present else 'NONE'}")
-    print(f"\nvideos where the users' coverage DIFFERS: "
-          f"{len(disagree)} of {len(rows)} {disagree}")
+        if len(vals) > 1:
+            differs.append(row.youtube_id)
 
-    # --- LEG 3: stored vs recomputed ----------------------------------------
-    print("\nstored (NUMERIC(5,4)) vs recomputed:")
-    by_id = {r.video_id: r for r in rows}
-    for rec in conn.execute(
-        "SELECT user_id, video_id, coverage FROM video_coverage ORDER BY 2, 1"
-    ):
-        row = by_id.get(rec["video_id"])
-        if row is None:
-            continue
-        live = round(coverage_for(conn, rec["user_id"], row.transcript).coverage, 4)
-        stored = float(rec["coverage"])
-        flag = "" if abs(stored - live) < 1e-9 else "   <-- MISMATCH"
-        print(f"  {row.youtube_id:<14} user {rec['user_id']:>4}: "
-              f"stored {stored:.4f}  recomputed {live:.4f}{flag}")
+    # ---- 3. THE DECIDING NUMBER --------------------------------------------
+    print("\n=== 3. do the differing lemmas occur at all? (the deciding test) ===")
+    diff_ledger = {l: "known" for l in DIFF}
+    total_hits = 0
+    for row in rows:
+        hits = compute_coverage(
+            row.transcript, DIFF, ledger=diff_ledger, vocabulary=V
+        ).by_state.get("known", 0)
+        total_hits += hits
+        # Same vocabulary both sides, so `counted` and the lemmatisation are
+        # identical and ONLY the covered set varies.
+        u_cov = compute_coverage(
+            row.transcript, union, ledger={l: "known" for l in union}, vocabulary=V
+        ).coverage
+        i_cov = compute_coverage(
+            row.transcript, inter, ledger={l: "known" for l in inter}, vocabulary=V
+        ).coverage
+        print(f"  {row.youtube_id:<14} differing-lemma tokens: {hits:>3}   "
+              f"coverage(union)={u_cov:.10f}  coverage(intersection)={i_cov:.10f}"
+              f"{'   <-- MOVES' if abs(u_cov - i_cov) > 1e-12 else ''}")
+    print(f"\n  TOTAL differing-lemma tokens across all transcripts: {total_hits}")
+
+    # ---- 4. sensitivity control --------------------------------------------
+    print("\n=== 4. control: can this comparison move at all? ===")
+    for row in rows[:2]:
+        empty = compute_coverage(
+            row.transcript, frozenset(), ledger={}, vocabulary=V
+        ).coverage
+        full = compute_coverage(
+            row.transcript, inter, ledger={l: "known" for l in inter}, vocabulary=V
+        ).coverage
+        print(f"  {row.youtube_id:<14} covered=<empty> -> {empty:.10f}   "
+              f"covered=intersection -> {full:.10f}"
+              f"{'   OK' if empty < full else '   <-- CONTROL FAILED'}")
+
+    # ---- verdict ------------------------------------------------------------
+    print("\n=== VERDICT ===")
+    user_specific = len({md5(c) for c in cov.values()}) > 1
+    if not user_specific:
+        print("  ledger() returned the SAME covered set for every user -> (b).")
+    elif total_hits == 0:
+        print("  (a) PROVEN. The ledgers ARE user-specific and NOT ONE of the")
+        print(f"  {len(DIFF)} differing lemmas occurs in any of the {len(rows)}")
+        print("  transcripts, so identical coverage is FORCED, not suspicious.")
+        print("  #289 and #88 close as written.")
+    else:
+        print(f"  (b) INDICATED. {total_hits} differing-lemma token(s) occur, so")
+        print("  coverage SHOULD have differed between learners and did not.")
+        print("  #289 reopens. Compare step 2's by_state rows to localise it.")
+    print(f"  transcripts where coverage_for differed across learners: {differs}")
+
+    # Nothing above writes. psycopg_pool commits on a clean exit, so this is
+    # belt and braces against a later edit adding a write without noticing.
+    conn.rollback()
 PY
 ```
 
-**Paste all three.** Then #289 and #88 either stand as written or reopen, and
-the record says which.
+**Paste the whole output.** The `=== VERDICT ===` block states which branch, and
+the `THE DIFFERING LEMMAS:` line names them — **the bound of six holds only if
+user 1's set is a subset of the other two, which the digests cannot say**, so
+the list replaces the arithmetic.
 
 ---
 
