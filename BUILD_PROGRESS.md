@@ -216,6 +216,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 
 Record every decision that deviates from or resolves ambiguity in the spec. Newest first.
 
+| 2026-09-01 | **THE DRY RUN ON THE COMPLETE POOL EXPOSED THE FLOOR AS BLIND TO THE ONLY RUN WHOSE COST IS UNKNOWN. #320 FILED `medium`, NOT FIXED, AND THE CONSEQUENCE IS WRITTEN INTO THE RUN PLAN: THE PROTECTION FOR THE FIRST BILLED RUN IS SCOPE, NOT THE FLOOR.** | **RECORDS ONLY. No code, no billed call, nothing run. Branch, no deploy, no push. No slice marked ✅.** **THE OBSERVATION, from production 2026-09-01 with the pool complete at 11 usable / 0 refused:** `Pool: 0 video(s)` and then `If run with --live --apply: transcripts to fetch : 0 / projected cost : $0.0000`. **MECHANISM VERIFIED IN THE CODE BEFORE FILING, AS INSTRUCTED, AND IT IS WHAT THE READING PREDICTED:** `refresh.py:250` prints `_projection(min(needing, args.limit))`; `needing` comes from `svc.videos_needing_transcript` at `:239-241`; **that query is `SELECT … FROM videos` (`services/video.py:151-161`) and reads the TABLE, not the channel pool.** `videos` is empty until a `--live --apply` run fills it, **and that is the run being priced.** So the estimate is blind on the first billed run and meaningful from the second. **`medium`, AND THE DISTINCTION FROM #319 IS THE WHOLE SEVERITY ARGUMENT.** #319 is the FLOOR being **imprecise** by one run event, $0.00001. **This is the FLOOR being WRONG IN KIND — it reports zero for a nonzero run.** An imprecise guard still tells a person the shape of what they are authorising; **a guard printing `$0.0000` tells them there is nothing to authorise, and that changes what a person DOES rather than how accurately they do it.** A guard that fails open on the money path at the moment it matters most is worth more than `low`. **NOT `high`, because a correct figure is one command away and free:** `--live` without `--apply` prices from the videos it actually polled (`refresh.py:303`) and spends only YouTube quota. **The number existed; the documented workflow was reading it off the wrong command**, and that is corrected in the same commit. **NOT FIXED, AND THE REASON IS #319's REUSED DELIBERATELY: correcting a projection before any measured number exists is precision on the wrong digit.** The multiplier between this FLOOR and a real console charge is unmeasured, **and the first billed run exists to measure it.** #319 and #320 are fixed together, in the commit that records the first real charge, against a number rather than against a guess. **THE CORRECT BEHAVIOUR IS ALREADY IN THE FILE, ON A BRANCH NOBODY REACHES:** `refresh.py:245`, the no-database path, passes `projected` — the listing count — instead of the backlog. **The dry path knows how to price a run it cannot see the history of; it just does not do it when the database answers.** **THE CONSEQUENCE IS IN THE RUN PLAN AND NOT ONLY IN THE ROW, WHICH IS THE PART THAT MATTERS:** the first billed run is bounded by **three channels and `--per-channel 2`**, not by a FLOOR that will read zero. **AND A HAZARD THAT EXPIRES RATHER THAN PERSISTS IS NAMED THERE TOO: `--file` bounds what is LISTED, not what is FETCHED.** `videos_needing_transcript` has **no channel filter**, so it selects from the whole table; today `Pool: 0` makes listed and fetched the same set, **and on any later trimmed run they are not** — a leftover `pending` or `failed` row from another channel is eligible, and `--limit` bounds the count, not the identity. **Not blocking this run, and stated now because it is true only while the table is empty.** **THE THREE-CHANNEL CHOICE WAS RE-CHECKED AGAINST THE POOL AS IT NOW STANDS AND HOLDS UNCHANGED** — `@Friends` american/life, `@EnglishwithLucy` british/work (the track with one channel, otherwise never run), `@TEDEd` null/curiosity (**the first time `accent_rotation`'s skip and renormalisation meet real rows**). **And none of the three carries #316's weaker provenance**, since the accents authored on 2026-09-01 were Claire, Learn English With TV Series and `@easyenglish551` — **so the first billed run does not rest on an unverified accent.** |
 | 2026-09-01 | **THE BILLED PATH WAS THE LEAST INSTRUMENTED PATH IN THE CODEBASE AND THAT IS BACKWARDS. `--dump`, A COST LINE AND THE FREE CAPTION CHECK ALL SHIP — AND RE-READING THE PATH AFTERWARDS FOUND A FOURTH DEFECT THAT THE FIX ITSELF CREATED.** | **CODE + TESTS + RECORDS, ON A BRANCH. No deploy, no billed call, nothing run. No slice marked ✅.** **#317 RULED: `--dump` SHIPS, in the operator's words — *"Fixtures that cannot be regenerated are not fixtures."*** It writes **`response.content`, not `json.dumps(response.json())`**, because a re-serialised body has lost the actor's formatting, its key order and **every field the adapter does not name — which is precisely what a fixture is for.** **One file per actor call**, since a single file cannot be byte-identical to more than one response. **Written before the status checks**, so a 4xx body is captured whole instead of truncated to the 300 characters the exception carries. **The test asserts BYTE IDENTITY, not that a file exists** — a re-serialised fixture would parse, look right, and encode our assumptions rather than the actor's behaviour, which is #271's shape. **#318(a): the billed run prints a cost line.** `_projection` ran on the dry path and on `--live` and nowhere on `--apply` — a FLOOR figure exactly when nothing would be spent, none when money would be. **#318(b): `list_transcript_kinds` has its production caller**, running **before** the paid fetch, with the mix reported per bucket and **`unknown` never folded into `generated`** (#257: an absent field and an auto-generated track are different facts). **The test asserts the ORDER**, because after the fetch it would be a diagnostic about money already spent. **It reports and does not decide** — skipping generated-only videos is a ruling nobody has taken, and a silent filter is not what was asked for. **ALL THREE DEMONSTRATED RED FIRST, AND ONE OF THE REDS WAS NOT VALID THE FIRST TIME.** Three of the tests initially failed on a bug in my own stub — `purge_stale` returns an object and I had stubbed an int — **which is a red for the wrong reason and proves nothing.** Fixed the stub, then **re-demonstrated all three against the unmodified `refresh.py` with `git stash`**, where they failed on the assertions themselves: `'transcripts to fetch' not in output`, `'list_transcript_kinds' in ['fetch_transcripts']`, and the dump path absent. **A red that comes from the test's own scaffolding is the failure mode #257 is about, one level in.** **THE FOURTH DEFECT, FOUND BY RE-READING THE PATH END TO END AFTER CHANGING IT, AND CREATED BY THE CHANGE: `list_transcript_kinds` DOES NOT CATCH WHAT `_run_actor` RAISES.** `fetch_transcripts` absorbs a batch failure per batch; the new caller had no such guard, **so an Apify hiccup during a FREE, ADVISORY diagnostic would have aborted a PAID run before a single transcript was fetched.** A check that costs nothing becoming the thing that costs the run. **Wrapped, reported, the run continues — and demonstrated red like the other three.** **IT IS NOT VISIBLE IN THE DIFF OF THE FIX; IT IS VISIBLE ONLY IN WHAT THE PATH NOW DOES.** **AND TWO THINGS ARE STILL MISSING, SAID RATHER THAN DECLARING THE PATH READY — #319, `low`.** **(a) THE FLOOR IS NOW ONE RUN EVENT SHORT, BECAUSE OF #318's OWN FIX.** `_projection` adds one `PRICE_PER_RUN_USD`; the billed path now makes **two** actor calls. `list_only` is not charged as a *videoprocessed event* — **it is still a run**, which is what that term prices. **The amount is $0.00001 and the principle is not the amount:** the FLOOR's whole claim is to be a lower bound *on the run that will happen*, and it now describes a different one. **Deliberately not fixed yet** — the multiplier measured at the first billed run will dwarf it, and correcting the FLOOR before that number exists is precision on the wrong digit. **(b) NO RUN OR DATASET ID IS PRINTED**, so a console charge cannot be tied to a local run except by timestamp — the fragile matching #317 was filed about, surviving in the one place `--dump` does not reach: **the dump gives the transcript bytes and says nothing about what was billed to produce them.** **If the id turns out to be in the dumped response body, (b) closes by reading a file and needs no code — which is why it is filed rather than fixed blind.** **189 tests pass across the video, record and boundary files.** |
 | 2026-09-01 | **THE WHOLE POOL LOADS FOR THE FIRST TIME — 11 OF 11. THREE ACCENTS AUTHORED BY CLAUDE AND FILED AS WEAKER PROVENANCE (#316), AND READING THE BILLED PATH BEFORE RUNNING IT FOUND TWO THINGS THAT CHANGE WHAT THAT RUN CAN DELIVER (#317, #318).** | **DATA + RECORDS. No deploy, no billed call, nothing run. Branch, not `main`. No slice marked ✅.** **THE THREE ACCENTS, AND THE PROVENANCE IS NOT DRESSED UP.** `@EnglishTeacherClaire → british`, `@LearnEnglishWithTVSeries → american`, `@easyenglish551 → american`. **AUTHORED BY CLAUDE, NOT BY THE OPERATOR WATCHING EACH CHANNEL.** Claire: a single British teacher, one voice, unambiguous. Learn English With TV Series: built on US sitcoms — **the host is Brazilian and the field is AMERICAN anyway, because ACCENT DESCRIBES WHAT THE LEARNER HEARS**, and authoring the host's nationality would describe the wrong person. `@easyenglish551`: American voices in US-situation dialogues — farmer's market, fast food, plumbing — **from a browser screenshot the operator saw on 2026-08-31**, the strongest of the three and still not a video played. **THE RULE THIS BENDS IS THE FILE'S OWN — *"authoring it means knowing it"* — and these were authored from EVIDENCE ABOUT the channels rather than from watching them.** Filed **#316 `low`**, with `accent_provenance` on each entry and an `_ACCENT_PROVENANCE` block in the data file, **and the row says explicitly that "recorded as weaker" is not "verified".** **`low` because the cost is bounded AND self-correcting: `accent` feeds exactly one 0.15 term and gates nothing, and the first video that plays disproves it in one line if it is wrong.** What closes it is three minutes of watching. **THE MEASUREMENT MATCHED THE PREDICTION EXACTLY: predicted 11 loadable / 0 refused; measured 11 and 0.** **Track split life 6 / curiosity 4 / work 1 = 54.5 / 36.4 / 9.1 against a 50/30/20 target** — life +4.5, curiosity +6.4, **work −10.9, and work is the large miss because it is ONE CHANNEL**, which is also why work has only one accent, the conflict already filed. **The loadable split now EQUALS the authored split for the first time**, since nothing is refused; the earlier 43/43/14 and 37.5/50/12.5 lines are kept in `_POOL_BALANCE` because they are what the selector actually saw on those days. **Accent spread, which matters now that every channel polls: american 7 / british 3 / null 1.** **A TEST OF MY OWN HAD TO BE REWRITTEN, AND THE REASON IS THE USEFUL PART.** `test_a_pending_check_null_is_still_refused_and_a_ruled_one_is_not` asserted that Claire and Learn English With TV Series were refused, **by name, from the live pool.** It went red the moment their accents were authored — **not because the rule broke, but because the test had pinned THE POOL'S CONTENTS WHERE IT MEANT TO PIN THE LOADER'S RULE.** A test that fails when the data is legitimately improved is measuring the wrong thing, **and it would have trained somebody to edit the assertion rather than read it.** Split in two: the `by_ruling` half still runs against the committed pool (it is a claim about this project's data), **the `pending_check` half now runs against a constructed file** and holds whatever the pool contains. A third was added for the written-reason requirement. **READING THE BILLED PATH BEFORE RUNNING IT — WHICH IS THE WHOLE POINT OF DOING IT BEFORE — FOUND TWO DEFECTS THAT CHANGE WHAT THE RUN CAN DELIVER.** **#317 `medium`: THE RAW ACTOR JSON IS DISCARDED IN PROCESS.** `_run_actor` returns `response.json()` and `fetch_transcripts` immediately reduces every row to a `Transcript` dataclass, **dropping every key the adapter does not name.** Nothing logs the body; `response.text` reaches a human **only on a 4xx, truncated to 300 characters.** **So the billed run cannot produce the verbatim fixtures it was expected to produce** — and `video_api.py:19-22` already claims the module *"is exercised against recorded actor output"* when **no recorded output exists anywhere in the repository.** The workable route is out of process — the sync endpoint persists a dataset on Apify — **but no run or dataset id is printed locally**, so it must be found by timestamp in the console, which works once and is not reproducible. **The choice between capturing from the console and adding a `--dump` flag must be made BEFORE the run, because after it there is nothing to choose.** **#318 `medium`: THE BILLED RUN IS THE ONE RUN THAT PRINTS NO COST LINE.** `_projection` is called on the dry path and on `--live`, **and nowhere on `--apply`** — so the operator sees a FLOOR figure exactly when nothing will be spent, and no figure at all when money will be. **And `list_transcript_kinds`, the free `list_only` mode the module calls *"what makes PRD §7.2's human-captions preference verifiable without paying to find out"*, HAS ZERO PRODUCTION CALLERS** — the preference is expressed by paying, not by checking first. **NEITHER IS PATCHED HERE**, because both are decisions rather than typos and the run they affect has not been authorised. |
 | 2026-09-01 | **MIGRATION 020 IS VERIFIED, NOT REPORTED. THE PASTE EXISTED YESTERDAY AND HAD NOT REACHED THIS RECORD — WHICH IS WHY THE UPGRADE WAS HELD, AND IS NOT A CORRECTION OF ANYTHING.** | **RECORDS ONLY. No code, no data, no migration, no deploy; branch, not `main`; no slice marked ✅.** **THE EVIDENCE, QUOTED VERBATIM RATHER THAN SUMMARISED**, from `core.db status` on production, 2026-09-01: `Applied: 001, 002, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020` / `Pending: (none)`. **`schema_version` on production is 20 and nothing is pending.** The file-inventory row for `migrations/020_video_accent_nullable.sql` moves from `⬜ not deployed` to **✅ applied and verified**, the Next-action heading moves from *written and not deployed* to *deployed and verified*, and **the owed status-paste item is struck.** Every superseded wording is **quoted rather than deleted**, per #82's shape, because each was true when it was written. **WHY THE UPGRADE WAS HELD, AND IT IS RECORDED AS A REASON AND NOT AS A CORRECTION — THE OPERATOR'S OWN FRAMING: *the evidence existed and had not reached me*.** Yesterday's entry declined to mark 020 verified on the operator's report alone, and **that was right for a reason that has nothing to do with whether the report was accurate — it was, exactly.** A record cannot distinguish *a true claim nobody checked* from *a true claim somebody checked* unless it holds the check; **so the distinction it can maintain is not truth but provenance**, and provenance is the only thing #268 ever asked for. **THIS IS THE INVERSE OF #268 AND THAT IS WHY IT IS WORTH A ROW.** #268 was a schema state asserted in this file and false on the host, repeated across several entries. **Here the assertion was true and was still not written down, and the record is better for both.** The rule that produced the two outcomes is one rule: **write what the host said, or write that the host has not been asked.** **A THIRD THING FOLLOWS AND IS THE PART THAT GENERALISES: HOLDING AN UPGRADE COSTS ALMOST NOTHING WHEN THE CLAIM IS TRUE, AND SAVES THE RECORD WHEN IT IS NOT.** The cost of yesterday's caution was one line on a list for one day. The cost of #268's confidence was several entries stating a version the database did not have, **repeated until somebody read `schema_version` out loud.** The asymmetry is the whole argument, and it is why the same hold should be applied next time the claim is again almost certainly right. **THE APIFY CAVEAT IS LEFT EXACTLY AS WRITTEN, ON INSTRUCTION AND ON THE MERITS.** The Bearer header is verified by construction and against the free `GET /v2/users/me`, **not by the production path**, and that is the same state the defect itself was in when it was found. **IT NOW CARRIES A SECOND JOB, ADDED TO BOTH #311 AND THE NEXT-ACTION LIST SO IT IS NOT REMEMBERED AS AN AFTERTHOUGHT: W12b PHASE B's FIRST BILLED RUN MUST HAVE ITS LOG LINES READ FOR A LEAKED TOKEN.** That run is the first time `_run_actor` posts to Apify outside a test, so it is **simultaneously the acceptance for Phase B's transcripts and the only available proof that the Bearer fix holds where it matters.** **A green suite cannot supply it** — `conftest.py`'s network guard means no test can inspect a URL that reaches Apify — **and both halves of #311 were found by a person reading console output in the first place.** **ONE THING THE SUITE DID CATCH WHILE THIS ENTRY WAS BEING WRITTEN, AND IT IS WORTH RECORDING BECAUSE IT CAUGHT ME: `test_no_row_claims_both_at_once` WENT RED ON THE 020 INVENTORY ROW.** Marking the row ✅ while quoting its superseded `⬜ not deployed` wording **in backticks** left both claims live, and the checker read the row as **asserting and denying the same deploy** — which is precisely W10c's defect of 2026-08-27, a row contradicting itself across its own cells. **The convention the checker recognises is DOUBLE QUOTES** (`_strip_quotes`), not backticks, and the quoting was redone in that form. **A stale claim is only safely kept if it is kept in the shape the checker knows**, and this record has now been saved from repeating #268's shape by a test written after #268. |
@@ -1493,6 +1494,7 @@ something is a first mention — so unit 8 looks structural and is not.
 
 | # | Issue | Severity | Slice | Status |
 |---|---|---|---|---|
+| 320 | **THE DRY RUN'S FLOOR IS BLIND TO THE ONLY RUN WHOSE COST IS UNKNOWN. IT PRICES WHAT IS ALREADY IN THE DATABASE, AND THE FIRST BILLED RUN IS THE ONE THAT PUTS IT THERE — SO THE GUARD IN FRONT OF THE MONEY PATH REPORTS `$0.0000` FOR A RUN THAT WILL CHARGE.** **OBSERVED ON PRODUCTION, 2026-09-01, with the pool complete at 11 usable / 0 refused:** `channels to poll : 11`, `videos to list : up to 165`, `Pool: 0 video(s)`, and then `If run with --live --apply: transcripts to fetch : 0 / projected cost : $0.0000`. **MECHANISM VERIFIED IN THE CODE BEFORE FILING, AND IT IS EXACTLY AS THE READING PREDICTED.** `refresh.py:250` prints `_projection(min(needing, args.limit))`, where `needing` is set at `:239-241` from `svc.videos_needing_transcript(conn, limit=args.limit)` — **whose SQL is `SELECT … FROM videos WHERE transcript_status IN ('pending','failed')` at `services/video.py:151-161`.** It reads the **`videos` table**, not the channel pool. **`videos` is empty until a `--live --apply` run upserts it, and that run is the one being priced.** So the estimate is meaningful from the second billed run onward and blind on the first. **THIS IS #318's SHAPE ONE LAYER UP:** the billed path was the least instrumented path, and the guard standing in front of it **fails open** — not by printing nothing, which would be noticed, but by printing a number that reads as *this is free*. | medium | **W12b Phase B** | ⬜ open — **`medium` AND NOT `low`, AND THE DISTINCTION FROM #319 IS THE POINT.** #319 is the FLOOR being **imprecise** by one run event, $0.00001. **This is the FLOOR being WRONG IN KIND: it reports zero for a nonzero run.** An imprecise guard still tells a person the shape of what they are authorising; **a guard that says `$0.0000` tells them there is nothing to authorise**, and that changes what a person does rather than how accurately they do it. **A guard that fails open on the money path, at exactly the moment it matters most, is worth more than `low`.** · **NOT `high`, because a CORRECT FIGURE IS ONE COMMAND AWAY AND FREE.** `--live` without `--apply` prices from the videos it actually polled — `_projection(min(len(listed), args.limit))` at `refresh.py:303` — and **spends no money**, only YouTube quota. **So the number exists; the documented workflow was reading it off the wrong command.** That is corrected in the run plan in the same commit as this row, which is why the row is filed rather than treated as blocking. · **NOT FIXED HERE, AND THE REASON IS #319's, DELIBERATELY REUSED: correcting a projection before any measured number exists is precision on the wrong digit.** The multiplier between this FLOOR and a real Apify console charge is unmeasured, and **the first billed run exists to measure it.** Fixing the estimator first would mean tuning a formula against a bill nobody has seen. **Both #319 and #320 are fixed in the commit that records the first real charge**, together, against a number. · **WHAT CLOSES IT: the dry path prices the run it is describing** — `channels × per_channel`, bounded by `--limit`, when the pool is empty — rather than the backlog it can see. The no-database branch at `refresh.py:245` **already does exactly this**, passing `projected` (the listing count) instead of the backlog. **So the correct behaviour is present in the file, on the branch nobody reaches.** · **WHAT MUST NOT CLOSE IT: deleting the dry FLOOR because `--live` has a better one.** The dry run is the command a person runs first, and a first command that says nothing about cost is how the second one gets run without the number. **AND THE CONSEQUENCE IS WRITTEN INTO THE RUN PLAN AND NOT ONLY HERE: THE PROTECTION FOR THE FIRST BILLED RUN IS SCOPE, NOT THE FLOOR.** Three channels and a small `--per-channel` is what bounds that run; the FLOOR will say zero and be useless. Read with **#318** (the same family, one layer down) and **#319** (the other FLOOR gap, fixed at the same time as this one). |
 | 319 | **THE FLOOR PROJECTION COUNTS ONE ACTOR RUN AND THE BILLED PATH NOW MAKES TWO, SO IT UNDER-STATES BY ONE RUN EVENT — AND NO RUN OR DATASET ID IS PRINTED, SO THE REAL CHARGE CANNOT BE MATCHED TO THE RUN THAT CAUSED IT.** **(a) THE PROJECTION IS OFF BY ONE RUN EVENT, AND IT IS OFF BECAUSE OF #318's OWN FIX.** `_projection` computes `transcripts * (PRICE_PER_VIDEO_USD + PRICE_PER_ROW_USD) + PRICE_PER_RUN_USD` — **one** `PRICE_PER_RUN_USD`. The billed path now makes **two** actor calls: the free `list_only` check added for #318b, then the paid fetch. **The `list_only` mode is documented as not charged as a *videoprocessed event*; it is still an actor RUN**, which is exactly what `PRICE_PER_RUN_USD` exists to price. So the FLOOR now describes a run the command no longer makes. **The amount is $0.00001 and the principle is not about the amount:** the FLOOR's entire claim is that it is a *lower bound on the run that will happen*, and a lower bound computed for a different run is not one. **(b) NO RUN ID OR DATASET ID IS PRINTED.** The endpoint is `run-sync-get-dataset-items` and Apify returns the run's identity in the response, but nothing reads or prints it. **So an operator holding a console charge cannot tie it to a local run except by timestamp** — which is the same fragile matching #317 was filed about, surviving in the one place `--dump` does not reach: **the dump gives the transcript bytes, and says nothing about what was billed for producing them.** | low | **W12b Phase B** | ⬜ open — **BOTH HALVES FOUND BY RE-READING THE BILLED PATH AFTER CHANGING IT, WHICH IS THE ONLY REASON THEY WERE FOUND AT ALL.** Neither is visible from the diff of #317 and #318's fixes; both are visible from reading what the path now does end to end. · **`low` AND NOT HIGHER, ON THE AMOUNTS AND ON THE TIMING.** (a) is one run event against a bill nobody has yet seen — **the multiplier measured at the first billed run will dwarf it**, and correcting the FLOOR before knowing that multiplier would be precision applied to the wrong digit. (b) costs one manual timestamp match, once, on a run somebody is already watching. **Neither blocks the first billed run and both are cheap to fix after it, when the numbers to fix them against exist.** · **WHAT CLOSES (a): `_projection` takes the number of ACTOR CALLS, not just the transcript count** — `transcripts * per_item + runs * PRICE_PER_RUN_USD` — so it prices `list_only` + fetch on the billed path and one call on the others. **It should be fixed in the same commit that records the first run's real multiplier**, because that is when the FLOOR stops being the only figure available and starts being a component of a calibrated one. · **WHAT CLOSES (b): print the run id from the actor response.** The `--dump` files already hold the response body; **if the id is in it, (b) is closed by reading the dump and needs no code at all** — that is the first thing to check after the first run, and it is why this is filed rather than fixed blind. · **WHAT MUST NOT CLOSE (a): dropping `PRICE_PER_RUN_USD`** because it is small. It is the term that makes the projection describe a *run* rather than a *quantity of videos*, and the moment a run is split into two calls it is the only term that notices. Read with **#317** (the dump, which does not cover the billing side), **#318** (whose fix created (a)) and `refresh.py:33-45`. |
 | 318 | **THE BILLED RUN IS THE ONE RUN THAT PRINTS NO COST LINE, AND THE FREE WAY TO CHECK CAPTION KIND BEFORE PAYING HAS NO CALLER.** **TWO HALVES, BOTH ABOUT THE MONEY PATH BEING THE LEAST OBSERVABLE ONE.** **(a) `_projection` IS NEVER CALLED ON `--apply`.** `refresh.py` calls it at `:198` and `:203` (dry) and `:256` (`--live`, quota only) — **and nowhere on the billed path.** So the run that spends nothing prints `projected cost` with its FLOOR banner, and **the run that actually spends money prints `Fetching N transcript(s). THIS IS BILLED.` and no figure at all.** The operator is shown a price exactly when there is nothing to pay and no price when there is. **(b) `list_transcript_kinds` HAS ZERO PRODUCTION CALLERS.** It exists to use the actor's free `list_only` mode — which `video_api.py:30-32` records the actor as documenting **"not charged as a videoprocessed event"** — and `refresh.py` never invokes it; its only callers are `tests/test_video_api_credentials.py:135,153`. **So the module docstring's claim that `list_only` is "what makes PRD §7.2's human-captions preference verifiable without paying to find out" describes a capability that is built and unreached.** The preference IS expressed — `fetch_transcripts(prefer_manual=True)` sets the actor's `transcript_type` — but **it is expressed by paying, not by checking first.** | medium | **W12b Phase B** | ⬜ open — **FILED BEFORE THE FIRST BILLED RUN RATHER THAN AFTER IT, WHICH IS THE ONLY TIME IT IS WORTH ANYTHING.** Both halves are found by reading the code in preparation for that run, and **both make the run harder to supervise at the moment supervision matters most.** · **(a) IS THE CHEAPER FIX AND THE SHARPER DEFECT:** one `print(_projection(len(pending)))` before the fetch would show the FLOOR for the batch about to be bought. **The asymmetry is what makes it worth a row** — a cost line on the free path and none on the billed path is the opposite of the arrangement anybody would choose, and it survived review precisely because the free path *does* print one, so the feature looks present. · **(b) IS A DESIGN QUESTION AND NOT A ONE-LINE FIX**, so it is filed rather than patched: calling `list_transcript_kinds` first would cost a round trip per batch to save paying for videos whose captions are auto-generated, and **whether that trade is worth it depends on the auto-generated rate, which is unmeasured.** #288's count says 5.0% of the top 2,000 are affected by degraded casing, which is a different question. **The first billed run measures the caption-kind mix as a side effect**, and that is the number this half should be ruled on. · **WHAT MUST NOT CLOSE (b): deleting `list_transcript_kinds`.** It is the free mechanism and the docstring's claim is right about what it would buy; **what is missing is the caller, not the function.** Read with **#317** (the same run, the same observability gap) and **PRD §7.2**. · **🟡 BOTH HALVES FIXED 2026-09-01, AND THE SECOND ONE IMMEDIATELY CREATED A DEFECT THAT IS RECORDED RATHER THAN QUIETLY REPAIRED.** **(a) `_projection(len(pending))` NOW PRINTS ON THE `--apply` PATH**, before the fetch, carrying the FLOOR banner — so the billed run states its lower bound like every cheaper path already did. **(b) `list_transcript_kinds` HAS ITS PRODUCTION CALLER**, running **before** `fetch_transcripts`, with the mix printed per bucket — `manual` / `generated` / `unknown`, **and `unknown` is never folded into `generated`**, because an absent field and an auto-generated track are different facts (#257). **The test asserts the ORDER, not that the function was called**: after the fetch it would be a diagnostic about money already spent. **It REPORTS AND DOES NOT DECIDE.** Skipping generated-only videos would change what the run buys, and **that is a ruling nobody has taken** — #288 says auto-generated captions inflate coverage, which argues for skipping; a thin pool argues against. The mix is printed, the operator is watching, and **what it is not is a silent filter.** · **THE DEFECT THE FIX INTRODUCED, FOUND BY RE-READING THE PATH AFTERWARDS AND FIXED IN THE SAME COMMIT: `list_transcript_kinds` DOES NOT CATCH WHAT `_run_actor` RAISES.** `fetch_transcripts` absorbs a batch failure per batch; the new caller had no such guard, **so an Apify hiccup during a FREE, ADVISORY diagnostic would have aborted a PAID run before a single transcript was fetched** — a check that costs nothing becoming the thing that costs the run. Wrapped, reported as `caption kinds: CHECK FAILED (...)`, and **the run continues**, because the check's failure says nothing about whether the transcripts can be fetched. **Demonstrated red first, like the other three.** · **AND THE FIX FOR (a) PUT THE PROJECTION ONE RUN EVENT OUT — FILED AS #319**, because the billed path now makes two actor calls and `_projection` prices one. |
 | 317 | **THE RAW ACTOR JSON IS DISCARDED IN THE PROCESS THAT FETCHES IT, SO PHASE B's TRANSCRIPT FIXTURES CANNOT BE MADE FROM THE BILLED RUN AS PLANNED.** `_run_actor` (`video_api.py:384-385`) does `items = response.json(); return items if isinstance(items, list) else []`, and `fetch_transcripts` (`:479-484`) immediately reduces each row through `_row_video_id` / `_read_text` / `_read_kind` / `_first_str` into a `Transcript` dataclass. **Every key the adapter's tuples do not name is dropped on the floor, in memory, before anything is written.** Nothing logs the body: `video_api.py` contains **one** logging call in the entire file (`logger.warning`, `:404`) and it prints only the actor name; `response.text` reaches a human **only on a 4xx, truncated to 300 characters** — that is, only when the run failed. `refresh.py` prints counts and `str(outcome)`. **httpx's INFO line records method, URL and status and never a response body.** **SO THERE IS NO IN-PROCESS ROUTE TO THE VERBATIM JSON, AND THE BILLED RUN CANNOT PRODUCE THE FIXTURES IT WAS EXPECTED TO PRODUCE.** **AND THE MODULE ALREADY CLAIMS OTHERWISE:** `video_api.py:19-22` states these functions *"are exercised against recorded actor output and never against the live services."* **No recorded actor output is committed anywhere in the repository** — `tests/fixtures/` holds `items/`, `lessons/` and `vocab_import/` and no `transcripts/` — and every video test uses inline dicts and `httpx.MockTransport`. **The docstring is aspirational and reads as descriptive.** | medium | **W12b Phase B** | ⬜ open — **THE WORKABLE ROUTE EXISTS AND IS OUT OF PROCESS, WHICH IS WHY THIS IS `medium` AND NOT `high`.** The endpoint is `run-sync-get-dataset-items`, so **the run's dataset persists on the Apify platform** and the raw items can be read afterwards from the Apify console or `GET /v2/datasets/{id}/items`. **BUT NO RUN ID OR DATASET ID IS PRINTED LOCALLY**, so the operator must find the run by timestamp in the console — **which is exactly the kind of step that works once, when somebody is watching, and is not reproducible.** · **WHAT CLOSES IT, AND THE CHEAP FIX IS THE FIRST ONE: print the run/dataset id.** Apify returns it in a header on the sync endpoint; one line makes the dataset findable rather than hunted. Beyond that, **a `--dump PATH` flag on the billed run** that writes `response.json()` verbatim before reduction — the fixtures are the point of the run, and a run that must be repeated to get them is a run paid for twice. · **WHAT MUST NOT CLOSE IT: hand-writing fixtures that look like actor output.** `video_api.py`'s adapter table exists because two actors report the same facts under different names; **a fixture somebody composed from the dataclass fields would encode the adapter's assumptions rather than test them**, and #271 is this record's note on a fixture that quietly obeyed an unstated convention and made every render test meaningless. · **BEFORE THE FIRST BILLED RUN, DECIDE WHICH:** capture from the console by timestamp, or add the flag first and pay once. **Filed now because after the run it is too late to choose.** Read with **#318** (the same run, the same gap) and **#271**. · **🟡 RULED AND FIXED 2026-09-01: `--dump` SHIPS.** The operator's ruling, in his words: *"The alternative makes Phase B's fixtures depend on finding the right dataset in a web console after the fact, by timestamp, once, under supervision. **Fixtures that cannot be regenerated are not fixtures.**"* **`--dump PATH` writes every actor response VERBATIM, before any reduction to `Transcript`, and prints the path.** **`response.content`, not `json.dumps(response.json())`** — a re-serialised body has lost the actor's formatting, its key order and **every field the adapter does not name, which is precisely what a fixture is for.** **One file per actor call** (`PATH.fetch.001.json`, `PATH.list.001.json`), because a single file cannot be byte-identical to more than one response and a run over `_APIFY_BATCH` makes more than one call. **Written BEFORE the status checks**, so a 4xx body is captured whole rather than truncated to the 300 characters the exception carries. **The test asserts BYTE IDENTITY against the response body, not that a file exists** — a file written from re-serialised JSON would parse, look like actor output, and encode our assumptions rather than the actor's behaviour, which is #271's shape exactly. **Demonstrated red first.** **STILL OPEN AND NOT CLOSED BY THIS:** no fixture has been captured, because no billed run has happened — **the mechanism ships, the fixtures do not exist**, and `video_api.py:19-22`'s claim that this module *"is exercised against recorded actor output"* stays aspirational until the first run. **And the billing side is untouched: see #319(b)** — the dump gives the transcript bytes and says nothing about what was billed to produce them. |
@@ -3782,91 +3784,179 @@ events, zero dollars, zero writes.** Its only I/O is three read-only `SELECT`s.
 against, and **#318 records that the billed run itself prints no cost line** —
 so this is the only figure you will get in advance.
 
-**6. W12b PHASE B — THE FIRST BILLED RUN. DO NOT RUN IT UNTIL THE FLOOR IS READ
-AND TWO THINGS BELOW ARE DECIDED.**
+**6. W12b PHASE B — THE FIRST BILLED RUN.**
 
-**THE SCOPE: 5 videos across 3 channels, both accents, three tracks.** There is
-**no `--channel` or `--only` flag** — `--file` swapping the whole pool is the
-only way to narrow it, so this needs a trimmed pool file:
+**READ THIS BEFORE THE COMMANDS: THE PROTECTION FOR THIS RUN IS SCOPE, NOT THE
+FLOOR.** The dry run's FLOOR prices what is already in `videos`, and `videos` is
+empty — **so it says `$0.0000` for a run that will charge (#320).** It is not
+lying about the price; it is blind to the run. **What actually bounds this run
+is three channels and `--per-channel 2`.** A meaningful figure does exist and it
+is free: **`--live` without `--apply`** prices the videos it actually polled
+(`refresh.py:303`). That is step 6c, and it is the number to read before 6d.
+
+**AND THE SCOPE ARGUMENT EXPIRES AFTER THIS RUN — SAID NOW BECAUSE IT IS TRUE
+ONLY WHILE THE TABLE IS EMPTY.** `--file` bounds what is **listed**;
+`videos_needing_transcript` (`services/video.py:151-161`) has **no channel
+filter**, so it selects from the whole `videos` table. Today `Pool: 0 video(s)`,
+so listed and fetched are the same set. **On any later trimmed run they are
+not** — a leftover `pending` or `failed` row from another channel is eligible
+and `--limit` bounds the count, not the identity.
+
+**WHY THESE THREE CHANNELS — RE-CHECKED AGAINST THE POOL AS IT NOW STANDS
+(11 usable, 0 refused), AND THE REASONING HOLDS UNCHANGED.** `@Friends` is
+**american / life**; `@EnglishwithLucy` is **british / work** — both accents, and
+work is the track with exactly one channel, which otherwise never runs;
+`@TEDEd` is **null accent / curiosity**, so this is **the first time
+`accent_rotation`'s skip and its renormalisation meet real rows** rather than
+constructed candidates. Three channels, both accents, three tracks, the null
+path. **What changed since that reasoning was written: nothing that affects it.**
+The three accents authored on 2026-09-01 were Claire, Learn English With TV
+Series and `@easyenglish551` — **none of the three is in this set**, so the run
+is not resting on #316's weaker provenance.
+
+**THE ARITHMETIC, STATED RATHER THAN LEFT TO THE FLOOR.** 3 channels ×
+`--per-channel 2` = **up to 6 videos listed** — listing is YouTube quota and
+costs no money. `--limit 5` = **5 transcripts fetched**, and those are the only
+billed events. Which 5 of the 6 is decided by `ORDER BY transcript_attempts ASC,
+published_at DESC` — the five newest. At the actor's published per-event price
+(`PRICE_PER_VIDEO_USD 0.0000116` + `PRICE_PER_ROW_USD 0.00001`, plus
+`PRICE_PER_RUN_USD 0.00001`): **5 × 0.0000216 + 0.00001 = $0.000118**, which is
+what the command will print. **The true floor is $0.000128**, because the free
+caption check is a second actor run and `_projection` counts one (#319a).
+**Both numbers are floors and exclude Apify platform usage — compute, storage,
+proxy — which on scraping actors is routinely the larger line. The console
+charge is the point of this run.**
+
+**6a. Make the trimmed pool. The committed `data/video_channels.json` is not
+touched.**
 
 ```bash
-set +H; cd /home/bot/english-bot && sudo -u bot .venv/bin/python - <<'PY'
+set +H; cd /home/bot/english-bot && sudo -u bot mkdir -p /home/bot/phase-b-fixtures && sudo -u bot .venv/bin/python - <<'PY'
 import json, pathlib
 src = json.loads(pathlib.Path("data/video_channels.json").read_text(encoding="utf-8"))
 keep = {"@TEDEd", "@Friends", "@EnglishwithLucy"}
 src["channels"] = [c for c in src["channels"] if c["handle"] in keep]
-pathlib.Path("/tmp/pool_phase_b.json").write_text(json.dumps(src, indent=2), encoding="utf-8")
-print("kept:", [c["handle"] for c in src["channels"]])
+out = pathlib.Path("/home/bot/phase-b-fixtures/pool_phase_b.json")
+out.write_text(json.dumps(src, indent=2, ensure_ascii=False), encoding="utf-8")
+print("wrote", out, "with", [c["handle"] for c in src["channels"]])
 PY
 ```
 
-**WHY THESE THREE, AND IT IS NOT AN ARBITRARY PICK.** `@Friends` is
-**american / life**, `@EnglishwithLucy` is **british / work** — both accents, and
-work is the track that has exactly one channel and would otherwise never be
-exercised. `@TEDEd` is **null accent / curiosity**, so this run is **the first
-time `accent_rotation`'s skip and its renormalisation meet real rows** rather
-than constructed candidates. **Three channels, both accents, three tracks, and
-the null path — all inside the scope you set.**
+**`--file` is honoured, verified not assumed:** `refresh.py:190` does
+`pool = channel_file.load(args.file)` and `channels.load(path)` reads that path
+(`channels.py:94`). **There is no env var and no `--channel` flag** — a file is
+the only way to narrow the pool.
 
-Then the quota-only poll, which still spends no money:
+**6b. Dry against the trimmed pool, to see the 3-channel shape. Spends nothing,
+calls nothing.**
 
 ```bash
-set +H; cd /home/bot/english-bot && sudo -u bot .venv/bin/python -m core.video.refresh --live --file /tmp/pool_phase_b.json --per-channel 2 --limit 5
+set +H; cd /home/bot/english-bot && sudo -u bot .venv/bin/python -m core.video.refresh --file /home/bot/phase-b-fixtures/pool_phase_b.json --per-channel 2 --limit 5
 ```
 
-Then, **and only after reading its FLOOR**, the billed run:
+Expect `Channel pool: 3 usable, 0 refused`, `videos to list : up to 6`, and
+**`projected cost : $0.0000`** — **expected now, not a surprise (#320).**
+
+**6c. The quota-only poll. Still no money. THIS is the FLOOR to read.**
 
 ```bash
-set +H; cd /home/bot/english-bot && sudo -u bot .venv/bin/python -m core.video.refresh --live --apply --file /tmp/pool_phase_b.json --per-channel 2 --limit 5
+set +H; cd /home/bot/english-bot && sudo -u bot .venv/bin/python -m core.video.refresh --live --file /home/bot/phase-b-fixtures/pool_phase_b.json --per-channel 2 --limit 5
 ```
 
-**`--limit 5` is the only cap on the bill.** **There is NO confirmation prompt** —
-nothing in `refresh.py` reads stdin, so `--live --apply` goes straight from
-argument parsing to the billed call. **The flags are the guard.** Check the
-command twice before pressing return.
+It prints `LIVE (quota only) -- NO MONEY WAS SPENT AND NOTHING WAS WRITTEN`,
+`videos listed`, and a projection computed **from the videos it actually
+polled**. **Read that figure. It is the number 6d is authorised against.**
 
-**WHAT YOU MUST WATCH, IN ORDER OF WHAT IS LOST IF YOU DO NOT:**
-
-1. **READ THE LOG LINES FOR A LEAKED APIFY TOKEN.** `refresh.py:121` calls
-   `logging.basicConfig(level=INFO)` and does **not** reach `core.logging`, so
-   `httpx` logs at INFO and **every request prints its URL** — one
-   `POST .../run-sync-get-dataset-items` line per batch. **The token must appear
-   in none of them.** This is the first time `_run_actor` posts to Apify outside
-   a test and **the only available proof #311's Bearer fix holds where it
-   matters. A green suite cannot supply it** — `conftest.py`'s network guard
-   means no test can inspect a URL that reaches Apify — **and both halves of
-   #311 were found by a person reading console output in the first place.**
-2. **THE ACTUAL CHARGE, from the Apify console**, against the FLOOR from step 5.
-   **Record the multiplier.** The FLOOR excludes compute, storage and proxy,
-   which on scraping actors is routinely the larger line, so **the multiplier is
-   the only thing that turns the projection into a usable estimate** for the
-   twenty-one-unit run.
-3. **THE RAW ACTOR JSON — `--dump` SHIPPED 2026-09-01 (#317), SO ADD IT TO THE
-   COMMAND.** The billed line above becomes:
+**6d. The billed run. `--dump` writes to a persistent path, not `/tmp`.**
 
 ```bash
-set +H; cd /home/bot/english-bot && sudo -u bot .venv/bin/python -m core.video.refresh --live --apply --file /tmp/pool_phase_b.json --per-channel 2 --limit 5 --dump /tmp/phase_b_actor.json
+set +H; cd /home/bot/english-bot && sudo -u bot .venv/bin/python -m core.video.refresh --live --apply --file /home/bot/phase-b-fixtures/pool_phase_b.json --per-channel 2 --limit 5 --dump /home/bot/phase-b-fixtures/actor.json
 ```
 
-   Every actor response is written **verbatim, before any reduction**, one file
-   per call — `/tmp/phase_b_actor.list.001.json` for the free caption check and
-   `/tmp/phase_b_actor.fetch.001.json` for the paid fetch. **These files are
-   Phase B's transcript fixtures.** Copy them off the host before anything
-   cleans `/tmp`. **A 4xx body is dumped whole too**, which is the one the
-   exception truncates to 300 characters.
-   **STILL MISSING, AND CHECK IT WHILE YOU ARE THERE (#319b): no run or dataset
-   id is printed.** If the dumped body contains one, that closes #319(b) by
-   reading a file. If it does not, a console charge can be tied to this run only
-   by timestamp.
-4. **The caption-kind mix**, which this run measures as a side effect and which
-   is the number **#318(b)** should be ruled on — whether calling the free
-   `list_only` mode before paying is worth a round trip per batch.
+**`/home/bot/phase-b-fixtures/` and not `/tmp`, deliberately: these files are
+Phase B's transcript fixtures and must survive a reboot and any cleaner.** The
+directory is created by 6a and by `_run_actor` itself
+(`dump_to.parent.mkdir(parents=True, exist_ok=True)`).
 
-**Do not run any of this on my say-so. The dry run first, then the FLOOR, then
-your decision on #317's two routes.**
+**THERE IS NO CONFIRMATION PROMPT.** Nothing in `refresh.py` reads stdin, so
+`--live --apply` goes from argument parsing straight to the billed call.
+**The flags are the only guard. Read the command once more before return.**
 
-**6. W10d — 9 invocations, 52 items to read**, target 56 focus items on unit 1
-for user 3. Not started; held behind the retake.
+**6e. Collect the dumps and get them off the host.**
+
+```bash
+set +H; cd /home/bot/phase-b-fixtures && sudo -u bot ls -l && sudo -u bot tar czf /home/bot/phase-b-fixtures.tar.gz -C /home/bot phase-b-fixtures && sudo -u bot ls -l /home/bot/phase-b-fixtures.tar.gz
+```
+
+Then, **from your own machine, not from the host** (the IP is in #301):
+
+```bash
+scp bot@<host>:/home/bot/phase-b-fixtures.tar.gz ~/Downloads/
+```
+
+Files to expect: `actor.list.001.json` (the free caption check) and
+`actor.fetch.001.json` (the paid fetch) — **one file per actor call, each
+byte-identical to one response.**
+
+**WHAT TO WATCH — FOUR THINGS, EACH WITH WHAT GOOD LOOKS LIKE.**
+
+**(1) THE LOG LINES, FOR A LEAKED APIFY TOKEN.** This is the first time
+`_run_actor` posts to Apify outside a test, and **the only available proof
+#311's Bearer fix holds where it matters** — `conftest.py`'s network guard means
+no test can inspect a URL that reaches Apify, and **#311's YouTube half was
+confirmed exactly this way, by a person reading console output.**
+`refresh.py:168` sets `logging.basicConfig(level=INFO)` and does **not** reach
+`core.logging`, so `httpx` logs at INFO and every request prints its URL.
+**Scan for `token=`** — and, to be sure you are looking at the right lines,
+**for `api.apify.com`.**
+**GOOD looks like:**
+`INFO httpx: HTTP Request: POST https://api.apify.com/v2/acts/johnvc~YoutubeTranscripts/run-sync-get-dataset-items "HTTP/1.1 200 OK"`
+— **the URL ends at `run-sync-get-dataset-items`, with no `?` and no `token=`.**
+**BAD is any `token=` anywhere in the output.** If you see one, stop, rotate the
+Apify token, and the Bearer fix did not hold.
+
+**(2) THE CAPTION-KIND CHECK, FIRING BEFORE PAYMENT.** **GOOD:** a block reading
+`caption kinds, from the FREE list_only check (no per-video charge):` with
+`manual`, `generated` and `unknown` counted **separately** — **`unknown` is
+never folded into `generated`**, because an absent field and an auto-generated
+track are different facts (#257). It must appear **above** `transcripts to
+fetch`. **ALSO GOOD:** `caption kinds: CHECK FAILED (…)` followed by the run
+continuing to `Fetching N transcript(s)` — the check is advisory and **must not
+abort a paid run**. **BAD:** the block appearing after the fetch, or the run
+stopping on a failed check.
+
+**(3) THE APIFY CONSOLE CHARGE — THE THING THIS RUN EXISTS TO PRODUCE.**
+console.apify.com → **Actor runs** → the run for
+`johnvc/YoutubeTranscripts` at this timestamp → its **cost** field; and
+**Billing → Usage** for the same period, which is where compute units, storage
+and proxy show up. **GOOD is any real number, because the multiplier is the
+output.** Record `console_charge ÷ $0.000118`. **That multiplier is what turns
+the FLOOR into a usable estimate for the 21-unit run, and it is the reason #319
+and #320 are not being fixed before this run** — an estimator tuned against a
+bill nobody has seen is precision on the wrong digit.
+
+**(4) A RUN OR DATASET ID IN THE DUMPED BODY (#319b).** **Where to look:** open
+`actor.fetch.001.json` and check the **top level** — if the response is an
+object rather than a bare array, look for `id`, `defaultDatasetId`, `actorRunId`
+or `runId`; if it is an array of dataset items, check the **first item** for the
+same keys, since some actors stamp provenance per row.
+
+```bash
+set +H; cd /home/bot/phase-b-fixtures && sudo -u bot .venv/bin/python -c "
+import json,sys
+d=json.load(open('actor.fetch.001.json'))
+top = d if isinstance(d,dict) else (d[0] if d else {})
+print('top-level type:', type(d).__name__)
+print('keys:', sorted(top.keys()) if isinstance(top,dict) else 'n/a')
+for k in ('id','runId','actorRunId','defaultDatasetId','datasetId'):
+    if isinstance(top,dict) and k in top: print('FOUND', k, '=', top[k])
+"
+```
+
+**GOOD: any of those keys present** — **#319(b) then closes by reading a file
+and needs no code**, and a console charge can be tied to this run by id rather
+than by timestamp. **If none is present**, say so: the timestamp match is the
+only route and #319(b) stays open with a known cost.
 
 **7. EVERY CHECK STILL UNRUN, CARRIED FORWARD AND NONE SILENTLY DROPPED:** H5,
 H5b, W10r 0b, W10c's six, W10's five, W10a's two, W8h's two, W8b's two, W8f's 4
