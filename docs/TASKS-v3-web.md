@@ -164,9 +164,55 @@ open, targeted W19). W10b sits after W10, so it takes the next number; taking on
 above everything claimed would break replay on a fresh database for the reason
 recorded above.
 
-**This is #185's FOURTH occurrence, and four is the number that makes it a
-policy question rather than a pattern.** W4b renumbered eight rows, W8f five,
-W10b four. The planning table assigns migration numbers to slices that have not
+**#185's OCCURRENCE COUNT HAS ADVANCED PAST FOUR, AND IT CANNOT BE WRITTEN AS
+ONE INTEGER: THIS RECORD COUNTS IT TWO DIFFERENT WAYS AND THE TWO DO NOT
+RECONCILE.** *(This paragraph opened “This is #185's FOURTH occurrence, and four
+is the number that makes it a policy question rather than a pattern.” — correct
+on 2026-08-28, when W10b's take of 017 was the fourth and 017 was the highest
+number on disk. Quoted rather than deleted per #82's shape; corrected in place
+by **W12r**, 2026-09-01, which moves no migration number and takes none.)*
+Three more numbers have been taken since that sentence was written, and **the
+two available countings differ by exactly one:**
+
+* **Counting every number TAKEN at implementation time**, which is what the
+  migration headers themselves do: 017 fourth (W10b), **018 fifth**
+  (`migrations/018_checkpoint.sql:43`), **019 sixth**
+  (`migrations/019_video.sql:16`), **020 seventh**
+  (`migrations/020_video_accent_nullable.sql:57`). Internally consistent, and it
+  is what all three headers say.
+* **Counting only the takes that SHIFTED an unwritten row**, which is what the
+  authoritative table's own **019** row rules: 017 fourth, 018 fifth, **019 not
+  counted at all** — *the NUMBER DID NOT MOVE: W12a takes none, so this is a
+  rename and not a renumber, and #185's count does not advance* — and 020
+  therefore **sixth**, not seventh.
+
+**AND THE REASON THE SEQUENCE LOOKS OFF BY ONE TO ANYONE WHO RECOUNTS IT: W10b
+IS COUNTED TWICE.** Once when its PLAN claimed 017 — #185's row is titled *THIRD
+OCCURRENCE* and its third item is *W10b's plan renumbers four (017 W12→W10b, then
+W12→018, W13a→019, W14→020, W18→021)*, written **before the `.sql` file
+existed** — and again when the file was written, at that same row's *W10b note,
+2026-08-28 — FOURTH OCCURRENCE, AND IT WAS PAID.* **That double count is what
+makes 018 the FIFTH sighting rather than the fourth, and what makes
+3 · 4 · 5 · 6 · 7 internally consistent rather than off by one.** It explains the
+sequence and settles nothing: **no number and no verdict changes on it**, and
+which of the two countings #185 uses is still open. *(Added 2026-09-01, W12r
+send-back S2. The same sentence is carried in `BUILD_PROGRESS.md`'s W12r/5
+decisions entry; **this is the copy that matters**, because a reader recounting
+the sequence is standing here and not in another file.)*
+
+**They are counting different things, and that is the finding rather than a
+typo.** 019's header is itself the evidence for the second reading's honesty
+about cost: it records that this table *is unchanged by this file*, so 019
+shifted nothing and paid nothing, and #185 is a row about renumbering churn.
+But 018's and 020's headers were written against the first reading, and **a
+count whose meaning changes between two files in the same repository is not a
+count.** **NO NUMBER IS WRITTEN HERE**, because a figure that cannot be derived
+is not to be asserted; whoever next takes a number settles which of the two this
+row counts and says which in the header. **What is NOT in dispute, and is the
+durable record: W4b renumbered eight rows, W8f five, W10b four, W11 four, 019
+none, and 020 three.** #185's own severity, target and verdict are untouched by
+this correction, and its recorded alternative is still not adopted. The planning
+table assigns migration numbers to slices that have not
 been written, and unplanned slices — W4b, W8f, W10a, W10b, W10c, W10r — are how
 this project actually proceeds. The alternative is recorded on the issue and is
 not adopted here: **assign a number when the FILE is written, not when the slice
