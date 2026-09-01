@@ -26,7 +26,7 @@ BILLING, STATED WHERE THE CALLS ARE:
 - The YouTube Data API costs QUOTA, not money -- 10,000 units a day. `channels`,
   `playlistItems` and `videos` list calls are 1 unit each. `search.list` is 100,
   which is why the uploads playlist is walked instead.
-- The Apify actor costs MONEY, per video. `list_transcript_kinds` uses the
+- The Apify actor costs MONEY, per video. `list_transcripts` uses the
   actor's `list_only` mode, which the actor documents as **not charged as a
   videoprocessed event** -- that is what makes PRD §7.2's human-captions
   preference verifiable without paying to find out.
@@ -39,7 +39,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 import httpx
 
@@ -107,6 +107,50 @@ class Transcript:
     kind: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class Track:
+    """One caption track, as the FREE `list_only` listing reports it."""
+
+    language_code: str | None
+    language: str | None
+    #: True auto-generated, False human-written, None the actor did not say.
+    #: **None is never read as either** -- see `_read_kind`'s docstring and #257.
+    is_generated: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class TrackListing:
+    """What the free check found for one video: the kind AND the tracks.
+
+    **#323 needed only `kind` and #324 could not be fixed without `tracks`.**
+    The kind decides which coverage algorithm runs (#288); the tracks decide
+    what to ask the actor for. Keeping only the kind threw away the one fact
+    -- `9sSD2IFGSLw`'s manual track is `en-GB` and not `en` -- that made the
+    first billed run's query unanswerable for four videos out of five.
+    """
+
+    youtube_id: str
+    tracks: tuple[Track, ...]
+    #: 'manual' | 'generated' | None, by `_read_kind`'s ANY rule (#323).
+    kind: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Query:
+    """The actor input for ONE video, derived from its listing.
+
+    `transcript_type=None` means *send no selector*, which is not the same as
+    sending the actor's default: an adapter whose actor has no way to say "any"
+    must omit the key rather than invent a value for it.
+    """
+
+    #: 'manual' | 'any' | None.
+    transcript_type: str | None
+    #: Ordered language codes, most-preferred first. The actor documents
+    #: `languages` as *"the first available transcript matching one of these"*.
+    languages: tuple[str, ...]
+
+
 # --------------------------------------------------------------------------
 # Per-actor adapters.
 #
@@ -148,6 +192,24 @@ class _Adapter:
     tracks_key: str | None = None
     #: The per-track flag inside `tracks_key`. True means auto-generated.
     track_generated_key: str = "is_generated"
+    #: The per-track language code inside `tracks_key`.
+    track_language_key: str = "language_code"
+    #: The per-track human-readable language name inside `tracks_key`.
+    track_language_name_key: str = "language"
+    #: Input key naming the ORDERED language preference, and the `kind_key`
+    #: value meaning "either kind will do".
+    #:
+    #: **`languages_key` IS THE HALF THE FIRST BILLED RUN DID NOT SET (#324).**
+    #: Leaving it unset does not mean "any language"; the actor documents a
+    #: default of `["en"]`, so the query became *a manual track whose language
+    #: code is exactly `en`* -- which four of the five videos do not have, and
+    #: which rejects `en-GB` human captions in favour of nothing at all.
+    languages_key: str | None = None
+    any_value: str | None = None
+    #: Input key that switches OFF the actor's per-video yt-dlp metadata fetch.
+    #: Title, description and channel name all come from the YouTube Data API
+    #: already, at quota cost and not money, and none of them is read here.
+    metadata_key: str | None = None
 
 
 _DEFAULT_ADAPTER = _Adapter(
@@ -173,6 +235,9 @@ _ADAPTERS: dict[str, _Adapter] = {
         kind_keys=("transcript_type", "is_generated", "generated"),
         lang_keys=("language_code", "language", "lang"),
         tracks_key="available_transcripts",
+        languages_key="languages",
+        any_value="any",
+        metadata_key="include_metadata",
     ),
     # The ruled fallback. Its selector is `subType`.
     "codepoetry/youtube-transcript-ai-scraper": _Adapter(
@@ -439,23 +504,34 @@ def _run_actor(
     return items if isinstance(items, list) else []
 
 
-def list_transcript_kinds(
+def list_transcripts(
     youtube_ids: Sequence[str],
     *,
     token: str,
     actor: str,
     dump_to: Path | None = None,
-) -> dict[str, str | None]:
-    """Which caption kinds each video has, WITHOUT paying for a transcript.
+) -> dict[str, TrackListing]:
+    """Which caption tracks each video has, WITHOUT paying for a transcript.
 
-    Returns `youtube_id -> 'manual' | 'generated' | None`, where None means the
-    actor reported no kind for it. **None is filed, never treated as
-    'generated'** -- an absent field and an auto-generated track are different
-    facts, and #257's lesson is that a column must not claim to hold a kind it
-    is guessing.
+    Returns `youtube_id -> TrackListing` for every video the actor answered
+    about. **A video absent from the mapping is a video the actor said nothing
+    about**, which is not the same fact as a video with no tracks -- see
+    `terminal_from_listing`, where that distinction is the difference between a
+    retry and a permanent exclusion.
+
+    `TrackListing.kind` is `'manual' | 'generated' | None`, and **None is filed,
+    never treated as 'generated'** -- an absent field and an auto-generated track
+    are different facts, and #257's lesson is that a column must not claim to
+    hold a kind it is guessing.
 
     An actor with no `list_only` mode returns an empty mapping rather than
     silently falling back to a paid call.
+
+    **WAS `list_transcript_kinds`, AND THE RENAME IS THE POINT.** It returned
+    only the kind, which is all #323 needed, and the discarded half is what
+    #324 could not be fixed without: `9sSD2IFGSLw` has a human-written track
+    and its language code is `en-GB`. A reader that answers "manual" and throws
+    away "en-GB" hands the fetch exactly enough to ask an unanswerable question.
     """
     adapter = adapter_for(actor)
     if adapter.list_only_key is None:
@@ -467,12 +543,20 @@ def list_transcript_kinds(
         )
         return {}
 
-    kinds: dict[str, str | None] = {}
+    listings: dict[str, TrackListing] = {}
     for index, batch in enumerate(_chunks(youtube_ids, _APIFY_BATCH), start=1):
-        payload = {
+        payload: dict[str, Any] = {
             adapter.url_key: [_watch_url(v) for v in batch],
             adapter.list_only_key: True,
         }
+        # **THE FREE CHECK WAS PAYING FOR METADATA TOO.** The recorded listing
+        # response carries `channel_name`, `video_duration_seconds` and
+        # `upload_date` per row -- the actor ran yt-dlp per video to produce
+        # them, on the call whose whole justification is that it is cheap. None
+        # of the three is read by anything here, and all three come from the
+        # YouTube Data API at quota cost rather than money.
+        if adapter.metadata_key:
+            payload[adapter.metadata_key] = False
         for row in _run_actor(
             actor,
             payload,
@@ -482,8 +566,118 @@ def list_transcript_kinds(
         ):
             video_id = _row_video_id(row) or ""
             if video_id:
-                kinds[video_id] = _read_kind(row, adapter)
-    return kinds
+                listings[video_id] = TrackListing(
+                    youtube_id=video_id,
+                    tracks=_read_tracks(row, adapter),
+                    kind=_read_kind(row, adapter),
+                )
+    return listings
+
+
+def terminal_from_listing(
+    listing: TrackListing | None,
+) -> TranscriptUnavailable | None:
+    """The ONE fact that justifies never asking about a video again.
+
+    **TERMINAL MEANS THE LISTING SHOWS NO TRACK. FULL STOP.** Operator ruling,
+    2026-09-01, and it is a NARROWING of what the code used to do rather than a
+    new rule: `fetch_transcripts` returned `TranscriptUnavailable` -- terminal,
+    written to the database as `unavailable`, never offered again -- whenever the
+    actor returned no row or an empty one. **That is the actor saying nothing,
+    and the code read it as the actor saying "this video has no captions".**
+    Four videos that do have captions were permanently excluded on it (#322),
+    and #324 showed the fetch had simply been asked an unanswerable question.
+
+    Three states, and only one of them is terminal:
+
+    * **no listing at all** -> `None`. The free check can fail, and an actor
+      with no `list_only` mode never produces one. Absence of evidence.
+    * **a listing with tracks** -> `None`, *whatever* those tracks are. A video
+      listing only Burmese captions has no English transcript to fetch and is
+      still not terminal by this rule; widening it to "no USABLE track" is a
+      decision nobody has taken and is filed as #325.
+    * **a listing with an empty track list** -> terminal. The actor enumerated
+      the tracks and there were none.
+    """
+    if listing is None or listing.tracks:
+        return None
+    return TranscriptUnavailable(
+        "the free listing enumerated this video's caption tracks and there are "
+        "none -- this is the actor stating absence, not failing to answer"
+    )
+
+
+def plan_query(listing: TrackListing | None, adapter: _Adapter) -> Query:
+    """What to ask the actor for THIS video. PRD §7.2, as a preference.
+
+    **THE DEFECT THIS REPLACES.** The old fetch sent one payload for the whole
+    batch: `transcript_type: "manual"`, `languages` unset. The actor documents
+    `languages` as defaulting to `["en"]`, so the question was *a manual track
+    whose language code is exactly `en`* -- and the run's five videos gave five
+    correct refusals-or-answers to it: three have only auto-generated `en`,
+    `9sSD2IFGSLw`'s manual track is `en-GB`, and the single success is the only
+    video in the set with a manual `en` track (#324).
+
+    **THE RULING, AND IT IS THE WHOLE FUNCTION: PREFER MANUAL, DO NOT REQUIRE
+    IT.** A video whose only captions are auto-generated **is fetched**, with
+    `any`, and its kind is recorded. #288's coverage inflation is compensable
+    downstream; discarding the video loses it permanently. The defect was never
+    *preferring* manual -- it was asking for manual and taking nothing when there
+    is none.
+
+    **AND THE LANGUAGES COME FROM THE TRACK LIST, NOT FROM A DEFAULT.** Every
+    code is one the listing actually reported, in the order the listing reported
+    it, so the actor's "first available transcript matching one of these" is
+    matching against tracks known to exist.
+
+    With no listing the query is still WRITTEN DOWN rather than left to the
+    actor's defaults -- `any` and `["en"]`. Inheriting a default silently is
+    exactly what #324 is, and it costs nothing to say so in the payload.
+    """
+    english = [
+        track
+        for track in (listing.tracks if listing else ())
+        if isinstance(track.language_code, str)
+        and track.language_code.lower().split("-", 1)[0] == "en"
+    ]
+    # `is_generated is False` and not `not is_generated`: an unstated flag is
+    # not evidence of a human-written track, and treating it as one would ask
+    # for `manual` on a video that may not have any (#257, #323).
+    manual = [track for track in english if track.is_generated is False]
+    preferred = manual or english
+
+    if manual and adapter.kind_key and adapter.manual_value:
+        transcript_type = adapter.manual_value
+    elif adapter.kind_key and adapter.any_value:
+        transcript_type = adapter.any_value
+    else:
+        # The actor has no way to say "either kind will do". Omitting the key
+        # is honest; inventing a value for it is not.
+        transcript_type = None
+
+    codes: list[str] = []
+    for track in preferred:
+        code = str(track.language_code)
+        if code not in codes:
+            codes.append(code)
+    if not codes:
+        # No listing, or a listing with no English track. English is what this
+        # product is for, and saying so beats inheriting `["en"]` in silence.
+        codes = ["en"]
+    if adapter.languages_key is None:
+        codes = []
+    return Query(transcript_type=transcript_type, languages=tuple(codes))
+
+
+def _payload_for(batch: Sequence[str], query: Query, adapter: _Adapter) -> dict:
+    payload: dict[str, Any] = {adapter.url_key: [_watch_url(v) for v in batch]}
+    if query.transcript_type is not None and adapter.kind_key:
+        payload[adapter.kind_key] = query.transcript_type
+    if query.languages and adapter.languages_key:
+        payload[adapter.languages_key] = list(query.languages)
+    if adapter.metadata_key:
+        payload[adapter.metadata_key] = False
+    return payload
 
 
 def fetch_transcripts(
@@ -491,7 +685,7 @@ def fetch_transcripts(
     *,
     token: str,
     actor: str,
-    prefer_manual: bool = True,
+    listings: "Mapping[str, TrackListing] | None" = None,
     dump_to: Path | None = None,
 ) -> dict[str, Transcript | Exception]:
     """Fetch transcripts. BILLED, one event per video.
@@ -499,65 +693,98 @@ def fetch_transcripts(
     Returns one entry per requested id: a `Transcript`, or the exception that
     explains why there is not one. **Failures are returned, never raised past
     the batch**, because a refresh run that aborts on the first failure leaves a
-    pool that looks complete and is not -- and the actor is community-maintained
-    at 4.45 stars over nine reviews, so intermittent failure is the expected
-    case rather than the exceptional one.
+    pool that looks complete and is not.
 
-    ``prefer_manual`` implements PRD §7.2's human-captions requirement. It is
-    not only a quality preference: `core/lexicon/coverage.py` switches the
-    proper-noun rule off on lowercase text, so auto-generated captions produce
-    an inflated coverage number (#288). The caption kind decides which coverage
-    algorithm runs.
+    **THE QUERY IS PER VIDEO, WHICH MEANS THE CALL IS PER QUERY (#324).** The
+    actor's input carries ONE `transcript_type` and ONE `languages` list per
+    run, so asking three different questions takes three runs. The videos are
+    grouped by the query their listing implies and one call is made per group,
+    which is the fewest calls that can ask the right question of each video.
+    **This can increase the number of actor runs**, and an actor run is not
+    free of Apify platform usage even when its per-event price is (#321) -- so
+    `refresh` prints the groups before it spends anything.
+
+    ``listings`` is the FREE `list_only` result (`list_transcripts`). Without
+    it every video gets the same written-down default rather than an inherited
+    one; see `plan_query`.
+
+    **`prefer_manual` IS GONE, AND ITS REMOVAL IS NOT THE THING #324 FORBADE.**
+    The flag expressed §7.2 by putting `transcript_type: "manual"` on the whole
+    batch, which is the defect itself. The preference is now structural, in
+    `plan_query`: a video with a human-written English track is asked for
+    `manual` and no other video is. Dropping the *preference* would abandon
+    §7.2 and feed #288; dropping the *flag* is what implementing it properly
+    looks like.
     """
     adapter = adapter_for(actor)
     results: dict[str, Transcript | Exception] = {}
 
-    for index, batch in enumerate(_chunks(youtube_ids, _APIFY_BATCH), start=1):
-        payload: dict[str, Any] = {
-            adapter.url_key: [_watch_url(v) for v in batch]
-        }
-        if prefer_manual and adapter.kind_key and adapter.manual_value:
-            payload[adapter.kind_key] = adapter.manual_value
-        try:
-            rows = _run_actor(
-                actor,
-                payload,
-                token=token,
-                timeout=_ACTOR_TIMEOUT,
-                dump_to=_dump_target(dump_to, "fetch", index),
-            )
-        except VideoApiError as exc:
-            # The whole batch failed. Every id in it keeps the same retryable
-            # verdict rather than being marked individually unavailable.
-            for video_id in batch:
-                results[video_id] = exc
-            continue
+    # Grouping preserves first-appearance order, so the call sequence -- and the
+    # dump file numbering with it -- is a function of the input and not of dict
+    # iteration luck.
+    groups: dict[Query, list[str]] = {}
+    for video_id in youtube_ids:
+        query = plan_query(
+            (listings or {}).get(video_id), adapter
+        )
+        groups.setdefault(query, []).append(video_id)
 
-        for row in rows:
-            video_id = _row_video_id(row)
-            if not video_id:
-                continue
-            text = _read_text(row, adapter)
-            if not text:
-                results[video_id] = TranscriptUnavailable(
-                    "actor returned a row with no transcript text"
+    call = 0
+    for query, ids in groups.items():
+        for batch in _chunks(ids, _APIFY_BATCH):
+            call += 1
+            try:
+                rows = _run_actor(
+                    actor,
+                    _payload_for(batch, query, adapter),
+                    token=token,
+                    timeout=_ACTOR_TIMEOUT,
+                    dump_to=_dump_target(dump_to, "fetch", call),
                 )
+            except VideoApiError as exc:
+                # The whole batch failed. Every id in it keeps the same
+                # verdict rather than being marked individually unavailable.
+                for video_id in batch:
+                    results[video_id] = exc
                 continue
-            results[video_id] = Transcript(
-                youtube_id=video_id,
-                text=text,
-                lang=_first_str(row, adapter.lang_keys),
-                kind=_read_kind(row, adapter),
-            )
 
-        for video_id in batch:
-            results.setdefault(
-                video_id,
-                TranscriptUnavailable(
-                    "actor returned no row for this video -- it has no "
-                    "captions in the requested language and kind"
-                ),
-            )
+            for row in rows:
+                video_id = _row_video_id(row)
+                if not video_id:
+                    continue
+                text = _read_text(row, adapter)
+                if not text:
+                    # **RETRYABLE, NOT TERMINAL (#322's surviving half, ruled
+                    # 2026-09-01).** This used to be `TranscriptUnavailable`,
+                    # which `record_transcript_failure` writes as `unavailable`
+                    # and `videos_needing_transcript` never offers again. A row
+                    # with no text is the actor declining to answer; the only
+                    # positive evidence of absence is a listing that enumerated
+                    # the tracks and found none -- see `terminal_from_listing`.
+                    results[video_id] = TranscriptFetchFailed(
+                        "actor returned a row with no transcript text -- that "
+                        "is the actor saying nothing, not this video having no "
+                        "captions"
+                    )
+                    continue
+                results[video_id] = Transcript(
+                    youtube_id=video_id,
+                    text=text,
+                    lang=_first_str(row, adapter.lang_keys),
+                    kind=_read_kind(row, adapter),
+                )
+
+            for video_id in batch:
+                results.setdefault(
+                    video_id,
+                    TranscriptFetchFailed(
+                        "actor returned no row for this video. The query sent "
+                        f"was {query.transcript_type or 'the actor default'} / "
+                        f"{list(query.languages) or 'the actor default'}; "
+                        "whether the video has captions is a question the FREE "
+                        "listing answers, and this is not that answer"
+                    ),
+                )
 
     return results
 
@@ -596,6 +823,36 @@ def _read_text(row: dict, adapter: _Adapter) -> str:
             if joined:
                 return joined
     return ""
+
+
+def _read_tracks(row: dict, adapter: _Adapter) -> tuple[Track, ...]:
+    """The listing's track list, in the order the actor reported it.
+
+    **ORDER IS PRESERVED AND IS NOT MEANING.** `_read_kind`'s rule is ANY
+    precisely because position says nothing about kind (#323). Here the order is
+    kept for a different reason: it becomes the `languages` preference order,
+    and the actor documents that as *"the first available transcript matching
+    one of these"*. So position is load-bearing for the language question and
+    irrelevant to the kind question, and the two must not be confused.
+    """
+    if not adapter.tracks_key:
+        return ()
+    raw = row.get(adapter.tracks_key)
+    if not isinstance(raw, list):
+        return ()
+    tracks: list[Track] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        generated = entry.get(adapter.track_generated_key)
+        tracks.append(
+            Track(
+                language_code=_first_str(entry, (adapter.track_language_key,)),
+                language=_first_str(entry, (adapter.track_language_name_key,)),
+                is_generated=generated if isinstance(generated, bool) else None,
+            )
+        )
+    return tuple(tracks)
 
 
 def _read_kind(row: dict, adapter: _Adapter) -> str | None:

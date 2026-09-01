@@ -50,11 +50,16 @@ FIXTURE = (
 
 @pytest.fixture
 def kinds_from_the_recorded_run(monkeypatch):
-    """Drive the REAL `list_transcript_kinds` over the recorded response.
+    """Drive the REAL `list_transcripts` over the recorded response.
 
     Not `_read_kind` in isolation: this exercises `_row_video_id`, the adapter
     lookup and the batching too, which is the chain that actually produced
     `unknown 5` on production.
+
+    **The reader was renamed in #324's commit and gained the track list beside
+    the kind; every assertion in this file is unchanged.** That is the point of
+    keeping them: #324 changed what the listing CARRIES, and #323's answers
+    about what it MEANS had to stay exactly where they were.
     """
     body = FIXTURE.read_bytes()
 
@@ -71,7 +76,8 @@ def kinds_from_the_recorded_run(monkeypatch):
     )
 
     ids = [row["video_id"] for row in json.loads(body)]
-    return video_api.list_transcript_kinds(ids, token="tok", actor=ACTOR)
+    listings = video_api.list_transcripts(ids, token="tok", actor=ACTOR)
+    return {video_id: l.kind for video_id, l in listings.items()}
 
 
 def test_the_recorded_run_yields_three_generated_two_manual_and_no_unknown(

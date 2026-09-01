@@ -146,6 +146,14 @@ def videos_needing_transcript(
     being a separate state from `failed`. Ordered fewest-attempts first so a run
     that hits the limit makes progress on the backlog instead of retrying the
     same handful.
+
+    **`transcript_attempts < max_attempts` IS THE ONLY THING SETTING AN
+    EXHAUSTED ROW ASIDE, AND SINCE 2026-09-01 IT IS THE ONLY THING THAT
+    SHOULD BE.** `record_transcript_failure` no longer promotes an exhausted
+    retryable failure to `unavailable`; such a row stays `failed` and this
+    predicate excludes it. So the two facts stay separate in the column --
+    *what is true of the video* in the status, *how hard we tried* in the
+    counter -- and resetting the counter is the single door back in (#322).
     """
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
@@ -191,11 +199,28 @@ def record_transcript_failure(
     """A failed fetch. Returns the status the row now holds.
 
     `terminal` distinguishes "this video has no captions" from "the scraper did
-    not work this time" -- the two exception classes `video_api` raises. A
-    retryable failure that has exhausted its attempts becomes `unavailable` too,
-    set aside rather than retried for ever, and the error text is kept so the
-    reason survives the state change: an `unavailable` row with no error cannot
-    be told from one that never had captions at all.
+    not work this time", and the error text is kept either way so the reason
+    survives the state change: an `unavailable` row with no error cannot be told
+    from one that never had captions at all.
+
+    **`unavailable` NOW HAS EXACTLY ONE PRODUCER, AND THAT IS THE CHANGE
+    (operator ruling, 2026-09-01, #322 and #324).** It used to have two: a
+    terminal verdict, and *a retryable failure that had exhausted its
+    attempts*. The second door is closed. An exhausted row stays **`failed`**.
+
+    **WHY, AND IT IS NOT A LOOSENING.** The exhausted row is already excluded
+    from the pool by `videos_needing_transcript`'s `transcript_attempts <
+    max_attempts` predicate, so the status change bought no exclusion -- what it
+    did was destroy the distinction between *this video has no captions* and
+    *we gave up on it*, writing the first claim on the evidence for the second.
+    **`unavailable` means the free listing enumerated the tracks and found
+    none. Nothing else may write it.**
+
+    **AND IT IS WHAT MAKES A RESET WORK.** Fixing the query (#324) and setting
+    four rows back to `pending, attempts 0` is worth nothing if a second bad run
+    walks them through the other door to the same permanent verdict. Exhaustion
+    is expressed by `transcript_attempts`, which a reset clears; the status is
+    reserved for what is true about the video.
     """
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
@@ -203,7 +228,6 @@ def record_transcript_failure(
             UPDATE videos
                SET transcript_status     = CASE
                        WHEN %s THEN 'unavailable'
-                       WHEN transcript_attempts + 1 >= %s THEN 'unavailable'
                        ELSE 'failed'
                    END,
                    transcript_attempts   = transcript_attempts + 1,
@@ -211,7 +235,7 @@ def record_transcript_failure(
              WHERE id = %s
             RETURNING transcript_status
             """,
-            (terminal, MAX_TRANSCRIPT_ATTEMPTS, error[:1000], video_id),
+            (terminal, error[:1000], video_id),
         )
         row = cur.fetchone()
     return str(row[0]) if row else ("unavailable" if terminal else "failed")

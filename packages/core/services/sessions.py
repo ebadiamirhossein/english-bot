@@ -1177,9 +1177,18 @@ def _input_block() -> tuple[str, dict[str, Any]]:
     """Block 2. **Empty, honestly, and empty for a structural reason.**
 
     PRD §4.1 gives this block a video at the learner's coverage with an
-    interactive transcript. The video engine is W12 and the player is W13;
-    `videos` and `video_assignments` do not exist as tables yet (migration 017 in
-    the authoritative table). There is nothing to read and nothing failed, so the
+    interactive transcript. The video engine is W12 and the player is W13.
+
+    **CORRECTED 2026-09-01, AND THE OLD SENTENCE IS QUOTED RATHER THAN DELETED
+    (#82's shape):** this said *"`videos` and `video_assignments` do not exist as
+    tables yet (migration 017 in the authoritative table)"*. **Both tables exist.
+    Migration 019 created them and 020 amended `videos.accent`; production is at
+    `schema_version` 20.** The migration number was wrong as well as the claim --
+    017 is a different migration entirely.
+
+    **THE BLOCK IS STILL `empty`, AND FOR A REASON THAT SURVIVED THE CORRECTION.**
+    The tables exist and the pool is being filled, but **W13 -- the player -- is
+    not built**, so there is nothing this block can render. Nothing failed, so the
     state is `empty` and never `unavailable`.
 
     **Rendering it rather than hiding it is the point.** A four-block session

@@ -12,10 +12,15 @@ spends money, and before these tests:
 2. **It printed no cost line.** `_projection` was called on the dry path and on
    `--live`, and nowhere on `--apply` -- a FLOOR figure exactly when nothing
    would be spent, and no figure at all when money would be (#318a).
-3. **`list_transcript_kinds` had no production caller.** The free `list_only`
+3. **`list_transcripts` had no production caller.** The free `list_only`
    mode that `video_api`'s own docstring calls *"what makes PRD §7.2's
    human-captions preference verifiable without paying to find out"* was built
    and unreached; the preference was expressed by paying (#318b).
+
+**IT WAS CALLED `list_transcript_kinds` WHEN THESE TESTS WERE WRITTEN, AND THE
+RENAME IS #324's.** It returned only the kind; the language codes it discarded
+are what made the first billed run's query unanswerable. The assertions here are
+about ORDER and OUTPUT on the billed path and are unchanged by that.
 
 **WHAT THESE TESTS ASSERT, AND THE WORDING OF EACH MATTERS.** A test that a dump
 file *exists* would pass against a file written from re-serialised JSON, which
@@ -153,6 +158,10 @@ def _billed_run(monkeypatch, capsys, *, dump=None, kinds_impl=None):
     import core.db as db
 
     order: list[str] = []
+    #: Which ids the BILLED call was actually asked for, and every terminal
+    #: verdict written. Both are what #322 and #324 turn on.
+    fetched: list[str] = []
+    verdicts: list[tuple[str, bool]] = []
 
     class _Conn:
         def commit(self):
@@ -176,7 +185,13 @@ def _billed_run(monkeypatch, capsys, *, dump=None, kinds_impl=None):
         ],
     )
     monkeypatch.setattr(svc, "record_transcript", lambda *a, **k: None)
-    monkeypatch.setattr(svc, "record_transcript_failure", lambda *a, **k: None)
+    monkeypatch.setattr(
+        svc,
+        "record_transcript_failure",
+        lambda conn, *, video_id, error, terminal: (
+            verdicts.append((str(video_id), terminal)) or "unavailable"
+        ),
+    )
     monkeypatch.setattr(
         svc, "purge_stale", lambda *a, **k: SimpleNamespace(purged=0, scanned=0)
     )
@@ -184,26 +199,60 @@ def _billed_run(monkeypatch, capsys, *, dump=None, kinds_impl=None):
     monkeypatch.setattr(refresh, "_recompute_coverage", lambda *a, **k: 0)
 
     def fake_kinds(ids, **kw):
-        order.append("list_transcript_kinds")
-        return {"abc123": "manual", "def456": "generated"}
+        order.append("list_transcripts")
+        # `TrackListing`s, not bare kinds: the billed path now derives the
+        # per-video QUERY from the tracks as well as the kind (#324), and a
+        # stub that returned only kinds would exercise a shape production
+        # never sees.
+        return {
+            "abc123": video_api.TrackListing(
+                youtube_id="abc123",
+                tracks=(
+                    video_api.Track(
+                        language_code="en", language="English", is_generated=False
+                    ),
+                ),
+                kind="manual",
+            ),
+            "def456": video_api.TrackListing(
+                youtube_id="def456",
+                tracks=(
+                    video_api.Track(
+                        language_code="en",
+                        language="English (auto-generated)",
+                        is_generated=True,
+                    ),
+                ),
+                kind="generated",
+            ),
+        }
 
     def fake_fetch(ids, **kw):
         order.append("fetch_transcripts")
-        return {
+        assert "listings" in kw, (
+            "the billed fetch must be given the free listing -- without it the "
+            "query falls back to a default, which is #324"
+        )
+        fetched.extend(ids)
+        # **ONLY WHAT IT WAS ASKED FOR.** A stub that answers about videos the
+        # caller excluded is not the actor, and it would hide exactly the thing
+        # the terminal-skip test exists to check.
+        answers = {
             "abc123": video_api.Transcript(
                 youtube_id="abc123", text="hello", lang="en", kind="manual"
             ),
-            "def456": video_api.TranscriptUnavailable("no captions"),
+            "def456": video_api.TranscriptFetchFailed("actor said nothing"),
         }
+        return {v: answers[v] for v in ids if v in answers}
 
     if kinds_impl is None:
-        monkeypatch.setattr(video_api, "list_transcript_kinds", fake_kinds)
+        monkeypatch.setattr(video_api, "list_transcripts", fake_kinds)
     else:
         def wrapped(ids, **kw):
-            order.append("list_transcript_kinds")
+            order.append("list_transcripts")
             return kinds_impl(ids, **kw)
 
-        monkeypatch.setattr(video_api, "list_transcript_kinds", wrapped)
+        monkeypatch.setattr(video_api, "list_transcripts", wrapped)
     monkeypatch.setattr(video_api, "fetch_transcripts", fake_fetch)
     monkeypatch.setattr(video_api, "resolve_handle", lambda *a, **k: SimpleNamespace(
         uploads_playlist_id="UU", channel_id="UC", handle="@x", title="x"
@@ -221,7 +270,7 @@ def _billed_run(monkeypatch, capsys, *, dump=None, kinds_impl=None):
     pool = SimpleNamespace(channels=[], refusals=[])
 
     refresh._live(settings, pool, args)
-    return capsys.readouterr().out, order
+    return capsys.readouterr().out, order, fetched, verdicts
 
 
 def test_the_billed_path_prints_the_projection_by_name(monkeypatch, capsys) -> None:
@@ -231,7 +280,7 @@ def test_the_billed_path_prints_the_projection_by_name(monkeypatch, capsys) -> N
     pricing excludes Apify platform usage, which on scraping actors is
     routinely the larger line. A cost line without it would be worse than none.
     """
-    out, _ = _billed_run(monkeypatch, capsys)
+    out, *_ = _billed_run(monkeypatch, capsys)
     assert "transcripts to fetch" in out
     assert "projected cost" in out
     assert "FLOOR" in out
@@ -243,14 +292,14 @@ def test_the_caption_kind_is_checked_before_the_billed_fetch(
 ) -> None:
     """#318b. The free `list_only` mode must run FIRST, or it buys nothing.
 
-    Asserting the order is the whole test: a call to `list_transcript_kinds`
+    Asserting the order is the whole test: a call to `list_transcripts`
     after `fetch_transcripts` would be a diagnostic about money already spent.
     """
-    out, order = _billed_run(monkeypatch, capsys)
-    assert "list_transcript_kinds" in order, (
+    out, order, *_ = _billed_run(monkeypatch, capsys)
+    assert "list_transcripts" in order, (
         "the free caption-kind check never ran"
     )
-    assert order.index("list_transcript_kinds") < order.index("fetch_transcripts"), (
+    assert order.index("list_transcripts") < order.index("fetch_transcripts"), (
         "the caption kind must be checked BEFORE paying, not after"
     )
     assert "manual" in out.lower(), "the caption-kind mix must be reported"
@@ -262,7 +311,7 @@ def test_a_failed_caption_check_does_not_abort_the_billed_run(
     """**A fourth defect, found by re-reading the path after changing it, and
     introduced BY the change.**
 
-    `list_transcript_kinds` does not catch what `_run_actor` raises -- unlike
+    `list_transcripts` does not catch what `_run_actor` raises -- unlike
     `fetch_transcripts`, which absorbs a batch failure per batch. Adding the
     caller therefore put a FREE, ADVISORY diagnostic in a position to abort a
     paid run before a single transcript was fetched. The check that costs
@@ -274,8 +323,8 @@ def test_a_failed_caption_check_does_not_abort_the_billed_run(
     def exploding_kinds(ids, **kw):
         raise video_api.VideoApiError("actor returned 503 -- retryable")
 
-    monkeypatch.setattr(video_api, "list_transcript_kinds", exploding_kinds)
-    out, order = _billed_run(monkeypatch, capsys, kinds_impl=exploding_kinds)
+    monkeypatch.setattr(video_api, "list_transcripts", exploding_kinds)
+    out, order, *_ = _billed_run(monkeypatch, capsys, kinds_impl=exploding_kinds)
 
     assert "CHECK FAILED" in out
     assert "fetch_transcripts" in order, (
@@ -288,5 +337,75 @@ def test_the_dump_path_is_printed_on_the_billed_path(
     monkeypatch, capsys, tmp_path
 ) -> None:
     """A dump nobody can find is a dump nobody has."""
-    out, _ = _billed_run(monkeypatch, capsys, dump=tmp_path / "actor.json")
+    out, *_ = _billed_run(monkeypatch, capsys, dump=tmp_path / "actor.json")
     assert str(tmp_path / "actor") in out
+
+
+# ---------------------------------------------------------------------------
+# #324 -- the query is visible before it is paid for
+# ---------------------------------------------------------------------------
+def test_the_query_plan_is_printed_before_the_billed_fetch(
+    monkeypatch, capsys
+) -> None:
+    """**THE FIRST BILLED RUN PRINTED EVERYTHING EXCEPT THE REQUEST.**
+
+    A caption-kind mix, a cost floor, a stored count -- and the one thing that
+    was wrong, the payload, appeared nowhere. Four videos were asked for a
+    manual English track they do not have, and the operator watching the run
+    had no way to see it.
+
+    The plan is asserted **by its content**, not by "something was printed": the
+    two stubbed videos imply two different questions, so the line has to name
+    `manual` and `any` and it has to say how many BILLED calls that costs.
+    """
+    out, order, *_ = _billed_run(monkeypatch, capsys)
+
+    assert "the query, PER VIDEO" in out
+    assert "2 distinct question(s) -> 2 BILLED actor call(s)" in out
+    assert "manual" in out and "any" in out
+    plan_at = out.index("the query, PER VIDEO")
+    fetch_at = out.index("transcript(s) stored")
+    assert plan_at < fetch_at, "the plan must be printed before the money is spent"
+
+
+def test_a_video_with_no_caption_track_is_terminal_and_is_never_fetched(
+    monkeypatch, capsys
+) -> None:
+    """**THE ONE TERMINAL VERDICT, AND THE ONLY PLACE IT MAY BE TAKEN (#322).**
+
+    `unavailable` used to be written from an empty fetch response -- the actor
+    saying nothing, read as the actor saying "this video has no captions" -- and
+    from an exhausted retry counter. Both doors are closed. The verdict now
+    comes from the FREE listing enumerating the tracks and finding none.
+
+    **And the video is not fetched.** There is nothing to buy: a fetch for a
+    video the free check says has no track cannot return a transcript, and every
+    actor call carries Apify platform usage whatever its per-event price (#321).
+    """
+
+    def no_tracks(ids, **kw):
+        return {
+            "abc123": video_api.TrackListing(
+                youtube_id="abc123", tracks=(), kind=None
+            ),
+            "def456": video_api.TrackListing(
+                youtube_id="def456",
+                tracks=(
+                    video_api.Track(
+                        language_code="en", language="English", is_generated=True
+                    ),
+                ),
+                kind="generated",
+            ),
+        }
+
+    out, order, fetched, verdicts = _billed_run(
+        monkeypatch, capsys, kinds_impl=no_tracks
+    )
+
+    assert "abc123" not in fetched, (
+        "a video the free listing says has no track must not be paid for"
+    )
+    assert fetched == ["def456"]
+    assert ("1", True) in verdicts, "the no-track video must be recorded terminal"
+    assert "NO caption track at all" in out

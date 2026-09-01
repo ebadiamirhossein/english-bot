@@ -155,37 +155,73 @@ def test_only_ok_rows_are_selectable(conn) -> None:
 # ── the retry-and-skip path (send-back B4: exercised, not merely specified) ──
 
 
-def test_a_failed_transcript_is_retried_then_marked_not_skipped(conn) -> None:
+def test_a_failed_transcript_is_retried_then_set_aside_without_a_false_verdict(
+    conn,
+) -> None:
     """The state machine, named at every step.
 
+    **THE THIRD ATTEMPT USED TO WRITE `unavailable`, AND THAT WAS THE SECOND
+    PRODUCER OF A TERMINAL VERDICT (#322, ruled 2026-09-01).** The row is set
+    aside either way -- `videos_needing_transcript` filters on
+    `transcript_attempts < max_attempts` and never sees it -- so the status
+    change bought no exclusion. What it did was record *this video has no
+    captions* on the evidence for *we gave up*, in the one column nothing ever
+    revisits. Exhaustion now lives in the counter and the status stays `failed`.
+
     The seam this does NOT cross: the failure is injected, where production
-    supplies a real timeout or an IP challenge from the actor. No test opens a
-    socket -- conftest's network guard fails any that tries -- so what is
-    verified here is the bookkeeping, not the detection.
+    supplies a real timeout or a malformed query. No test opens a socket --
+    conftest's network guard fails any that tries -- so what is verified here is
+    the bookkeeping, not the detection.
     """
     video_id = make_video(conn, "flaky00001")
 
-    assert svc.record_transcript_failure(
-        conn, video_id=video_id, error="502 from actor", terminal=False
-    ) == "failed"
-    assert svc.record_transcript_failure(
-        conn, video_id=video_id, error="502 from actor", terminal=False
-    ) == "failed"
-    # The third attempt exhausts MAX_TRANSCRIPT_ATTEMPTS and sets it aside
-    # rather than retrying for ever.
-    assert svc.record_transcript_failure(
-        conn, video_id=video_id, error="502 from actor", terminal=False
-    ) == "unavailable"
+    for _ in range(svc.MAX_TRANSCRIPT_ATTEMPTS):
+        assert svc.record_transcript_failure(
+            conn, video_id=video_id, error="502 from actor", terminal=False
+        ) == "failed"
 
     row = conn.execute(
-        "SELECT transcript_attempts, transcript_last_error FROM videos "
-        "WHERE id = %s",
+        "SELECT transcript_status, transcript_attempts, transcript_last_error "
+        "FROM videos WHERE id = %s",
         (video_id,),
     ).fetchone()
-    assert row[0] == 3
-    # The reason survives the state change -- an `unavailable` row with no
-    # error text cannot be told from one that never had captions.
-    assert "502 from actor" in row[1]
+    assert row[0] == "failed", (
+        "an exhausted RETRYABLE failure must not be written as `unavailable` -- "
+        "that is a claim about the video, made on evidence about the pipeline"
+    )
+    assert row[1] == svc.MAX_TRANSCRIPT_ATTEMPTS
+    # The reason survives the state change.
+    assert "502 from actor" in row[2]
+
+    # **THE EXCLUSION IS STILL REAL, AND THIS IS THE HALF THE OLD ASSERTION WAS
+    # STANDING IN FOR.** Set aside by the attempt counter, not by a verdict.
+    assert video_id not in [
+        r.video_id for r in svc.videos_needing_transcript(conn, limit=50)
+    ]
+
+
+def test_resetting_the_attempts_is_the_one_door_back_into_the_pool(conn) -> None:
+    """**WHY THE SECOND PRODUCER HAD TO GO, IN ONE TEST (#322, #324).**
+
+    The four videos of the first billed run are being reset to `pending,
+    attempts 0` because the query that failed them was malformed. That reset is
+    worth nothing if a row can still be walked to a permanent verdict by simply
+    failing three more times -- the fix would be undone by the next bad run and
+    would look, in the database, exactly like the pool not having those videos.
+    """
+    video_id = make_video(conn, "reset00001")
+    for _ in range(svc.MAX_TRANSCRIPT_ATTEMPTS):
+        svc.record_transcript_failure(
+            conn, video_id=video_id, error="malformed query", terminal=False
+        )
+    conn.execute(
+        "UPDATE videos SET transcript_status = 'pending', transcript_attempts = 0 "
+        "WHERE id = %s",
+        (video_id,),
+    )
+    assert video_id in [
+        r.video_id for r in svc.videos_needing_transcript(conn, limit=50)
+    ]
 
 
 def test_a_transport_failure_is_retryable_and_a_missing_caption_is_not(

@@ -132,7 +132,7 @@ def test_the_apify_token_is_never_in_the_url_and_so_never_in_a_log(
     waiting for its first production run, not a leak that had happened.
     """
     with caplog.at_level(logging.INFO, logger="httpx"):
-        video_api.list_transcript_kinds(
+        video_api.list_transcripts(
             ["abc123"], token=APIFY_SENTINEL, actor="johnvc/YoutubeTranscripts"
         )
 
@@ -150,7 +150,7 @@ def test_the_apify_token_is_sent_as_a_bearer_header(captured) -> None:
     `Authorization: Bearer` returns **200**, and without it **401**. That
     endpoint is free and is not an actor run, so the check cost nothing.
     """
-    video_api.list_transcript_kinds(
+    video_api.list_transcripts(
         ["abc123"], token=APIFY_SENTINEL, actor="johnvc/YoutubeTranscripts"
     )
     assert captured["headers"]["authorization"] == f"Bearer {APIFY_SENTINEL}"

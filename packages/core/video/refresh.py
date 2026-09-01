@@ -69,9 +69,7 @@ def _projection(transcripts: int) -> str:
     )
 
 
-def _print_caption_kinds(
-    youtube_ids: list[str], kinds: dict[str, str | None]
-) -> None:
+def _print_caption_kinds(youtube_ids: list[str], listings: dict) -> None:
     """What the FREE check found, named per bucket rather than counted alone.
 
     **`unknown` is its own bucket and is never folded into `generated`.** An
@@ -82,13 +80,14 @@ def _print_caption_kinds(
     An actor with no `list_only` mode returns `{}`, and this says so rather
     than printing three zeroes that read as "checked, found nothing".
     """
-    if not kinds:
+    if not listings:
         print(
             "\n  caption kinds: NOT CHECKED -- this actor has no free\n"
             "    discovery mode, so PRD §7.2's preference cannot be verified\n"
             "    before paying (#318)."
         )
         return
+    kinds = {v: listing.kind for v, listing in listings.items()}
     manual = [v for v in youtube_ids if kinds.get(v) == "manual"]
     generated = [v for v in youtube_ids if kinds.get(v) == "generated"]
     unknown = [v for v in youtube_ids if v not in kinds or kinds.get(v) is None]
@@ -103,6 +102,49 @@ def _print_caption_kinds(
             "    Auto-generated captions are lowercase, so the proper-noun rule\n"
             "    switches off and coverage comes back INFLATED (#288). These are\n"
             "    still fetched -- this line reports, it does not filter."
+        )
+
+
+def _print_query_plan(youtube_ids: list[str], listings: dict, actor: str) -> None:
+    """The exact question this run will ask about each video, BEFORE paying.
+
+    **THIS LINE EXISTS BECAUSE THE FIRST BILLED RUN ASKED AN UNANSWERABLE ONE
+    AND NOTHING SHOWED IT (#324).** The payload was `transcript_type: "manual"`
+    with `languages` unset, so the actor's `["en"]` default applied and four of
+    five videos were being asked for a manual English track they do not have.
+    The run printed a caption-kind mix, a cost floor and a stored count, and not
+    one of them contained the request.
+
+    **AND IT IS ALSO THE COST LINE MY OWN CHANGE OWES.** The actor takes ONE
+    `transcript_type` per run, so asking different questions means more runs,
+    and an actor run carries Apify platform usage whatever its per-event price
+    (#321). The number of billed calls is therefore printed as a number, before
+    the operator lets the run proceed.
+    """
+    from core import video_api
+
+    adapter = video_api.adapter_for(actor)
+    groups: dict[video_api.Query, list[str]] = {}
+    for video_id in youtube_ids:
+        groups.setdefault(
+            video_api.plan_query(listings.get(video_id), adapter), []
+        ).append(video_id)
+
+    print(
+        f"\n  the query, PER VIDEO, derived from the free listing (#324):\n"
+        f"    {len(groups)} distinct question(s) -> {len(groups)} BILLED actor "
+        f"call(s), plus the free listing call already made"
+    )
+    for query, ids in groups.items():
+        kind = query.transcript_type or "(actor default)"
+        langs = ", ".join(query.languages) or "(actor default)"
+        print(f"    {kind:<8} {langs:<16} {len(ids):>3} video(s): {' '.join(ids)}")
+    if not listings:
+        print(
+            "    NO LISTING WAS AVAILABLE, so every video gets the same written\n"
+            "    -down default. That is not the old defect -- the old default was\n"
+            "    `manual` + an unstated `[\"en\"]`, which cannot be satisfied by a\n"
+            "    video with only auto-generated captions."
         )
 
 
@@ -326,12 +368,16 @@ def _live(settings, pool, args) -> int:
         print(f"\nWrote {written} pool row(s).")
 
         pending = svc.videos_needing_transcript(conn, limit=args.limit)
-        print(f"Fetching {len(pending)} transcript(s). THIS IS BILLED.")
+        # **A CANDIDATE COUNT, NOT YET A BILL.** The free listing runs next and
+        # can remove videos from it -- see the terminal skip below -- so the
+        # number that is actually paid for is the one `_projection` prints
+        # after that, and it is never larger than this one.
+        print(f"{len(pending)} candidate(s) for the BILLED fetch.")
         if pending:
             youtube_ids = [row.youtube_id for row in pending]
 
             # **THE FREE CHECK RUNS FIRST, WHICH IS THE ONLY ORDER IN WHICH IT
-            # BUYS ANYTHING (#318b).** `list_transcript_kinds` uses the actor's
+            # BUYS ANYTHING (#318b).** `list_transcripts` uses the actor's
             # `list_only` mode, which the actor documents as not charged as a
             # videoprocessed event -- it is what `video_api`'s own docstring
             # calls "what makes PRD §7.2's human-captions preference verifiable
@@ -339,20 +385,25 @@ def _live(settings, pool, args) -> int:
             # CALLER. Called after the fetch it would be a diagnostic about
             # money already spent.
             #
-            # **IT REPORTS AND DOES NOT DECIDE.** Skipping the generated-only
-            # videos would change what this run buys, and that is a ruling
-            # nobody has taken -- #288 says auto-generated captions inflate
-            # coverage, which argues for skipping, and a thin pool argues
-            # against. So the mix is printed and the operator, who is watching,
-            # can stop. What it is NOT is a silent filter.
+            # **IT REPORTS AND DOES NOT DECIDE, AND SINCE #324 IT ALSO
+            # CHOOSES THE QUERY -- WHICH IS NOT THE SAME THING.** Skipping the
+            # generated-only videos would change what this run buys, and that
+            # is a ruling nobody has taken -- #288 says auto-generated captions
+            # inflate coverage, which argues for skipping, and a thin pool
+            # argues against. **The 2026-09-01 ruling is the opposite: a video
+            # with only auto-generated captions IS FETCHED**, asked for with
+            # `any` instead of `manual`, and its kind recorded. So the listing
+            # now decides HOW each video is asked for and still does not decide
+            # WHETHER it is bought -- with the single exception below, where the
+            # listing says there is nothing to buy.
             # **THE ADVISORY CHECK MUST NOT BE ABLE TO KILL THE PAID RUN.**
-            # `list_transcript_kinds` does not catch what `_run_actor` raises,
+            # `list_transcripts` does not catch what `_run_actor` raises,
             # unlike `fetch_transcripts`, which absorbs a batch failure per
             # batch. Without this, an Apify hiccup during a FREE diagnostic
             # would abort a run before a single transcript was fetched -- a
             # check that costs nothing becoming the thing that costs the run.
             try:
-                kinds = video_api.list_transcript_kinds(
+                listings = video_api.list_transcripts(
                     youtube_ids,
                     token=settings.apify_token,
                     actor=settings.apify_transcript_actor,
@@ -365,9 +416,47 @@ def _live(settings, pool, args) -> int:
                     "    failure says nothing about whether the transcripts\n"
                     "    can be fetched."
                 )
-                kinds = {}
+                listings = {}
             else:
-                _print_caption_kinds(youtube_ids, kinds)
+                _print_caption_kinds(youtube_ids, listings)
+
+            # **THE ONE TERMINAL VERDICT, AND IT IS TAKEN BEFORE PAYING RATHER
+            # THAN INFERRED AFTERWARDS (#322, #324, ruled 2026-09-01).** A
+            # listing that enumerated a video's tracks and found NONE is the
+            # actor stating absence. Everything else -- an empty fetch response,
+            # a missing row, an exhausted retry counter -- is the pipeline
+            # failing, and none of those may write `unavailable` any more.
+            #
+            # **AND THE FETCH IS SKIPPED FOR THEM, WHICH IS A DECISION AND NOT A
+            # CONSEQUENCE.** #318b's rule is that the free check REPORTS and does
+            # not DECIDE, and skipping the generated-only videos was refused
+            # under it. This is a different case: there is nothing to buy. A
+            # fetch for a video the free listing says has no track cannot return
+            # a transcript, and every actor call carries platform usage (#321).
+            # Named here so the operator can rule against it in one line.
+            terminal = {
+                row.youtube_id: verdict
+                for row in pending
+                if (
+                    verdict := video_api.terminal_from_listing(
+                        listings.get(row.youtube_id)
+                    )
+                )
+                is not None
+            }
+            if terminal:
+                print(
+                    f"\n  {len(terminal)} video(s) have NO caption track at all, "
+                    "by the free listing.\n"
+                    "    These are recorded `unavailable` -- the one terminal "
+                    "verdict this\n"
+                    "    pipeline takes -- and are NOT fetched. Nothing to buy."
+                )
+                for video_id in terminal:
+                    print(f"    - {video_id}")
+                youtube_ids = [v for v in youtube_ids if v not in terminal]
+
+            _print_query_plan(youtube_ids, listings, settings.apify_transcript_actor)
 
             # **THE BILLED RUN NOW PRINTS A COST LINE LIKE EVERY CHEAPER PATH
             # ALREADY DID (#318a).** `_projection` was called on the dry path
@@ -375,7 +464,7 @@ def _live(settings, pool, args) -> int:
             # figure exactly when nothing would be spent, and no figure at all
             # when money would be. The banner it carries is the load-bearing
             # half: per-event pricing excludes Apify platform usage.
-            print(_projection(len(pending)))
+            print(_projection(len(youtube_ids)))
             if args.dump:
                 print(
                     f"\n  actor responses will be written VERBATIM beside\n"
@@ -384,13 +473,25 @@ def _live(settings, pool, args) -> int:
                     f"-- this is what the fixtures are made from (#317)."
                 )
 
-            results = video_api.fetch_transcripts(
-                youtube_ids,
-                token=settings.apify_token,
-                actor=settings.apify_transcript_actor,
-                prefer_manual=True,
-                dump_to=args.dump,
-            )
+            results: dict[str, object] = {}
+            if youtube_ids:
+                results.update(
+                    video_api.fetch_transcripts(
+                        youtube_ids,
+                        token=settings.apify_token,
+                        actor=settings.apify_transcript_actor,
+                        listings=listings,
+                        dump_to=args.dump,
+                    )
+                )
+            # **THE TERMINAL VERDICTS ARE APPLIED LAST, AND THE OVERLAP THEY
+            # GUARD AGAINST CANNOT HAPPEN ON THIS PATH** -- those ids were
+            # removed from `youtube_ids` before the fetch, so no row can come
+            # back for them. Written this way round anyway: if an actor ever
+            # returned an unrequested row, the free listing's positive statement
+            # about the tracks is the better evidence, and a verdict that
+            # depended on dict-merge order would be the quietest possible bug.
+            results.update(terminal)
             ok = 0
             for row in pending:
                 outcome = results.get(row.youtube_id)

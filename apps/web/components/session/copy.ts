@@ -58,9 +58,14 @@ export const BLOCKS = {
   input: {
     eyebrow: "Input",
     title: "Something to watch.",
-    // Structural, not a failure: `videos` and `video_assignments` do not exist
-    // yet. Saying so is more honest than hiding the block and implying the
-    // product has four.
+    // Structural, not a failure. Saying so is more honest than hiding the block
+    // and implying the product has four.
+    //
+    // **CORRECTED 2026-09-01.** This comment said `videos` and
+    // `video_assignments` "do not exist yet"; both exist (migrations 019 and
+    // 020, production `schema_version` 20). **The learner-facing string below is
+    // unchanged and is still true** -- what is missing is W13's player, which is
+    // what the string actually says.
     empty: "The video side isn’t built yet. It arrives with the player.",
   },
   focus: {
