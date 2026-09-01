@@ -1248,6 +1248,14 @@ def _input_block(
         "completed": assigned.completed_at is not None,
         "transcript_available": assigned.transcript is not None,
         "transcript": None,
+        # **None is the THIRD STATE and not a gap**: transcript present, cues
+        # absent. It renders, its words stay tappable, the coverage badge still
+        # shows, and there is no follow-along highlight -- and the learner is
+        # told nothing about it, because a line explaining a missing feature is
+        # a message about our pipeline dressed as a message about the video.
+        # The ordinary case for every pool row the backfill did not reach, and
+        # nothing drains it on a schedule (#69).
+        "transcript_cues": None,
         "transcript_lang": assigned.transcript_lang,
         "unknown_lemmas": [],
         "coverage_band": None,
@@ -1259,6 +1267,7 @@ def _input_block(
 
     report = lexicon_service.coverage_for(conn, user_id, assigned.transcript)
     payload["transcript"] = assigned.transcript
+    payload["transcript_cues"] = assigned.transcript_cues
     payload["unknown_lemmas"] = sorted(report.unknown_lemmas)
     payload["coverage_band"] = band_for(
         report.coverage,

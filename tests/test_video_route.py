@@ -145,10 +145,19 @@ def _as(learner):
 #: rather than suppressed. **#330's suppression is asserted separately, on a
 #: short one** -- a fixture that quietly landed under the floor would make every
 #: badge assertion here vacuous.
+#:
+#: **CONVENTIONALLY CASED, AND THAT WAS A CORRECTION.** It was entirely
+#: lowercase, which `casing_profile` reads as not conventional -- so
+#: `proper_nouns_detected` came back False and `band_for` **withheld the badge
+#: on every test in this file**. Every band assertion here was passing against
+#: `None`. Found while adding the cue-timings cases, whose assertion was the
+#: first to require a real band. **A fixture that trips a suppression makes the
+#: assertions above it vacuous**, which is CLAUDE.md §3 rule 4's shape in a
+#: fixture rather than in a test.
 LONG_TRANSCRIPT = (
-    "we were talking about the rent again and it went up which is not "
+    "We were talking about the rent again and it went up which is not "
     "great but we will manage it somehow because we always do and the "
-    "flat is close to work anyway so the trade is probably worth it "
+    "flat is close to work anyway so the trade is probably worth it. "
 ) * 12
 
 
@@ -352,9 +361,12 @@ def test_block_two_carries_the_transcript_the_unknown_words_and_a_band(
     payload = block["payload"]
     assert payload["youtube_id"] == "rt13g00001"
     assert payload["transcript_available"] is True
-    assert payload["transcript"].startswith("we were talking about the rent")
+    assert payload["transcript"].startswith("We were talking about the rent")
     assert isinstance(payload["unknown_lemmas"], list)
-    assert payload["coverage_band"] in ("below", "in", "above", None)
+    # **Not `… or None`.** The fixture is conventionally cased and long
+    # enough, so a real band is the only correct answer here; allowing None
+    # is what let the suppression hide behind this assertion.
+    assert payload["coverage_band"] in ("below", "in", "above")
 
 
 def test_no_coverage_percentage_reaches_the_client_anywhere(
@@ -419,3 +431,119 @@ def test_a_short_transcript_gets_no_band(app, learner, db) -> None:
     assert block["state"] == "ready"
     assert block["payload"]["transcript_available"] is True
     assert block["payload"]["coverage_band"] is None
+
+
+# ── cue timings: the third state, and the purge (021) ───────────────────────
+
+
+CUES = [
+    {"text": "we", "start": 0.0, "duration": 1.5},
+    {"text": "were talking", "start": 1.2, "duration": 2.0},
+]
+
+
+def test_a_transcript_with_no_cues_is_served_and_says_nothing_about_it(
+    app, learner, db
+) -> None:
+    """**THE THIRD STATE, through the real route.** `assign` selects from the
+    pool, not from the dumped subset, so a transcript with no cues is the
+    ORDINARY case until the pool turns over. It renders, the badge still shows,
+    and `transcript_cues` is null — no error, no flag, nothing for a client to
+    apologise for."""
+    _assign_today(db, learner, transcript=LONG_TRANSCRIPT, youtube_id="rt13k00001")
+    with psycopg.connect(load_settings().database_url) as conn:
+        lexicon_svc.assume_top_frequency_known(conn, learner.user_id, 2000)
+        conn.commit()
+
+    before = _block_two(app, learner)["payload"]
+    assert before["transcript_available"] is True
+    assert before["transcript_cues"] is None
+    assert before["coverage_band"] in ("below", "in", "above")
+
+    # **THE CLAIM THIS TEST IS ACTUALLY ABOUT: the badge reads `transcript` and
+    # is untouched by the cues.** Asserted by comparison rather than by value,
+    # so it holds whatever the band happens to be.
+    with psycopg.connect(load_settings().database_url) as conn:
+        video_id = conn.execute(
+            "SELECT id FROM videos WHERE youtube_id = %s", ("rt13k00001",)
+        ).fetchone()[0]
+        cues = [
+            {"text": word, "start": float(i), "duration": 1.0}
+            for i, word in enumerate(LONG_TRANSCRIPT.split(" ")[:-1])
+        ]
+        assert svc.record_cues(
+            conn, video_id=video_id, cues=cues, text=LONG_TRANSCRIPT
+        ) is False, "the join drops the trailing space, so the gate refuses"
+        conn.commit()
+
+    after = _block_two(app, learner)["payload"]
+    assert after["coverage_band"] == before["coverage_band"]
+
+
+def test_cues_reach_the_client_when_they_reproduce_the_transcript(
+    app, learner, db
+) -> None:
+    text = " ".join(c["text"] for c in CUES)
+    _assign_today(db, learner, transcript=text, youtube_id="rt13l00001")
+    with psycopg.connect(load_settings().database_url) as conn:
+        assert svc.record_cues(
+            conn,
+            video_id=conn.execute(
+                "SELECT id FROM videos WHERE youtube_id = %s", ("rt13l00001",)
+            ).fetchone()[0],
+            cues=CUES,
+            text=text,
+        )
+        conn.commit()
+
+    payload = _block_two(app, learner)["payload"]
+    assert payload["transcript_cues"] == CUES
+
+
+def test_cues_that_do_not_reproduce_the_transcript_are_refused(
+    app, learner, db
+) -> None:
+    """**The gate, and it refuses rather than repairing.** A row whose cues
+    describe different text is coverage over one string and a highlight over
+    another — silent, because the highlight would still land somewhere
+    plausible."""
+    _assign_today(db, learner, transcript="something else entirely",
+                  youtube_id="rt13m00001")
+    with psycopg.connect(load_settings().database_url) as conn:
+        video_id = conn.execute(
+            "SELECT id FROM videos WHERE youtube_id = %s", ("rt13m00001",)
+        ).fetchone()[0]
+        assert svc.record_cues(
+            conn, video_id=video_id, cues=CUES, text="something else entirely"
+        ) is False
+        conn.commit()
+
+    assert _block_two(app, learner)["payload"]["transcript_cues"] is None
+
+
+def test_the_purge_nulls_the_cues_with_the_transcript_on_one_clock(
+    app, learner, db
+) -> None:
+    """**021's ruling, asserted rather than commented.** The cues join the SAME
+    `UPDATE` on the SAME `metadata_refreshed_at`. Cues outliving the text they
+    index would be offsets into a string that is gone."""
+    text = " ".join(c["text"] for c in CUES)
+    _assign_today(db, learner, transcript=text, youtube_id="rt13n00001")
+    with psycopg.connect(load_settings().database_url) as conn:
+        video_id = conn.execute(
+            "SELECT id FROM videos WHERE youtube_id = %s", ("rt13n00001",)
+        ).fetchone()[0]
+        svc.record_cues(conn, video_id=video_id, cues=CUES, text=text)
+        conn.execute(
+            "UPDATE videos SET metadata_refreshed_at = %s WHERE id = %s",
+            (datetime.now(timezone.utc) - timedelta(days=40), video_id),
+        )
+        svc.purge_stale(conn, now=datetime.now(timezone.utc))
+        row = conn.execute(
+            "SELECT transcript, transcript_cues FROM videos WHERE id = %s",
+            (video_id,),
+        ).fetchone()
+        conn.commit()
+
+    assert row[0] is None, "the transcript is purged"
+    assert row[1] is None, "and the cues go with it, on the same clock"

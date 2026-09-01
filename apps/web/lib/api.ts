@@ -505,6 +505,10 @@ export type VideoBlockPayload = {
   completed: boolean;
   transcript_available: boolean;
   transcript: string | null;
+  /** Per-cue timings (migration 021). **Null is the third state** — transcript
+   * present, cues absent: it renders, words stay tappable, the badge still
+   * shows, and there is no highlight. Nothing is said to the learner about it. */
+  transcript_cues: { text: string; start: number; duration?: number }[] | null;
   transcript_lang: string | null;
   /** Lemmas this learner has no `known`/`mastered` row for. The highlight set.
    *

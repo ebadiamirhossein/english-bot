@@ -1,0 +1,114 @@
+-- W13-i (cue timings): `videos` gains `transcript_cues`.
+--
+-- Plain, non-idempotent DDL, per 009's note and every file since: core.db.migrate
+-- wraps each file in one transaction and gates it on schema_version, which is
+-- what makes a re-run impossible. Guards would only buy the impression that a
+-- re-run is safe. This file writes NO schema_version row -- the runner does that
+-- (core/db.py), and only 001 inserts one itself.
+--
+-- NOTHING IS SEEDED HERE. The cues arrive by `python -m core.video.backfill_cues`
+-- from dumps already on the host, and thereafter from the refresh path. **This
+-- migration costs no billed call and neither does the backfill.**
+--
+-- ---------------------------------------------------------------
+-- #185, EIGHTH OCCURRENCE. THE NUMBER IS TAKEN IN THIS COMMIT.
+-- ---------------------------------------------------------------
+-- Not when the slice was planned. 020 is the highest applied version; production
+-- is at schema_version 20.
+--
+-- **WHICH OF #185's TWO COUNTINGS THIS IS, stated because that row's own note
+-- requires whoever next takes a number to say:** this is the count of numbers
+-- TAKEN AT IMPLEMENTATION TIME -- 017 fourth, 018 fifth, 019 sixth, 020 seventh,
+-- and this eighth. It is the counting the migration headers themselves use. On
+-- the other reading -- only takes that SHIFTED an unwritten row -- 019 does not
+-- count and this is the seventh. **Both are stated; the sequence in these
+-- headers is internally consistent and #185 stays open on which it means.**
+--
+-- THREE UNWRITTEN SLICES SHIFT BY ONE IN THIS SAME COMMIT, in BOTH halves of
+-- docs/TASKS-v3-web.md -- the authoritative table AND each slice's Build cell:
+--
+--     W13a `subtitle_ladder`                  021 -> 022
+--     W14  `speech_attempts`                  022 -> 023
+--     W18  `placement_bank`, `placement_runs` 023 -> 024
+--
+-- None of the three is written: nothing on disk, nothing applied to any
+-- database, no schema_version row moved. Renumbering an APPLIED migration is
+-- #49; renumbering a row in a planning table is bookkeeping.
+--
+-- **AND THIS COMMIT ADDS TWO SITES THE PREVIOUS SEVEN DID NOT NEED:** the
+-- authoritative table gains an `| 021 | W13 | ... |` row, and **W13's Build cell
+-- gains `migration 021`** -- because `tests/test_record_consistency.py`
+-- (`test_every_authoritative_row_has_a_build_column_naming_it`) refuses a table
+-- row whose slice names no migration. Eight edits in that file, not six.
+--
+-- **THE SLICE ID IN THAT TABLE IS `W13` AND NOT `W13-i`, AND THAT IS FORCED
+-- RATHER THAN CHOSEN.** `_SLICE_ID` in that test is
+-- `^\*{0,2}(W\d+[a-z]?)\*{0,2}$` -- it matches `W13` and `W13a` and **does not
+-- match a hyphen**. An unparsed id in the authoritative table trips an assert
+-- and takes every TASKS check down with it; in a Build column it is skipped
+-- SILENTLY, which is worse. The W13-i / W13-ii split therefore stays where it
+-- already lives, in BUILD_PROGRESS.md, and #307 (TASKS is missing slices
+-- BUILD_PROGRESS carries) is neither widened nor repaired by this file.
+--
+-- ---------------------------------------------------------------
+-- ONE COLUMN, NOT A TABLE, AND THE REASON IS THE PURGE
+-- ---------------------------------------------------------------
+-- The cues are a property of the transcript: same provenance, same lifecycle,
+-- same 30-day policy. A `video_cues` table would give them a second identity
+-- and -- the part that decides it -- **a second purge path, which is a second
+-- clock.**
+--
+-- `core.services.video.purge_stale` nulls the metadata and the transcript
+-- TOGETHER, in ONE `UPDATE`, keyed on `metadata_refreshed_at`. **This column
+-- joins that statement and does not get one of its own.** Two clocks over one
+-- fact is a defect this record has already spent a pass establishing.
+--
+-- ---------------------------------------------------------------
+-- #48 IS NOT TRIGGERED
+-- ---------------------------------------------------------------
+-- There is no ALTER TABLE users here, so the paired
+-- `CREATE OR REPLACE VIEW approved_onboarded_users` is not required and is
+-- deliberately absent. Stated rather than omitted silently: #48 has recurred
+-- because each case looked like the one where the rule did not apply.
+--
+-- ---------------------------------------------------------------
+-- PRODUCT-PRINCIPLES §2 and §3
+-- ---------------------------------------------------------------
+-- §2: this column is on `videos`, which has NO user_id at all -- the candidate
+-- pool is shared between both learners by 019's ruling. So it enlarges no future
+-- identity migration and carries no Telegram id.
+--
+-- §3 asks for a flag when data materialises something that could be computed.
+-- **The cues CANNOT be computed.** They are not derivable from the stored text
+-- by any means -- a timing is a fact about the audio, and inferring one from
+-- character positions would be the app inventing a measurement. This is stored
+-- because it was measured, which is the case §3 exists to permit.
+--
+-- ---------------------------------------------------------------
+-- WHY JSONB AND WHAT IT HOLDS
+-- ---------------------------------------------------------------
+-- A list of `{text, start, duration}`, seconds as floats, in the actor's own
+-- order. `duration` is carried and **read by nothing**: the active-cue rule is
+-- `latest start at or before t` and never consults it (see core/video/cues.py
+-- for why that is the whole argument rather than an optimisation). It is stored
+-- anyway because discarding a field the source supplied is the move that
+-- produced this slice -- `_read_text` dropped every `start` and the timings had
+-- to be recovered from dumps a year later.
+--
+-- NOT a normalised table of rows: nothing queries an individual cue, the whole
+-- list is read at once for one video, and a 1,527-row child table per video
+-- would be a join for a value that is always fetched whole.
+--
+-- **THE COLUMN IS NULLABLE AND NULL IS A SPECIFIED STATE**, not a gap: a
+-- transcript with no cues renders, its words stay tappable, the coverage badge
+-- still shows, and there is no highlight. See the W13 record's third state.
+
+ALTER TABLE videos ADD COLUMN transcript_cues JSONB;
+
+COMMENT ON COLUMN videos.transcript_cues IS
+    'Per-cue timings from the transcript actor: [{text, start, duration}], '
+    'seconds as floats, actor order. Joined on a single space this MUST '
+    'reproduce videos.transcript exactly -- core.video.cues.reproduces gates '
+    'every write, in the backfill and on the fetch path alike. NULL means no '
+    'cues, which is a specified state and not an error. Purged with the '
+    'transcript by the same statement on the same clock.';

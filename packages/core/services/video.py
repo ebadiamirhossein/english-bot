@@ -178,17 +178,56 @@ def videos_needing_transcript(
 
 
 def record_transcript(
-    conn, *, video_id: int, text: str, lang: str | None, kind: str | None
-) -> None:
+    conn,
+    *,
+    video_id: int,
+    text: str,
+    lang: str | None,
+    kind: str | None,
+    cues: Any = None,
+) -> bool:
     """A successful fetch. Resets the attempt counter.
 
     So a video that failed twice and then worked is not one failure away from
     being set aside for good.
+
+    **RETURNS WHETHER THE CUES WERE STORED**, so the caller can count a refusal
+    where the operator will see it. `False` never means the text was rejected --
+    the transcript is always written.
+
+    **THE IDENTITY GATE IS HERE AND NOT ONLY IN THE BACKFILL (S2).** The cues
+    are stored only if joining them reproduces `text` exactly, by md5, through
+    `core.video.cues.reproduces` -- the SAME function the backfill calls, so the
+    two gates cannot drift into disagreeing about what identity means.
+
+    **ON A MISMATCH: STORE THE TEXT, REFUSE THE CUES.** Not repair, not
+    store-anyway, not raise. The row then holds a transcript and no cues, which
+    is a **specified and survivable** state -- it renders, its words stay
+    tappable, the coverage badge still shows, and there is no highlight. A row
+    whose cues describe DIFFERENT text is the state that must never exist:
+    coverage computed over one string and the highlight over another, **silent,
+    because the highlight would still land somewhere plausible.**
+
+    **WHY A GATE AT ALL, WHEN T5 MEASURED THE IDENTITY.** T5 measured eleven
+    rows from `johnvc/YoutubeTranscripts`. That is evidence about **that actor on
+    those rows**, not a property of the pipeline.
+    `codepoetry/youtube-transcript-ai-scraper` is the ruled fallback, is in the
+    adapter table, and **has never been measured** -- and #288 is this project
+    already caught inheriting one provider's premise as a fact about all of them,
+    at a cost that took a production measurement to find. **A guarantee that
+    covers the rows already written and not the rows about to be written is the
+    family this record keeps re-filing.**
     """
+    from core.video.cues import normalise_cues, reproduces
+
+    checked = normalise_cues(cues)
+    stored = checked is not None and reproduces(checked, text)
+
     conn.execute(
         """
         UPDATE videos
            SET transcript            = %s,
+               transcript_cues       = %s::jsonb,
                transcript_lang       = %s,
                captions_kind         = %s,
                transcript_status     = 'ok',
@@ -196,8 +235,15 @@ def record_transcript(
                transcript_last_error = NULL
          WHERE id = %s
         """,
-        (text, lang, kind, video_id),
+        (
+            text,
+            json.dumps(checked) if stored else None,
+            lang,
+            kind,
+            video_id,
+        ),
     )
+    return stored
 
 
 def record_transcript_failure(
@@ -295,6 +341,13 @@ def purge_stale(conn, *, now: datetime, days: int = RETENTION_DAYS) -> PurgeCoun
                    duration_s          = NULL,
                    published_at        = NULL,
                    transcript          = NULL,
+                   -- **THE CUES JOIN THIS STATEMENT AND DO NOT GET ONE OF
+                   -- THEIR OWN (migration 021).** They are a property of the
+                   -- transcript -- same provenance, same lifecycle, same 30-day
+                   -- policy -- so a second purge path would be a SECOND CLOCK
+                   -- over one fact. Cues outliving the text they index would be
+                   -- offsets into a string that is gone.
+                   transcript_cues     = NULL,
                    transcript_lang     = NULL,
                    captions_kind       = NULL,
                    transcript_status   = 'pending',
@@ -610,6 +663,12 @@ class TodayVideo:
     accent: str | None
     track: str
     transcript: str | None
+    #: Per-cue timings (migration 021), or **None meaning the third state**:
+    #: transcript present, cues absent. Specified, not a gap -- the transcript
+    #: renders, its words stay tappable, the coverage badge still shows, and
+    #: there is no highlight. **The normal case for every pool row the backfill
+    #: did not reach**, and nothing refreshes on a schedule (#69) to drain it.
+    transcript_cues: list | None
     transcript_lang: str | None
     captions_kind: str | None
     resume_position_s: int
@@ -629,8 +688,9 @@ def today_for(conn, user_id: int, *, on: date) -> TodayVideo | None:
         cur.execute(
             """
             SELECT a.id, a.video_id, v.youtube_id, v.title, v.duration_s,
-                   v.accent, v.track, v.transcript, v.transcript_lang,
-                   v.captions_kind, a.resume_position_s, a.completed_at
+                   v.accent, v.track, v.transcript, v.transcript_cues,
+                   v.transcript_lang, v.captions_kind, a.resume_position_s,
+                   a.completed_at
               FROM video_assignments a
               JOIN videos v ON v.id = a.video_id
              WHERE a.user_id = %s AND a.assigned_for = %s
@@ -649,10 +709,11 @@ def today_for(conn, user_id: int, *, on: date) -> TodayVideo | None:
         accent=None if row[5] is None else str(row[5]),
         track=str(row[6]),
         transcript=row[7],
-        transcript_lang=row[8],
-        captions_kind=row[9],
-        resume_position_s=int(row[10] or 0),
-        completed_at=row[11],
+        transcript_cues=row[8],
+        transcript_lang=row[9],
+        captions_kind=row[10],
+        resume_position_s=int(row[11] or 0),
+        completed_at=row[12],
     )
 
 
@@ -796,3 +857,59 @@ def save_progress_for_user(
         )
         conn.commit()
     return updated
+
+
+def rows_needing_cues(conn) -> list[tuple[int, str, str]]:
+    """`(video_id, youtube_id, transcript)` for every row the backfill could fill.
+
+    **This is the third state's population, and it is a QUERY rather than an
+    estimate** (#268). A row with a transcript and no cues renders, stays
+    tappable and keeps its badge -- it simply has no highlight -- and nothing
+    drains it on a schedule, because there is no cron and no worker (#69).
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT id, youtube_id, transcript
+              FROM videos
+             WHERE transcript IS NOT NULL
+               AND transcript_cues IS NULL
+             ORDER BY youtube_id
+            """
+        )
+        return [(int(r[0]), str(r[1]), str(r[2])) for r in cur.fetchall()]
+
+
+def record_cues(conn, *, video_id: int, cues: Any, text: str) -> bool:
+    """The backfill's write. **Gated on the same identity check as the fetch.**
+
+    Returns whether it wrote. `False` means the join did not reproduce the
+    stored transcript, and the caller **reports and skips** -- never repairs. A
+    mismatch means the stored text came from a different fetch than the cues,
+    and writing anyway is the two-instruments-on-one-screen failure T5's fifth
+    question existed to prevent.
+
+    **REFUSES TO OVERWRITE A NON-NULL `transcript_cues`.** The `WHERE` clause
+    carries it, so a second run is a no-op at the database rather than by the
+    caller's good manners -- the same reasoning 015's partial UNIQUE uses for
+    putting an idempotency guarantee in the schema rather than in today's
+    creator.
+    """
+    from core.video.cues import normalise_cues, reproduces
+
+    checked = normalise_cues(cues)
+    if checked is None or not reproduces(checked, text):
+        return False
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            UPDATE videos
+               SET transcript_cues = %s::jsonb
+             WHERE id = %s
+               AND transcript_cues IS NULL
+               AND transcript = %s
+            RETURNING id
+            """,
+            (json.dumps(checked), video_id, text),
+        )
+        return cur.fetchone() is not None

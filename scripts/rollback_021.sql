@@ -1,0 +1,71 @@
+-- rollback_021.sql — reverse W13-i's cue-timings column.
+--
+--   psql "$DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 \
+--        -f scripts/rollback_021.sql
+--
+-- --single-transaction is kept even though this file makes ONE change, because
+-- a rollback that is sometimes atomic and sometimes not is a habit that fails
+-- on the file where it matters. It also rolls schema_version back, and that
+-- second statement must never land without the first.
+--
+-- WHAT THIS RESTORES: the exact pre-021 shape. `videos.transcript_cues` gone,
+-- schema_version back to 20 so `core.db status` reports the truth. 021 adds one
+-- nullable column, rewrites no existing value and touches no other table, so
+-- there is nothing else to put back.
+--
+-- ---------------------------------------------------------------
+-- THE DDL IS TRIVIAL AND IS NOT WHY THIS FILE EXISTS
+-- ---------------------------------------------------------------
+-- One `ADD COLUMN` reversed by one `DROP COLUMN`. No row changes, no value is
+-- rewritten, no constraint is dropped, nothing cascades. This file is short for
+-- the same reason `rollback_019.sql` is short and `rollback_011.sql` is not.
+--
+-- **It ships anyway, and not out of ceremony: 019 shipped one and a convention
+-- lapses precisely on the file where it looks unnecessary.** What follows is
+-- the half the DDL hides.
+--
+-- ---------------------------------------------------------------
+-- WHAT THIS ROLLBACK CANNOT REVERSE
+-- ---------------------------------------------------------------
+-- Stated here rather than discovered afterwards, on 019's own precedent: a
+-- rollback believed to be total is more dangerous than one whose limits are
+-- written down.
+--
+-- 1. **THE BACKFILL'S WRITES, AND THIS IS THE REAL COST.** Dropping the column
+--    discards every cue list `core.video.backfill_cues` wrote. Re-running it
+--    after re-migrating is the only way back, and that requires the DUMP FILES
+--    to still exist -- `/home/bot/phase-b-fixtures/run2/` and
+--    `/home/bot/phase-b-fixtures/run3/`. **#342 records those as living in
+--    exactly one place, untracked, on the host, where a `git clean -fd` removes
+--    them.** So the recoverability of this rollback depends on files no commit
+--    protects. **Confirm they are present BEFORE running this.**
+--
+-- 2. It cannot re-fetch. If the dumps are gone the cues can only be recovered by
+--    a BILLED re-fetch through the transcript actor -- which is exactly the
+--    charge T5 established this whole slice does not need to pay, paid after
+--    all.
+--
+-- 3. It reverses no `apps/web` change. The highlight is git-reverted, not
+--    psql-reverted, and a frontend expecting cues against a database without
+--    the column reads `undefined` and renders no highlight -- which is the
+--    *transcript present, cues absent* state and is survivable. **Revert the
+--    frontend anyway**, so the two halves describe the same product.
+--
+-- 4. **NO GUARD REFUSES THIS FILE, and that asymmetry with rollback_019 is
+--    deliberate.** 019 refuses once a video has been assigned, because
+--    `video_assignments` records which video was served to which learner on
+--    which date and NOTHING ELSE DOES. This column records nothing of the kind:
+--    every value in it is reproducible from a dump file, and the state it
+--    leaves behind is one the product already specifies. **There is no
+--    unrecoverable learner history here, so there is nothing to refuse on.**
+
+-- ---------------------------------------------------------------
+-- 1. The column.
+-- ---------------------------------------------------------------
+ALTER TABLE videos DROP COLUMN IF EXISTS transcript_cues;
+
+-- ---------------------------------------------------------------
+-- 2. The version, so `core.db status` stops claiming a migration that is no
+--    longer applied.
+-- ---------------------------------------------------------------
+DELETE FROM schema_version WHERE version = 21;

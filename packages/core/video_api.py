@@ -105,6 +105,18 @@ class Transcript:
     #: 'manual' | 'generated' | None. None means the actor did not report a
     #: kind -- which is filed, never guessed at.
     kind: str | None
+    #: Per-cue timings as the actor sent them: `[{text, start, duration}]`,
+    #: seconds as floats. **None means the actor sent none, or sent a shape
+    #: `normalise_cues` refuses** -- and that is a specified state downstream,
+    #: not an error. **The service gates on identity before storing them**: if
+    #: joining these does not reproduce `text`, the text is stored and the cues
+    #: are refused (see `core.services.video.record_transcript`).
+    #:
+    #: **THIS FIELD EXISTS BECAUSE DISCARDING IT ONCE COST A WHOLE SLICE.**
+    #: `_read_text`'s list branch joined each segment's `text` and dropped every
+    #: `start`, so the timings had to be recovered from `--dump` files months
+    #: later (R12, T5). A field the source supplies is carried.
+    cues: tuple[dict, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +189,12 @@ class _Adapter:
     lang_keys: tuple[str, ...]
     #: How the output reports 'this track is auto-generated'.
     generated_truthy: tuple[str, ...] = ("generated", "auto", "asr", "true", "True")
+    #: Output keys, tried in order, holding the TIMESTAMPED variant: a list of
+    #: `{text, start, duration}`. **Separate from `text_keys` and deliberately
+    #: so** -- `text_keys` is ordered to prefer the flat `non_timestamped`
+    #: string, and reusing it here would make the timed and untimed reads fight
+    #: over one preference order.
+    cues_keys: tuple[str, ...] = ()
     #: **A NESTED PATH, BECAUSE THE FLAT `kind_keys` TUPLE CANNOT EXPRESS THIS
     #: SHAPE AT ALL (#323).** The `list_only` response reports kinds inside
     #: `available_transcripts`, a LIST OF TRACK OBJECTS each carrying its own
@@ -234,6 +252,7 @@ _ADAPTERS: dict[str, _Adapter] = {
         text_keys=("non_timestamped", "transcript", "text"),
         kind_keys=("transcript_type", "is_generated", "generated"),
         lang_keys=("language_code", "language", "lang"),
+        cues_keys=("timestamped",),
         tracks_key="available_transcripts",
         languages_key="languages",
         any_value="any",
@@ -248,6 +267,14 @@ _ADAPTERS: dict[str, _Adapter] = {
         text_keys=("text", "transcript"),
         kind_keys=("subType", "captionType"),
         lang_keys=("language", "lang"),
+        # **NAMED FROM THE ACTOR'S DOCUMENTED SHAPE AND NEVER MEASURED.** This
+        # actor is the ruled fallback and has never been run (#288's shape: one
+        # provider's premise inherited as a fact about all). If the key is
+        # wrong, `_read_cues` returns None, the row lands in the
+        # transcript-present-cues-absent state, and nothing breaks -- which is
+        # why a guess is survivable HERE and is not survivable at the identity
+        # gate, where it is measured instead.
+        cues_keys=("timestamped", "segments"),
     ),
 }
 
@@ -772,6 +799,7 @@ def fetch_transcripts(
                     text=text,
                     lang=_first_str(row, adapter.lang_keys),
                     kind=_read_kind(row, adapter),
+                    cues=_read_cues(row, adapter),
                 )
 
             for video_id in batch:
@@ -823,6 +851,21 @@ def _read_text(row: dict, adapter: _Adapter) -> str:
             if joined:
                 return joined
     return ""
+
+
+def _read_cues(row: dict, adapter: _Adapter) -> tuple[dict, ...] | None:
+    """The timestamped variant, or None.
+
+    **Validation is NOT here.** `core.video.cues.normalise_cues` owns what a
+    usable cue list is -- a `start` on every element, ascending, no repair -- and
+    a second opinion in this module is the two-instruments shape one layer down.
+    This function finds the list and hands it over.
+    """
+    for key in adapter.cues_keys:
+        value = row.get(key)
+        if isinstance(value, list) and value:
+            return tuple(v for v in value if isinstance(v, dict))
+    return None
 
 
 def _read_tracks(row: dict, adapter: _Adapter) -> tuple[Track, ...]:

@@ -55,6 +55,14 @@ const PING_SECONDS = 15;
 /** Whole-video playback rates. **Not per-line — that needs timings (R12).** */
 const RATES = [1, 0.75] as const;
 
+/**
+ * How often the highlight re-reads the player clock. Four times a second: fast
+ * enough that a cue boundary lands within a quarter-second of the word being
+ * said, slow enough to cost nothing. **It writes nothing and is not the
+ * progress ping** — see `positionS`.
+ */
+const HIGHLIGHT_MS = 250;
+
 type Player = {
   getCurrentTime: () => number;
   setPlaybackRate: (rate: number) => void;
@@ -114,6 +122,16 @@ export function VideoPlayer({
   const [rate, setRate] = useState<number>(1);
   const [showL1, setShowL1] = useState(false);
   const [completed, setCompleted] = useState(payload.completed);
+  /**
+   * The player's position, for the follow-along highlight only.
+   *
+   * **A SECOND, FASTER CLOCK THAN THE PROGRESS PING, AND IT WRITES NOTHING.**
+   * The ping is block 2's log and runs every 15 s (`PING_SECONDS`); a highlight
+   * that moved once every 15 s would be worse than none. This one is local
+   * state, never sent, and **runs only when there are cues to sync to** — a
+   * transcript in the third state starts no interval at all.
+   */
+  const [positionS, setPositionS] = useState(payload.resume_position_s);
 
   const ping = useCallback(async () => {
     const current = player.current;
@@ -165,6 +183,17 @@ export function VideoPlayer({
     };
   }, [ready, payload.youtube_id, payload.resume_position_s, ping]);
 
+
+  const cues = payload.transcript_cues ?? undefined;
+
+  useEffect(() => {
+    if (!cues?.length) return;
+    const timer = setInterval(() => {
+      const current = player.current;
+      if (current) setPositionS(current.getCurrentTime());
+    }, HIGHLIGHT_MS);
+    return () => clearInterval(timer);
+  }, [cues]);
 
   useEffect(() => {
     const timer = setInterval(() => void ping(), PING_SECONDS * 1000);
@@ -239,6 +268,8 @@ export function VideoPlayer({
           text={payload.transcript}
           unknownLemmas={payload.unknown_lemmas}
           language={payload.transcript_lang ?? "en"}
+          cues={cues}
+          positionS={cues?.length ? positionS : undefined}
         />
       ) : (
         // **#335 on the screen.** The video plays; only the follow-along text

@@ -4,8 +4,15 @@
  * The transcript, as **unsynced, word-clickable text**. W13-i.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * **WHY THIS IS NOT SYNCED TO THE PLAYER, AND IT IS A DATA FACT RATHER THAN A
- * DECISION (R12).**
+ * **IT IS SYNCED AS OF THE CUE-TIMINGS SLICE, AND THE OLD NOTE IS QUOTED RATHER
+ * THAN DELETED (#82's shape):** *"WHY THIS IS NOT SYNCED TO THE PLAYER, AND IT
+ * IS A DATA FACT RATHER THAN A DECISION (R12)."* **T5 recovered the timings
+ * from `--dump` files at no charge**, migration 021 stores them, and the
+ * follow-along highlight is built below. **Loop-a-line and per-line 0.75x are
+ * NOT, and they are not held either — they are reported UNMET**, because a
+ * generated track is a rolling window and has no line boundaries: ~92% of
+ * consecutive pairs overlap on every generated track measured, and all three
+ * assigned videos are generated. The original finding stands as written:**
  *
  * There are **no per-cue timings anywhere in this database.** `videos.transcript`
  * is a single `TEXT` column; `core/video_api.py`'s `_read_text` returns the first
@@ -35,6 +42,32 @@
 
 import { useMemo } from "react";
 
+/**
+ * **THE RULING: the active cue is the one with the greatest `start` at or before
+ * `t`.** This function never reads `duration`, and that is the argument rather
+ * than an optimisation — it makes the selection **total** (one answer, never
+ * two, however many windows are live) and **monotone** (the highlight advances
+ * and cannot jump backwards). The ~92% overlap lives entirely in `duration`, so
+ * it cannot reach this rule.
+ *
+ * **This is the TypeScript half of a rule whose definition lives in
+ * `packages/core/video/cues.py::active_cue`**, where the declined alternatives
+ * and the three boundaries are recorded. The two must agree; the Python tests
+ * hold the definition.
+ */
+function activeCueIndex(cues: Cue[], positionS: number): number | null {
+  let found: number | null = null;
+  for (let i = 0; i < cues.length; i += 1) {
+    if (cues[i].start <= positionS) found = i;
+    else break;
+  }
+  return found;
+}
+
+/** One cue as migration 021 stores it. `duration` is carried and read by
+ * nothing — see `activeCueIndex`. */
+export type Cue = { text: string; start: number; duration?: number };
+
 /** Highlighting is per WORD, so the split has to keep what it splits on. */
 const TOKEN = /([A-Za-zÀ-ɏ']+)/g;
 
@@ -58,11 +91,18 @@ export function Transcript({
   text,
   unknownLemmas,
   language,
+  cues,
+  positionS,
   onWordTap,
 }: {
   text: string;
   unknownLemmas: string[];
   language: string;
+  /** **Absent means the third state**: transcript present, cues absent. It
+   * renders, words stay tappable, the badge still shows, and **nothing is said
+   * to the learner** about a highlight they have not seen. */
+  cues?: Cue[];
+  positionS?: number;
   onWordTap?: (word: string) => void;
 }) {
   const unknown = useMemo(
@@ -72,16 +112,46 @@ export function Transcript({
 
   const parts = useMemo(() => text.split(TOKEN), [text]);
 
+  /**
+   * The active cue's `[start, end)` character range in `text`.
+   *
+   * **Exact, and exact only because the join reproduces the stored transcript
+   * byte for byte** — the three-way md5 T5 measured, and the gate
+   * `core.video.cues.reproduces` enforces on every write. Without that identity
+   * these offsets would be a guess against a re-tokenisation, which is the
+   * second instrument this design refuses.
+   */
+  const span = useMemo<[number, number] | null>(() => {
+    if (!cues?.length || positionS === undefined) return null;
+    const index = activeCueIndex(cues, positionS);
+    if (index === null) return null;
+    let cursor = 0;
+    for (let i = 0; i < index; i += 1) cursor += cues[i].text.length + 1;
+    return [cursor, cursor + cues[index].text.length];
+  }, [cues, positionS]);
+
   return (
     <p
       lang={language}
       className="max-w-prose text-base leading-loose"
       data-testid="transcript"
     >
-      {parts.map((part, index) => {
+      {(() => {
+        let offset = 0;
+        return parts.map((part, index) => {
+        const at = offset;
+        offset += part.length;
+        // Inside the active cue's character range. `data-testid` marks the
+        // FIRST such part so a test can read the lit cue's text back.
+        const lit =
+          span !== null && at >= span[0] && at + part.length <= span[1];
         if (!TOKEN.test(part)) {
           TOKEN.lastIndex = 0;
-          return <span key={index}>{part}</span>;
+          return (
+            <span key={index} data-lit={lit ? "true" : undefined}>
+              {part}
+            </span>
+          );
         }
         TOKEN.lastIndex = 0;
         const isUnknown = unknown.has(surfaceKey(part));
@@ -93,6 +163,7 @@ export function Transcript({
             // unknown word looks; a component that named a colour would put the
             // theme in two places.
             data-unknown={isUnknown ? "true" : undefined}
+            data-lit={lit ? "true" : undefined}
             data-testid={isUnknown ? "unknown-word" : "known-word"}
             onClick={onWordTap ? () => onWordTap(part) : undefined}
             className={
@@ -105,7 +176,16 @@ export function Transcript({
             {part}
           </button>
         );
-      })}
+        });
+      })()}
+      {span !== null ? (
+        // The lit cue's text, for assertion and for assistive technology. Not
+        // a second rendering of the transcript — one element, aria-hidden from
+        // the reading order, carrying what the highlight currently covers.
+        <span className="sr-only" data-testid="cue-active">
+          {text.slice(span[0], span[1])}
+        </span>
+      ) : null}
     </p>
   );
 }

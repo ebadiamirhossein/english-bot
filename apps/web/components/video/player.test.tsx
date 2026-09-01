@@ -34,6 +34,10 @@ function payload(over: Partial<VideoBlockPayload> = {}): VideoBlockPayload {
     completed: false,
     transcript_available: true,
     transcript: "we were talking about the rent again",
+    // **Null by default: the THIRD STATE is the ordinary one.** Most pool rows
+    // have a transcript and no cues until a refresh fills them, so the fixture
+    // defaults to the case a learner is most likely to meet.
+    transcript_cues: null,
     transcript_lang: "en",
     unknown_lemmas: ["rent"],
     coverage_band: "in",
@@ -268,5 +272,80 @@ describe("the transcript", () => {
     );
     await userEvent.click(screen.getAllByTestId("known-word")[0]);
     expect(onWordTap).toHaveBeenCalledWith("we");
+  });
+});
+
+/**
+ * The synced highlight. **W13-i cue timings.**
+ *
+ * The tracks here are **synthesised** to the shape T5 measured — overlapping
+ * windows, float seconds, a `start` on every element. **No committed fixture
+ * holds anyone's subtitles** (#175), and it costs nothing: the property under
+ * test is the overlap, not the content.
+ */
+describe("the synced highlight", () => {
+  const ROLLING = [
+    { text: "hey", start: 0.0, duration: 3.84 },
+    { text: "how are you", start: 2.4, duration: 3.5 },
+    { text: "doing today", start: 5.1, duration: 2.9 },
+  ];
+  const TEXT = "hey how are you doing today";
+
+  it("lights the latest-started cue when two windows are live", () => {
+    // At t=3.0 cue 0 (0→3.84) and cue 1 (2.4→5.9) are BOTH displayed.
+    // The ruling picks the newer one, and it never reads `duration`.
+    render(
+      <Transcript
+        text={TEXT}
+        unknownLemmas={[]}
+        language="en"
+        cues={ROLLING}
+        positionS={3.0}
+      />,
+    );
+    expect(screen.getByTestId("cue-active").textContent).toBe("how are you");
+  });
+
+  it("lights nothing before the first cue starts", () => {
+    render(
+      <Transcript
+        text={TEXT}
+        unknownLemmas={[]}
+        language="en"
+        cues={ROLLING}
+        positionS={-1}
+      />,
+    );
+    expect(screen.queryByTestId("cue-active")).toBeNull();
+  });
+
+  it("keeps the last cue lit after it starts, through the caption tail", () => {
+    // Captions end 15–22 s before the video does, so this tail is real.
+    render(
+      <Transcript
+        text={TEXT}
+        unknownLemmas={[]}
+        language="en"
+        cues={ROLLING}
+        positionS={900}
+      />,
+    );
+    expect(screen.getByTestId("cue-active").textContent).toBe("doing today");
+  });
+
+  it("renders the transcript unhighlighted when there are no cues", () => {
+    // **The third state**: transcript present, cues absent. It renders, the
+    // words stay tappable, and nothing tells the learner anything is missing.
+    render(<Transcript text={TEXT} unknownLemmas={[]} language="en" />);
+    expect(screen.getByTestId("transcript")).not.toBeNull();
+    expect(screen.queryByTestId("cue-active")).toBeNull();
+    expect(screen.getAllByTestId("known-word").length).toBeGreaterThan(0);
+  });
+
+  it("says nothing to the learner about a missing highlight", () => {
+    const { container } = render(
+      <Transcript text={TEXT} unknownLemmas={[]} language="en" />,
+    );
+    expect(container.textContent).toBe(TEXT);
   });
 });

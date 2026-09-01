@@ -493,17 +493,29 @@ def _live(settings, pool, args) -> int:
             # depended on dict-merge order would be the quietest possible bug.
             results.update(terminal)
             ok = 0
+            cues_refused = 0
             for row in pending:
                 outcome = results.get(row.youtube_id)
                 if isinstance(outcome, video_api.Transcript):
-                    svc.record_transcript(
+                    stored_cues = svc.record_transcript(
                         conn,
                         video_id=row.video_id,
                         text=outcome.text,
                         lang=outcome.lang,
                         kind=outcome.kind,
+                        cues=outcome.cues,
                     )
                     ok += 1
+                    # **A REFUSED CUE LIST IS COUNTED WHERE THE OPERATOR SEES
+                    # IT.** The transcript is stored either way; what is refused
+                    # is a cue list whose join does not reproduce it. **A
+                    # refusal nobody is shown is a silent fallback**, which is
+                    # the shape `--allow-degraded` exists to avoid -- the
+                    # operator rules on a degraded input rather than inheriting
+                    # it. Printed in the summary below, on
+                    # `degraded_coverage_count`'s precedent.
+                    if not stored_cues:
+                        cues_refused += 1
                 else:
                     status = svc.record_transcript_failure(
                         conn,
@@ -516,6 +528,19 @@ def _live(settings, pool, args) -> int:
                     print(f"  ! {row.youtube_id}  -> {status}: {outcome}")
             conn.commit()
             print(f"  {ok} transcript(s) stored.")
+            if cues_refused:
+                # **NAMED, NOT SUMMED INTO A SUCCESS COUNT.** These rows have a
+                # transcript and no cue timings: they render, their words stay
+                # tappable, the coverage badge still shows, and there is no
+                # follow-along highlight. That is a specified state, and the
+                # operator is told which rows are in it rather than finding out
+                # from a screen.
+                print(
+                    f"  {cues_refused} of them stored NO cue timings: the "
+                    "actor's timestamped variant did not reproduce the "
+                    "transcript text, so the cues were refused rather than "
+                    "stored against text they do not describe."
+                )
 
         degraded = _recompute_coverage(conn, svc)
         purge = svc.purge_stale(conn, now=now)

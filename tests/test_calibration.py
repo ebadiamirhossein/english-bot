@@ -407,7 +407,14 @@ def test_weekly_test_excluded_from_window(cleanup_user: int) -> None:
     assert window.sample == 0
     outcome = maybe_calibrate(user_id, now=_NOW)
     assert not outcome.changed
-    assert outcome.accuracy_30 is None or window.sample < 30
+    # **NOT `… or window.sample < 30`, and the disjunction was worse than
+    # permissive: `window.sample == 0` is asserted three lines above and
+    # `window` is not recomputed, so the right branch was a TAUTOLOGY and the
+    # assertion said nothing at all about `accuracy_30`.** It passed whether the
+    # calibrator returned None or returned a number. Found by W13-i's sweep for
+    # the shape #345 describes. The left branch is the real claim: with a
+    # zero-sample window there is no accuracy to report.
+    assert outcome.accuracy_30 is None
     assert _logs(user_id) == []
     assert get_user(user_id).cefr_level == "B1"  # type: ignore[union-attr]
 
