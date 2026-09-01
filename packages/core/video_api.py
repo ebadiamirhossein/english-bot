@@ -38,6 +38,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 import httpx
@@ -343,10 +344,43 @@ def _parse_rfc3339(value: str | None) -> datetime | None:
 # --------------------------------------------------------------------------
 # Apify. Money.
 # --------------------------------------------------------------------------
+def _dump_target(base: Path | None, label: str, index: int) -> Path | None:
+    """One file per actor response, so each stays byte-identical to one call.
+
+    `--dump /tmp/actor.json` yields `/tmp/actor.fetch.001.json`,
+    `/tmp/actor.list.001.json`, and so on. **A single file could not be
+    byte-identical to more than one response**, and a run of more than
+    `_APIFY_BATCH` videos makes more than one call -- so the batch index is in
+    the name rather than the last response silently winning.
+    """
+    if base is None:
+        return None
+    return base.with_name(f"{base.stem}.{label}.{index:03d}{base.suffix or '.json'}")
+
+
 def _run_actor(
-    actor: str, payload: dict[str, Any], *, token: str, timeout: httpx.Timeout
+    actor: str,
+    payload: dict[str, Any],
+    *,
+    token: str,
+    timeout: httpx.Timeout,
+    dump_to: Path | None = None,
 ) -> list[dict]:
-    """Run an actor synchronously and return its dataset items."""
+    """Run an actor synchronously and return its dataset items.
+
+    **`dump_to` writes the response body VERBATIM, before anything reads it
+    (#317).** Not `json.dumps(response.json())` -- that would re-serialise, and
+    a re-serialised body has lost the actor's own formatting, its key order and
+    every field this module's adapter does not name. **Those absent fields are
+    exactly what a fixture is for**: the adapter table exists because two actors
+    report the same facts under different names, so a fixture built from the
+    fields we already read would encode our assumptions rather than test them
+    (#271's shape).
+
+    **It is written BEFORE the status checks, deliberately.** A 4xx body is the
+    one an operator most needs and the one this function truncates to 300
+    characters in the exception it raises. The dump keeps all of it.
+    """
     if not token:
         raise VideoApiError(
             "APIFY_TOKEN is not set. It lives on production only; this command "
@@ -373,6 +407,10 @@ def _run_actor(
         # A transport failure is retryable by construction: nothing about the
         # video is known to be wrong.
         raise TranscriptFetchFailed(f"actor {actor} transport error: {exc}") from exc
+    if dump_to is not None:
+        dump_to.parent.mkdir(parents=True, exist_ok=True)
+        dump_to.write_bytes(response.content)
+        logger.info("actor response written verbatim to %s", dump_to)
     if response.status_code >= 500 or response.status_code == 429:
         raise TranscriptFetchFailed(
             f"actor {actor} returned {response.status_code} -- retryable"
@@ -386,7 +424,11 @@ def _run_actor(
 
 
 def list_transcript_kinds(
-    youtube_ids: Sequence[str], *, token: str, actor: str
+    youtube_ids: Sequence[str],
+    *,
+    token: str,
+    actor: str,
+    dump_to: Path | None = None,
 ) -> dict[str, str | None]:
     """Which caption kinds each video has, WITHOUT paying for a transcript.
 
@@ -410,13 +452,17 @@ def list_transcript_kinds(
         return {}
 
     kinds: dict[str, str | None] = {}
-    for batch in _chunks(youtube_ids, _APIFY_BATCH):
+    for index, batch in enumerate(_chunks(youtube_ids, _APIFY_BATCH), start=1):
         payload = {
             adapter.url_key: [_watch_url(v) for v in batch],
             adapter.list_only_key: True,
         }
         for row in _run_actor(
-            actor, payload, token=token, timeout=_ACTOR_TIMEOUT
+            actor,
+            payload,
+            token=token,
+            timeout=_ACTOR_TIMEOUT,
+            dump_to=_dump_target(dump_to, "list", index),
         ):
             video_id = _row_video_id(row) or ""
             if video_id:
@@ -430,6 +476,7 @@ def fetch_transcripts(
     token: str,
     actor: str,
     prefer_manual: bool = True,
+    dump_to: Path | None = None,
 ) -> dict[str, Transcript | Exception]:
     """Fetch transcripts. BILLED, one event per video.
 
@@ -449,7 +496,7 @@ def fetch_transcripts(
     adapter = adapter_for(actor)
     results: dict[str, Transcript | Exception] = {}
 
-    for batch in _chunks(youtube_ids, _APIFY_BATCH):
+    for index, batch in enumerate(_chunks(youtube_ids, _APIFY_BATCH), start=1):
         payload: dict[str, Any] = {
             adapter.url_key: [_watch_url(v) for v in batch]
         }
@@ -457,7 +504,11 @@ def fetch_transcripts(
             payload[adapter.kind_key] = adapter.manual_value
         try:
             rows = _run_actor(
-                actor, payload, token=token, timeout=_ACTOR_TIMEOUT
+                actor,
+                payload,
+                token=token,
+                timeout=_ACTOR_TIMEOUT,
+                dump_to=_dump_target(dump_to, "fetch", index),
             )
         except VideoApiError as exc:
             # The whole batch failed. Every id in it keeps the same retryable

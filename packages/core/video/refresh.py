@@ -69,6 +69,43 @@ def _projection(transcripts: int) -> str:
     )
 
 
+def _print_caption_kinds(
+    youtube_ids: list[str], kinds: dict[str, str | None]
+) -> None:
+    """What the FREE check found, named per bucket rather than counted alone.
+
+    **`unknown` is its own bucket and is never folded into `generated`.** An
+    absent field and an auto-generated track are different facts, and a line
+    that reported them as one would be the column claiming a kind it is
+    guessing -- #257's shape.
+
+    An actor with no `list_only` mode returns `{}`, and this says so rather
+    than printing three zeroes that read as "checked, found nothing".
+    """
+    if not kinds:
+        print(
+            "\n  caption kinds: NOT CHECKED -- this actor has no free\n"
+            "    discovery mode, so PRD §7.2's preference cannot be verified\n"
+            "    before paying (#318)."
+        )
+        return
+    manual = [v for v in youtube_ids if kinds.get(v) == "manual"]
+    generated = [v for v in youtube_ids if kinds.get(v) == "generated"]
+    unknown = [v for v in youtube_ids if v not in kinds or kinds.get(v) is None]
+    print(
+        f"\n  caption kinds, from the FREE list_only check (no per-video charge):\n"
+        f"    manual    {len(manual)}\n"
+        f"    generated {len(generated)}\n"
+        f"    unknown   {len(unknown)}"
+    )
+    if generated or unknown:
+        print(
+            "    Auto-generated captions are lowercase, so the proper-noun rule\n"
+            "    switches off and coverage comes back INFLATED (#288). These are\n"
+            "    still fetched -- this line reports, it does not filter."
+        )
+
+
 def _print_pool(counts: dict[str, int], degraded: int | None) -> None:
     total = sum(counts.values())
     print(f"\nPool: {total} video(s)")
@@ -115,6 +152,16 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=DEFAULT_TRANSCRIPT_LIMIT,
         help=f"transcripts fetched this run (default {DEFAULT_TRANSCRIPT_LIMIT})",
+    )
+    parser.add_argument(
+        "--dump",
+        type=Path,
+        default=None,
+        help=(
+            "write every actor response VERBATIM beside this path, before any "
+            "reduction (#317). One file per call: PATH.fetch.001.json, "
+            "PATH.list.001.json. This is how transcript fixtures are made"
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -281,11 +328,68 @@ def _live(settings, pool, args) -> int:
         pending = svc.videos_needing_transcript(conn, limit=args.limit)
         print(f"Fetching {len(pending)} transcript(s). THIS IS BILLED.")
         if pending:
+            youtube_ids = [row.youtube_id for row in pending]
+
+            # **THE FREE CHECK RUNS FIRST, WHICH IS THE ONLY ORDER IN WHICH IT
+            # BUYS ANYTHING (#318b).** `list_transcript_kinds` uses the actor's
+            # `list_only` mode, which the actor documents as not charged as a
+            # videoprocessed event -- it is what `video_api`'s own docstring
+            # calls "what makes PRD §7.2's human-captions preference verifiable
+            # without paying to find out", and until now it had NO PRODUCTION
+            # CALLER. Called after the fetch it would be a diagnostic about
+            # money already spent.
+            #
+            # **IT REPORTS AND DOES NOT DECIDE.** Skipping the generated-only
+            # videos would change what this run buys, and that is a ruling
+            # nobody has taken -- #288 says auto-generated captions inflate
+            # coverage, which argues for skipping, and a thin pool argues
+            # against. So the mix is printed and the operator, who is watching,
+            # can stop. What it is NOT is a silent filter.
+            # **THE ADVISORY CHECK MUST NOT BE ABLE TO KILL THE PAID RUN.**
+            # `list_transcript_kinds` does not catch what `_run_actor` raises,
+            # unlike `fetch_transcripts`, which absorbs a batch failure per
+            # batch. Without this, an Apify hiccup during a FREE diagnostic
+            # would abort a run before a single transcript was fetched -- a
+            # check that costs nothing becoming the thing that costs the run.
+            try:
+                kinds = video_api.list_transcript_kinds(
+                    youtube_ids,
+                    token=settings.apify_token,
+                    actor=settings.apify_transcript_actor,
+                    dump_to=args.dump,
+                )
+            except (video_api.VideoApiError, video_api.TranscriptFetchFailed) as exc:
+                print(
+                    f"\n  caption kinds: CHECK FAILED ({exc}).\n"
+                    "    The run continues -- this check is advisory and its\n"
+                    "    failure says nothing about whether the transcripts\n"
+                    "    can be fetched."
+                )
+                kinds = {}
+            else:
+                _print_caption_kinds(youtube_ids, kinds)
+
+            # **THE BILLED RUN NOW PRINTS A COST LINE LIKE EVERY CHEAPER PATH
+            # ALREADY DID (#318a).** `_projection` was called on the dry path
+            # and on `--live`, and nowhere here -- so the operator saw a FLOOR
+            # figure exactly when nothing would be spent, and no figure at all
+            # when money would be. The banner it carries is the load-bearing
+            # half: per-event pricing excludes Apify platform usage.
+            print(_projection(len(pending)))
+            if args.dump:
+                print(
+                    f"\n  actor responses will be written VERBATIM beside\n"
+                    f"    {args.dump}\n"
+                    f"  as {args.dump.stem}.fetch.NNN{args.dump.suffix or '.json'} "
+                    f"-- this is what the fixtures are made from (#317)."
+                )
+
             results = video_api.fetch_transcripts(
-                [row.youtube_id for row in pending],
+                youtube_ids,
                 token=settings.apify_token,
                 actor=settings.apify_transcript_actor,
                 prefer_manual=True,
+                dump_to=args.dump,
             )
             ok = 0
             for row in pending:
