@@ -46,7 +46,6 @@
     "and `users.track_weights` does the per-learner work. When it diverges it",
     "gains a users-keyed table, not a second file."
   ],
-
   "_ACCENT_PROVENANCE": [
     "2026-09-01. THREE ACCENTS WERE AUTHORED BY CLAUDE, NOT BY THE OPERATOR",
     "WATCHING EACH CHANNEL. THIS IS WEAKER PROVENANCE THAN THIS FILE'S OWN RULE",
@@ -177,9 +176,28 @@
     "THE WORK TRACK HAS ONE CHANNEL, AND THEREFORE ONE ACCENT. So `accent_rotation`",
     "(0.15) and `topic_match` (0.20) are structurally in conflict there: a work",
     "video can only ever be British. Filed as a known issue with a target rather",
-    "than worked around here."
+    "than worked around here.",
+    "",
+    "2026-09-01, AFTER #329's RULING -- THREE CONVERSATIONAL `life` CHANNELS",
+    "ADDED. THE AUTHORED SPLIT MOVES AND THE LOADABLE SPLIT DOES NOT, BECAUSE",
+    "ALL THREE ARE REFUSED UNTIL THEIR IDS ARE RESOLVED.",
+    "",
+    "  authored 2026-09-01 (4): 14 of 14 -- life 9 / curiosity 4 / work 1",
+    "     = 64.3 / 28.6 / 7.1",
+    "  loadable 2026-09-01 (4): 11 of 14 -- UNCHANGED at life 6 / curiosity 4 / work 1 = 54.5 / 36.4 / 9.1",
+    "",
+    "  THE AUTHORED SPLIT MOVES TOWARD 50/30/20 ON LIFE AND FURTHER FROM IT ON",
+    "  WORK, which still has one channel. That is not what the addition is for",
+    "  and the balance is not the reason for it: #329's finding is about",
+    "  REGISTER, not about track proportions. Conversation read 96.5%,",
+    "  teaching 88-90%, lecture 76-83%; five of six real videos were below the",
+    "  comprehensible-input floor. The three new channels are conversation.",
+    "",
+    "  AND THE LOADABLE SPLIT IS THE ONE SELECTION SEES. It has not moved and",
+    "  will not until the ids are resolved on production, so no refresh run",
+    "  before that changes anything at all. Stated here so a dry run showing",
+    "  '11 usable, 3 refused' reads as expected rather than as a regression."
   ],
-
   "channels": [
     {
       "handle": "@EnglishTeacherClaire",
@@ -274,9 +292,35 @@
       "accent": "british",
       "track": "work",
       "why": "The pool's only Work-track channel; formal register and British pronunciation."
+    },
+    {
+      "handle": "@theoffice",
+      "channel_id": null,
+      "name": "The Office (official clips)",
+      "accent": "american",
+      "accent_provenance": "AUTHORED BY CLAUDE 2026-09-01, NOT BY WATCHING -- THE FOURTH, FIFTH AND SIXTH ENTRY ON THIS WEAKER FOOTING. A single-country production is evidence ABOUT the channel, not somebody hearing it: an American sitcom is cast and shot in the United States, so what the learner hears is American. That is the same class of inference as #316's three and it is recorded as weaker rather than presented as done. See _ACCENT_PROVENANCE and #316.",
+      "track": "life",
+      "why": "#329's ruling, 2026-09-01. Scripted workplace conversation: overlapping talk, interruption, sarcasm and small talk -- the register the one in-band video of six came from (Friends, 96.5%). **THE HANDLE IS AN UNVERIFIED GUESS and the channel_id is null on purpose**; resolve_channels must confirm BOTH the id and the channel TITLE before either is written. See _PENDING_RESOLUTION."
+    },
+    {
+      "handle": "@BrooklynNineNine",
+      "channel_id": null,
+      "name": "Brooklyn Nine-Nine (official clips)",
+      "accent": "american",
+      "accent_provenance": "AUTHORED BY CLAUDE 2026-09-01, NOT BY WATCHING -- THE FOURTH, FIFTH AND SIXTH ENTRY ON THIS WEAKER FOOTING. A single-country production is evidence ABOUT the channel, not somebody hearing it: an American sitcom is cast and shot in the United States, so what the learner hears is American. That is the same class of inference as #316's three and it is recorded as weaker rather than presented as done. See _ACCENT_PROVENANCE and #316.",
+      "track": "life",
+      "why": "#329's ruling, 2026-09-01. Fast conversational American English between colleagues who are friends -- high turn density, which is what a lecture has none of. **HANDLE UNVERIFIED, id null on purpose.** See _PENDING_RESOLUTION."
+    },
+    {
+      "handle": "@ModernFamily",
+      "channel_id": null,
+      "name": "Modern Family (official clips)",
+      "accent": "american",
+      "accent_provenance": "AUTHORED BY CLAUDE 2026-09-01, NOT BY WATCHING -- THE FOURTH, FIFTH AND SIXTH ENTRY ON THIS WEAKER FOOTING. A single-country production is evidence ABOUT the channel, not somebody hearing it: an American sitcom is cast and shot in the United States, so what the learner hears is American. That is the same class of inference as #316's three and it is recorded as weaker rather than presented as done. See _ACCENT_PROVENANCE and #316.",
+      "track": "life",
+      "why": "#329's ruling, 2026-09-01. Domestic and family conversation, the everyday situations PRD §4.6 puts at 50% and the pool was covering with teachers describing them. **HANDLE UNVERIFIED, id null on purpose.** See _PENDING_RESOLUTION."
     }
   ],
-
   "_UNRESOLVED": [
     "THREE ACCENTS ARE DELIBERATELY NULL, AND THIS IS A FINDING RATHER THAN AN",
     "OMISSION. `accent` is authored, and authoring it means knowing it -- writing",
@@ -307,5 +351,44 @@
     "was null when it was written, so the pool ran with NONE. With ten ids now",
     "written the count is SEVEN complete, not eight, because @easyenglish551 is",
     "missing both fields. The old wording is quoted rather than deleted."
+  ],
+  "_PENDING_RESOLUTION": [
+    "2026-09-01. THREE CONVERSATIONAL CHANNELS ADDED ON THE OPERATOR'S RULING",
+    "OF #329. ALL THREE ARE REFUSED BY THE LOADER RIGHT NOW, AND THAT IS THE",
+    "CORRECT STATE RATHER THAN AN UNFINISHED ONE.",
+    "",
+    "  @theoffice          -> The Office (official clips)",
+    "  @BrooklynNineNine   -> Brooklyn Nine-Nine (official clips)",
+    "  @ModernFamily       -> Modern Family (official clips)",
+    "",
+    "WHY THE IDS ARE NULL: this file's own rule is that a channel_id is",
+    "RESOLVED and never guessed, and Claude Code has no YOUTUBE_API_KEY --",
+    "the key lives on production only. Writing a plausible id would be the",
+    "exact defect the rule exists to prevent. The loader refuses each entry",
+    "and names it, so the pool cannot silently run against a guess.",
+    "",
+    "AND THE HANDLES ARE GUESSES TOO, WHICH IS A SEPARATE AND SHARPER RISK.",
+    "A handle that does NOT resolve is cheap and loud -- #312 is exactly",
+    "that, `@EasyEnglish` returning 'no channel for handle'. A handle that",
+    "resolves to the WRONG channel is the dangerous one: a fan or clip",
+    "aggregator would load, poll and score like any other entry, and the",
+    "authored `american` would then describe a channel nobody chose. That is",
+    "_SUBSTITUTION's shape, where an entry changed channel and the authored",
+    "accent described a different one.",
+    "",
+    "SO THE RESOLUTION STEP HAS TWO CHECKS, NOT ONE:",
+    "  1. `python -m core.video.resolve_channels` prints `handle -> id",
+    "     (TITLE)`. READ THE TITLE. It must be the official channel, not a",
+    "     clips aggregator with a similar name.",
+    "  2. Only then paste the id into `channel_id` here.",
+    "If a handle does not resolve, find the real one on YouTube and correct",
+    "the `handle` field first -- do not paste an id against a wrong handle.",
+    "",
+    "WHAT THESE THREE DO NOT FIX, RECORDED HERE SO #329's CLOSURE IS NOT READ",
+    "AS #314's: SITCOMS ARE SCRIPTED CONVERSATION. The pool still contains NO",
+    "UNSCRIPTED SPEECH -- no street interviews, no unrehearsed talk -- and",
+    "that is the register with false starts, self-repair and reduction in it.",
+    "A pool of sitcom clips is closer to the target than a pool of lectures",
+    "and it is still not authentic speech. #314 is unchanged by this addition."
   ]
 }
