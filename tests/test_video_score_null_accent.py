@@ -169,21 +169,79 @@ def test_the_exposure_map_never_carries_a_null_bucket() -> None:
     )
 
 
-def test_a_pending_check_null_is_still_refused_and_a_ruled_one_is_not() -> None:
-    """**Ruling 1, over the REAL committed pool and not a fixture.**
+def test_a_by_ruling_null_is_pollable_in_the_real_committed_pool() -> None:
+    """**Ruling 1's positive half, against the real file and not a fixture.**
 
-    TED-Ed is null because no single value can be true -- it is pollable with
-    the accent term skipped. Claire and Learn English With TV Series are null
-    because nobody has watched them, and a loader that accepted both would treat
-    *this cannot be known* the same as *we have not looked yet*.
+    TED-Ed is null because no single value can be TRUE -- many narrators -- so
+    it is pollable with the accent term skipped. This is worth asserting against
+    the committed pool because it is a claim about *this project's data*, not
+    only about the loader.
     """
     pool = channel_file.load()
-    loaded = {c.handle for c in pool.channels}
-    refused = {r.handle: r.reason for r in pool.refusals}
+    ted = next((c for c in pool.channels if c.handle == "@TEDEd"), None)
+    assert ted is not None, "a by_ruling null accent must be pollable"
+    assert ted.accent is None
 
-    assert "@TEDEd" in loaded, "a by_ruling null accent must be pollable"
-    assert next(c for c in pool.channels if c.handle == "@TEDEd").accent is None
 
-    for handle in ("@EnglishTeacherClaire", "@LearnEnglishWithTVSeries"):
-        assert handle in refused, f"{handle} is pending_check and must be refused"
-        assert "pending" in refused[handle].lower()
+def test_a_pending_check_null_is_refused(tmp_path) -> None:
+    """**Ruling 1's negative half, and it is deliberately NOT read from the
+    committed pool.**
+
+    An earlier version of this test asserted that Claire and Learn English With
+    TV Series were refused, **by name, from the live file.** It went red the
+    moment their accents were authored on 2026-09-01 -- not because the rule
+    broke, but because the test had pinned THE POOL'S CONTENTS WHERE IT MEANT TO
+    PIN THE LOADER'S RULE. A test that fails when the data is legitimately
+    improved is measuring the wrong thing, and it would have trained somebody to
+    edit the assertion rather than read it.
+
+    So the rule is tested against a constructed file: **a `pending_check` null
+    is refused, and the reason says so in the file's own terms.** This holds
+    whatever the committed pool happens to contain today.
+    """
+    import json
+
+    entry = {
+        "handle": "@Unwatched",
+        "channel_id": "UCtest0000000000000000",
+        "name": "A channel nobody has watched",
+        "accent": None,
+        "accent_null": "pending_check",
+        "track": "life",
+        "why": "Exists only to exercise the pending_check refusal.",
+    }
+    path = tmp_path / "pool.json"
+    path.write_text(json.dumps({"channels": [entry]}), encoding="utf-8")
+
+    pool = channel_file.load(path)
+    assert not pool.channels, "a pending_check null must never load"
+    assert len(pool.refusals) == 1
+    reason = pool.refusals[0].reason.lower()
+    assert "pending" in reason
+    assert "watched" in reason, (
+        "the refusal must say what is missing -- somebody watching it -- "
+        "rather than only that a field is null"
+    )
+
+
+def test_a_by_ruling_null_without_a_written_reason_is_refused(tmp_path) -> None:
+    """The ruling of 2026-09-01: `by_ruling` REQUIRES `accent_null_reason`,
+    **because without it `by_ruling` becomes the easy escape from watching a
+    video and `pending_check` quietly empties into it.**"""
+    import json
+
+    entry = {
+        "handle": "@NoReason",
+        "channel_id": "UCtest1111111111111111",
+        "name": "Ruled with no sentence behind it",
+        "accent": None,
+        "accent_null": "by_ruling",
+        "track": "life",
+        "why": "Exists only to exercise the missing-reason refusal.",
+    }
+    path = tmp_path / "pool.json"
+    path.write_text(json.dumps({"channels": [entry]}), encoding="utf-8")
+
+    pool = channel_file.load(path)
+    assert not pool.channels
+    assert "accent_null_reason" in pool.refusals[0].reason
