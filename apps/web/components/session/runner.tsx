@@ -117,7 +117,14 @@ export function SessionRunner() {
             />
           );
         }
-        if (block.kind === "input") return <InputBlock key={block.n} block={block} />;
+        if (block.kind === "input")
+          return (
+            <InputBlock
+              key={block.n}
+              block={block}
+              l1Language={session.l1_language}
+            />
+          );
         if (block.kind === "focus")
           return (
             <FocusBlock

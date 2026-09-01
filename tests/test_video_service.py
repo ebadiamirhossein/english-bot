@@ -500,11 +500,22 @@ def test_the_score_breakdown_survives_so_a_choice_stays_diagnosable(
     assert row[0]["total"] == pytest.approx(0.7875)
 
 
-def test_completed_at_has_no_writer_in_this_slice(conn, user) -> None:
-    """W12b does not define what "answered" means for block 2 -- no player
-    exists, so no watch signal can be written. That is W13's, and a guess
-    written here would be a wrong row in a table the record treats as the
-    product. Asserted rather than left as a comment."""
+def test_assigning_a_video_does_not_complete_it(conn, user) -> None:
+    """**AMENDED AT W13-i, RENAMED RATHER THAN DELETED, AND THE OLD TEXT IS
+    QUOTED (#82's shape).** It read:
+
+        *"`test_completed_at_has_no_writer_in_this_slice` -- W12b does not
+        define what 'answered' means for block 2 -- no player exists, so no
+        watch signal can be written. That is W13's, and a guess written here
+        would be a wrong row in a table the record treats as the product."*
+
+    **W13-i defines it (#291), so the "no writer" half is spent -- and the half
+    that was actually worth having survives unchanged: ASSIGNING A VIDEO IS NOT
+    WATCHING IT.** Both original assertions are kept verbatim against
+    `assign_video`; what is added is the positive half, that a writer now exists
+    and is exactly one. A test that had simply been deleted would have taken the
+    surviving guarantee with it.
+    """
     video_id = make_video(conn, "nowriter01")
     svc.assign_video(
         conn,
@@ -520,6 +531,56 @@ def test_completed_at_has_no_writer_in_this_slice(conn, user) -> None:
     ).fetchone()
     assert row[0] is None
     assert row[1] == 0
+
+
+def _sql_literals(path) -> list[str]:
+    """Every string constant in one module. The unit the scan below works on."""
+    import ast
+
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    ]
+
+
+def _completed_at_writers(root) -> list[str]:
+    return sorted(
+        str(path.relative_to(root))
+        for path in list((root / "packages" / "core").rglob("*.py"))
+        + list((root / "apps").rglob("*.py"))
+        for sql in _sql_literals(path)
+        if "UPDATE video_assignments" in sql and "completed_at" in sql
+    )
+
+
+def test_save_progress_is_the_only_writer_of_completed_at() -> None:
+    """The positive half of the amendment above, held structurally.
+
+    **A SCAN AND NOT A MOCK, DELIBERATELY.** The guarantee is *one contract, one
+    producer* (#190), and a mock asserts what one call site did while saying
+    nothing about the call site somebody adds next month. This fails on the
+    commit that writes the column anywhere else -- which is the only form of
+    that guarantee worth having, since #190's own defect was two producers both
+    of which passed their own tests.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    assert _completed_at_writers(root) == ["packages/core/services/video.py"]
+
+
+def test_the_completed_at_scan_catches_a_second_writer(tmp_path) -> None:
+    """Meta-test. A check that no longer fails on anything is a deleted check
+    with extra steps -- the standing rule every other scanner in this suite is
+    held to."""
+    (tmp_path / "packages" / "core").mkdir(parents=True)
+    (tmp_path / "apps").mkdir()
+    (tmp_path / "apps" / "rogue.py").write_text(
+        'q = "UPDATE video_assignments SET completed_at = now()"\n', encoding="utf-8"
+    )
+    assert _completed_at_writers(tmp_path) == ["apps/rogue.py"]
 
 
 def test_assigned_dates_lets_a_re_run_leave_existing_days_alone(
@@ -623,3 +684,151 @@ def test_the_assign_dry_run_writes_no_coverage_row(conn, user) -> None:
         "SELECT count(*) FROM video_coverage WHERE user_id = %s", (user,)
     ).fetchone()[0]
     assert after == before == 0
+
+
+# ── W13-i: the player's read and the watch signal (#291, #335) ──────────────
+
+
+def _assign(conn, user: int, video_id: int, on: date = date(2026, 9, 7)) -> int:
+    return svc.assign_video(
+        conn, user_id=user, video_id=video_id, assigned_for=on, score_breakdown={}
+    )
+
+
+def test_today_for_returns_nothing_on_a_day_with_no_video(conn, user) -> None:
+    """**The ordinary state on four days in seven, not a failure.** PRD §7.1
+    puts curated video on Mon/Wed/Fri; block 2 renders this `empty`, which is a
+    fact computed after a successful read."""
+    _assign(conn, user, make_video(conn, "monday0001"), on=date(2026, 9, 7))
+    assert svc.today_for(conn, user, on=date(2026, 9, 8)) is None
+
+
+def test_today_for_carries_the_transcript_and_the_resume_position(conn, user) -> None:
+    video_id = make_video(conn, "player0001", duration_s=720)
+    svc.record_transcript(
+        conn, video_id=video_id, text="we were talking about it", lang="en", kind="manual"
+    )
+    _assign(conn, user, video_id)
+
+    found = svc.today_for(conn, user, on=date(2026, 9, 7))
+    assert found is not None
+    assert found.youtube_id == "player0001"
+    assert found.transcript == "we were talking about it"
+    assert found.captions_kind == "manual"
+    assert found.resume_position_s == 0
+    assert found.completed_at is None
+
+
+def test_a_purged_transcript_is_returned_as_a_state_and_not_filtered_out(
+    conn, user
+) -> None:
+    """**#335, and this is the assertion the row asks for.**
+
+    The purge nulls the transcript and returns the row to `pending`; nothing
+    coordinates that with the weekly assignment and there is no cron (#69). So a
+    learner can open a day whose video is **still assigned and still watchable**
+    while the interactive half is gone — `youtube_id` survives the purge by
+    design (019's header), which is what makes this a smaller loss than
+    `unavailable` would claim.
+
+    **The row must come back, not be filtered**: *no video today* and *a video
+    whose transcript was purged* are different facts and the learner can only
+    see one of them on the screen.
+    """
+    video_id = make_video(conn, "purged0001", refreshed=NOW - timedelta(days=40))
+    svc.record_transcript(
+        conn, video_id=video_id, text="this will be purged", lang="en", kind="manual"
+    )
+    _assign(conn, user, video_id)
+
+    assert svc.purge_stale(conn, now=NOW).purged == 1
+
+    found = svc.today_for(conn, user, on=date(2026, 9, 7))
+    assert found is not None, "the assignment must survive the purge"
+    assert found.youtube_id == "purged0001", "the video is still watchable"
+    assert found.transcript is None
+    assert found.duration_s is None
+
+
+def test_a_progress_ping_writes_the_resume_position_and_not_a_completion(
+    conn, user
+) -> None:
+    video_id = make_video(conn, "resume0001", duration_s=720)
+    _assign(conn, user, video_id)
+
+    updated = svc.save_progress(
+        conn, user_id=user, video_id=video_id, position_s=180, now=NOW
+    )
+    assert updated is not None
+    assert updated.resume_position_s == 180
+    assert updated.completed_at is None
+
+
+def test_reaching_the_end_writes_completed_at_and_it_is_the_ping_that_does_it(
+    conn, user
+) -> None:
+    """**#291 answered, and #258 honoured.** No control was added: the log is
+    the writer, exactly as `card_reviews` is block 1's."""
+    video_id = make_video(conn, "finish0001", duration_s=720)
+    _assign(conn, user, video_id)
+
+    updated = svc.save_progress(
+        conn, user_id=user, video_id=video_id, position_s=700, now=NOW
+    )
+    assert updated is not None
+    assert updated.completed_at is not None
+    assert svc.watched_video_ids(conn, user) == frozenset({video_id})
+
+
+def test_a_completion_is_written_once_and_never_moved(conn, user) -> None:
+    """Re-watching a finished video is not a second completion. Overwriting the
+    timestamp would make *when did they finish this* unanswerable from the row
+    that exists to answer it."""
+    video_id = make_video(conn, "rewatch001", duration_s=720)
+    _assign(conn, user, video_id)
+
+    first = svc.save_progress(
+        conn, user_id=user, video_id=video_id, position_s=700, now=NOW
+    )
+    assert first is not None and first.completed_at is not None
+
+    again = svc.save_progress(
+        conn,
+        user_id=user,
+        video_id=video_id,
+        position_s=710,
+        now=NOW + timedelta(days=3),
+    )
+    assert again is not None
+    assert again.completed_at == first.completed_at
+    assert again.resume_position_s == 710
+
+
+def test_a_video_with_no_duration_can_never_be_completed(conn, user) -> None:
+    """**The documented gap (#330), asserted at the service rather than only in
+    the pure module**, because this is the shape production produces: one of the
+    three assigned videos scores `length_fit 0.0` and the breakdown cannot say
+    whether that is a long video or a missing duration (T3)."""
+    video_id = make_video(conn, "noduratn01", duration_s=None)
+    _assign(conn, user, video_id)
+
+    updated = svc.save_progress(
+        conn, user_id=user, video_id=video_id, position_s=99_999, now=NOW
+    )
+    assert updated is not None
+    assert updated.completed_at is None
+    assert updated.resume_position_s == 99_999
+
+
+def test_a_ping_for_a_video_this_learner_was_not_assigned_writes_nothing(
+    conn, user
+) -> None:
+    """**Never a silent success.** A ping that wrote nothing and reported that
+    it wrote something is what the route turns into a 404."""
+    video_id = make_video(conn, "unassign01", duration_s=720)
+    assert (
+        svc.save_progress(
+            conn, user_id=user, video_id=video_id, position_s=100, now=NOW
+        )
+        is None
+    )

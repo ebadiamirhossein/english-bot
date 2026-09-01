@@ -434,3 +434,54 @@ class CheckpointOut(BaseModel):
     passed: bool | None = None
     score_pct: int | None = None
     retake_due_on: date | None = None
+
+
+# ── W13-i: the player ───────────────────────────────────────────────────────
+
+
+class VideoProgressIn(BaseModel):
+    """Where the learner has got to, in whole seconds.
+
+    **THE ONLY FIELD, AND THERE IS DELIBERATELY NO `completed` FLAG.** The
+    client does not get to say a video is finished: `core.video.watch` decides
+    that from the position and the stored duration, and a client-asserted
+    completion would be a second producer of a column the record treats as the
+    product (#190, #291). A browser that wanted to lie could still send a large
+    position -- but it would be lying about a POSITION, which is clamped to the
+    video's own length, rather than about a verdict.
+    """
+
+    #: `None` is accepted rather than rejected: a player that has not started
+    #: reports no position, and `watch.clamp_position` floors it at 0.
+    position_s: int | None = None
+
+
+class VideoTodayOut(BaseModel):
+    """Today's assigned video — **and no transcript and no coverage figure.**
+
+    **The transcript, the unknown-word set and the band come through block 2 of
+    `GET /session/today`, and this model deliberately cannot carry them.** One
+    contract, one producer (#190): two routes assembling the player's payload is
+    how one of them ends up incomplete while both suites stay green.
+
+    **NO PERCENTAGE EXISTS ON THIS MODEL OR ON BLOCK 2's PAYLOAD.**
+    `core.video.badge` yields a band token or nothing, so a client cannot render
+    a figure it was never given. Three reasons, written out at
+    `core/video/badge.py`: #288 (proper nouns inside the assumed-known floor
+    inflate every figure by an uncounted amount), #334 (`coverage_fit` returns
+    1.0 across the whole band, so the obvious extraction would show 100%) and
+    #330 (a percentage over a 234-character transcript).
+    """
+
+    video_id: int
+    youtube_id: str
+    title: str | None = None
+    duration_s: int | None = None
+    #: Where the learner stopped. Written by the progress ping and by nothing
+    #: else; `0` until they start, which is migration 019's own default.
+    resume_position_s: int = 0
+    #: **`completed_at IS NOT NULL`, flattened to a boolean.** The timestamp is
+    #: the record's; what a client needs is whether to resume or to offer a
+    #: rewatch, and shipping the instant invites a client to compute something
+    #: from it.
+    completed: bool = False

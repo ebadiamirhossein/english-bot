@@ -66,7 +66,17 @@ export const BLOCKS = {
     // 020, production `schema_version` 20). **The learner-facing string below is
     // unchanged and is still true** -- what is missing is W13's player, which is
     // what the string actually says.
-    empty: "The video side isn’t built yet. It arrives with the player.",
+    // **W13-i BUILT THE PLAYER, SO THIS LINE STOPS BEING TRUE ON MOST DAYS AND
+    // CHANGES MEANING RATHER THAN GOING AWAY.** The old string is quoted rather
+    // than deleted (#82's shape): *"The video side isn\u2019t built yet. It arrives
+    // with the player."* It said the SURFACE was missing. What the block now
+    // says is that there is no video ON THIS DAY \u2014 PRD \u00a77.1 assigns video on
+    // Monday, Wednesday and Friday, so four days in seven have none, and that
+    // is the ordinary state rather than a gap.
+    //
+    // **No backlog and no yesterday** (CLAUDE.md \u00a74): it does not say a video
+    // was missed, count what was not watched, or mention another day by name.
+    empty: "No video today. There\u2019ll be one on Monday, Wednesday and Friday.",
   },
   focus: {
     eyebrow: "Focus",
@@ -151,3 +161,59 @@ export const TYPED = {
  * other string here.
  */
 export const SEEN_BEFORE = "You've answered this one before.";
+
+
+/**
+ * The player. **W13-i.**
+ *
+ * **THERE IS NO PERCENTAGE HERE AND NONE CAN REACH HERE.** `core/video/badge.py`
+ * returns `below` | `in` | `above` or nothing at all, and the figure never
+ * crosses the wire — so this object cannot render a number it was never given.
+ * Three reasons, and none of them is a taste:
+ *
+ * - **#288** — the assumed-known floor ranks proper nouns as common vocabulary
+ *   (`john` 548, `michael` 763, `paris` 1107, `sarah` 1221, all inside the
+ *   top-2,000 floor), so every coverage figure is inflated by an amount
+ *   **nobody has counted**, and the inflation is largest on dialogue-heavy
+ *   transcripts — which is what this pool is.
+ * - **#334** — `score_breakdown.coverage_fit` returns 1.0 anywhere inside the
+ *   band, so the obvious extraction would put **100%** on the screen.
+ * - **#330** — a percentage over a 234-character transcript measures one
+ *   paragraph.
+ *
+ * **The bar is not lowered (CLAUDE.md §3 rule 7).** No number is adjusted and no
+ * band widened; what is declined is *displaying* a figure the record knows to
+ * be wrong. PRD §7.3's `"94% known — slightly hard"` is amended in place.
+ *
+ * **Difficulty, never a score.** Each line says what the video will be like to
+ * watch. None of them says how much the learner knows, because that is the
+ * claim the instrument cannot support — and none of them is a verdict about the
+ * learner in either direction.
+ */
+export const VIDEO = {
+  /** No badge: the transcript is too short to mean anything (#330), or the
+   * basis was degraded. **Absence, not a fourth band** — the block simply shows
+   * no chip rather than a chip saying nothing. */
+  band: {
+    below: "Expect some new words.",
+    in: "Should be about right.",
+    above: "Should be an easy watch.",
+  },
+  /** L1 subtitles are OFF until tapped — PRD §7.3, and the row's own criterion.
+   * The control names the language the learner would get, not "translation". */
+  subtitles: {
+    show: "Show {language}",
+    hide: "Hide {language}",
+  },
+  /** **#335.** The transcript was purged at thirty days and the video is still
+   * assigned and still watchable. It says what IS there, does not apologise,
+   * does not blame, and does not use the word "expired" — nothing the learner
+   * did caused this and nothing they can do fixes it. */
+  noTranscript:
+    "The follow-along text isn’t available for this one. The video still plays.",
+  /** Shown once the watch signal has been written. **Not a congratulation and
+   * not a streak** — a plain statement of where they are. */
+  watched: "You’ve watched this one.",
+  /** The resume affordance. It never says how much is left. */
+  resume: "Pick up where you left off",
+} as const;

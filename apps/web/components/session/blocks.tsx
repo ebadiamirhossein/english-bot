@@ -9,14 +9,23 @@ import { LessonBody } from "@/components/lessons/lesson";
 import { BlockShell } from "@/components/session/block-shell";
 import { BLOCKS, SEEN_BEFORE, NOTHING_DUE } from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
-import type { CardFace, ItemPresentation, Lesson, SessionBlock } from "@/lib/api";
+import { VideoPlayer } from "@/components/video/player";
+import type {
+  CardFace,
+  ItemPresentation,
+  Lesson,
+  SessionBlock,
+  VideoBlockPayload,
+} from "@/lib/api";
 
 /**
  * The five blocks of PRD §4.1, one component each.
  *
- * **Block 2 is empty and that is the correct output, not a gap to be filled.**
- * It needs the video engine (W12) and the player (W13). A session that looked
- * full on day one would be inventing work, which is the thing the rules forbid.
+ * **Block 2 stopped being structurally empty at W13-i.** The old note is quoted
+ * rather than deleted (#82's shape): *"Block 2 is empty and that is the correct
+ * output, not a gap to be filled. It needs the video engine (W12) and the player
+ * (W13)."* W12b built the engine and W13-i built the player, so the block is now
+ * empty only on the days PRD §7.1 assigns no video.
  *
  * **Block 3 stopped being empty at W10c**, which built the generator its eight
  * items were waiting for, and **W10b filled the explanation half** — so PRD
@@ -90,8 +99,32 @@ export function ReviewBlock({
   );
 }
 
-/** Block 2 · Input. Empty until the video engine exists. */
-export function InputBlock({ block }: { block: SessionBlock }) {
+/**
+ * Block 2 · Input. **W13-i fills it. It has been empty since W10 (#302).**
+ *
+ * **The empty state changed meaning rather than going away.** It used to say the
+ * video side was not built; it now says there is no video *on this day* — PRD
+ * §7.1 assigns video on Monday, Wednesday and Friday, so four days in seven have
+ * none and that is the ordinary state. **No backlog and no yesterday**
+ * (CLAUDE.md §4): it never says a video was missed.
+ *
+ * **A purged transcript keeps this block `ready` and not `unavailable` (#335).**
+ * The video is still watchable — `youtube_id` survives the purge by design — so
+ * nothing failed, and `unavailable` would claim a larger loss than occurred. The
+ * player renders that case itself.
+ *
+ * **This block reaches no model.** Tap-to-define, Add to deck and register
+ * detection are W13-ii's and are gated on the operator's §1a ruling.
+ */
+export function InputBlock({
+  block,
+  l1Language,
+}: {
+  block: SessionBlock;
+  l1Language: string;
+}) {
+  const payload = block.payload as unknown as VideoBlockPayload | undefined;
+
   return (
     <BlockShell
       n={block.n}
@@ -100,7 +133,11 @@ export function InputBlock({ block }: { block: SessionBlock }) {
       eyebrow={BLOCKS.input.eyebrow}
       title={BLOCKS.input.title}
     >
-      <Empty>{BLOCKS.input.empty}</Empty>
+      {block.state === "empty" || !payload?.youtube_id ? (
+        <Empty>{BLOCKS.input.empty}</Empty>
+      ) : (
+        <VideoPlayer payload={payload} l1Language={l1Language} />
+      )}
     </BlockShell>
   );
 }

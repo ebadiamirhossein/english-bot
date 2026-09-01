@@ -282,10 +282,37 @@ describe("block 3 serves its generated items", () => {
 
 /** Blocks 2 and 4, and the close line that carries no XP. */
 describe("the remaining blocks", () => {
-  it("says the video side is not built rather than hiding the block", () => {
-    render(<InputBlock block={block({ n: 2, kind: "input", state: "empty" })} />);
+  /**
+   * **AMENDED AT W13-i, AND THE OLD NAME IS QUOTED (#82's shape):** *"says the
+   * video side is not built rather than hiding the block."* The block is built;
+   * what it now reports is that **this day** has no video, which is the ordinary
+   * state on four days in seven (PRD §7.1 is Mon/Wed/Fri).
+   *
+   * **The assertion that mattered survives unchanged**: the block is RENDERED
+   * rather than hidden. A four-block session would say the product has four.
+   */
+  it("renders the block on a day with no video rather than hiding it", () => {
+    render(
+      <InputBlock
+        block={block({ n: 2, kind: "input", state: "empty" })}
+        l1Language="fa"
+      />,
+    );
     expect(screen.getByTestId("session-block")).not.toBeNull();
     expect(screen.getByTestId("block-empty")).not.toBeNull();
+  });
+
+  it("never presents a backlog or names another day as missed", () => {
+    const { container } = render(
+      <InputBlock
+        block={block({ n: 2, kind: "input", state: "empty" })}
+        l1Language="fa"
+      />,
+    );
+    // CLAUDE.md §4: missed days shrink the task, they never pile up.
+    expect(container.textContent).not.toMatch(
+      /missed|yesterday|catch up|behind|overdue/i,
+    );
   });
 
   it("offers the unit's written task and hands over to /write", () => {

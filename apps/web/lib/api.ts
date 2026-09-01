@@ -479,6 +479,83 @@ export function getSessionToday(): Promise<SessionToday> {
   return request<SessionToday>("/session/today");
 }
 
+/**
+ * Block 2's payload. **W13-i.**
+ *
+ * **There is no coverage percentage on this type and the server cannot send
+ * one.** `coverageBand` is a token or null; the figure never leaves
+ * `packages/core`. See `core/video/badge.py` for the three reasons (#288, #334,
+ * #330) and `components/session/copy.ts` for the words each token renders as.
+ *
+ * **`transcriptAvailable` is a state, not an error (#335).** The 30-day purge
+ * nulls the transcript and returns the row to `pending`, and nothing
+ * coordinates that with the weekly assignment — so a learner really can open a
+ * day whose video is still assigned and still watchable while the follow-along
+ * text is gone. `youtubeId` survives the purge by design, which is why the
+ * block stays `ready` rather than becoming `unavailable`: nothing failed.
+ */
+export type VideoBlockPayload = {
+  video_id: number;
+  youtube_id: string;
+  title: string | null;
+  duration_s: number | null;
+  accent: string | null;
+  track: string;
+  resume_position_s: number;
+  completed: boolean;
+  transcript_available: boolean;
+  transcript: string | null;
+  transcript_lang: string | null;
+  /** Lemmas this learner has no `known`/`mastered` row for. The highlight set.
+   *
+   * **#284 is open and visible here**: a proper noun that appears only at the
+   * start of a sentence is still counted unknown, so a learner will see names
+   * marked. That is the row's visible half and it stays open. */
+  unknown_lemmas: string[];
+  /** `"below" | "in" | "above"`, or **null meaning WITHHELD** — a fourth answer
+   * and not a fourth band. */
+  coverage_band: "below" | "in" | "above" | null;
+};
+
+/** Today's video, without the transcript. **W13-i.**
+ *
+ * The transcript and the band arrive through block 2 of `GET /session/today`
+ * and deliberately not through here: one contract, one producer (#190). This
+ * answers *is there a video, where did I stop, have I finished it* — what a
+ * client needs to confirm a write without re-hydrating five blocks. */
+export type VideoToday = {
+  video_id: number;
+  youtube_id: string;
+  title: string | null;
+  duration_s: number | null;
+  resume_position_s: number;
+  completed: boolean;
+};
+
+/**
+ * Report where the learner has got to.
+ *
+ * **This is block 2's log, and it is why there is no "I've watched it" button
+ * (#258).** Block completion is automatic by the operator's ruling of
+ * 2026-08-29; the per-kind rule turns on whether a block has a per-attempt log,
+ * and `input` had none because it served nothing. This is that log.
+ *
+ * **The client never sends a completion.** `core/video/watch.py` decides it from
+ * the position and the stored duration, so a browser cannot assert that a video
+ * was finished — it can only report a position, which the server clamps to the
+ * video's own length.
+ */
+export function reportVideoProgress(
+  videoId: number,
+  positionS: number,
+): Promise<VideoToday> {
+  return request<VideoToday>(`/video/${videoId}/progress`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ position_s: Math.max(0, Math.floor(positionS)) }),
+  });
+}
+
 /** Mark one block done and get the refreshed session back. */
 
 

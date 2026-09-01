@@ -1173,30 +1173,99 @@ def _review_block(user_id: int, *, now: datetime) -> tuple[str, dict[str, Any]]:
     return "ready", {"cards": [cards_service.card_face(c, now=now) for c in queue]}
 
 
-def _input_block() -> tuple[str, dict[str, Any]]:
-    """Block 2. **Empty, honestly, and empty for a structural reason.**
+def _input_block(
+    conn: Any, user_id: int, *, local_date: date
+) -> tuple[str, dict[str, Any]]:
+    """Block 2. **W13-i fills it. It has been `empty` since W10 (#302).**
 
     PRD §4.1 gives this block a video at the learner's coverage with an
-    interactive transcript. The video engine is W12 and the player is W13.
+    interactive transcript. **The pipeline is W12b's and the player is this
+    slice**, so the block stops being structurally empty and starts being
+    empty only on the four days in seven that have no video.
 
-    **CORRECTED 2026-09-01, AND THE OLD SENTENCE IS QUOTED RATHER THAN DELETED
-    (#82's shape):** this said *"`videos` and `video_assignments` do not exist as
-    tables yet (migration 017 in the authoritative table)"*. **Both tables exist.
-    Migration 019 created them and 020 amended `videos.accent`; production is at
-    `schema_version` 20.** The migration number was wrong as well as the claim --
-    017 is a different migration entirely.
+    **THE OLD REASON IS QUOTED RATHER THAN DELETED (#82's shape), because it was
+    right when it was written and a reader needs to see what changed:** *"THE
+    BLOCK IS STILL `empty`, AND FOR A REASON THAT SURVIVED THE CORRECTION. The
+    tables exist and the pool is being filled, but W13 -- the player -- is not
+    built, so there is nothing this block can render."* W13-i is built. What was
+    missing was the player, and the player is what arrived.
 
-    **THE BLOCK IS STILL `empty`, AND FOR A REASON THAT SURVIVED THE CORRECTION.**
-    The tables exist and the pool is being filled, but **W13 -- the player -- is
-    not built**, so there is nothing this block can render. Nothing failed, so the
-    state is `empty` and never `unavailable`.
+    **THREE STATES, AND THEY ARE THREE FACTS THE LEARNER CAN ONLY SEE ONE OF:**
 
-    **Rendering it rather than hiding it is the point.** A four-block session
-    would say the product has four blocks. This one says: this part is not built
-    yet, which is true.
+    * **no row for today** -> `empty`. PRD §7.1 assigns video on Mon/Wed/Fri, so
+      this is the ordinary state on most days and nothing failed.
+    * **a row whose `transcript` is NULL** -> `ready`, with
+      `transcript_available: false`. **#335.** The 30-day purge nulls the
+      transcript and returns the row to `pending`; nothing coordinates it with
+      the weekly assignment and there is no cron (#69), so a learner really can
+      open a day whose video is still assigned and still watchable while the
+      interactive half is gone. **`youtube_id` survives the purge by design**
+      (migration 019's header), so the video plays and only the transcript
+      surface is absent -- which is a smaller loss than `unavailable` would
+      claim, and nothing failed, so `unavailable` would be a lie.
+    * **a row with a transcript** -> `ready`, with the transcript, the unknown
+      lemmas and the band.
+
+    **NOTHING IS GENERATED HERE, AND NOTHING IS BILLED.** Coverage is recomputed
+    locally over text already stored -- pure CPU, no external call, which is the
+    argument migration 019's header rests `video_coverage`'s
+    audit-record-not-cache ruling on. **`video_coverage` IS NOT READ**: `assign`
+    recomputes on every run and so does this, so the stored row keeps having no
+    invalidation rule because nothing consults it. Tap-to-define and register
+    detection are W13-ii's and are gated on the operator's §1a ruling; **this
+    block reaches no model at all.**
+
+    **THE BADGE IS A BAND TOKEN AND NEVER A NUMBER.** `core.video.badge` returns
+    `below`/`in`/`above` or `None`, and the percentage never crosses the wire --
+    so no client can render a figure it was never given. #288 (the floor ranks
+    proper nouns as vocabulary, by an amount nobody has counted), #334
+    (`coverage_fit` returns 1.0 across the whole band) and #330 (a percentage
+    over 234 characters) are the three reasons, and they are written out at
+    `core/video/badge.py`.
+
+    **ONE COVERAGE CALL SERVES BOTH THE BADGE AND THE HIGHLIGHTING**, from the
+    same string, deliberately: a band computed over one text and a highlight
+    computed over another are two instruments on one screen that agree until
+    they do not -- the same class as a stored 94% and a real 94% being
+    indistinguishable, which is why `video_coverage` stores its whole basis.
     """
-    return "empty", {}
+    from core.services import video as video_service
+    from core.video.badge import band_for
 
+    assigned = video_service.today_for(conn, user_id, on=local_date)
+    if assigned is None:
+        # `empty`, and empty is a FACT: the query ran and returned nothing.
+        return "empty", {}
+
+    payload: dict[str, Any] = {
+        "video_id": assigned.video_id,
+        "youtube_id": assigned.youtube_id,
+        "title": assigned.title,
+        "duration_s": assigned.duration_s,
+        "accent": assigned.accent,
+        "track": assigned.track,
+        "resume_position_s": assigned.resume_position_s,
+        "completed": assigned.completed_at is not None,
+        "transcript_available": assigned.transcript is not None,
+        "transcript": None,
+        "transcript_lang": assigned.transcript_lang,
+        "unknown_lemmas": [],
+        "coverage_band": None,
+    }
+    if assigned.transcript is None:
+        return "ready", payload
+
+    from core.services import lexicon as lexicon_service
+
+    report = lexicon_service.coverage_for(conn, user_id, assigned.transcript)
+    payload["transcript"] = assigned.transcript
+    payload["unknown_lemmas"] = sorted(report.unknown_lemmas)
+    payload["coverage_band"] = band_for(
+        report.coverage,
+        counted_tokens=report.counted_tokens,
+        proper_nouns_detected=report.proper_nouns_detected,
+    )
+    return "ready", payload
 
 
 def _session_payload(conn, session_id: int) -> dict:
@@ -1489,7 +1558,17 @@ def _derive_done(conn, session_id: int, built: dict, stored_payload: dict) -> di
     * ``review`` -- every card it served has a `card_reviews` row for this
       session. The queue is capped, so "every card served" is the right bar and
       not "every card due".
-    * ``input`` -- serves nothing until W12/W13. **`empty`, never `done`.**
+    * ``input`` -- **W13-i: `done` when `video_assignments.completed_at` is set
+      for the video this block served.** The old clause is quoted rather than
+      deleted (#82's shape): *"``input`` -- serves nothing until W12/W13.
+      **`empty`, never `done`.**"* **That was true of a block that SERVED
+      NOTHING, which is exactly what the per-kind rule turns on** -- `review`
+      has `card_reviews`, `focus` has `item_attempts`, and block 2 had no log
+      because it had no content. W13-i gives it both: the progress ping is
+      block 2's `card_reviews`, `core.services.video.save_progress` is its one
+      writer, and this branch reads what that wrote. **No control was added and
+      none returns** -- the ruling above is honoured by supplying the evidence
+      it asks for.
     * ``focus`` -- every item it served has an `item_attempts` row for this
       session.
     * ``output`` -- **cannot self-report.** `POST /correct` records no
@@ -1531,6 +1610,21 @@ def _derive_done(conn, session_id: int, built: dict, stored_payload: dict) -> di
         graded = _answered_ids(conn, "card_reviews", "card_id", session_id)
         if all(one in graded for one in served):
             out["review"] = ("done", review_payload)
+
+    # **BLOCK 2, AND IT READS A LOG RATHER THAN A TAP.** `completed_at` is
+    # written only by `save_progress`, only from a position ping, and only when
+    # `core.video.watch.is_complete` says the video was watched -- so `done`
+    # here means the same kind of thing `review`'s and `focus`'s do.
+    #
+    # **A video with no stored `duration_s` NEVER REACHES THIS, and that is the
+    # documented gap (#330).** `is_complete` returns False without a
+    # denominator, so the block stays `ready` and this learner is returned to
+    # the same video tomorrow -- #188's shape on a new surface. It is a stated
+    # cost, not an oversight: the fix is a free metadata re-read on the refresh
+    # path, and inferring a completion from nothing is what #258 forbids.
+    input_state, input_payload = built.get("input", ("empty", {}))
+    if input_state == "ready" and input_payload.get("completed"):
+        out["input"] = ("done", input_payload)
 
     focus_state, focus_payload = built.get("focus", ("empty", {}))
     items = [one.get("id") for one in (focus_payload.get("items") or [])]
@@ -1633,7 +1727,10 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
                 )
 
         built: dict[str, tuple[str, dict[str, Any]]] = {
-            "input": _input_block(),
+            "input": _build_block(
+                "input",
+                lambda: _input_block(conn, user_id, local_date=local_date),
+            ),
             # A unit read that FAILED is `unavailable` for both blocks that
             # depend on it, and a unit that is simply not seeded is `empty` for
             # both. Two facts, kept apart even though they come from one query.

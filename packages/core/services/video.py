@@ -19,10 +19,17 @@ WHAT THIS MODULE WILL NOT DO:
   and `purge_stale` nulls columns. A `videos` row carries a learner's
   `seen_penalty` through `video_assignments`, and deleting it would silently
   re-offer a video somebody has already watched.
-- **It never writes `video_assignments.completed_at`.** W12b does not define
-  what "answered" means for block 2 -- no player exists, so no watch signal can
-  be written. That is W13's, and a definition guessed here would be a wrong row
-  in a table the record treats as the product.
+- **It never deletes a `videos` row** (above), and until W13 it never wrote
+  `video_assignments.completed_at` either. **THAT SECOND CLAUSE IS SPENT AND IS
+  QUOTED RATHER THAN DELETED (#82's shape):** *"It never writes
+  `video_assignments.completed_at`. W12b does not define what 'answered' means
+  for block 2 -- no player exists, so no watch signal can be written. That is
+  W13's, and a definition guessed here would be a wrong row in a table the
+  record treats as the product."*
+
+  **W13 defines it (#291), and `save_progress` is the ONE producer.** See that
+  function and `core.video.watch`. `assign_video` still writes neither column,
+  which is the half of the guarantee that was worth keeping.
 """
 
 from __future__ import annotations
@@ -507,7 +514,12 @@ def assign_video(
     assigned_for: date,
     score_breakdown: Mapping[str, Any],
 ) -> int:
-    """Write one assignment. `completed_at` is deliberately not written."""
+    """Write one assignment. **`completed_at` is deliberately not written here.**
+
+    Assigning a video does not complete it, and that separation is what
+    `tests/test_video_service.py::test_assigning_a_video_does_not_complete_it`
+    holds. The writer is `save_progress` and it is the only one (#291).
+    """
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
             """
@@ -566,3 +578,221 @@ def _pool_row(row: tuple) -> PoolRow:
         transcript=row[7],
         captions_kind=row[8],
     )
+
+
+# --------------------------------------------------------------------------
+# W13-i: the player's read, and the watch signal (#291)
+# --------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class TodayVideo:
+    """One assigned video, as the player needs it. **One day, one row.**
+
+    **NOT `assignments_for`, deliberately.** That function is a RANGE read
+    (`assigned_for >= since`) returning plain dicts *"for the CLIs to print"* --
+    its own docstring -- and it carries no transcript. Widening it to serve a
+    learner would give one function two callers with different needs, and the
+    CLI's shape would start deciding what a player receives.
+
+    **`transcript is None` IS A STATE AND NOT AN ERROR (#335).** The 30-day
+    purge nulls the transcript and returns the row to `pending`, and nothing
+    coordinates that with the weekly assignment -- so a learner can open a day
+    whose video is still assigned and still watchable while the interactive half
+    is gone. The row is RETURNED in that state rather than filtered, because
+    *no video today* and *a video whose transcript was purged* are different
+    facts and the learner can only see one of them on the screen.
+    """
+
+    assignment_id: int
+    video_id: int
+    youtube_id: str
+    title: str | None
+    duration_s: int | None
+    accent: str | None
+    track: str
+    transcript: str | None
+    transcript_lang: str | None
+    captions_kind: str | None
+    resume_position_s: int
+    completed_at: datetime | None
+
+
+def today_for(conn, user_id: int, *, on: date) -> TodayVideo | None:
+    """This learner's assigned video for one date, or None.
+
+    **None is the ordinary state on four days in seven.** PRD §7.1 puts curated
+    video on Monday, Wednesday and Friday; the Tuesday/Thursday series episodes
+    are the import path and are not this table's. So a `None` here is *no video
+    today*, never a failure, and block 2 renders it `empty` -- a fact computed
+    after a successful read, which is `BLOCK_STATES`' own distinction.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT a.id, a.video_id, v.youtube_id, v.title, v.duration_s,
+                   v.accent, v.track, v.transcript, v.transcript_lang,
+                   v.captions_kind, a.resume_position_s, a.completed_at
+              FROM video_assignments a
+              JOIN videos v ON v.id = a.video_id
+             WHERE a.user_id = %s AND a.assigned_for = %s
+            """,
+            (user_id, on),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return TodayVideo(
+        assignment_id=int(row[0]),
+        video_id=int(row[1]),
+        youtube_id=str(row[2]),
+        title=row[3],
+        duration_s=row[4],
+        accent=None if row[5] is None else str(row[5]),
+        track=str(row[6]),
+        transcript=row[7],
+        transcript_lang=row[8],
+        captions_kind=row[9],
+        resume_position_s=int(row[10] or 0),
+        completed_at=row[11],
+    )
+
+
+def save_progress(
+    conn,
+    *,
+    user_id: int,
+    video_id: int,
+    position_s: int | None,
+    now: datetime,
+) -> TodayVideo | None:
+    """The progress ping. **THE ONE PRODUCER OF BOTH COLUMNS (#190, #291).**
+
+    **This function IS block 2's log**, and that is the whole of the #258
+    argument. The ruling of 2026-08-29 made block completion automatic and
+    deleted the manual button, its route and its service function; its per-kind
+    rule turns on whether a block has a per-attempt log keyed on the session --
+    `review` has `card_reviews`, `focus` has `item_attempts`, and `input` was
+    *"`empty`, never `done`"* because it **served nothing and so had no log.**
+    W13 makes it serve something and writes the log. **The ruling is honoured by
+    supplying the evidence it asks for, not by adding a tap**, and no completion
+    control exists on the player.
+
+    **ONE STATEMENT WRITES BOTH COLUMNS**, so a position and the completion it
+    implies can never disagree -- #190's *one contract, one producer* applied
+    before the defect rather than after it. `core.video.watch` decides both
+    values and is pure, so the rule is assertable without Postgres.
+
+    **`completed_at` IS WRITTEN ONCE AND NEVER MOVED.** `COALESCE` keeps the
+    first completion: re-watching a video the learner already finished is not a
+    second completion, and overwriting the timestamp would make *when did they
+    finish this* unanswerable from the row that exists to answer it.
+
+    Returns the refreshed row, so the route serialises what was actually stored
+    rather than what it hoped was -- the clamp lives in `watch.clamp_position`
+    and a caller must not have to reproduce it to know the result.
+    """
+    from core.video.watch import clamp_position, is_complete
+
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            "SELECT duration_s FROM videos WHERE id = %s", (video_id,)
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    duration_s = row[0]
+
+    position = clamp_position(position_s, duration_s)
+    complete = is_complete(position, duration_s)
+
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            UPDATE video_assignments
+               SET resume_position_s = %s,
+                   completed_at      = CASE
+                       WHEN %s THEN COALESCE(completed_at, %s)
+                       ELSE completed_at
+                   END
+             WHERE user_id = %s AND video_id = %s
+            RETURNING assigned_for
+            """,
+            (position, complete, now, user_id, video_id),
+        )
+        updated = cur.fetchone()
+    if updated is None:
+        # Not this learner's video, or not assigned at all. The route turns this
+        # into a 404 rather than a silent success -- a ping that wrote nothing
+        # and said it wrote something is the shape #298 spent a whole row on.
+        return None
+    return today_for(conn, user_id, on=updated[0])
+
+
+def watched_video_ids(conn, user_id: int) -> frozenset[int]:
+    """Videos this learner has finished. Block 2's `_derive_done` reads this."""
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            "SELECT video_id FROM video_assignments "
+            "WHERE user_id = %s AND completed_at IS NOT NULL",
+            (user_id,),
+        )
+        return frozenset(int(row[0]) for row in cur.fetchall())
+
+
+def today_for_user(user_id: int, *, now: datetime) -> TodayVideo | None:
+    """`today_for`, for a caller that has no connection and no date.
+
+    **THE ONE FUNCTION `GET /video/today` CALLS** (CLAUDE.md §2: a route parses,
+    authorises, calls one service function, serialises). Without it the route
+    would have to open a connection, read the learner's timezone, compute their
+    local date and then call `today_for` -- four steps, three of them business
+    logic, in a layer that is not allowed any.
+
+    **WHOSE DATE: THE LEARNER'S.** `local_today(users.timezone, now)`, the same
+    resolution `core.services.sessions` uses for every `sessions.date` in the
+    table, reached through the same helper rather than restated -- two answers to
+    *what day is it for this learner* is how one of them goes stale. `now` is
+    injected, like every other clock in this module, so a date boundary is
+    assertable without freezing the wall clock (CLAUDE.md §3 rule 6).
+
+    None when the learner is unknown OR when nothing is assigned for their date,
+    and the route turns both into a 404. **They are different facts and the
+    route does not need to tell them apart**: neither is an error and neither
+    changes what the client shows.
+    """
+    from core.db import connection
+    from core.services.sessions import local_today
+
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(timezone, 'Europe/Vilnius') AS tz FROM users"
+            " WHERE id = %s",
+            (user_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return today_for(conn, user_id, on=local_today(row["tz"], now))
+
+
+def save_progress_for_user(
+    user_id: int, video_id: int, *, position_s: int | None, now: datetime
+) -> TodayVideo | None:
+    """`save_progress`, for a caller that has no connection.
+
+    **THE ONE FUNCTION `POST /video/{id}/progress` CALLS**, for the same reason
+    `today_for_user` exists: the route must not hold a connection or decide when
+    to commit. The write and the read-back happen in ONE transaction, so the row
+    the client is handed is the row that was stored -- not a second read that
+    could see someone else's write between them.
+    """
+    from core.db import connection
+
+    with connection() as conn:
+        updated = save_progress(
+            conn,
+            user_id=user_id,
+            video_id=video_id,
+            position_s=position_s,
+            now=now,
+        )
+        conn.commit()
+    return updated
