@@ -34,8 +34,9 @@ from __future__ import annotations
 
 import pytest
 
+from core.video import assign as assign_cli
 from core.video import channels as channel_file
-from core.video.score import WEIGHTS, Candidate, accent_rotation, rank
+from core.video.score import WEIGHTS, Candidate, Scored, accent_rotation, rank
 
 
 def _candidate(youtube_id: str, accent: str | None) -> Candidate:
@@ -245,3 +246,80 @@ def test_a_by_ruling_null_without_a_written_reason_is_refused(tmp_path) -> None:
     pool = channel_file.load(path)
     assert not pool.channels
     assert "accent_null_reason" in pool.refusals[0].reason
+
+
+# ---------------------------------------------------------------------------
+# The null reaches the REPORTER, not only the scorer. #328.
+# ---------------------------------------------------------------------------
+def _entry(accent: str | None) -> Scored:
+    return Scored(
+        candidate=Candidate(
+            video_id=1,
+            youtube_id="QyRqlTV60zM",
+            track="curiosity",
+            accent=accent,
+            duration_s=339,
+            coverage=0.758,
+            proper_nouns_detected=True,
+        ),
+        score=0.412,
+        breakdown={},
+    )
+
+
+def test_the_ranking_line_renders_a_null_accent_instead_of_raising() -> None:
+    """**`f"{None:<9}"` RAISES. `f"{None}"` DOES NOT, WHICH IS WHY THIS HID.**
+
+    `format(None, "<9")` is `TypeError: unsupported format string passed to
+    NoneType.__format__`. The bare interpolation right next to it is fine, so
+    the defect is invisible to reading and to every test that never ranked a
+    null-accent video.
+
+    **IT IS THE SAME DEFECT ALREADY FIXED ONE FILE OVER.** `refresh.py` prints
+    the channel pool with `accent if accent is not None else "--"`, written in
+    Phase A with a comment saying in as many words that `{accent:<9}` raises on
+    a by-ruling null. **`assign.py` was not swept at the same time**, so the
+    fix landed in the command that LISTS the pool and not in the command that
+    RANKS it -- and TED-Ed, the one by-ruling null in the committed pool, is in
+    the pool both of them read.
+
+    **WHAT IT COST: `assign` could not complete a dry run at all.** Not a
+    cosmetic break -- the traceback lands in the middle of `Ranking:`, after the
+    band and degradation counts have printed, so the run looks like it got
+    somewhere.
+    """
+    line = assign_cli._ranking_line(_entry(None))
+    assert "QyRqlTV60zM" in line
+    assert "0.412" in line
+
+
+def test_a_null_accent_prints_as_absence_and_never_as_the_word_None() -> None:
+    """**`str(None)` IS `"None"`, AND `"None"` IS A PERFECTLY GOOD ACCENT NAME.**
+
+    Fixing the crash with `str(candidate.accent)` or an f-string without a spec
+    would stop the traceback and print a column reading `None`, which an
+    operator reads as a value somebody authored. That is #315's failure mode
+    arriving in the output instead of the exposure map -- and #315 is why
+    `Candidate.accent` is `str | None` in the first place.
+
+    `--` matches `refresh.py`'s existing rendering, so the two commands describe
+    the same pool the same way.
+    """
+    line = assign_cli._ranking_line(_entry(None))
+    assert "None" not in line, f"a null accent printed as the word None: {line!r}"
+    assert "--" in line
+    # And a real accent is untouched.
+    assert "british" in assign_cli._ranking_line(_entry("british"))
+
+
+def test_the_committed_pool_contains_the_null_that_triggers_this() -> None:
+    """**THE TEST ABOVE WOULD BE HYPOTHETICAL WITHOUT THIS ONE.**
+
+    A crash on a value nothing produces is a lint finding. This asserts that the
+    real committed channel pool holds a by-ruling null accent, so the ranking
+    path meets one on any run that lists that channel -- which is what happened
+    on production on 2026-09-01.
+    """
+    pool = channel_file.load()
+    nulls = [c.handle for c in pool.channels if c.accent is None]
+    assert nulls, "no by-ruling null accent in the committed pool"

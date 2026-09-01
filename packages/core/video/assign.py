@@ -36,6 +36,42 @@ def week_dates(week_of: date) -> list[date]:
     return [monday + timedelta(days=offset) for offset in WEEKDAYS]
 
 
+def _ranking_line(entry) -> str:
+    """One ranked candidate, as a line. **EXTRACTED SO IT CAN BE TESTED (#328).**
+
+    It was four inline f-strings inside `main()`, reachable only by running the
+    command against a database, which is why nothing caught the crash below.
+
+    **`f"{None:<9}"` RAISES AND `f"{None}"` DOES NOT, WHICH IS THE WHOLE BUG.**
+    `format(None, "<9")` is `TypeError: unsupported format string passed to
+    NoneType.__format__`; the bare interpolation two columns to its left is
+    fine. `Candidate.accent` is `str | None` by migration 020 -- `accent IS
+    NULL` means *this channel is not a reliable accent signal* -- and TED-Ed is
+    a by-ruling null in the committed pool. **So `assign` could not finish a dry
+    run whenever TED-Ed was ranked, which is every run that lists it.**
+
+    **THE SAME LINE WAS ALREADY FIXED ONE FILE OVER, IN PHASE A.**
+    `refresh.py`'s channel-pool print carries a comment naming this exact
+    `TypeError`. The sweep that produced it stopped at the file it was in, so
+    the fix reached the command that LISTS the pool and not the one that RANKS
+    it.
+
+    **`--`, NEVER `str(accent)`.** `str(None)` is the string `"None"`, which
+    reads as an accent somebody authored -- #315's failure mode arriving in the
+    output instead of in the exposure map. `--` is what `refresh.py` prints, so
+    the two commands describe the same pool the same way.
+    """
+    candidate = entry.candidate
+    mark = "  " if entry.is_selectable else "x "
+    accent = candidate.accent if candidate.accent is not None else "--"
+    return (
+        f"{mark}{candidate.youtube_id:<14} {entry.score:>6.3f}  "
+        f"cov={candidate.coverage:.1%} {candidate.track:<9} "
+        f"{accent:<9}"
+        + (f"  [{entry.excluded}]" if entry.excluded else "")
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -187,14 +223,7 @@ def main(argv: list[str] | None = None) -> int:
 
         print("\nRanking:")
         for entry in scored[:10]:
-            candidate = entry.candidate
-            mark = "  " if entry.is_selectable else "x "
-            print(
-                f"{mark}{candidate.youtube_id:<14} {entry.score:>6.3f}  "
-                f"cov={candidate.coverage:.1%} {candidate.track:<9} "
-                f"{candidate.accent:<9}"
-                + (f"  [{entry.excluded}]" if entry.excluded else "")
-            )
+            print(_ranking_line(entry))
 
         if len(selectable) < len(open_dates):
             print(_short_pool_message(len(selectable), len(open_dates)))
