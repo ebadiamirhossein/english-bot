@@ -92,6 +92,13 @@
     "  loadable 2026-08-31: 7 of 11 -- life 3 / curiosity 3 / work 1 = 43/43/14",
     "  loadable 2026-09-01: 8 of 11 -- life 3 / curiosity 4 / work 1 = 37.5/50/12.5",
     "",
+    "  EVERY channel_id IS NOW RESOLVED. @easyenglish551's landed on 2026-09-01",
+    "  (UCTRHegh7UqWuKRymXoqzbzA), and THE SPLIT DID NOT MOVE: the entry is",
+    "  still refused, on its accent instead of its id. What changed is that the",
+    "  pool now has exactly ONE kind of blocker left and it is the same one for",
+    "  all three refusals -- accent_null: pending_check. That is a person",
+    "  watching three channels, not a lookup anybody can run.",
+    "",
     "  Migration 020 made TED-Ed loadable as a by_ruling null accent. Claire and",
     "  Learn English With TV Series stay refused as pending_check, and",
     "  @easyenglish551 stays refused for its null id. CURIOSITY NOW OVERTAKES",
@@ -139,12 +146,12 @@
     {
       "handle": "@easyenglish551",
       "accent_null": "pending_check",
-      "channel_id": null,
+      "channel_id": "UCTRHegh7UqWuKRymXoqzbzA",
       "name": "Easy English (scripted lessons)",
       "accent": null,
       "track": "life",
       "why": "Everyday conversational English performed as short scripted dialogues. NOT the channel this entry was created for -- see _SUBSTITUTION below; it is kept on merit and scored like any other teaching channel.",
-      "_unresolved": "channel_id AND accent both null. The id is the operator's to resolve on the host. The accent is NOT carried over from the previous occupant of this entry -- see _SUBSTITUTION."
+      "_unresolved": "accent only. The id was resolved on the host 2026-09-01 and this entry is now refused on ONE count instead of two. The accent is NOT carried over from the previous occupant of this entry -- see _SUBSTITUTION -- and it is pending_check rather than by_ruling: nobody has watched this channel, and it is not a channel that CANNOT have an accent."
     },
     {
       "handle": "@LearnEnglishWithTVSeries",
