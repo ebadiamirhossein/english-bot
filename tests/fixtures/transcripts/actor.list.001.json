@@ -1,0 +1,340 @@
+[
+  {
+    "video_id": "y_525lzqbg0",
+    "list_only": true,
+    "available_transcripts": [
+      {
+        "language": "English (auto-generated)",
+        "language_code": "en",
+        "is_generated": true,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "uk",
+          "vi"
+        ]
+      }
+    ],
+    "url": "https://www.youtube.com/watch?v=y_525lzqbg0",
+    "channel_name": "Friends",
+    "video_duration_seconds": 213,
+    "upload_date": "2026-08-31",
+    "timestamp": "2026-09-01T07:34:55.814592",
+    "success": true
+  },
+  {
+    "video_id": "5E5tNu4NsxM",
+    "list_only": true,
+    "available_transcripts": [
+      {
+        "language": "English (auto-generated)",
+        "language_code": "en",
+        "is_generated": true,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "uk",
+          "vi"
+        ]
+      }
+    ],
+    "url": "https://www.youtube.com/watch?v=5E5tNu4NsxM",
+    "channel_name": "Friends",
+    "video_duration_seconds": 17,
+    "upload_date": "2026-08-30",
+    "timestamp": "2026-09-01T07:34:56.354605",
+    "success": true
+  },
+  {
+    "video_id": "9sSD2IFGSLw",
+    "list_only": true,
+    "available_transcripts": [
+      {
+        "language": "English (United Kingdom)",
+        "language_code": "en-GB",
+        "is_generated": false,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "tr",
+          "uk",
+          "vi"
+        ]
+      },
+      {
+        "language": "English (auto-generated)",
+        "language_code": "en",
+        "is_generated": true,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "tr",
+          "uk",
+          "vi"
+        ]
+      }
+    ],
+    "url": "https://www.youtube.com/watch?v=9sSD2IFGSLw",
+    "channel_name": "English with Lucy",
+    "video_duration_seconds": 825,
+    "upload_date": "2026-08-27",
+    "timestamp": "2026-09-01T07:35:01.668395",
+    "success": true
+  },
+  {
+    "video_id": "QyRqlTV60zM",
+    "list_only": true,
+    "available_transcripts": [
+      {
+        "language": "Arabic",
+        "language_code": "ar",
+        "is_generated": false,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "en",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "tr",
+          "uk",
+          "vi"
+        ]
+      },
+      {
+        "language": "Burmese",
+        "language_code": "my",
+        "is_generated": false,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "en",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "tr",
+          "uk",
+          "vi"
+        ]
+      },
+      {
+        "language": "Chinese (China)",
+        "language_code": "zh-CN",
+        "is_generated": false,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "en",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "tr",
+          "uk",
+          "vi"
+        ]
+      },
+      {
+        "language": "English",
+        "language_code": "en",
+        "is_generated": false,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "en",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "tr",
+          "uk",
+          "vi"
+        ]
+      },
+      {
+        "language": "French",
+        "language_code": "fr",
+        "is_generated": false,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "en",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "tr",
+          "uk",
+          "vi"
+        ]
+      },
+      {
+        "language": "Portuguese (Brazil)",
+        "language_code": "pt-BR",
+        "is_generated": false,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "en",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "tr",
+          "uk",
+          "vi"
+        ]
+      }
+    ],
+    "url": "https://www.youtube.com/watch?v=QyRqlTV60zM",
+    "channel_name": "TED-Ed",
+    "video_duration_seconds": 339,
+    "upload_date": "2026-08-25",
+    "timestamp": "2026-09-01T07:35:02.566372",
+    "success": true
+  },
+  {
+    "video_id": "ScmC5E7titM",
+    "list_only": true,
+    "available_transcripts": [
+      {
+        "language": "English (auto-generated)",
+        "language_code": "en",
+        "is_generated": true,
+        "is_translatable": true,
+        "translation_languages": [
+          "ar",
+          "zh-Hant",
+          "nl",
+          "fr",
+          "de",
+          "hi",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "es",
+          "th",
+          "uk",
+          "vi"
+        ]
+      }
+    ],
+    "url": "https://www.youtube.com/watch?v=ScmC5E7titM",
+    "channel_name": "English with Lucy",
+    "video_duration_seconds": 53,
+    "upload_date": "2026-08-30",
+    "timestamp": "2026-09-01T07:35:38.064464",
+    "success": true
+  }
+]

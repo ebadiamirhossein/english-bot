@@ -133,6 +133,21 @@ class _Adapter:
     lang_keys: tuple[str, ...]
     #: How the output reports 'this track is auto-generated'.
     generated_truthy: tuple[str, ...] = ("generated", "auto", "asr", "true", "True")
+    #: **A NESTED PATH, BECAUSE THE FLAT `kind_keys` TUPLE CANNOT EXPRESS THIS
+    #: SHAPE AT ALL (#323).** The `list_only` response reports kinds inside
+    #: `available_transcripts`, a LIST OF TRACK OBJECTS each carrying its own
+    #: flag -- so `_read_kind`, which looked only at the row's top level,
+    #: returned `None` for every video and the first billed run printed
+    #: `unknown 5` about a response that stated every kind.
+    #:
+    #: **Adding `"available_transcripts"` to `kind_keys` was considered and is
+    #: REFUSED on the record:** `_read_kind` would find a list where it expects a
+    #: bool or a str, match neither branch, and return `None` -- the same wrong
+    #: answer through a longer path, with the tuple now LOOKING as if it covered
+    #: the case.
+    tracks_key: str | None = None
+    #: The per-track flag inside `tracks_key`. True means auto-generated.
+    track_generated_key: str = "is_generated"
 
 
 _DEFAULT_ADAPTER = _Adapter(
@@ -157,6 +172,7 @@ _ADAPTERS: dict[str, _Adapter] = {
         text_keys=("non_timestamped", "transcript", "text"),
         kind_keys=("transcript_type", "is_generated", "generated"),
         lang_keys=("language_code", "language", "lang"),
+        tracks_key="available_transcripts",
     ),
     # The ruled fallback. Its selector is `subType`.
     "codepoetry/youtube-transcript-ai-scraper": _Adapter(
@@ -583,7 +599,27 @@ def _read_text(row: dict, adapter: _Adapter) -> str:
 
 
 def _read_kind(row: dict, adapter: _Adapter) -> str | None:
-    """'manual' | 'generated' | None. None when the actor did not say."""
+    """'manual' | 'generated' | None. None when the actor did not say.
+
+    **TWO SHAPES, AND THE FLAT ONE WINS WHEN BOTH ARE PRESENT.** A FETCH row
+    carries `transcript_type` describing **the track actually delivered**; a
+    `list_only` row carries `available_transcripts` describing **what exists**.
+    When both appear the delivered track is the answer, so the flat keys are
+    read first and the track list is the fallback.
+
+    **THE TRACK RULE IS `ANY`, NOT `FIRST` AND NOT `ALL` (#323).** A video is
+    `manual` if **any** track is human-written, `generated` only if tracks exist
+    and **every** stated flag is true, and `None` if no track states one.
+
+    *First* is wrong for two independent reasons, and the recorded fixture
+    carries one of each. `9sSD2IFGSLw` lists its **manual** track first and an
+    auto-generated one second, so *all* and *last* both answer `generated` where
+    the truth is `manual`. `QyRqlTV60zM` lists **Arabic** first and English
+    fourth, so a *first* reader is answering a LANGUAGE question when it was
+    asked a KIND one -- and there it returns the right value **by luck**, which
+    is worse than failing, because it passes while being wrong for the wrong
+    reason.
+    """
     for key in adapter.kind_keys:
         if key not in row:
             continue
@@ -603,6 +639,27 @@ def _read_kind(row: dict, adapter: _Adapter) -> str | None:
                 return "generated"
             if "manual" in normalised or "human" in normalised:
                 return "manual"
+
+    # The nested fallback. Only reached when no flat key answered.
+    if adapter.tracks_key:
+        tracks = row.get(adapter.tracks_key)
+        if isinstance(tracks, list):
+            stated = [
+                track.get(adapter.track_generated_key)
+                for track in tracks
+                if isinstance(track, dict)
+                and isinstance(track.get(adapter.track_generated_key), bool)
+            ]
+            if stated:
+                # ANY human-written track makes the video manual, wherever it
+                # sits in the list and whatever language it is in.
+                if any(flag is False for flag in stated):
+                    return "manual"
+                return "generated"
+            # Tracks exist but none states a flag. That is the actor declining
+            # to say, not evidence of a generated track -- and guessing
+            # `generated` here would switch the proper-noun rule off and inflate
+            # coverage (#288) on no evidence at all.
     return None
 
 
