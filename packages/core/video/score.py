@@ -75,7 +75,10 @@ class Candidate:
     video_id: int
     youtube_id: str
     track: str
-    accent: str
+    #: **None means NOT A RELIABLE ACCENT SIGNAL (migration 020)**, and
+    #: `score_one` SKIPS `accent_rotation` for it, renormalising the remaining
+    #: weights. Never bucketed, never defaulted, never counted as exposure.
+    accent: str | None
     duration_s: int | None
     coverage: float
     #: From CoverageReport. False means the proper-noun rule was switched off
@@ -99,7 +102,7 @@ class Scored:
 
     candidate: Candidate
     score: float
-    breakdown: dict[str, float] = field(default_factory=dict)
+    breakdown: dict[str, float | None | bool] = field(default_factory=dict)
     excluded: str | None = None
 
     @property
@@ -142,7 +145,20 @@ def accent_rotation(accent: str, exposure: Mapping[str, int]) -> float:
     With no history at all every accent scores 0.5: no accent is
     under-exposed when none has been seen, and returning 1.0 for both would let
     an empty history dominate a term meant to correct an imbalance.
+
+    **A NULL ACCENT IS REFUSED HERE RATHER THAN HANDLED (migration 020).** The
+    caller skips the term; this function never sees a null in the normal path,
+    and raising is how a new caller that forgot to skip finds out immediately
+    instead of silently. `exposure.get(None, 0)` is a perfectly valid lookup
+    returning a perfectly plausible number -- which is exactly the danger, and
+    is why this raises rather than returning something defensible.
     """
+    if accent is None:
+        raise ValueError(
+            "accent_rotation received a null accent. A null is SKIPPED by the "
+            "caller -- never bucketed, never defaulted, never counted as "
+            "exposure. See score_one and migration 020."
+        )
     total = sum(max(0, int(n)) for n in exposure.values())
     if total <= 0:
         return 0.5
@@ -251,14 +267,47 @@ def score_one(
     terms = {
         "coverage_fit": coverage_fit(candidate.coverage),
         "topic_match": topic_match(candidate.track, track_weights),
-        "accent_rotation": accent_rotation(candidate.accent, accent_exposure),
         "target_hit": target_hit(candidate.lemmas, targets),
         "length_fit": length_fit(candidate.duration_s),
     }
-    penalty = seen_penalty(candidate.seen)
-    total = sum(WEIGHTS[name] * value for name, value in terms.items()) - penalty
+    # **A NULL ACCENT IS SKIPPED: THE TERM IS ABSENT, NOT ZERO (migration 020).**
+    #
+    # `accent IS NULL` means *this channel is not a reliable accent signal* --
+    # TED-Ed has many narrators and no per-channel field can hold the truth
+    # about it. Rotating on a value somebody invented is worse than not
+    # rotating, so the term does not apply and is not computed.
+    skipped = candidate.accent is None
+    if not skipped:
+        terms["accent_rotation"] = accent_rotation(candidate.accent, accent_exposure)
 
-    breakdown = dict(terms)
+    penalty = seen_penalty(candidate.seen)
+    # **THE DIVISOR IS THE WHOLE RULING, AND LEAVING IT OUT WOULD BE A PENALTY
+    # ARRIVED AT BY ACCIDENT (operator ruling, 2026-09-01).**
+    #
+    # `WEIGHTS` sums to 1.00. Dropping `accent_rotation` from the numerator
+    # without dropping 0.15 from the denominator is ARITHMETICALLY IDENTICAL to
+    # scoring the term 0.0 -- a structural handicap no unknown-accent video
+    # could ever recover, which is a default and a penalty, and both are
+    # forbidden. Renormalising over the terms that ARE present is what "skipped"
+    # means. With all five present the divisor is 1.00 and every existing score
+    # is unchanged, which is what makes this safe.
+    #
+    # THE ACCEPTED CONSEQUENCE, RULED AND RECORDED RATHER THAN DISCOVERED: a
+    # null-accent video can outrank a known-accent one whose accent is
+    # over-exposed. That is correct -- BEING UNKNOWN IS NOT A PENALTY. If
+    # unknown channels should later be mildly disadvantaged, that is a separate
+    # ruling taken on purpose, not a divisor left out.
+    weight = sum(WEIGHTS[name] for name in terms)
+    total = sum(WEIGHTS[name] * value for name, value in terms.items()) / weight
+    total -= penalty
+
+    breakdown: dict[str, float | None | bool] = dict(terms)
+    if skipped:
+        # Named in the breakdown, which is written to
+        # `video_assignments.score_breakdown`, so an operator reading a past
+        # assignment sees the term was SKIPPED and not scored zero.
+        breakdown["accent_rotation"] = None
+        breakdown["accent_rotation_skipped"] = True
     breakdown["seen_penalty"] = penalty
     breakdown["total"] = total
     return Scored(candidate=candidate, score=total, breakdown=breakdown)

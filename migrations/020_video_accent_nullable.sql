@@ -1,0 +1,89 @@
+-- W12b Phase B: `videos.accent` becomes nullable. Operator ruling, 2026-08-31,
+-- implemented 2026-09-01.
+--
+-- Plain, non-idempotent DDL, per 009's note and every file since: core.db.migrate
+-- wraps each file in one transaction and gates it on schema_version, which is
+-- what makes a re-run impossible. Guards would only buy the impression that a
+-- re-run is safe. This file writes NO schema_version row -- the runner does
+-- that (core/db.py), and only 001 inserts one itself.
+--
+-- NOTHING IS SEEDED HERE.
+--
+-- ---------------------------------------------------------------
+-- THE RULING, AND ITS REASON
+-- ---------------------------------------------------------------
+-- A video whose accent is unknown stays SELECTABLE, and `accent_rotation` skips
+-- it rather than rotating on a value somebody invented. TED-Ed has many
+-- narrators; a single per-channel accent field cannot hold the truth about it.
+--
+-- Inventing a value is the defect the pool's own rule already refuses:
+-- `@easyenglish551`'s inherited `british` was struck on 2026-08-31 because it
+-- described a different channel. THE SCHEMA MUST NOT REQUIRE IN SQL WHAT THE
+-- DATA FILE REFUSES IN JSON.
+--
+-- ---------------------------------------------------------------
+-- WHAT `accent IS NULL` MEANS, AND WHAT IT DOES NOT
+-- ---------------------------------------------------------------
+-- It means: THIS CHANNEL IS NOT A RELIABLE ACCENT SIGNAL.
+--
+-- It does NOT mean "unknown, to be filled in later". That state exists and is
+-- spelled differently: `data/video_channels.json` carries
+-- `accent_null: "pending_check"` for a channel nobody has watched yet, and
+-- `core.video.channels` REFUSES to load it. Only `accent_null: "by_ruling"`
+-- -- which additionally requires a written `accent_null_reason` -- reaches this
+-- column as a NULL.
+--
+-- So a NULL here is always a channel that CANNOT have one true accent, never
+-- one whose accent has not been looked up. The distinction is enforced in the
+-- loader, not here; this column simply stops contradicting it.
+--
+-- ---------------------------------------------------------------
+-- THE CHECK IS DELIBERATELY UNTOUCHED, AND THAT IS ONE CHANGE AND NOT TWO
+-- ---------------------------------------------------------------
+-- 019 declared `accent TEXT NOT NULL CHECK (accent IN ('american','british'))`.
+-- This file drops NOT NULL and leaves the CHECK exactly as it is.
+--
+-- A SQL CHECK passes on NULL: the predicate evaluates to unknown rather than
+-- false, and a constraint only fails on false. So `accent IN
+-- ('american','british')` continues to REJECT every non-null value outside the
+-- pair, with no edit and no weakening.
+--
+-- A nullable column with a weakened constraint would be two changes, and only
+-- one was ruled. If a third accent is ever added it is still a DATA change --
+-- one value in video_channels.json and one literal in that CHECK -- and no
+-- selection logic moves.
+--
+-- ---------------------------------------------------------------
+-- #185, SEVENTH OCCURRENCE. THE NUMBER IS TAKEN IN THIS COMMIT.
+-- ---------------------------------------------------------------
+-- 019 (W12b Phase A) is the highest applied version. The authoritative table in
+-- docs/TASKS-v3-web.md reserved 020 for W13a, and THREE UNWRITTEN SLICES SHIFT
+-- BY ONE IN THIS SAME COMMIT, in BOTH halves of that document -- the table and
+-- each slice's Build cell:
+--
+--     W13a `subtitle_ladder`                  020 -> 021
+--     W14  `speech_attempts`                  021 -> 022
+--     W18  `placement_bank`, `placement_runs` 022 -> 023
+--
+-- None of the three is written: nothing on disk, nothing applied to any
+-- database, no schema_version row moved. Renumbering an APPLIED migration is
+-- #49; renumbering a row in a planning table is bookkeeping, and the document
+-- says so at its own :153-158.
+--
+-- ---------------------------------------------------------------
+-- WHY THIS SHIPS WITH CODE AND NOT ALONE
+-- ---------------------------------------------------------------
+-- An earlier ordering put this migration first, by itself. It was refused
+-- before it was written, because ON ITS OWN IT IS INERT: `channels._refuse`
+-- rejects a null accent in Python, `channels.py` constructs a Channel in one
+-- place and only for entries that passed, and `refresh.py` is the only caller
+-- of `upsert_video`. No NULL could reach this column from any path, so dropping
+-- NOT NULL would have changed nothing observable.
+--
+-- The reverse order is worse than useless: a loader that emits a null accent
+-- against a NOT NULL column raises IntegrityError mid-run, AFTER the YouTube
+-- quota for those channels has been spent. So the loader change and this file
+-- are one commit, and this file is the last piece of it.
+-- ---------------------------------------------------------------
+
+ALTER TABLE videos ALTER COLUMN accent DROP NOT NULL;

@@ -63,7 +63,10 @@ class PoolRow:
     video_id: int
     youtube_id: str
     channel_id: str
-    accent: str
+    #: **None means NOT A RELIABLE ACCENT SIGNAL (migration 020).** It is
+    #: carried through as `None` and never coerced -- `str(None)` is the string
+    #: `"None"`, which `accent_rotation` would bucket as a third accent (#315).
+    accent: str | None
     track: str
     title: str | None
     duration_s: int | None
@@ -411,6 +414,22 @@ def accent_exposure(conn, user_id: int) -> dict[str, int]:
 
     Reads `video_assignments`, not `videos.accent` alone, so exposure is a fact
     about what this learner was given and not about what the pool contains.
+
+    **A NULL ACCENT IS EXCLUDED, AND THIS IS THE MORE SERIOUS HALF OF #315.**
+    The comprehension read `{str(row[0]): int(row[1]) ...}`, so a null became a
+    `"None"` KEY WITH A REAL COUNT BEHIND IT, and the damage was not confined to
+    the unknown channel. `accent_rotation` computes
+    ``total = sum(exposure.values())`` and ``1.0 - exposure.get(accent, 0) /
+    total``, so a `"None"` bucket **inflates `total` and thereby LOWERS
+    `american` and `british`** -- the corruption reaches the two real accents --
+    while a `"None"` candidate whose bucket is still empty scores
+    ``1.0 - 0/total = 1.0``, **the maximum the term returns.** The unknown video
+    wins BECAUSE it is unknown, and the known ones are pushed down to make room.
+
+    **The filter is in the SQL rather than in the comprehension** so that a
+    later edit to the mapping cannot undo it: a null never enters the result at
+    all, instead of entering and being removed. A null accent is not exposure to
+    an accent, so it is not exposure.
     """
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
@@ -419,6 +438,7 @@ def accent_exposure(conn, user_id: int) -> dict[str, int]:
               FROM video_assignments a
               JOIN videos v ON v.id = a.video_id
              WHERE a.user_id = %s
+               AND v.accent IS NOT NULL
              GROUP BY 1
             """,
             (user_id,),
@@ -509,7 +529,13 @@ def _pool_row(row: tuple) -> PoolRow:
         video_id=int(row[0]),
         youtube_id=str(row[1]),
         channel_id=str(row[2]),
-        accent=str(row[3]),
+        # **NOT `str(row[3])` -- #315 site (a).** A NULL accent coerced here
+        # becomes the string `"None"`, which is a perfectly valid dict key and
+        # a perfectly valid accent as far as every reader downstream is
+        # concerned. `accent_rotation` would bucket it and score it 1.0 on its
+        # first appearance, so the unknown-accent video wins BECAUSE it is
+        # unknown. The null is carried, not converted.
+        accent=None if row[3] is None else str(row[3]),
         track=str(row[4]),
         title=row[5],
         duration_s=row[6],

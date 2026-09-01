@@ -260,15 +260,27 @@ def tasks_lines() -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def authoritative(tasks_lines: list[str]) -> dict[str, str]:
-    """slice → migration number, from the table `:135` declares authoritative."""
-    table: dict[str, str] = {}
+def authoritative(tasks_lines: list[str]) -> dict[str, set[str]]:
+    """slice → migration numberS, from the table `:135` declares authoritative.
+
+    **A SET, NOT A SINGLE VALUE, AND THAT IS A FIX RATHER THAN A GENERALISATION
+    (2026-09-01).** This read `table[slice] = row[0]`, so a slice owning TWO
+    migrations SILENTLY LOST THE FIRST -- the second row overwrote it and every
+    check below then compared against the survivor alone.
+
+    Nothing exercised that until W12b took **019 in Phase A and 020 in Phase
+    B**, the first slice in this project to own two. The blind spot was real
+    before it was reachable: a slice could have carried two numbers and the
+    checker would have verified only the later one, which is exactly the class
+    of hole `build_columns` avoided by being a set from the start.
+    """
+    table: dict[str, set[str]] = {}
     for row in _rows(tasks_lines, "## Migration numbering", "**Rule:"):
         if len(row) < 2 or not re.fullmatch(r"\d{3}", row[0]):
             continue
         match = _SLICE_ID.match(row[1].strip())
         assert match, f"unparsed slice id in the authoritative table: {row[1]!r}"
-        table[match.group(1)] = row[0]
+        table.setdefault(match.group(1), set()).add(row[0])
     return table
 
 
@@ -296,7 +308,10 @@ def build_columns(tasks_lines: list[str]) -> dict[str, set[str]]:
 def test_both_halves_of_tasks_are_parseable(authoritative, build_columns):
     assert len(authoritative) >= 10, authoritative
     assert len(build_columns) >= 10, build_columns
-    assert authoritative.get("W8") == "014"
+    assert authoritative.get("W8") == {"014"}
+    # W12b owns two: 019 in Phase A, 020 in Phase B. Pinned so the set-valued
+    # fixture is not quietly narrowed back to a scalar.
+    assert authoritative.get("W12b") == {"019", "020"}
 
 
 def test_no_build_column_names_a_migration_the_table_does_not(
@@ -304,9 +319,9 @@ def test_no_build_column_names_a_migration_the_table_does_not(
 ):
     """#130. The table wins — `docs/TASKS-v3-web.md:135` rules it, W7 applied it."""
     wrong = {
-        slice_id: (sorted(numbers), authoritative.get(slice_id))
+        slice_id: (sorted(numbers), sorted(authoritative.get(slice_id, set())))
         for slice_id, numbers in build_columns.items()
-        if numbers != {authoritative.get(slice_id)}
+        if numbers != authoritative.get(slice_id, set())
     }
     assert not wrong, (
         "per-slice Build columns disagreeing with the authoritative migration "
@@ -327,7 +342,7 @@ def test_every_authoritative_row_has_a_build_column_naming_it(
 
 def test_the_numbering_sets_agree(authoritative, build_columns):
     """Set equality, which catches a duplicate or a skipped number either side."""
-    from_table = sorted(authoritative.values())
+    from_table = sorted(n for numbers in authoritative.values() for n in numbers)
     from_columns = sorted(n for numbers in build_columns.values() for n in numbers)
     assert from_table == from_columns
     assert len(from_table) == len(set(from_table)), f"duplicate number: {from_table}"

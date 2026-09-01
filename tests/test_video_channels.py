@@ -69,14 +69,57 @@ def test_the_committed_pool_parses() -> None:
 
 
 def test_every_loaded_channel_declares_an_accent_and_a_track() -> None:
-    """Names the offending handle rather than asserting a count."""
+    """Names the offending handle rather than asserting a count.
+
+    **WIDENED FOR MIGRATION 020, AND WIDENED PRECISELY RATHER THAN RELAXED.**
+    This read `c.accent not in ACCENTS`, which was the pre-020 invariant: every
+    loaded channel had one of two accents. A `by_ruling` null is now loadable --
+    TED-Ed has many narrators and no per-channel value can be true -- so the
+    invariant becomes *a real accent, or a null the loader has already
+    established is `by_ruling`*.
+
+    **What is NOT relaxed: a null still has to have got past `_refuse`**, which
+    requires `accent_null: "by_ruling"` and a written `accent_null_reason`. So
+    this still fails on a third accent, on a misspelt one, and on any null that
+    reached the pool without a ruling behind it.
+    """
     pool = load()
     wrong = [
         f"{c.handle}: accent={c.accent!r} track={c.track!r}"
         for c in pool.channels
-        if c.accent not in ACCENTS or c.track not in TRACKS
+        if (c.accent is not None and c.accent not in ACCENTS)
+        or c.track not in TRACKS
     ]
     assert wrong == [], "channels with a bad accent or track: " + "; ".join(wrong)
+
+
+def test_a_loaded_null_accent_is_by_ruling_and_carries_its_reason() -> None:
+    """The other half of the widening above, so the pair is exhaustive.
+
+    A null that loads must be `by_ruling` **with a written reason** -- the
+    ruling of 2026-09-01, whose stated purpose is that without it `by_ruling`
+    becomes the easy escape from watching a video and `pending_check` quietly
+    empties into it.
+    """
+    import json
+    from pathlib import Path
+
+    raw = json.loads(
+        (Path(__file__).resolve().parents[1] / "data" / "video_channels.json")
+        .read_text(encoding="utf-8")
+    )
+    by_handle = {e["handle"]: e for e in raw["channels"]}
+
+    for channel in load().channels:
+        if channel.accent is not None:
+            continue
+        entry = by_handle[channel.handle]
+        assert entry.get("accent_null") == "by_ruling", (
+            f"{channel.handle} loaded with a null accent that is not by_ruling"
+        )
+        assert str(entry.get("accent_null_reason") or "").strip(), (
+            f"{channel.handle} is by_ruling with no written reason"
+        )
 
 
 def test_track_tags_use_the_track_weights_vocabulary() -> None:

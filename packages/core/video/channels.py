@@ -31,6 +31,16 @@ TRACKS = frozenset({"life", "curiosity", "work"})
 
 _REQUIRED = ("handle", "channel_id", "name", "accent", "track", "why")
 
+#: **TWO STATES A BARE NULL FLATTENS INTO ONE.** `by_ruling` means no single
+#: value can be TRUE for this channel -- TED-Ed's many narrators -- and the
+#: channel is pollable with `accent_rotation` skipping it. `pending_check` means
+#: nobody has watched it yet, and it stays refused.
+#:
+#: **A loader that accepted both would treat "this cannot be known" the same as
+#: "we have not looked yet"** (operator ruling, 2026-09-01), which is how a
+#: pool quietly fills with unwatched channels.
+ACCENT_NULL_STATES = frozenset({"by_ruling", "pending_check"})
+
 
 @dataclass(frozen=True, slots=True)
 class Channel:
@@ -39,7 +49,11 @@ class Channel:
     channel_id: str
     handle: str
     name: str
-    accent: str
+    #: **None means NOT A RELIABLE ACCENT SIGNAL, never "unknown, to be filled
+    #: in later".** Only a `by_ruling` null reaches here; a `pending_check` one
+    #: is refused. `score.accent_rotation` SKIPS a null -- it is never bucketed,
+    #: never defaulted and never counted as exposure.
+    accent: str | None
     track: str
     why: str
 
@@ -153,11 +167,48 @@ def _refuse(entry: object, seen_ids: dict[str, str]) -> str | None:
         return f"duplicate channel_id, already used by {seen_ids[channel_id]}"
 
     accent = entry["accent"]
-    if accent is None:
+    state = entry.get("accent_null")
+    # **THE CONTRACT IS ENFORCED IN BOTH DIRECTIONS, and that is what stops the
+    # two fields drifting apart.** `accent_null` is REQUIRED when `accent` is
+    # null and FORBIDDEN when it is not. A one-directional check would let an
+    # entry carry a stale `pending_check` beside a real accent, and the next
+    # reader would not know which of the two to believe.
+    if accent is not None and state is not None:
         return (
-            "accent is null -- it is AUTHORED on the channel, never detected "
-            "from a video, and authoring it means knowing it"
+            f"accent_null is set ({state!r}) on an entry whose accent is "
+            f"{accent!r}. It describes why an accent is ABSENT and means "
+            "nothing beside one that is present"
         )
+    if accent is None:
+        if state is None:
+            return (
+                "accent is null and accent_null is missing -- a null accent "
+                "must say WHICH null it is: 'by_ruling' (no single value can "
+                "be true) or 'pending_check' (nobody has watched it yet)"
+            )
+        if state not in ACCENT_NULL_STATES:
+            return (
+                f"accent_null must be one of {sorted(ACCENT_NULL_STATES)} "
+                f"(got {state!r})"
+            )
+        if state == "pending_check":
+            return (
+                "accent is null pending an operator check -- nobody has "
+                "watched this channel yet. Authoring an accent means knowing "
+                "it; this is not a channel that CANNOT have one"
+            )
+        # **`by_ruling` REQUIRES A WRITTEN REASON, and the requirement is not
+        # tidiness (operator ruling, 2026-09-01).** Without it `by_ruling`
+        # becomes the easy escape from watching a video, and `pending_check`
+        # quietly empties into it.
+        if not str(entry.get("accent_null_reason") or "").strip():
+            return (
+                "accent_null is 'by_ruling' with no accent_null_reason -- a "
+                "ruling that no single accent can be true is a claim, and a "
+                "claim with no sentence behind it is how pending_check "
+                "empties into by_ruling"
+            )
+        return None
     if accent not in ACCENTS:
         return (
             f"accent must be one of {sorted(ACCENTS)} (got {accent!r}). "

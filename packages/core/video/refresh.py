@@ -147,7 +147,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Channel pool: {len(pool.channels)} usable, {len(pool.refusals)} refused")
     for channel in pool.channels:
-        print(f"  + {channel.handle:<30} {channel.accent:<9} {channel.track}")
+        # **NOT `{channel.accent:<9}` -- that raises `TypeError: unsupported
+        # format string passed to NoneType.__format__` on a by-ruling null
+        # accent (migration 020), on the FIRST LINE THIS COMMAND PRINTS**, before
+        # a single channel is polled. `--` is shown rather than the word "None",
+        # which would read as a value.
+        accent = channel.accent if channel.accent is not None else "--"
+        print(f"  + {channel.handle:<30} {accent:<9} {channel.track}")
     for refusal in pool.refusals:
         # Named, never counted-and-dropped. A refused channel that only showed
         # up as a smaller number is a pool that shrank without anybody told.
