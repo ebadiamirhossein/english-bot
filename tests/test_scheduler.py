@@ -222,11 +222,28 @@ def test_tokyo_vilnius_24h_five_minute_polls() -> None:
 # trigger and interval.
 
 
+# **`sunday_report_poll` WAS REMOVED FROM THIS SET ON 2026-09-02 (#348), and the
+# line is quoted rather than deleted (#82's shape):**
+#
+#     "sunday_report_poll": scheduler.POLL_SECONDS,
+#
+# **The job is no longer registered.** It assembled a weekly Telegram message
+# reading `"0 of 5 active days."` followed by `"Room for a couple more next
+# week."` for a learner who had done the work every day — a numeric zero on a
+# report and a shortfall line, which is guilt with no banned word in it
+# (CLAUDE.md §4). **RULED: disable, do not repair.** W11b's `/week` is the
+# replacement and it went live the same week. The function, its pass and its
+# delivery path are all untouched; only the schedule is gone.
+#
+# **AMENDED, NOT DELETED, AND THE DISTINCTION MATTERS HERE:** this constant is
+# edited by the same change it verifies, so on its own it could never fail for
+# the right reason. `test_the_sunday_report_job_is_not_registered` below asserts
+# the absence **against the live job queue with a literal name**, which is the
+# assertion that can actually fail (#345).
 _EXPECTED_JOBS = {
     "morning_poll": scheduler.POLL_SECONDS,
     "evening_poll": scheduler.POLL_SECONDS,
     "diary_poll": scheduler.POLL_SECONDS,
-    "sunday_report_poll": scheduler.POLL_SECONDS,
     "anki_poll": scheduler.POLL_SECONDS,
     "nudge_poll": scheduler.POLL_SECONDS,
     "couple_poll": scheduler.POLL_SECONDS,
@@ -252,6 +269,87 @@ def test_start_scheduler_registers_every_job_by_name(scheduled_app) -> None:
         f"missing={set(_EXPECTED_JOBS) - registered} "
         f"unexpected={registered - set(_EXPECTED_JOBS)}"
     )
+
+
+def test_the_sunday_report_job_is_not_registered(scheduled_app) -> None:
+    """**#348. The v2 Sunday report no longer runs on a schedule.**
+
+    It sent `"0 of 5 active days."` and `"Room for a couple more next week."`
+    every Sunday to a learner who had done the work — because
+    `assemble_sunday_report` reads `count_active_days`, which filters on
+    `completed = TRUE`, a flag no `daily` row has ever carried (#259).
+
+    **RULED 2026-09-02: disable, do not repair.** Telegram is legacy and is
+    deleted at W22; W11b's `/week` is the replacement and shipped the same week;
+    and repairing a guilt message on a path scheduled for deletion is work spent
+    twice.
+
+    **THE NAME IS A LITERAL AND THE SOURCE IS THE LIVE JOB QUEUE, DELIBERATELY.**
+    Asserting `"sunday_report_poll" not in _EXPECTED_JOBS` would be a tautology —
+    that constant is edited by the same change this test verifies — and
+    asserting against `scheduler._SUNDAY_REPORT_JOB` would pass if the constant
+    were renamed while the registration stayed. **#345 has five instances and
+    two were written after the row was filed.**
+    """
+    registered = {job.name for job in scheduled_app.job_queue.jobs()}
+    assert "sunday_report_poll" not in registered
+    # **The positive control.** Without it this passes over a scheduler that
+    # registered nothing at all, which is the failure it would least be able to
+    # tell apart from success.
+    assert "morning_poll" in registered
+    assert len(registered) == 11
+
+
+def test_disabling_the_sunday_report_left_every_other_job_alone(
+    scheduled_app,
+) -> None:
+    """**#348 was narrow and this is what narrow means.** Eleven jobs, named.
+
+    The bot still delivers morning and evening prompts, diary, Anki, nudges, the
+    couple challenge, streaks, freezes, heartbeat, backup freshness and the watch
+    poll. **`english-bot.service` was NOT stopped and no other schedule changed.**
+    """
+    registered = {job.name for job in scheduled_app.job_queue.jobs()}
+    assert registered == {
+        "morning_poll",
+        "evening_poll",
+        "diary_poll",
+        "anki_poll",
+        "nudge_poll",
+        "couple_poll",
+        "streak_rollover",
+        "monthly_freeze_reset",
+        "heartbeat",
+        "backup_freshness",
+        "watch_poll",
+    }
+
+
+def test_the_sunday_report_code_is_still_there(scheduled_app) -> None:
+    """**Disabled, not deleted.** W22 removes the bot wholesale, and a partial
+    deletion now would make that harder to reason about — so the job function,
+    the poll and the assembly all still exist and simply have no schedule."""
+    assert callable(scheduler._sunday_report_job)
+    assert callable(scheduler.run_sunday_report_poll)
+    from core.services.motivation import assemble_sunday_report
+
+    assert callable(assemble_sunday_report)
+
+
+def test_the_removal_set_still_names_the_sunday_report(scheduled_app) -> None:
+    """**The name stays in the cleanup sets, and dropping it would be the bug.**
+
+    `start_scheduler` removes every known job by name before registering, and
+    `stop_scheduler` does the same. If `sunday_report_poll` were taken out of
+    those sets, a process whose job queue already held one — a soft restart, a
+    re-entrant `start_scheduler` — **would keep running it forever, because
+    nothing would remove it and nothing would re-add it.** Removing the
+    registration and keeping the removal is what actually stops it.
+    """
+    scheduler.start_scheduler(scheduled_app)
+    names = {job.name for job in scheduled_app.job_queue.jobs()}
+    assert "sunday_report_poll" not in names
+    assert scheduler._SUNDAY_REPORT_JOB == "sunday_report_poll"
 
 
 def test_start_scheduler_uses_interval_triggers(scheduled_app) -> None:

@@ -593,7 +593,13 @@ async def _watch_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def start_scheduler(application: Application) -> None:
-    """Register morning, evening, sunday report, anki, nudge, couple, streak, freeze, heartbeat, backup_freshness, watch."""
+    """Register morning, evening, diary, anki, nudge, couple, streak, freeze,
+    heartbeat, backup_freshness and watch.
+
+    **The Sunday report is deliberately absent since 2026-09-02 (#348)** -- see
+    the comment at its former registration site below. Its code is intact and
+    nothing calls it on a schedule.
+    """
     jq = application.job_queue
     if jq is None:
         raise RuntimeError(
@@ -638,12 +644,51 @@ def start_scheduler(application: Application) -> None:
         first=DIARY_FIRST_SECONDS,
         name=_DIARY_JOB,
     )
-    jq.run_repeating(
-        _sunday_report_job,
-        interval=POLL_SECONDS,
-        first=SUNDAY_REPORT_FIRST_SECONDS,
-        name=_SUNDAY_REPORT_JOB,
-    )
+    # ── #348: THE SUNDAY REPORT IS NO LONGER SCHEDULED, 2026-09-02 ───────────
+    #
+    # The registration this replaces, quoted rather than removed silently
+    # (#82's shape):
+    #
+    #     jq.run_repeating(
+    #         _sunday_report_job,
+    #         interval=POLL_SECONDS,
+    #         first=SUNDAY_REPORT_FIRST_SECONDS,
+    #         name=_SUNDAY_REPORT_JOB,
+    #     )
+    #
+    # **WHY.** `core.services.motivation.assemble_sunday_report` reads
+    # `count_active_days`, which filters on `sessions.completed = TRUE` -- a flag
+    # NO `daily` ROW HAS EVER CARRIED (#259: block 4 cannot self-report). So for
+    # a learner who moved to the web app the count is 0, the body renders
+    # **"0 of 5 active days."**, and because 0 < WEEKLY_SUCCESS_DAYS it appends
+    # **"Room for a couple more next week."** -- a numeric zero on a report
+    # followed by a line about what there was room for, sent weekly to someone
+    # who did the work every day. **Guilt with no banned word in it**, which is
+    # why `test_no_guilt_in_nudge_and_report_copy` passes over it.
+    #
+    # **RULED 2026-09-02: DISABLE, DO NOT REPAIR.** Assistant-recommended,
+    # operator-accepted. Telegram is legacy and is deleted at W22; **W11b built
+    # the replacement -- `GET /week`, PRD §4.2's report -- and it went live the
+    # same week**; and this message reaches one of three learners. Repairing a
+    # guilt message on a path scheduled for deletion is work spent twice.
+    #
+    # **NOTHING IS DELETED.** `_sunday_report_job`, `run_sunday_report_poll`,
+    # `motivation_delivery.run_sunday_report_pass`, `assemble_sunday_report` and
+    # `count_active_days` all still exist. W22 removes the bot wholesale and a
+    # partial deletion now would make that harder to reason about.
+    #
+    # **`_SUNDAY_REPORT_JOB` STAYS IN THE `known` SETS ABOVE AND IN
+    # `stop_scheduler`, AND TAKING IT OUT WOULD BE THE BUG.** Those sets are what
+    # REMOVE an existing job by name before registering. A process whose queue
+    # already holds a `sunday_report_poll` -- a soft restart, a re-entrant
+    # `start_scheduler` -- has it removed there and, from this commit, never
+    # re-added. Drop the name from the removal set and the old job survives the
+    # restart that was meant to stop it.
+    #
+    # **WHAT IS NOT FIXED BY THIS, SAID SO NOBODY READS THE SILENCE AS AN
+    # ANSWER:** `count_active_days` still filters on the unreachable flag, and
+    # **`core.services.stats` and `core.services.admin_panel` still call it**.
+    # #259 stays open; `output` still cannot self-report.
     jq.run_repeating(
         _anki_job,
         interval=POLL_SECONDS,
@@ -692,16 +737,20 @@ def start_scheduler(application: Application) -> None:
         first=WATCH_FIRST_SECONDS,
         name=_WATCH_JOB,
     )
+    # **#348: `sunday_report` IS OUT OF THIS LINE TOO, AND THAT IS NOT
+    # COSMETIC.** This is a second hand-maintained list beside the real
+    # registrations -- #255's family, and the startup log is the deploy's own
+    # liveness evidence. A line naming a job the application does not have is
+    # exactly the defect #255 was filed for, one file over.
     logger.info(
-        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s "
+        "Scheduler started jobs=%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s "
         "(poll every %ss; evening first=%ss; diary first=%ss; "
-        "sunday_report first=%ss; anki first=%ss; nudge first=%ss; "
+        "anki first=%ss; nudge first=%ss; "
         "couple first=%ss; streak/freeze every %ss; heartbeat every %ss; "
         "backup_freshness first=%ss; watch first=%ss)",
         _MORNING_JOB,
         _EVENING_JOB,
         _DIARY_JOB,
-        _SUNDAY_REPORT_JOB,
         _ANKI_JOB,
         _NUDGE_JOB,
         _COUPLE_JOB,
@@ -713,7 +762,6 @@ def start_scheduler(application: Application) -> None:
         POLL_SECONDS,
         EVENING_FIRST_SECONDS,
         DIARY_FIRST_SECONDS,
-        SUNDAY_REPORT_FIRST_SECONDS,
         ANKI_FIRST_SECONDS,
         NUDGE_FIRST_SECONDS,
         COUPLE_FIRST_SECONDS,
