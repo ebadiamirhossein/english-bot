@@ -28,6 +28,7 @@ from apps.api.routers import items as items_router
 from apps.api.routers import lessons as lessons_router
 from apps.api.routers import session as session_router
 from apps.api.routers import video as video_router
+from apps.api.routers import week as week_router
 from core.config import Settings, load_settings
 from core.logging import configure_console_logging
 from core.services.alerts import format_alert, should_send_alert
@@ -195,6 +196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(lessons_router.router)
     app.include_router(checkpoint_router.router)
     app.include_router(video_router.router)
+    app.include_router(week_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -210,6 +212,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     session_router.router,
                     lessons_router.router,
                     checkpoint_router.router,
+                    # **#255, second instance, corrected on the line this slice
+                    # was editing anyway.** W13-i registered `video_router`
+                    # above and did not add it here, so the startup log — the
+                    # deploy's own liveness evidence — has been claiming a route
+                    # set the app does not have. The blind spot itself stays
+                    # open: nothing checks these two lists agree.
+                    video_router.router,
+                    week_router.router,
                 )
                 for route in router.routes
             )

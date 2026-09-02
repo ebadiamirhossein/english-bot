@@ -485,3 +485,51 @@ class VideoTodayOut(BaseModel):
     #: rewatch, and shipping the instant invites a client to compute something
     #: from it.
     completed: bool = False
+
+
+class WeekOut(BaseModel):
+    """W11b: the Sunday weekly report. **Six numbers, and nothing that was not
+    done.**
+
+    **THERE IS NO FIELD HERE FOR `minutes`, `xp`, `completed` OR A BLOCK
+    BREAKDOWN, AND THAT IS THE MODEL'S MAIN JOB.** Each is a column nothing
+    writes — `complete_block` was `minutes` and `completed_at`'s only writer and
+    W11 removed it with the button nobody tapped; `sessions.xp` is NULL on every
+    row that exists because W19 owns the weighting — so a field for any of them
+    would put a number on the wire that is always zero. **A zero on a report is
+    a score**, and a score of zero on a week nobody promised anything about is
+    guilt with no banned word in it (CLAUDE.md §4). A client cannot render what
+    it was never given, which is the standing `murphy_units` has under #187 and
+    the coverage percentage has under #288 — applied here to an absence rather
+    than to a secret.
+
+    **NO BACKLOG KEY EITHER.** Nothing counts a missed day, a shortfall or a
+    comparison with last week: *drops are silent, raises are announced*, and
+    #160's ruling is that a screen with its own counter becomes a backlog.
+    `tests/test_week_route.py` scans this payload with `test_session_route.py`'s
+    own tuple rather than a copy of it.
+
+    **The zeros that ARE here are honest**, and `empty` is what the surface
+    reads. The no-zero rule lives on the screen, in one place — a service that
+    withheld the number would move that judgement into the client and then it
+    would live in two.
+    """
+
+    #: The Sunday this week ends on, in the learner's local calendar. PRD §4.2's
+    #: week runs Mon → Sun, so Sunday is the last day.
+    week_ending: date
+    #: Whether the learner's today IS that Sunday. **Home reads this**, because
+    #: a `new Date().getDay()` in the browser puts a learner in Vilnius on the
+    #: browser's idea of Sunday — `saturday-link.tsx` records the same reasoning.
+    sunday: bool
+
+    days_with_a_session: int
+    items_answered: int
+    items_right: int
+    cards_reviewed: int
+    words_now_known: int
+    units_passed: int
+
+    #: Nothing happened this week. Week one is both learners' state, and the
+    #: surface renders one line rather than a table of zeros.
+    empty: bool

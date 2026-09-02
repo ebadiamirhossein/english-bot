@@ -330,13 +330,20 @@ def test_a_due_card_arrives_inside_block_one(app, db, learner) -> None:
     assert review["payload"]["cards"][0]["typed"] is True
 
 
+#: Keys that would put a backlog on the wire. **Named here rather than inline so
+#: the next surface that must not carry one can import this tuple instead of
+#: writing a fifth copy** — W11b's `GET /week` does exactly that. #132's family:
+#: two hand-maintained copies of one rule is how one of them stops matching.
+BACKLOG_KEYS = ("total_remaining", "due_now", "overdue", "carried")
+
+
 def test_the_session_carries_no_backlog_number_anywhere(app, db, learner) -> None:
     """CLAUDE.md §4. Nothing in this payload counts what was not done."""
     _seed_due_card(db, learner)
     body = request(app, "GET", "/session/today", cookies=_as(learner)).json()
     assert "counts" not in body
     for block in body["blocks"]:
-        for banned in ("total_remaining", "due_now", "overdue", "carried"):
+        for banned in BACKLOG_KEYS:
             assert banned not in block["payload"]
 
 

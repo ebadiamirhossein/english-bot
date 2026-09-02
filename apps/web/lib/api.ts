@@ -600,3 +600,40 @@ export function completeCheckpoint(sessionId: number): Promise<Checkpoint> {
     method: "POST",
   });
 }
+
+/**
+ * W11b: the Sunday weekly report. PRD §4.2.
+ *
+ * **Every number here is something that HAPPENED.** There is no field for a
+ * missed day, a shortfall, a target or last week, because *drops are silent,
+ * raises are announced* and CLAUDE.md §4 forbids presenting a backlog — a
+ * report that says what did not happen is a backlog with a date on it.
+ *
+ * **And there is no `minutes`, `xp` or block breakdown**, because nothing
+ * writes those columns: they would be numbers that are always zero, and a zero
+ * on a report is a score.
+ *
+ * `empty` is the server's answer to "did anything happen this week", and the
+ * screen renders one line rather than a table of zeros when it is true.
+ */
+export type Week = {
+  /** The Sunday this week ends on. PRD §4.2's week runs Mon → Sun. */
+  week_ending: string;
+  /**
+   * Whether the learner's today IS that Sunday — **the server's answer, not the
+   * browser's.** A `new Date().getDay()` here would put a learner in Vilnius on
+   * the browser's idea of Sunday; `users.timezone` is what knows.
+   */
+  sunday: boolean;
+  days_with_a_session: number;
+  items_answered: number;
+  items_right: number;
+  cards_reviewed: number;
+  words_now_known: number;
+  units_passed: number;
+  empty: boolean;
+};
+
+export function getWeek(): Promise<Week> {
+  return request<Week>("/week");
+}

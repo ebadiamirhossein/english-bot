@@ -4,6 +4,7 @@ import { ApiStatus } from "@/components/api-status";
 import { SaturdayLink } from "@/components/checkpoint/saturday-link";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { SundayHome } from "@/components/week/sunday-home";
 
 /**
  * Home. One button, and the button is the product (PRD §4).
@@ -27,10 +28,17 @@ import { Button } from "@/components/ui/button";
  * rather than a second button: two full-width buttons on one screen is the menu
  * this page exists to refuse. It renders only when there is a sitting to go to,
  * so six days a week this page is byte-for-byte what W10 shipped.
+ *
+ * **W11b wraps the whole thing in `SundayHome`, and everything below is what a
+ * learner sees on the other six days.** PRD §4.2 gives Sunday no tasks and
+ * calls that emptiness non-negotiable, so on Sunday this page is the weekly
+ * report and the session ask is not on the screen at all. The wrapper decides
+ * from the SERVER's idea of the learner's day, never the browser's; the
+ * reasoning is in `components/week/sunday-home.tsx`.
  */
 export default function TodayPage() {
   return (
-    <>
+    <SundayHome>
       <PageHeader eyebrow="Today" title="Ready when you are.">
         One session a day, twelve minutes at the least, in the English people
         actually speak.
@@ -65,6 +73,6 @@ export default function TodayPage() {
       </section>
 
       <ApiStatus />
-    </>
+    </SundayHome>
   );
 }

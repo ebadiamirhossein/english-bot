@@ -1175,3 +1175,45 @@ def test_the_telegram_scan_keeps_the_four_docstrings_it_found() -> None:
     assert _banned_hits(
         {rel: _without_comments(raw) for rel, raw in prose.items()}, _TELEGRAM
     ) == []
+
+
+#: W11b's three surface files, named so their coverage by the scans above is an
+#: assertion rather than a consequence of a glob.
+_WEEK_SURFACE = (
+    "apps/web/components/week/report.tsx",
+    "apps/web/components/week/sunday-home.tsx",
+    "apps/web/app/(app)/week/page.tsx",
+)
+
+
+def test_the_backlog_and_guilt_scans_reach_the_weekly_report() -> None:
+    """**W11b, and this is what "the scan is extended to it" actually means.**
+
+    A weekly report is the single most likely place in this product to smuggle
+    in guilt: it is the app speaking, it is retrospective, and the natural way
+    to write one is to say what did not happen. Both scans already cover
+    `apps/web/app/` and `apps/web/components/` by construction — but a surface
+    covered by a glob is covered until somebody moves it, and then nothing says
+    so. These three paths are named.
+    """
+    scanned = set(_shipped_sources())
+    missing = [rel for rel in _WEEK_SURFACE if rel not in scanned]
+    assert missing == [], f"outside the copy scans: {', '.join(missing)}"
+
+
+def test_sundays_home_carries_no_session_call_to_action() -> None:
+    """PRD §4.2: *"No tasks… deliberate and non-negotiable"*, so **a Sunday that
+    acquires a task is a defect** (#310's own words, quoting W11b's row).
+
+    Asserted structurally as well as in `report.test.tsx`, because the way this
+    breaks is that somebody adds a button to the Sunday branch and every
+    rendering test still passes on the six other days.
+    """
+    source = _without_comments(
+        (WEB / "components" / "week" / "sunday-home.tsx").read_text(encoding="utf-8")
+    )
+    sunday = source[source.index("kind === \"sunday\"") :] if "kind === \"sunday\"" in source else source
+    assert "<Button" not in source, "Sunday's home may not carry a button"
+    assert "Start today" not in source
+    # The positive control: the branch this is asserting over really is there.
+    assert "practise anyway" in sunday
