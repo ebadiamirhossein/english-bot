@@ -5,9 +5,25 @@
  *
  * **WHAT THIS BUILDS:** a YouTube embed that resumes where the learner stopped,
  * the transcript beside it as unsynced tappable text, unknown words marked from
- * the ledger, a **qualitative** difficulty chip before play, L1 subtitles **off
- * until asked for**, whole-video 0.75×, and the progress ping that is block 2's
- * log.
+ * the ledger, a **qualitative** difficulty chip before play, whole-video 0.75×,
+ * and the progress ping that is block 2's log.
+ *
+ * **THE L1 SUBTITLE CONTROL IS GONE, 2026-09-02 (#353), AND THE OLD CLAUSE IS
+ * QUOTED RATHER THAN DELETED (#82's shape):** this sentence read *"L1 subtitles
+ * **off until asked for**"*. **It was never true in the direction that
+ * mattered.** The button toggled `showL1`, `showL1` was read by nothing but the
+ * button's own label and `aria-pressed`, and **there has never been an L1 track
+ * to show**: PRD §2.5 says it is generated from the English transcript and
+ * cached, never fetched from YouTube, and generating it is gated on §1a. A
+ * learner tapped *Show FA*, it said *Hide FA*, and nothing appeared.
+ *
+ * **#353's SECOND CLOSE, NOT ITS FIRST.** Generating the track is §1a's and
+ * unanswered; **removing a control that does nothing needs no ruling and no
+ * spend**, and this record has twice ruled that an absent feature beats a
+ * broken one — a control that answers a tap by relabelling itself leaves the
+ * learner unable to tell whether it is broken, slow, or their own fault, and
+ * that is the one thing this product's no-guilt posture cannot afford.
+ * **The control returns with the track.**
  *
  * **WHAT IT DELIBERATELY DOES NOT BUILD, AND WHY — EACH NAMED ONCE:**
  *
@@ -111,16 +127,21 @@ function useIframeApi(): boolean {
 
 export function VideoPlayer({
   payload,
-  l1Language,
 }: {
   payload: VideoBlockPayload;
+  /**
+   * **#353: KEPT ON THE CONTRACT AND UNUSED, DELIBERATELY.** Every caller
+   * already passes it, and the L1 track is this component's the day §1a is
+   * ruled; removing it would mean editing `blocks.tsx`, `runner.tsx` and their
+   * tests to put it back. It is not destructured, so nothing reads a value the
+   * player cannot act on.
+   */
   l1Language: string;
 }) {
   const ready = useIframeApi();
   const mount = useRef<HTMLDivElement | null>(null);
   const player = useRef<Player | null>(null);
   const [rate, setRate] = useState<number>(1);
-  const [showL1, setShowL1] = useState(false);
   const [completed, setCompleted] = useState(payload.completed);
   /**
    * The player's position, for the follow-along highlight only.
@@ -241,20 +262,6 @@ export function VideoPlayer({
             {option}×
           </Button>
         ))}
-        {payload.transcript_available ? (
-          <Button
-            size="sm"
-            variant="outline"
-            data-testid="toggle-l1"
-            aria-pressed={showL1}
-            onClick={() => setShowL1((on) => !on)}
-          >
-            {(showL1 ? VIDEO.subtitles.hide : VIDEO.subtitles.show).replace(
-              "{language}",
-              l1Language.toUpperCase(),
-            )}
-          </Button>
-        ) : null}
       </div>
 
       {completed ? (

@@ -90,21 +90,56 @@ describe("the coverage badge", () => {
   });
 });
 
+/**
+ * **#353. THE TWO ASSERTIONS BELOW ARE INVERTED, NOT DELETED** — W10's own
+ * precedent when home's `disabled` button was turned on: *a deleted assertion
+ * is indistinguishable from one that was forgotten.* They read, until
+ * 2026-09-02:
+ *
+ *   it("is off until the learner asks for it — PRD §7.3 and the row's criterion")
+ *     → `toggle-l1` present, `aria-pressed` false, label contains "Show"
+ *   it("names the language rather than saying “translation”")
+ *     → label contains "LT", and after a click `aria-pressed` is "true"
+ *
+ * **BOTH PASSED OVER A CONTROL THAT DID NOTHING**, and the second is the more
+ * instructive one: it clicked the button and asserted that `aria-pressed`
+ * flipped — **which is the button's own state and not evidence that anything
+ * appeared.** #345's shape, found in shipped code rather than in a new test.
+ * There has never been an L1 track to show: PRD §2.5 says it is generated from
+ * the English transcript and cached, never fetched from YouTube, and generating
+ * it is gated on §1a.
+ *
+ * **So the control is gone until it can do something** — #353's second close,
+ * not its first. A control that answers a tap by relabelling itself is worse
+ * than an absent one: the learner cannot tell whether the feature is broken,
+ * slow, or something they did wrong.
+ */
 describe("L1 subtitles", () => {
-  it("is off until the learner asks for it — PRD §7.3 and the row's criterion", () => {
+  it("offers no control while there is no track to show (#353)", () => {
     render(<VideoPlayer payload={payload()} l1Language="fa" />);
-    const toggle = screen.getByTestId("toggle-l1");
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
-    expect(toggle.textContent).toContain("Show");
+    expect(screen.queryByTestId("toggle-l1")).toBeNull();
+    // The positive control: the player DID render, so the absence above is the
+    // control being gone and not the component failing to mount (#345).
+    expect(screen.getByTestId("rate-0.75")).toBeInTheDocument();
   });
 
-  it("names the language rather than saying “translation”", async () => {
-    render(<VideoPlayer payload={payload()} l1Language="lt" />);
-    expect(screen.getByTestId("toggle-l1").textContent).toContain("LT");
-    await userEvent.click(screen.getByTestId("toggle-l1"));
-    expect(screen.getByTestId("toggle-l1").getAttribute("aria-pressed")).toBe(
-      "true",
+  it("shows no Show/Hide language affordance anywhere on the player", () => {
+    const { container } = render(
+      <VideoPlayer payload={payload()} l1Language="lt" />,
     );
+    // Scanned over the whole player rather than by test-id, so re-adding the
+    // affordance under a different id fails here too.
+    //
+    // **PLAIN SUBSTRINGS, AND THE FIRST DRAFT OF THIS LINE IS WHY.** It was
+    // written as `not.toMatch(/\bShow LT\b/)` and PASSED against the live
+    // control — `textContent` concatenates with no separator, so "Show LT" was
+    // followed directly by the transcript's "we were talking" and the trailing
+    // `\b` never matched. **An assertion that could not fail for the reason it
+    // claimed** (#345), found in this slice's own new test.
+    expect(container.textContent).not.toContain("Show LT");
+    expect(container.textContent).not.toContain("Hide LT");
+    // The positive control: the player rendered and this scan read it.
+    expect(container.textContent).toContain("0.75×");
   });
 });
 

@@ -199,8 +199,21 @@ export const VIDEO = {
     in: "Should be about right.",
     above: "Should be an easy watch.",
   },
-  /** L1 subtitles are OFF until tapped — PRD §7.3, and the row's own criterion.
-   * The control names the language the learner would get, not "translation". */
+  /**
+   * **UNRENDERED SINCE 2026-09-02 (#353), AND KEPT ON PURPOSE.** This comment
+   * read: *"L1 subtitles are OFF until tapped — PRD §7.3, and the row's own
+   * criterion. The control names the language the learner would get, not
+   * 'translation'."* — quoted rather than deleted (#82's shape), because the
+   * second sentence is a copy decision worth keeping and the first described a
+   * control that toggled nothing.
+   *
+   * **The control was removed, not the strings.** There has never been an L1
+   * track to show — PRD §2.5 has it generated from the English transcript and
+   * cached, never fetched from YouTube, and generating it is gated on §1a — so
+   * the button relabelled itself and nothing appeared. **These two strings are
+   * what the control says the day the track lands**, and re-authoring them then
+   * would mean re-making a decision that is already made.
+   */
   subtitles: {
     show: "Show {language}",
     hide: "Hide {language}",
