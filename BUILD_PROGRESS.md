@@ -4035,13 +4035,54 @@ today. **That is the only reason any of the above matters.**
    the missed set for user 3 / unit 1, and the per-target count of unattempted
    checkpoint stock. **Neither is run by this commit.**
 
-```
-psql "$DATABASE_URL" -c "SELECT unit_number, state, checkpoint_attempts, last_checkpoint_score, retake_due_on FROM user_unit_state WHERE user_id = 3;"
+**CORRECTED 2026-09-02, BEFORE EITHER WAS RUN, AND THE ERROR IS WORTH THE LINE
+IT TAKES.** The first query as first written read `user_unit_state` — state,
+attempts, score, `retake_due_on`. **That row does not contain the missed
+targets and cannot answer the question it was labelled with:
+`missed_targets` COMPUTES the set from `item_attempts ⋈ items.payload->>'grammar_target'`
+against the last failed sitting and stores nothing** (PRODUCT-PRINCIPLES §3, and
+its own docstring says so). **A read that answers a different question than its
+label is this record's #201 in the deploy runbook.** The second query was
+missing `validator_version`, which is a material omission rather than a tidy-up:
+a version-1 or -2 row is invisible to `checkpoint_items` but was being counted,
+so the query could have reported five available while the code saw four —
+**the query and the code disagreeing about the very number in dispute.**
+
+**Both are read-only. Both were run against the Mac dev database first to prove
+they parse and error nowhere; neither has been run on the host.**
+
+**(1) WHICH TARGETS WERE MISSED — the same join `missed_targets` runs, not a proxy for it:**
+
+```bash
+sudo -u bot psql -d english_bot -c "WITH last_failed AS (SELECT s.id FROM sessions s WHERE s.user_id = 3 AND s.task_type = 'checkpoint' AND s.completed IS TRUE AND (s.payload ->> 'unit_number')::int = 1 AND (s.payload ->> 'passed') = 'false' ORDER BY s.date DESC, s.id DESC LIMIT 1) SELECT DISTINCT i.payload ->> 'grammar_target' AS missed_target FROM item_attempts a JOIN items i ON i.id = a.item_id WHERE a.session_id = (SELECT id FROM last_failed) AND a.correct IS FALSE AND i.payload ->> 'grammar_target' IS NOT NULL ORDER BY 1;"
 ```
 
+**AN EMPTY RESULT IS ITSELF A FINDING AND MUST NOT BE READ AS *nothing was
+missed*:** empty means `missed_targets` returns `()`, the map would be the
+blueprint, and the demand on that target would be **4** — which contradicts the
+observed `want=5`. **Empty means the log line and this query disagree, and that
+is a bigger finding than the shortfall.**
+
+**(2) WHETHER MORE THAN ONE TARGET IS SHORT — all four at once, since
+`checkpoint_items` returns on the FIRST shortfall and cannot show the rest:**
+
+```bash
+sudo -u bot psql -d english_bot -c "SELECT t.target, (u.checkpoint -> 'per_target' ->> t.target)::int AS blueprint_wants, count(i.id) FILTER (WHERE i.validator_version = 3) AS servable_unattempted, count(i.id) AS unattempted_any_version FROM syllabus_units u CROSS JOIN LATERAL jsonb_object_keys(u.checkpoint -> 'per_target') AS t(target) LEFT JOIN items i ON i.user_id = 3 AND i.unit_number = u.unit_number AND coalesce(i.payload ->> 'cohort', 'focus') = 'checkpoint' AND i.payload ->> 'grammar_target' = t.target AND NOT EXISTS (SELECT 1 FROM item_attempts a WHERE a.item_id = i.id AND a.user_id = i.user_id) WHERE u.unit_number = 1 GROUP BY 1, 2 ORDER BY 1;"
 ```
-psql "$DATABASE_URL" -c "SELECT payload->>'grammar_target' AS target, count(*) FROM items i WHERE i.user_id = 3 AND i.unit_number = 1 AND coalesce(i.payload->>'cohort','focus') = 'checkpoint' AND NOT EXISTS (SELECT 1 FROM item_attempts a WHERE a.item_id = i.id AND a.user_id = i.user_id) GROUP BY 1 ORDER BY 2;"
-```
+
+**THE TWO COUNT COLUMNS ARE DELIBERATE AND MUST NOT BE COLLAPSED INTO ONE.**
+`servable_unattempted` is what `checkpoint_items` can actually serve
+(`VALIDATOR_VERSION = 3`); `unattempted_any_version` is every unattempted
+checkpoint row. **If they differ, the shortfall is a stale-validator problem and
+NOT a generation problem, and the two have completely different fixes** — one is
+a re-validation, the other is a billed run. One number would hide which.
+**`3` is `core.items.VALIDATOR_VERSION` today; it has moved twice (W5a, W5c) and
+must be re-read from the constant, never assumed, if this query is run later.**
+
+**`blueprint_wants` is the FIRST-SITTING demand, not the retake's.** The retake
+map is `quota_map` re-weighted by query (1)'s answer and is computed in Python,
+not in SQL — **so the comparison is: query (1) gives the missed set, the
+re-weighted map gives the demand, and `servable_unattempted` is the supply.**
 
 4. **T1 — three assigned videos, five #316 channels. Before §1a, not after.** It
    closes **#316** and **W12b's human check** together and **gates §1a's spend.**
