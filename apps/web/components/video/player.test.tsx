@@ -2,11 +2,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { VideoBlockPayload } from "@/lib/api";
+import type { SaveWordResult, VideoBlockPayload } from "@/lib/api";
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return { ...actual, reportVideoProgress: vi.fn() };
+  return { ...actual, reportVideoProgress: vi.fn(), saveWord: vi.fn() };
 });
 
 const api = await import("@/lib/api");
@@ -382,5 +382,61 @@ describe("the synced highlight", () => {
       <Transcript text={TEXT} unknownLemmas={[]} language="en" />,
     );
     expect(container.textContent).toBe(TEXT);
+  });
+});
+
+
+/**
+ * W13-ii — the tap. **#178's three states on a screen.**
+ *
+ * The route's own tests cover the states on the wire; these cover that the
+ * learner is told three different things, and that none of them reads as a
+ * failure they caused.
+ */
+describe("saving a tapped word", () => {
+  beforeEach(() => {
+    vi.mocked(api.saveWord).mockReset();
+  });
+
+  async function tap(state: SaveWordResult["state"]) {
+    vi.mocked(api.saveWord).mockResolvedValue({ state, card_ids: [1, 2] });
+    render(<VideoPlayer payload={payload()} l1Language="fa" />);
+    await userEvent.click(screen.getByText("rent"));
+    return screen.findByTestId("save-word-result");
+  }
+
+  it("says nothing at all until a word is tapped", () => {
+    render(<VideoPlayer payload={payload()} l1Language="fa" />);
+    expect(screen.queryByTestId("save-word-result")).toBeNull();
+    // The positive control: the transcript rendered, so there WAS something to
+    // tap and the silence above is the initial state (#345).
+    expect(screen.getByText("rent")).toBeInTheDocument();
+  });
+
+  it("confirms a save", async () => {
+    expect(await tap("saved")).toHaveTextContent("Added to your deck.");
+  });
+
+  it("says already saved without saying anything went wrong (#178)", async () => {
+    const message = await tap("already_saved");
+    expect(message).toHaveTextContent("Already in your deck.");
+    // Same element, same styling as the success line — a second tap is a normal
+    // thing to do and is not an error state.
+    expect(message.className).not.toMatch(/destructive|error|red/);
+  });
+
+  it("says a word has no definition yet without blaming anyone (§1a)", async () => {
+    expect(await tap("no_gloss")).toHaveTextContent(
+      "No definition for that one yet.",
+    );
+  });
+
+  it("does not claim a save before the server has answered", async () => {
+    // **The anti-optimistic assertion, and it is the one a screenshot cannot
+    // make.** A promise that never settles: the message must not appear.
+    vi.mocked(api.saveWord).mockReturnValue(new Promise(() => {}));
+    render(<VideoPlayer payload={payload()} l1Language="fa" />);
+    await userEvent.click(screen.getByText("rent"));
+    expect(screen.queryByTestId("save-word-result")).toBeNull();
   });
 });

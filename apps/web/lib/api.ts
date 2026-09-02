@@ -637,3 +637,31 @@ export type Week = {
 export function getWeek(): Promise<Week> {
   return request<Week>("/week");
 }
+
+/**
+ * W13-ii: one tap on a transcript word → two cards.
+ *
+ * **THREE STATES AND NONE OF THEM IS AN ERROR.** `already_saved` is #178: a
+ * learner who taps a word twice did a normal thing, and the raw
+ * `UniqueViolation` underneath used to reach them as a 500. `no_gloss` is §1a's
+ * PRE-GENERATE ruling on the wire — the definition is written before the week
+ * by a human-run command, so a word nobody generated stays ungiossed and **the
+ * app does not reach a model to fix that while the learner waits.**
+ *
+ * **No definition comes back.** The learner reads it in the deck, where
+ * `card_face` is the single producer (#190).
+ */
+export type SaveWordResult = {
+  state: "saved" | "already_saved" | "no_gloss";
+  card_ids: number[];
+};
+
+export function saveWord(
+  videoId: number,
+  word: string,
+): Promise<SaveWordResult> {
+  return request<SaveWordResult>(`/video/${videoId}/save-word`, {
+    method: "POST",
+    body: JSON.stringify({ word }),
+  });
+}

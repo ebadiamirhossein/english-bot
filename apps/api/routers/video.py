@@ -37,7 +37,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from apps.api.deps import rate_limit, require_current_user
-from apps.api.schemas import VideoProgressIn, VideoTodayOut
+from apps.api.schemas import SaveWordIn, SaveWordOut, VideoProgressIn, VideoTodayOut
+from core.services import cards as cards_service
 from core.services import video as video_service
 from core.services.auth import AuthenticatedUser
 
@@ -147,3 +148,46 @@ def progress(
     if updated is None:
         raise HTTPException(status_code=404, detail="not_assigned")
     return _out(updated)
+
+
+@router.post(
+    "/{video_id}/save-word",
+    response_model=SaveWordOut,
+    dependencies=[
+        # A learner taps a handful of words per video. Well above real use and
+        # far below anything that would make the server work for a stolen
+        # session. **This read bills nothing**: §1a is ruled PRE-GENERATE, so
+        # the definition is already a `video_glosses` row.
+        Depends(
+            rate_limit("save_word", per_client=120, overall=400, window_seconds=3600)
+        )
+    ],
+)
+def save_word(
+    video_id: int,
+    body: SaveWordIn,
+    session: AuthenticatedUser = Depends(require_current_user),
+) -> SaveWordOut:
+    """One tap on a transcript word → two cards. W13-ii, PRD §7.3.
+
+    Parses, authorises, calls **one** service function, serialises. **PLAIN
+    `def` (#7)**: it blocks on a psycopg pool checkout, and an `async def` would
+    put that on the event loop. The rule matters more here than anywhere else on
+    this router, because this is the slice whose sibling command reaches a
+    model -- and `core.services.cards.save_captured_word` deliberately does not.
+
+    **NOTHING IS GENERATED WHILE THE LEARNER WAITS.** No `core.llm`, no
+    `core.speech`, no provider SDK on this path. `tests/test_video_route.py`
+    asserts it through the network guard rather than by reading this docstring.
+
+    **A SECOND TAP IS A 200, NOT A 500** (#178). The service returns
+    `already_saved` and this route serialises it; the `UNIQUE` index stays the
+    guarantee underneath.
+    """
+    result = cards_service.save_captured_word(
+        session.id,
+        video_id=video_id,
+        word=body.word,
+        now=datetime.now(timezone.utc),
+    )
+    return SaveWordOut(state=result.state, card_ids=list(result.card_ids))

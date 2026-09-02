@@ -547,3 +547,116 @@ def test_the_purge_nulls_the_cues_with_the_transcript_on_one_clock(
 
     assert row[0] is None, "the transcript is purged"
     assert row[1] is None, "and the cues go with it, on the same clock"
+
+
+# ── W13-ii: POST /video/{id}/save-word ──────────────────────────────────────
+
+
+def _gloss(db, video_id: int, **over) -> None:
+    from core.services import glosses as glosses_svc
+
+    spec = dict(
+        video_id=video_id,
+        word="mid",
+        context_sentence="honestly that party was mid",
+        cue_start_s=12.5,
+        definition="disappointing, not as good as expected",
+        register="slang",
+        neutral_equivalent="disappointing",
+        who_says_this="younger speakers, to friends",
+        model="test-model",
+    )
+    spec.update(over)
+    glosses_svc.insert_gloss(db, **spec)
+    db.commit()
+
+
+@pytest.fixture
+def assigned(db, learner) -> int:
+    """One assigned video with a transcript, through the real writers."""
+    # **`ID_PREFIX`, and the first draft of this fixture did not use it.** This
+    # module's teardown deletes videos by `youtube_id LIKE ID_PREFIX%`, so a
+    # fixture that invents its own prefix leaves the video behind — and with it
+    # every `video_glosses` row that would have cascaded. **#340's exact shape:
+    # a global table whose test rows survive a cleanup keyed on something else.**
+    # Found by `scripts/rollback_023.sql`'s guard refusing on three leftover
+    # glosses, which is a rollback script catching a test-hygiene defect.
+    return _assign_today(
+        db, learner,
+        transcript="honestly that party was mid",
+        youtube_id=f"{ID_PREFIX}{secrets.token_hex(3)}",
+    )
+
+
+def test_saving_a_word_requires_a_session(app) -> None:
+    assert request(
+        app, "POST", "/video/1/save-word", json_body={"word": "mid"}
+    ).status_code == 401
+
+
+def test_a_tap_saves_two_cards_and_says_so(app, db, learner, assigned) -> None:
+    """User action: tapping a word in the transcript beside the player."""
+    _gloss(db, assigned)
+    response = request(
+        app,
+        "POST",
+        f"/video/{assigned}/save-word",
+        json_body={"word": "mid"},
+        cookies=_as(learner),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "saved"
+    assert len(body["card_ids"]) == 2
+
+
+def test_a_second_tap_is_two_hundred_and_not_five_hundred(
+    app, db, learner, assigned
+) -> None:
+    """**#178 at the HTTP boundary, which is the only place it was ever a bug.**
+
+    The service has always been able to return a state; the defect was that the
+    raw `UniqueViolation` reached a learner as a 500 for doing a normal thing.
+    """
+    _gloss(db, assigned)
+    first = request(
+        app, "POST", f"/video/{assigned}/save-word",
+        json_body={"word": "mid"}, cookies=_as(learner),
+    )
+    second = request(
+        app, "POST", f"/video/{assigned}/save-word",
+        json_body={"word": "mid"}, cookies=_as(learner),
+    )
+    # The positive control: the first tap really saved, so the second's state is
+    # the pre-check firing rather than both taps failing (#345).
+    assert (first.status_code, first.json()["state"]) == (200, "saved")
+    assert (second.status_code, second.json()["state"]) == (200, "already_saved")
+    assert second.json()["card_ids"] == []
+
+
+def test_an_ungiossed_word_is_a_state_and_never_a_generation(
+    app, db, learner, assigned
+) -> None:
+    """**§1a is PRE-GENERATE.** The netguard is armed session-wide, so a model
+    call on this path would raise inside the request rather than pass silently —
+    which is how we know this route generates nothing, rather than by reading
+    it."""
+    response = request(
+        app, "POST", f"/video/{assigned}/save-word",
+        json_body={"word": "nothinghasbeengeneratedforthis"}, cookies=_as(learner),
+    )
+    assert response.status_code == 200
+    assert response.json()["state"] == "no_gloss"
+
+
+def test_no_definition_crosses_the_route_boundary(app, db, learner, assigned) -> None:
+    """The tap writes cards; the learner reads them in the deck, where
+    `cards_service.card_face` is the single producer (#190). A definition on
+    this response would be a second surface for the same content."""
+    _gloss(db, assigned)
+    raw = request(
+        app, "POST", f"/video/{assigned}/save-word",
+        json_body={"word": "mid"}, cookies=_as(learner),
+    ).text
+    assert "disappointing" not in raw
+    assert "younger speakers" not in raw

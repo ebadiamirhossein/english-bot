@@ -1291,3 +1291,192 @@ def captured_cards(user_id: int) -> list[Card]:
             (user_id,),
         )
         return [_to_card(r) for r in cur.fetchall()]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# W13-ii — the capture path: one tap on a transcript word, two cards.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Which two card types a capture writes, per register. **MEASURED AGAINST 013's
+#: CHECKS ON A REAL DATABASE, all twenty (card_type, register) combinations,
+#: before this mapping was written** -- not read off the DDL, because two of the
+#: three refusals come from constraints whose names do not mention `card_type`.
+#:
+#: **THE W13 PLAN's §2e SAID `cloze + production` UNCONDITIONALLY AND THAT PAIR
+#: CANNOT BE INSERTED FOR HALF THE REGISTERS.**
+#: `cards_receptive_first_until_the_neutral_is_mastered` refuses `production`,
+#: `cloze` and `collocation` for `informal` and `slang` until
+#: `neutral_mastered_at` is set, and `cards_taboo_is_never_productive` refuses
+#: `production` for `taboo`.
+#:
+#: **This is not a workaround for a constraint; it is CLAUDE.md §4 and 013
+#: saying the same thing.** *Slang and informal items are receptive-only until
+#: the neutral equivalent is mastered.* A cloze card for a slang word is
+#: teaching production of slang, which is the rule's whole subject. So the pair
+#: is productive for `neutral`/`formal` and receptive otherwise, and the
+#: acceptance criterion -- **two cards of different `card_type`** -- is met in
+#: both branches.
+_CAPTURE_PAIRS: dict[str, tuple[str, str]] = {
+    "formal": ("cloze", "production"),
+    "neutral": ("cloze", "production"),
+    "informal": ("recognition", "audio"),
+    "slang": ("recognition", "audio"),
+    "taboo": ("recognition", "audio"),
+}
+
+
+def capture_card_types(register: str) -> tuple[str, str]:
+    """The two card types a capture of this register writes.
+
+    Raises on an unknown register rather than defaulting: a register this
+    mapping has not been measured against is a register whose CHECKs nobody has
+    driven, and guessing would move the failure to a learner's tap.
+    """
+    try:
+        return _CAPTURE_PAIRS[register]
+    except KeyError:
+        raise ValueError(
+            f"no capture pair measured for register {register!r}; "
+            f"known: {sorted(_CAPTURE_PAIRS)}"
+        ) from None
+
+
+@dataclass(frozen=True, slots=True)
+class CaptureResult:
+    """What one tap did. **Three states, and none of them is an exception.**
+
+    `saved` -- two cards written, ids returned.
+    `already_saved` -- **#178.** This learner already has this word from this
+        line. Distinct from success *and* from failure: a learner who taps twice
+        did a normal thing, and a 500 (which is what the raw `UniqueViolation`
+        would be through a route) tells them they broke something.
+    `no_gloss` -- nothing has been generated for this word. **§1a is ruled
+        PRE-GENERATE, so this is a fact rather than a prompt**: the request path
+        never generates, and an ungiossed word stays ungiossed until the
+        operator runs the command.
+    """
+
+    state: str
+    card_ids: tuple[int, ...] = ()
+
+
+def _capture_source_ref(video_id: int, cue_start_s: float | None) -> str:
+    """`video:<id>@<seconds>`, or `video:<id>` when there is no offset.
+
+    **The third state is an absent suffix and never a zero** (#330's shape): a
+    video whose cues were never stored yields a card carrying the sentence and
+    no timestamp, and `@0.000` would be a claim that the line is at the start.
+    """
+    if cue_start_s is None:
+        return f"video:{video_id}"
+    return f"video:{video_id}@{cue_start_s:.3f}"
+
+
+def save_captured_word(
+    user_id: int, *, video_id: int, word: str, now: datetime
+) -> CaptureResult:
+    """One tap on a transcript word. **The one function `POST /video/{id}/save-word`
+    calls.**
+
+    **IT REACHES NO MODEL AND CANNOT.** §1a is ruled pre-generate: the
+    definition, register, neutral equivalent and who-says-this are already a
+    `video_glosses` row, written by `python -m core.video.explain --apply` while
+    the operator was watching. This function reads that row. The standing ruling
+    of 2026-08-27 -- *the app never generates while a learner waits, and never
+    while nobody is watching* -- is held here by construction.
+
+    **THE ALREADY-SAVED PRE-CHECK IS BY `(user_id, context_sentence, front)`
+    AND NOT BY LEMMA, AND THAT IS #181's DEFERRAL.** A slang or informal card is
+    written with `lexeme_id NULL` -- outside `cards_one_card_per_lemma`, exactly
+    as the fifteen migrated recognition cards already are -- so neither that
+    index nor `lemmas_with_a_card` can see it. **The stated cost: two captures
+    of the same phrase from two DIFFERENT lines are both written**, because the
+    line is part of the key. #181's identity question stays open and this does
+    not answer it.
+
+    `now` is injected, as everywhere else in this module.
+    """
+    from core.services import glosses as glosses_service
+
+    with connection() as conn:
+        gloss = glosses_service.gloss_for(conn, video_id, word)
+        if gloss is None:
+            return CaptureResult(state="no_gloss")
+
+        with conn.cursor(row_factory=tuple_row) as cur:
+            cur.execute("SELECT title FROM videos WHERE id = %s", (video_id,))
+            title_row = cur.fetchone()
+        title = title_row[0] if title_row else None
+
+        front = gloss.word
+        with conn.cursor(row_factory=tuple_row) as cur:
+            cur.execute(
+                """
+                SELECT 1 FROM cards
+                 WHERE user_id = %s AND context_sentence = %s AND front = %s
+                 LIMIT 1
+                """,
+                (user_id, gloss.context_sentence, front),
+            )
+            seen = cur.fetchone()
+        if seen is not None:
+            return CaptureResult(state="already_saved")
+
+        # `lexeme_id` stays NULL for every capture, not only the slang ones:
+        # `resolve_capture_lemma` refuses `lemmatize` for #162's reason and a
+        # surface word from a transcript is not an inflection to fold. #181's
+        # row records the identity question this leaves open.
+        state = CardState(
+            fsrs_state="learning",
+            fsrs_step=0,
+            stability=None,
+            difficulty=None,
+            due=now,
+            last_review=None,
+            lapses=0,
+            reps=0,
+        )
+        written: list[int] = []
+        for card_type in capture_card_types(gloss.register):
+            card_id = create_card(
+                conn,
+                user_id,
+                card_type=card_type,
+                front=front,
+                back=gloss.definition,
+                register=gloss.register,
+                # 013 declared `detected` and NOTHING HAS EVER WRITTEN IT. This
+                # is the first path that does, which is what makes #126's
+                # re-tagging pass a `WHERE register_source = 'migration_default'`
+                # away rather than archaeology.
+                register_source="detected",
+                state=state,
+                source_ref=_capture_source_ref(video_id, gloss.cue_start_s),
+                context_sentence=gloss.context_sentence,
+                # **`meaning` IS SET ONLY WHERE 013's CHECK REQUIRES IT, and
+                # that is #158's family being kept as small as this writer can
+                # make it.** `card-face.tsx` renders `back` and then `meaning`
+                # beneath it; a capture has ONE explanation, so setting both to
+                # the definition prints it twice. For `neutral`/`formal` the
+                # column stays NULL and the face shows it once.
+                #
+                # **For `informal`/`slang` it CANNOT stay NULL** --
+                # `cards_informal_shows_the_four_things` requires it -- so the
+                # duplicate is unavoidable from here and is **filed as #356**
+                # rather than worked around: the fix is in the component, which
+                # is #158's own territory and is not this slice's to redesign.
+                meaning=(
+                    gloss.definition
+                    if gloss.register in ("informal", "slang")
+                    else None
+                ),
+                neutral_equivalent=gloss.neutral_equivalent,
+                who_says_this=gloss.who_says_this,
+                captured_at=now,
+                source_title=title,
+            )
+            if card_id is not None:
+                written.append(card_id)
+        conn.commit()
+
+    return CaptureResult(state="saved", card_ids=tuple(written))

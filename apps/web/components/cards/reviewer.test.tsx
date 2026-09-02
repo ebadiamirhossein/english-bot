@@ -439,3 +439,76 @@ describe("grade buttons", () => {
     expect(onGrade).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * **#158, over a card face shaped exactly as W13-ii's capture path writes it.**
+ *
+ * The bug: `migrate_chunks.py` built a production card's `front` as
+ * `meaning + "\n" + gapped_hint`, and `card-face.tsx` renders `card.meaning`
+ * again under the back — so the L1 gloss appeared twice. It stopped reproducing
+ * when #124's backfill changed what line 1 held; it was **masked, not fixed.**
+ *
+ * **W13-ii generates new fronts, so it can bring the duplicate back with
+ * nothing in the diff to explain it.** The guard is at the writer — the capture
+ * path never puts `meaning` into `front` — and this is the assertion over what
+ * the learner actually sees. #154's whole-field guard is structurally unable to
+ * see a duplicate that lives inside one field, which is why this case exists.
+ */
+describe("a card created by the W13-ii capture path", () => {
+  const captured = {
+    id: 4242,
+    card_type: "recognition",
+    // The word alone. NOT `meaning + "\n" + ...` — that is the shape #158 is.
+    front: "mid",
+    back: "disappointing, not as good as expected",
+    meaning: "disappointing, not as good as expected",
+    context_sentence: "honestly that party was mid",
+    register: "slang",
+    neutral_equivalent: "disappointing",
+    who_says_this: "younger speakers, to friends",
+    cue: null,
+  };
+
+  it("shows a neutral capture's explanation once, not twice", () => {
+    // `meaning` is NULL for a neutral capture — the writer sets it only where
+    // 013's CHECK demands it — so the face has one explanation and prints it
+    // once. **This is the case #158 broke and the one the writer controls.**
+    const neutral = { ...captured, register: "neutral", meaning: null };
+    const { container } = render(
+      <CardFace card={neutral as never} revealed l1Language="fa" />,
+    );
+    const text = container.textContent ?? "";
+    // The positive control: the string IS on the screen, so the count below is
+    // a duplicate check and not a scan over nothing (#345).
+    expect(text).toContain("disappointing, not as good as expected");
+    expect(
+      text.split("disappointing, not as good as expected").length - 1,
+    ).toBe(1);
+  });
+
+  it("PRINTS A SLANG CAPTURE'S EXPLANATION TWICE — #356, filed not fixed", () => {
+    // **An assertion of a KNOWN DEFECT, and it is here rather than absent so
+    // that fixing it is a failing test rather than a silent change.**
+    // `cards_informal_shows_the_four_things` requires `meaning` on an
+    // informal/slang card, and `card-face.tsx` renders `back` and then
+    // `meaning` — so the one explanation a capture has appears twice. The fix
+    // is in the component (#158's own territory) and W13-ii does not redesign
+    // it. **When #356 is fixed, this expectation flips to 1 and the issue
+    // closes on the same line.**
+    const { container } = render(
+      <CardFace card={captured as never} revealed l1Language="fa" />,
+    );
+    const text = container.textContent ?? "";
+    expect(
+      text.split("disappointing, not as good as expected").length - 1,
+    ).toBe(2);
+  });
+
+  it("never renders the front as the meaning", () => {
+    render(<CardFace card={captured as never} revealed={false} l1Language="fa" />);
+    expect(screen.getByText("mid")).toBeInTheDocument();
+    expect(
+      screen.queryByText("disappointing, not as good as expected"),
+    ).toBeNull();
+  });
+});

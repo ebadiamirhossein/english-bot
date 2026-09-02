@@ -486,7 +486,25 @@ MODEL_REACHING_MODULES = frozenset({"core.llm", "core.speech", "core.items.gates
 # nothing in the package that handles transcripts can reach a model at all --
 # a parsed property of the source rather than a promise in a docstring.
 VIDEO = CORE / "video"
-VIDEO_MODEL_CALLERS: set = set()
+
+# **W13-ii AMENDS THIS FROM AN EMPTY SET TO AN ALLOW-LIST OF EXACTLY ONE, and
+# the old line is quoted here rather than deleted (#82's shape):**
+#
+#     VIDEO_MODEL_CALLERS: set = set()
+#
+# **#292 pinned the emptiness BECAUSE an allow-list with one entry added later
+# would read as normal.** So the entry is added with the reason at it, and the
+# pin below is rewritten from "is empty" to "has exactly this one member" — the
+# commit that adds a second fails, which is the property the emptiness was
+# standing in for.
+#
+# **WHY THIS FILE IS THE ONE.** §1a is ruled PRE-GENERATE: definitions are
+# produced by `python -m core.video.explain`, human-run, dry by default, before
+# the week. That is the only place a transcript reaches a model in this product,
+# it happens while a person is watching, and everything else in `core/video/`
+# stays unable to reach one. **The ban did not weaken; it acquired a door with a
+# name on it.**
+VIDEO_MODEL_CALLERS: set = {VIDEO / "explain.py"}
 
 LESSONS = CORE / "lessons"
 # W10b. `gates.py` holds C1, C2 and C3; `generate.py` is the human-run generator.
@@ -978,7 +996,13 @@ def test_core_video_never_calls_the_model() -> None:
     prompt injection.
     """
     offenders: list[str] = []
-    for path in _python_files(VIDEO):
+    # **W13-ii WIDENS THE SCAN ROOT TO `core/video_api.py` (R7).** That module
+    # FETCHES the transcript through the Apify adapter; every other module here
+    # only handles what it fetched. **The fetcher was outside the fence while
+    # the handlers were inside it**, which is the wrong way round: the text is
+    # least trusted at the moment it arrives. It is scanned by the same rule and
+    # is not in the allow-list.
+    for path in [*_python_files(VIDEO), CORE / "video_api.py"]:
         if path in VIDEO_MODEL_CALLERS:
             continue
         rel = path.relative_to(REPO_ROOT)
@@ -1007,11 +1031,31 @@ def test_core_video_never_calls_the_model() -> None:
     )
 
 
-def test_the_video_model_ban_is_total_and_not_an_allow_list() -> None:
-    """Every other package names the files that may call a model. This names
-    none, and that emptiness is the guarantee -- so it is pinned, because an
-    allow-list with one entry added later would read as normal."""
-    assert VIDEO_MODEL_CALLERS == set()
+def test_the_video_model_ban_is_an_allow_list_of_exactly_one() -> None:
+    """**W13-ii: the emptiness pin becomes a one-member pin, in the diff.**
+
+    This test read, until 2026-09-02 — quoted rather than deleted (#82's shape):
+
+        def test_the_video_model_ban_is_total_and_not_an_allow_list() -> None:
+            '''Every other package names the files that may call a model. This
+            names none, and that emptiness is the guarantee -- so it is pinned,
+            because an allow-list with one entry added later would read as
+            normal.'''
+            assert VIDEO_MODEL_CALLERS == set()
+
+    **The reason for the pin has not changed and neither has its strength.** An
+    entry added later would still read as normal, so the set is pinned at its
+    exact contents rather than at its size: the commit adding a second member
+    fails here and has to argue for it in the diff, which is what the emptiness
+    was buying.
+
+    `explain.py` is the door §1a's PRE-GENERATE ruling opens. Nothing else in
+    `core/video/` may reach a model, and `test_core_video_never_calls_the_model`
+    holds that for every other file in the package.
+    """
+    assert VIDEO_MODEL_CALLERS == {VIDEO / "explain.py"}
+    # Size AND identity: `len(...) == 1` would pass for the wrong single file.
+    assert len(VIDEO_MODEL_CALLERS) == 1
 
 
 def test_cards_package_is_pure() -> None:

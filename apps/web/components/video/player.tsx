@@ -54,7 +54,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { VIDEO } from "@/components/session/copy";
 import { Transcript } from "@/components/video/transcript";
 import { Button } from "@/components/ui/button";
-import { reportVideoProgress, type VideoBlockPayload } from "@/lib/api";
+import {
+  reportVideoProgress,
+  saveWord,
+  type SaveWordResult,
+  type VideoBlockPayload,
+} from "@/lib/api";
 
 /**
  * How often the position is reported. **Fifteen seconds, and the number is a
@@ -153,6 +158,34 @@ export function VideoPlayer({
    * transcript in the third state starts no interval at all.
    */
   const [positionS, setPositionS] = useState(payload.resume_position_s);
+
+  /**
+   * W13-ii. What the last tap did, or `null` for "nothing tapped yet".
+   *
+   * **ONE MESSAGE, REPLACED, NEVER A LIST.** A tapped-word history that grew
+   * down the screen would be a counter of work done, and the one place this
+   * product has never allowed one is beside the thing the learner is doing.
+   *
+   * **`already_saved` IS NOT AN ERROR AND IS NOT STYLED AS ONE** (#178): the
+   * learner tapped a word they had already saved, which is a normal thing to do
+   * and, on a second viewing, the expected thing.
+   */
+  const [tapped, setTapped] = useState<
+    { word: string; state: SaveWordResult["state"] | "unavailable" } | null
+  >(null);
+
+  const onWordTap = useCallback(
+    (word: string) => {
+      // **Optimistic nothing.** The message appears when the server answers,
+      // because "Added to your deck" before the write lands is a claim the app
+      // cannot make -- the same reason `item-card.tsx` shows no verdict while a
+      // grade is in flight.
+      void saveWord(payload.video_id, word)
+        .then((result) => setTapped({ word, state: result.state }))
+        .catch(() => setTapped({ word, state: "unavailable" }));
+    },
+    [payload.video_id],
+  );
 
   const ping = useCallback(async () => {
     const current = player.current;
@@ -270,8 +303,25 @@ export function VideoPlayer({
         </p>
       ) : null}
 
+      {tapped ? (
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid="save-word-result"
+          aria-live="polite"
+        >
+          {tapped.state === "saved"
+            ? VIDEO.saveWord.saved
+            : tapped.state === "already_saved"
+              ? VIDEO.saveWord.already
+              : tapped.state === "no_gloss"
+                ? VIDEO.saveWord.notReady
+                : VIDEO.saveWord.unavailable}
+        </p>
+      ) : null}
+
       {payload.transcript_available && payload.transcript ? (
         <Transcript
+          onWordTap={onWordTap}
           text={payload.transcript}
           unknownLemmas={payload.unknown_lemmas}
           language={payload.transcript_lang ?? "en"}

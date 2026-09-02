@@ -218,6 +218,28 @@ export const VIDEO = {
     show: "Show {language}",
     hide: "Hide {language}",
   },
+  /**
+   * W13-ii. **What a tap says, and the three answers are three different
+   * sentences.** #178: *already saved* is not an error and must not read like
+   * one; *not ready yet* is §1a's PRE-GENERATE ruling on a screen — the word
+   * has no definition **yet**, and nothing the learner did caused that.
+   *
+   * **None of these blames anyone.** `test_no_guilt_copy_anywhere_in_the_frontend`
+   * covers this file automatically; the harder half is that none of them
+   * implies the learner should have known better, which no regex can check.
+   */
+  saveWord: {
+    saved: "Added to your deck.",
+    already: "Already in your deck.",
+    notReady: "No definition for that one yet.",
+    // **NOT `failed`.** `copy_rules.BANNED` bans the bare word in anything the
+    // app says, and `test_no_guilt_copy_anywhere_in_the_frontend` caught this
+    // key and its three uses in `player.tsx`. **The scan was right about more
+    // than the word**: a request that did not come back is the app's problem,
+    // and naming the state after a failure invites copy that reads like the
+    // learner's. `unavailable` is `BLOCK_STATES`' own word for the same thing.
+    unavailable: "Could not add that just now.",
+  },
   /** **#335.** The transcript was purged at thirty days and the video is still
    * assigned and still watchable. It says what IS there, does not apologise,
    * does not blame, and does not use the word "expired" — nothing the learner

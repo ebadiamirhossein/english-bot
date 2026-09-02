@@ -533,3 +533,39 @@ class WeekOut(BaseModel):
     #: Nothing happened this week. Week one is both learners' state, and the
     #: surface renders one line rather than a table of zeros.
     empty: bool
+
+
+class SaveWordOut(BaseModel):
+    """W13-ii: what one tap on a transcript word did.
+
+    **THREE STATES AND NONE OF THEM IS AN ERROR CODE.** `saved`,
+    `already_saved` (#178) and `no_gloss` are three different answers to three
+    different questions, and a boolean would collapse two of them. **A second
+    tap is a 200 with `already_saved`, never a 500** — the raw `UniqueViolation`
+    through a route is a server error in front of a learner who did a normal
+    thing, which is exactly what #178 was filed about.
+
+    **`no_gloss` IS A FACT AND NOT A PROMPT.** §1a is ruled PRE-GENERATE: the
+    definition is written before the week by a human-run command, so a word
+    nobody generated stays ungiossed and the request path does not reach a model
+    to fix that. The standing ruling of 2026-08-27 is held by construction here.
+
+    **No definition crosses this boundary.** The tap writes cards; the learner
+    reads them in the deck, where `card_face` is the single producer (#190). A
+    definition on this response would be a second surface for the same content.
+    """
+
+    state: Literal["saved", "already_saved", "no_gloss"]
+    card_ids: list[int] = Field(default_factory=list)
+
+
+class SaveWordIn(BaseModel):
+    """The tapped word. **Bounded, because it arrives from a client.**
+
+    No sentence, no video title, no definition: everything else the card needs
+    is already server-side in `video_glosses` and `videos`. **A client that
+    could supply the context sentence could supply any sentence**, and the card
+    would then carry text no transcript ever contained.
+    """
+
+    word: str = Field(min_length=1, max_length=80)
