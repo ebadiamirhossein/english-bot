@@ -472,11 +472,38 @@ def parse_assessment(payload: dict) -> PronunciationResult:
         # Success with no words is not a score of zero; it is no measurement.
         raise NotRecognised("Success but no words were returned")
 
+    completeness = _score(best, "CompletenessScore")
+    if completeness == 0:
+        # **#366. `CompletenessScore` is HOW MUCH OF THE REFERENCE WAS SAID, so
+        # zero means NOTHING matched -- the app did not hear the learner.**
+        #
+        # This is not caught by either guard above: the live attempt that found
+        # it returned `RecognitionStatus: Success` **with all seven words
+        # present at accuracy 0**, and W14 rendered per-word colouring for it --
+        # a verdict on an utterance nobody heard, on the surface most likely in
+        # this product to read as judgement (CLAUDE.md §4).
+        #
+        # **THE THRESHOLD IS EXACTLY ZERO, CHOSEN FROM THE THREE REAL ATTEMPTS**
+        # (52/79/50, 82/86/75, 0/0/0). There is no observation between 0 and 50,
+        # so any band in that interval would be a number this project cannot
+        # defend (rule 7) -- and zero is categorical rather than a tuning knob:
+        # *nothing matched* and *something matched* are different events.
+        #
+        # **THE ASYMMETRY POINTS THE SAME WAY.** Erring high would suppress a
+        # genuinely poor attempt, and **a poor attempt is information the
+        # learner should get**; erring at zero suppresses only the case that is
+        # not about the learner at all.
+        #
+        # **AND IT KEEPS W17's INPUT CLEAN**, which outlives the screen: a
+        # capture failure contributes ~23 phonemes at accuracy 0 and would read
+        # as catastrophic pronunciation of every sound in the sentence.
+        raise NotRecognised("CompletenessScore=0 -- nothing of the reference matched")
+
     prosody = best.get("ProsodyScore")
     return PronunciationResult(
         accuracy=_score(best, "AccuracyScore"),
         fluency=_score(best, "FluencyScore"),
-        completeness=_score(best, "CompletenessScore"),
+        completeness=completeness,
         pron_score=_score(best, "PronScore"),
         prosody=float(prosody) if isinstance(prosody, (int, float)) else None,
         words=tuple(words),

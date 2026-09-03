@@ -282,4 +282,21 @@ export const SHADOW = {
   improved: "Clearer that time.",
   unavailable: "Scoring is off today. The line is still worth saying.",
   trouble: "That didn’t come through. Have another go whenever you like.",
+  /**
+   * **#366: the app could not hear the utterance at all** — Azure matched
+   * nothing of the reference (`CompletenessScore` 0).
+   *
+   * **THE SUBJECT OF THE SENTENCE IS THE APP, DELIBERATELY.** Every natural
+   * phrasing that puts it on the learner — *speak up*, *say it louder*, *try
+   * again?* — makes a microphone problem read as a mouth problem, on the
+   * surface most likely in this product to read as judgement. `BANNED` would
+   * not catch any of them, which is why the shape is asserted in
+   * `recorder.test.tsx` and not left to the scan.
+   *
+   * **It is NOT the same string as `trouble`.** That one is a request that did
+   * not complete; this one completed and heard nothing, and the learner should
+   * know which happened.
+   */
+  notHeard: "I didn’t catch that one. The mic may not have picked it up.",
+  listening: "Listening…",
 } as const;

@@ -13,62 +13,15 @@ import userEvent from "@testing-library/user-event";
 
 import { ShadowLine, encodeWav, downmix } from "./shadow";
 import { SHADOW } from "./copy";
+import { mockAudio, polyfillBlobArrayBuffer } from "./audio-mocks";
 
-// **jsdom's `Blob` has no `arrayBuffer()`; real browsers do.** Polyfilled here
-// rather than worked around in the component: `Blob.prototype.arrayBuffer` is
-// Safari 14+ and Chrome 76+, and the two learners are on an iPhone 17 and a
-// Galaxy A34 — both far past it. **This is a test-environment gap, not a
-// product one**, and the distinction is worth stating so nobody later "fixes"
-// the component for a browser that does not exist.
-if (typeof Blob.prototype.arrayBuffer !== "function") {
-  Blob.prototype.arrayBuffer = async function arrayBuffer() {
-    return new Uint8Array([0, 0]).buffer;
-  };
-}
+polyfillBlobArrayBuffer();
 
 const WORDS = [
   { word: "I'll", accuracy: 97, clean: true },
   { word: "grab", accuracy: 100, clean: true },
   { word: "the", accuracy: 62, clean: false },
 ];
-
-function mockRecorder() {
-  const stop = vi.fn();
-  class FakeRecorder {
-    static isTypeSupported = () => true;
-    mimeType = "audio/webm;codecs=opus";
-    ondataavailable: ((e: { data: Blob }) => void) | null = null;
-    onstop: (() => void) | null = null;
-    start() {
-      this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2])]) });
-    }
-    stop() {
-      stop();
-      this.onstop?.();
-    }
-  }
-  vi.stubGlobal("MediaRecorder", FakeRecorder);
-  vi.stubGlobal("navigator", {
-    ...navigator,
-    mediaDevices: { getUserMedia: vi.fn(async () => ({ getTracks: () => [] })) },
-  });
-  vi.stubGlobal(
-    "AudioContext",
-    class {
-      sampleRate = 48000;
-      async decodeAudioData() {
-        return {
-          numberOfChannels: 1,
-          length: 4,
-          sampleRate: 48000,
-          getChannelData: () => new Float32Array([0, 0.5, -0.5, 0]),
-        };
-      }
-      async close() {}
-    },
-  );
-  return { stop };
-}
 
 describe("encodeWav", () => {
   it("writes a RIFF/WAVE header at the SOURCE rate — no resample (P0a)", () => {
@@ -91,7 +44,7 @@ describe("encodeWav", () => {
 
 describe("ShadowLine", () => {
   beforeEach(() => {
-    mockRecorder();
+    mockAudio();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
