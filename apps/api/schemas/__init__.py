@@ -569,3 +569,40 @@ class SaveWordIn(BaseModel):
     """
 
     word: str = Field(min_length=1, max_length=80)
+
+
+class ShadowWordOut(BaseModel):
+    """One word of the attempt, as the learner sees it.
+
+    **`accuracy` IS ON THE WIRE AND IS NOT RENDERED AS A NUMBER.** It drives the
+    per-word tint and the underline; the component shows no digit. PRD §7.3 asks
+    for *per-word colouring*, and a number on a person's voice is the shape
+    CLAUDE.md §4 bans (§2.6, ruled 2026-09-03).
+    """
+
+    word: str
+    accuracy: float
+    clean: bool
+
+
+class ShadowScoreOut(BaseModel):
+    """W14. **Per-word colouring, and deliberately NO aggregate scores.**
+
+    **THERE IS NO FIELD HERE FOR `accuracy`, `fluency`, `completeness` OR
+    `pron_score`, AND THAT IS THIS MODEL'S MAIN JOB.** All four are persisted in
+    `speech_attempts` because PRD §8 asks for them to be — its stated payoff is
+    **W17's** weak-spot surface — and none reaches a browser. **A client cannot
+    render what it was never given**, which is the standing `murphy_units` has
+    under #187 and the coverage percentage has under #288, applied here to a
+    score on someone's voice.
+
+    `improved` carries **raises only**: `True` when this attempt beat the last
+    on the same card, `None` for both *first attempt* and *worse*. **Drops are
+    silent** (CLAUDE.md §4), and the two cases are indistinguishable to the
+    client on purpose — a component that could tell them apart would eventually
+    say something about the drop.
+    """
+
+    attempt_id: int
+    words: list[ShadowWordOut]
+    improved: bool | None = None

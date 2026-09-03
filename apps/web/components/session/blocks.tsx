@@ -9,6 +9,7 @@ import { LessonBody } from "@/components/lessons/lesson";
 import { BlockShell } from "@/components/session/block-shell";
 import { BLOCKS, SEEN_BEFORE, NOTHING_DUE } from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
+import { ShadowLine } from "./shadow";
 import { VideoPlayer } from "@/components/video/player";
 import type {
   CardFace,
@@ -311,8 +312,17 @@ export function FocusBlock({
  * because the task is real and doing it twice is not harmful; the failure would
  * be presenting it as working content without saying it repeats.
  */
-export function OutputBlock({ block }: { block: SessionBlock }) {
+export function OutputBlock({
+  block,
+  sessionId,
+}: {
+  block: SessionBlock;
+  sessionId?: number;
+}) {
   const task = block.payload.task as string | undefined;
+  const shadow = block.payload.shadow as
+    | { card_id: number; sentence: string }
+    | undefined;
 
   return (
     <BlockShell
@@ -326,6 +336,17 @@ export function OutputBlock({ block }: { block: SessionBlock }) {
         <Empty>{BLOCKS.output.empty}</Empty>
       ) : (
         <div className="space-y-4">
+          {/* **W14: the speak half is ADDITIVE and never replaces the written
+              task.** PRD §4.1's block 4 is *Speak or write*, and until W14 it
+              only wrote. A deck with no usable sentence yields no `shadow` key
+              at all — absent, never an empty face (§1e). */}
+          {shadow ? (
+            <ShadowLine
+              cardId={shadow.card_id}
+              sentence={shadow.sentence}
+              sessionId={sessionId}
+            />
+          ) : null}
           <p className="text-base leading-relaxed" data-testid="output-task">
             {task}
           </p>

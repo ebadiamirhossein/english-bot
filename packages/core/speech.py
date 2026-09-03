@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 
 import openai
@@ -337,3 +338,147 @@ def assess_pronunciation(
 
     assert last_error is not None
     raise SpeechError(str(last_error)) from last_error
+
+
+# ---------------------------------------------------------------------------
+# W14 -- the parser. WRITTEN AGAINST P0a's RECORDED RESPONSES, NOT AGAINST A
+# GUESS. Fixtures: tests/fixtures/azure_pronunciation/*.json, 2026-09-03.
+# ---------------------------------------------------------------------------
+#
+# **WHAT THE RECORDING CHANGED, recorded because the plan said it would say so
+# if the shape differed:**
+#
+# 1. **THE FOUR AGGREGATES ARE FLAT ON `NBest[0]`** -- `AccuracyScore`,
+#    `FluencyScore`, `CompletenessScore`, `PronScore` -- and are **NOT** nested
+#    under a `PronunciationAssessment` object. The plan named this nesting as
+#    the one thing no test could establish from our side, and it was right to.
+# 2. **`ProsodyScore` IS ABSENT ENTIRELY, not null.** The add-on is not bought,
+#    so `.get()` yields None and `speech_attempts.prosody` stays NULL meaning
+#    *not measured* -- exactly what 024 reserved it for.
+# 3. **`ErrorType` IS THE STRING `"None"`, NOT JSON null.** A trap worth naming:
+#    `if word["ErrorType"]:` is TRUE for a perfectly pronounced word. Compared
+#    by value here, and `NO_ERROR` exists so no caller re-derives it.
+# 4. **`Phonemes` NEST UNDER EACH WORD**, so the flat per-phoneme array 024
+#    stores is a flatten across words. `Syllables` are also returned and are
+#    **deliberately not stored**: W17 reads phonemes, and a third granularity
+#    nobody reads is rows that could be computed (PRODUCT-PRINCIPLES §3).
+# 5. **`RecognitionStatus` sits at the TOP level**, beside `NBest`. Anything but
+#    `Success` is a real state -- a learner who said nothing -- and is refused
+#    here rather than stored as a zero.
+
+#: `ErrorType` when the word is fine. **A string, not null** -- see (3) above.
+NO_ERROR = "None"
+
+
+class NotRecognised(SpeechError):
+    """The provider heard no usable speech.
+
+    **Its own type because it is not a fault and not a low score.** A learner
+    who tapped record and said nothing has produced no measurement, and storing
+    a zero would be inventing one. The surface says *I didn't catch that* and
+    writes no row.
+    """
+
+
+@dataclass(frozen=True)
+class WordScore:
+    word: str
+    accuracy: float
+    error_type: str
+
+    @property
+    def is_clean(self) -> bool:
+        return self.error_type == NO_ERROR
+
+
+@dataclass(frozen=True)
+class PhonemeScore:
+    phoneme: str
+    accuracy: float
+
+
+@dataclass(frozen=True)
+class PronunciationResult:
+    """**Scores only. There is deliberately no field for what Azure HEARD.**
+
+    The response carries `DisplayText`, `Lexical`, `ITN` and `MaskedITN` -- four
+    spellings of a recognised transcript of the learner's voice. **None of them
+    is carried past this parser**, so no caller can persist or log one by
+    accident and `speech_attempts` has no column that could hold one
+    (CLAUDE.md §5, PRD §8, ARCHITECTURE §5:133).
+    """
+
+    accuracy: float
+    fluency: float
+    completeness: float
+    pron_score: float
+    prosody: float | None
+    words: tuple[WordScore, ...]
+    phonemes: tuple[PhonemeScore, ...]
+
+
+def _score(raw: Any, field: str) -> float:
+    value = raw.get(field)
+    if not isinstance(value, (int, float)):
+        raise SpeechError(f"missing or non-numeric {field}")
+    number = float(value)
+    if not 0.0 <= number <= 100.0:
+        # 024's CHECK would refuse it anyway; failing here names the field.
+        raise SpeechError(f"{field} out of the HundredMark range: {number}")
+    return number
+
+
+def parse_assessment(payload: dict) -> PronunciationResult:
+    """Normalise one recorded response. **Raises rather than guessing.**
+
+    Every refusal below is a shape this parser has never seen. A parser that
+    filled a default would put a number into `speech_attempts` that no
+    measurement produced -- and a fabricated score is indistinguishable from a
+    measured one a month later (W7's NULL-stability reasoning, same shape).
+    """
+    status = payload.get("RecognitionStatus")
+    if status != "Success":
+        raise NotRecognised(f"RecognitionStatus={status!r}")
+    nbest = payload.get("NBest")
+    if not isinstance(nbest, list) or not nbest:
+        raise SpeechError("NBest missing or empty")
+    best = nbest[0]
+    if not isinstance(best, dict):
+        raise SpeechError("NBest[0] is not an object")
+
+    words: list[WordScore] = []
+    phonemes: list[PhonemeScore] = []
+    for entry in best.get("Words") or ():
+        if not isinstance(entry, dict):
+            raise SpeechError("Words[] contained a non-object")
+        words.append(
+            WordScore(
+                word=str(entry.get("Word", "")),
+                accuracy=_score(entry, "AccuracyScore"),
+                # Verbatim, including the literal string "None".
+                error_type=str(entry.get("ErrorType", NO_ERROR)),
+            )
+        )
+        for item in entry.get("Phonemes") or ():
+            if not isinstance(item, dict):
+                raise SpeechError("Phonemes[] contained a non-object")
+            phonemes.append(
+                PhonemeScore(
+                    phoneme=str(item.get("Phoneme", "")),
+                    accuracy=_score(item, "AccuracyScore"),
+                )
+            )
+    if not words:
+        # Success with no words is not a score of zero; it is no measurement.
+        raise NotRecognised("Success but no words were returned")
+
+    prosody = best.get("ProsodyScore")
+    return PronunciationResult(
+        accuracy=_score(best, "AccuracyScore"),
+        fluency=_score(best, "FluencyScore"),
+        completeness=_score(best, "CompletenessScore"),
+        pron_score=_score(best, "PronScore"),
+        prosody=float(prosody) if isinstance(prosody, (int, float)) else None,
+        words=tuple(words),
+        phonemes=tuple(phonemes),
+    )

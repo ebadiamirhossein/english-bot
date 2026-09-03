@@ -133,7 +133,14 @@ export function SessionRunner() {
               sessionId={session.session_id}
             />
           );
-        if (block.kind === "output") return <OutputBlock key={block.n} block={block} />;
+        if (block.kind === "output")
+          return (
+            <OutputBlock
+              key={block.n}
+              block={block}
+              sessionId={session.session_id}
+            />
+          );
         return <CloseBlock key={block.n} block={block} />;
       })}
 

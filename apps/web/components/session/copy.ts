@@ -252,3 +252,34 @@ export const VIDEO = {
   /** The resume affordance. It never says how much is left. */
   resume: "Pick up where you left off",
 } as const;
+
+/**
+ * Block 4's speak half. W14.
+ *
+ * **THIS IS THE HIGHEST-RISK COPY IN THE APP AND IT IS WORTH SAYING WHY.** A
+ * pronunciation score is the single most likely surface here to read as a
+ * verdict on the person rather than on the attempt — #348 is the live instance
+ * of a guilt message shipping, and #303 carries PRD §8.6's open question 3:
+ * *a score on every turn may be exactly the thing that makes someone stop
+ * speaking.*
+ *
+ * So: **no number anywhere**, no "score", no percentage, no grade word. The
+ * weaker words are tinted amber and underlined; nothing announces them.
+ *
+ * `improved` is the ONLY comparison the learner ever sees, and it fires only
+ * upward — **raises announced, drops silent** (CLAUDE.md §4).
+ *
+ * `unavailable` is the quota message. **It says the scoring is off, not that
+ * the learner is done** — and it invites the line to be said anyway, because
+ * saying it aloud is the exercise and the score is only the feedback.
+ */
+export const SHADOW = {
+  prompt: "Say this out loud:",
+  start: "Say it",
+  stop: "Done",
+  again: "Say it again",
+  waiting: "Listening back…",
+  improved: "Clearer that time.",
+  unavailable: "Scoring is off today. The line is still worth saying.",
+  trouble: "That didn’t come through. Have another go whenever you like.",
+} as const;

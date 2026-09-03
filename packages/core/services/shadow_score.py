@@ -43,8 +43,12 @@ selector nobody checked.)*
 from __future__ import annotations
 
 import logging
+import struct
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
+
+from psycopg.types.json import Jsonb
 
 logger = logging.getLogger(__name__)
 
@@ -103,3 +107,241 @@ def shadow_line(conn: Any, user_id: int) -> ShadowLine | None:
     if row is None:
         return None
     return ShadowLine(card_id=int(row["id"]), sentence=str(row["context_sentence"]))
+
+
+# ---------------------------------------------------------------------------
+# The scored attempt.
+# ---------------------------------------------------------------------------
+
+#: F0 is 5 audio hours a month. The soft ceiling is 80% of it, in seconds.
+#: **A speaking surface that silently stops working is worse than one that says
+#: it is unavailable today** -- so the control is withheld with a plain message
+#: before the provider starts refusing, rather than after.
+MONTHLY_QUOTA_SECONDS = 5 * 60 * 60
+SOFT_CEILING_SECONDS = int(MONTHLY_QUOTA_SECONDS * 0.8)
+
+#: 15 s of 48 kHz mono 16-bit is ~1.44 MB. The cap is the only defence a free
+#: quota has against a recorder that never stopped.
+MAX_AUDIO_BYTES = 2_000_000
+MAX_AUDIO_SECONDS = 20.0
+
+
+class ShadowError(Exception):
+    """Base for refusals this surface states plainly to the learner."""
+
+
+class NoSuchLine(ShadowError):
+    """The card is not this learner's, or is not shadowable (§1b)."""
+
+
+class QuotaExhausted(ShadowError):
+    """This month's free scoring is spent. **Stated, never silent.**"""
+
+
+class AudioRejected(ShadowError):
+    """The upload was not the shape this surface accepts."""
+
+
+@dataclass(frozen=True)
+class ScoredAttempt:
+    """**What the LEARNER is shown: per-word colouring and nothing else.**
+
+    The four aggregates are persisted and **not** returned here — §2.6, ruled
+    2026-09-03. PRD §7.3 asks for per-word colouring; PRD §8 asks for the
+    aggregates to be PERSISTED, and its stated payoff is W17's weak-spot
+    surface, not a number on the attempt screen. **A number on a person's voice
+    is the shape CLAUDE.md §4 bans**, and #303 carries §8.6's open question 3:
+    *a score on every turn may be exactly the thing that makes someone stop
+    speaking.*
+
+    `improved` carries **raises only**: True when this attempt beat the last one
+    on the same card, and **None when it did not**. Drops are silent — the
+    screen re-renders and says nothing about the change.
+    """
+
+    attempt_id: int
+    words: tuple[dict, ...]
+    improved: bool | None
+
+
+def wav_duration_seconds(audio: bytes) -> float:
+    """Seconds of PCM, from **our own bytes** and never from the provider.
+
+    CLAUDE.md §3 rule 5: an expected value derived from the thing under test
+    proves nothing, and a quota guard that trusts the provider's own accounting
+    cannot detect the provider disagreeing. **P0a measured the gap and it is
+    real**: Azure reported `Duration` 1.65 s for audio whose own header says
+    1.72 s — it trims to recognised speech, so reading its number would
+    under-count the quota by ~4% on that sample and more on a hesitant one.
+
+    Parsed with `struct` rather than `wave.open`, deliberately: the audio-path
+    AST guard flags any call named `open`, and **weakening that guard to admit a
+    stdlib convenience is exactly the erosion S3 warns about.** It also means
+    the header is validated rather than trusted, which a client-supplied file
+    needs anyway.
+    """
+    if len(audio) < 44 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+        raise AudioRejected("not a RIFF/WAVE payload")
+    pos = 12
+    fmt: tuple[int, int, int] | None = None
+    while pos + 8 <= len(audio):
+        chunk_id = audio[pos : pos + 4]
+        (size,) = struct.unpack_from("<I", audio, pos + 4)
+        body = pos + 8
+        if chunk_id == b"fmt " and size >= 16:
+            audio_format, channels, rate = struct.unpack_from("<HHI", audio, body)
+            bits = struct.unpack_from("<H", audio, body + 14)[0]
+            if audio_format != 1 or bits != 16:
+                raise AudioRejected("need uncompressed 16-bit PCM")
+            fmt = (channels, rate, bits)
+        elif chunk_id == b"data":
+            if fmt is None:
+                raise AudioRejected("data chunk before fmt chunk")
+            channels, rate, bits = fmt
+            frame_bytes = channels * (bits // 8)
+            if rate <= 0 or frame_bytes <= 0:
+                raise AudioRejected("degenerate WAV header")
+            usable = min(size, len(audio) - body)
+            return usable / (rate * frame_bytes)
+        pos = body + size + (size % 2)
+    raise AudioRejected("no data chunk")
+
+
+def seconds_used_this_month(conn: Any, now: datetime) -> float:
+    """Our own ledger of what we sent, summed across ALL users.
+
+    Across all users because **the quota is the RESOURCE's, not the learner's**
+    — one account, two learners. A per-learner sum would let the pair spend
+    double.
+    """
+    row = conn.execute(
+        """
+        SELECT COALESCE(sum(audio_seconds), 0)::float8 AS used
+          FROM speech_attempts
+         WHERE created_at >= date_trunc('month', %s::timestamptz)
+        """,
+        (now,),
+    ).fetchone()
+    return float(row["used"]) if row else 0.0
+
+
+def _reference_for(conn: Any, user_id: int, card_id: int) -> str:
+    """This card's sentence — **re-checked against §1b, not trusted from the client.**
+
+    The client sends a `card_id` it was given, and a client can send any id. So
+    ownership AND the cue exclusion are enforced here, in the service, rather
+    than relying on the selector that produced the payload.
+    """
+    row = conn.execute(
+        f"""
+        SELECT cards.context_sentence
+          FROM cards
+         WHERE cards.id = %s
+           AND cards.user_id = %s
+           AND cards.context_sentence IS NOT NULL
+           AND length(btrim(cards.context_sentence)) >= %s
+           AND {NOT_CUE_DERIVED}
+        """,
+        (card_id, user_id, MIN_SHADOW_CHARS),
+    ).fetchone()
+    if row is None:
+        raise NoSuchLine(f"card {card_id} is not a shadowable line for this learner")
+    return str(row["context_sentence"])
+
+
+def _previous_pron_score(conn: Any, user_id: int, card_id: int) -> float | None:
+    row = conn.execute(
+        """
+        SELECT pron_score FROM speech_attempts
+         WHERE user_id = %s AND card_id = %s
+         ORDER BY created_at DESC LIMIT 1
+        """,
+        (user_id, card_id),
+    ).fetchone()
+    return float(row["pron_score"]) if row else None
+
+
+def score_attempt(
+    user_id: int,
+    card_id: int,
+    audio: bytes,
+    *,
+    session_id: int | None = None,
+    now: datetime | None = None,
+) -> ScoredAttempt:
+    """Score one spoken attempt. **The one function the route calls.**
+
+    **THE AUDIO IS HELD IN MEMORY AND DROPPED.** It is never written, cached or
+    re-encoded to disk on any path through here — success or failure — and the
+    recognised transcript never leaves `core.speech`'s parser.
+
+    **NO ROW IS WRITTEN UNLESS A MEASUREMENT EXISTS.** Every refusal below
+    raises before the INSERT, so a quota refusal, an unrecognised utterance or a
+    provider fault leaves no trace that could later read as a low score.
+
+    **THERE IS NO RETRY QUEUE.** A failed attempt is gone, and the learner is
+    invited to say it again if they want to. A queue of unscored attempts is a
+    backlog, and CLAUDE.md §4 forbids presenting one.
+    """
+    from core import speech
+    from core.db import connection
+
+    moment = now or datetime.now(timezone.utc)
+    if len(audio) > MAX_AUDIO_BYTES:
+        raise AudioRejected("recording is too long")
+    seconds = wav_duration_seconds(audio)
+    if seconds > MAX_AUDIO_SECONDS:
+        raise AudioRejected("recording is too long")
+
+    with connection() as conn:
+        reference = _reference_for(conn, user_id, card_id)
+        if seconds_used_this_month(conn, moment) + seconds > SOFT_CEILING_SECONDS:
+            raise QuotaExhausted("this month's free scoring is spent")
+        previous = _previous_pron_score(conn, user_id, card_id)
+
+    # **The provider call happens OUTSIDE the connection**, so a 20s timeout
+    # never holds a pool checkout open. The pool has 5 slots and two learners.
+    payload = speech.assess_pronunciation(audio, reference)
+    result = speech.parse_assessment(payload)
+
+    words = tuple(
+        {"word": w.word, "accuracy": w.accuracy, "error_type": w.error_type}
+        for w in result.words
+    )
+    phonemes = [
+        {"phoneme": p.phoneme, "accuracy": p.accuracy} for p in result.phonemes
+    ]
+    with connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO speech_attempts
+                (user_id, session_id, card_id, surface, reference_text,
+                 accuracy, fluency, completeness, pron_score, prosody,
+                 words, phonemes, audio_seconds, provider, created_at)
+            VALUES (%s, %s, %s, 'shadow', %s, %s, %s, %s, %s, %s,
+                    %s::jsonb, %s::jsonb, %s, 'azure', %s)
+            RETURNING id
+            """,
+            (
+                user_id, session_id, card_id, reference,
+                result.accuracy, result.fluency, result.completeness,
+                result.pron_score, result.prosody,
+                Jsonb(list(words)), Jsonb(phonemes), seconds, moment,
+            ),
+        ).fetchone()
+        conn.commit()
+
+    # **Raises announced, drops silent** (CLAUDE.md §4). `True` only on a real
+    # improvement; `None` covers both *first attempt* and *worse*, and the
+    # component has no branch that can tell those apart.
+    improved: bool | None = None
+    if previous is not None and result.pron_score > previous:
+        improved = True
+
+    logger.info(
+        "shadow attempt user=%s card=%s seconds=%.2f words=%s phonemes=%s",
+        user_id, card_id, seconds, len(words), len(phonemes),
+    )
+    return ScoredAttempt(
+        attempt_id=int(row["id"]), words=words, improved=improved
+    )
