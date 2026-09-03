@@ -84,7 +84,14 @@ def shadow_line(conn: Any, user_id: int) -> ShadowLine | None:
     **`None` IS A REAL STATE AND THE BLOCK SAYS SO PLAINLY.** A deck of cards
     that all came from a video, or all lack a context sentence, yields no line.
     That is *nothing to shadow today*, never an error and never a backlog.
+
+    **THE CONSENT GATE IS CHECKED FIRST AND COSTS A QUERY NOTHING.** A learner
+    who is not on the allowlist gets `None` -- the same answer an empty deck
+    gives -- so block 4 renders exactly as it did before W14 and the control is
+    absent rather than disabled.
     """
+    if not scoring_allowed_for(user_id):
+        return None
     row = conn.execute(
         f"""
         SELECT cards.id,
@@ -128,6 +135,52 @@ MAX_AUDIO_SECONDS = 20.0
 
 class ShadowError(Exception):
     """Base for refusals this surface states plainly to the learner."""
+
+
+# ---------------------------------------------------------------------------
+# THE CONSENT GATE. **TEMPORARY, AND #364 SAYS WHAT REMOVES IT.**
+# ---------------------------------------------------------------------------
+#
+# `speech_attempts` is the first thing this product has ever built that sends a
+# learner's **voice** to a third party. §1c's four data-processing questions are
+# **unanswered**, and the fourth is *whether the second learner should be asked
+# at all* -- she is a person whose voice would leave the country in a request
+# she did not make.
+#
+# **W14 WAS CODE-COMPLETE WITHOUT THIS AND THAT WAS A REAL GAP.** `shadow_line`
+# filtered on `cards.user_id`, which selects a learner's OWN cards and is not a
+# permission; `score_attempt` and the route had no condition at all. Deploying
+# would have put *Say it* on her phone.
+#
+# **WHAT REMOVES THE GATE -- BOTH, NOT EITHER:**
+#   1. the second learner's agreement that her voice may leave her device;
+#   2. answers to §1c's four questions (retention and whether it can be turned
+#      off; where audio is processed AND whether that holds on the FREE tier;
+#      what the DPA says about voice; whether it is special-category data).
+#
+# **IT IS NOT A FEATURE FLAG.** #364 exists so it is not cleared as one.
+
+
+class NotConsented(ShadowError):
+    """This learner is not on the allowlist.
+
+    **Mapped to 404 at the route, never 403.** A 403 announces a feature the
+    learner is excluded from, which is a worse thing to put on someone's phone
+    than nothing at all. To a blocked learner the surface is indistinguishable
+    from *no shadowable line today*, which is an ordinary state.
+    """
+
+
+def scoring_allowed_for(user_id: int, settings: Any = None) -> bool:
+    """**One condition, one home.** Both callers consult it; neither reimplements.
+
+    Empty allowlist means **nobody** -- forgetting the variable costs a feature,
+    and the opposite default would cost a voice.
+    """
+    from core.config import load_settings
+
+    cfg = settings or load_settings()
+    return user_id in cfg.shadow_allowed_user_ids
 
 
 class NoSuchLine(ShadowError):
@@ -285,6 +338,14 @@ def score_attempt(
     """
     from core import speech
     from core.db import connection
+
+    # **THE GATE FIRST, BEFORE THE AUDIO IS EVEN MEASURED.** Hiding the control
+    # is not enough: the route is reachable with any card id, so the refusal
+    # lives here too -- and it must precede the provider call, because a gate
+    # that refused after sending the audio would have already done the thing it
+    # exists to prevent.
+    if not scoring_allowed_for(user_id):
+        raise NotConsented("shadow scoring is not enabled for this learner")
 
     moment = now or datetime.now(timezone.utc)
     if len(audio) > MAX_AUDIO_BYTES:

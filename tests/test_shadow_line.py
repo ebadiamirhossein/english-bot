@@ -28,6 +28,18 @@ DECK_SENTENCE = "I'll grab a coffee before the meeting."
 CUE_FRAGMENT = "grab a coffee before the"
 
 
+@pytest.fixture(autouse=True)
+def consented(learner, monkeypatch):
+    """§1b's selector tests are about the CUE EXCLUSION, not the consent gate.
+
+    The gate (#364) is empty by default, so without this every test here would
+    pass for the wrong reason — `None` from the gate is indistinguishable from
+    `None` from the predicate under test. Asserted separately in
+    `tests/test_shadow_consent_gate.py`.
+    """
+    monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", str(learner))
+
+
 @pytest.fixture()
 def learner():
     """A user with an empty deck, rolled back afterwards."""

@@ -138,7 +138,10 @@ async def score(
             payload,
             session_id=session_id,
         )
-    except shadow_service.NoSuchLine:
+    except (shadow_service.NoSuchLine, shadow_service.NotConsented):
+        # **404 for BOTH, deliberately.** A blocked learner must not be
+        # able to tell a consent gate from an absent line: a 403 would
+        # announce a feature she is excluded from (#364).
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such line")
     except shadow_service.QuotaExhausted:
         raise HTTPException(status.HTTP_409_CONFLICT, "scoring unavailable")

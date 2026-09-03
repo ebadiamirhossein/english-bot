@@ -116,6 +116,23 @@ class Settings:
     # rather than configured, so there is one place a region can be wrong.
     azure_speech_key: str = field(default="", repr=False)
     azure_speech_region: str = ""
+    # W14 — **the consent gate, and it is TEMPORARY.** An explicit allowlist of
+    # `users.id` permitted to send audio to Azure.
+    #
+    # **EMPTY MEANS NOBODY, and that direction is the whole point** (known issue
+    # #31's shape: silence is never the default). Forgetting this variable costs
+    # a feature; the opposite default would cost a learner's voice.
+    #
+    # **WHY AN ALLOWLIST AND NOT A HARDCODED ID:** the operator is a different
+    # `users.id` on the dev database than on production, so a literal would be
+    # wrong in one of them — and a learner's id belongs in configuration, not in
+    # the repository.
+    #
+    # **WHAT REMOVES IT (#364), both and not either:** the second learner's
+    # agreement that her voice may leave her device, AND answers to §1c's four
+    # data-processing questions. It is not a feature flag and must not be
+    # cleared as one.
+    shadow_allowed_user_ids: tuple[int, ...] = ()
     # S18 hardening — operator alerts + runtime files (optional ids).
     operator_telegram_id: int | None = None
     runtime_dir: str = ""
@@ -393,6 +410,11 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
             f"(got {r2_endpoint!r})"
         )
     watch_dir = os.environ.get("WATCH_DIR", "").strip()
+    shadow_allowed_user_ids = tuple(
+        int(part.strip())
+        for part in os.environ.get("SHADOW_ALLOWED_USER_IDS", "").split(",")
+        if part.strip()
+    )
     shared_book_slugs = tuple(
         part.strip()
         for part in os.environ.get("SHARED_BOOK_SLUGS", "").split(",")
@@ -598,6 +620,7 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         r2_required=r2_required,
         watch_dir=watch_dir,
         shared_book_slugs=shared_book_slugs,
+        shadow_allowed_user_ids=shadow_allowed_user_ids,
         couple_chat_id=couple_chat_id,
         web_origin=web_origin,
         webauthn_rp_id=webauthn_rp_id,

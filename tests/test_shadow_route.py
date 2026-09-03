@@ -121,6 +121,18 @@ def azure_configured(monkeypatch):
     monkeypatch.setenv("AZURE_SPEECH_REGION", "test-region")
 
 
+@pytest.fixture(autouse=True)
+def consented(learner, monkeypatch):
+    """Put the test learner on the consent allowlist (#364).
+
+    **The allowlist is empty by default and that is deliberate**, so every test
+    in this file must opt its learner in explicitly. `tests/test_shadow_consent_gate.py`
+    asserts the closed default and the refusal; this fixture is what lets the
+    rest of the surface be exercised at all.
+    """
+    monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", str(learner.user_id))
+
+
 @pytest.fixture
 def app() -> FastAPI:
     return create_app()
