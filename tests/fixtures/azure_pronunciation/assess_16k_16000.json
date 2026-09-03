@@ -1,0 +1,312 @@
+{
+  "RecognitionStatus": "Success",
+  "Offset": 500000,
+  "Duration": 16500000,
+  "DisplayText": "I'll grab a coffee before the meeting.",
+  "SNR": 36.43972,
+  "NBest": [
+    {
+      "Confidence": 0.9886825,
+      "Lexical": "i'll grab a coffee before the meeting",
+      "ITN": "i'll grab a coffee before the meeting",
+      "MaskedITN": "i'll grab a coffee before the meeting",
+      "Display": "I'll grab a coffee before the meeting.",
+      "AccuracyScore": 98.0,
+      "FluencyScore": 100.0,
+      "CompletenessScore": 100.0,
+      "PronScore": 98.8,
+      "Words": [
+        {
+          "Word": "i'll",
+          "Offset": 500000,
+          "Duration": 1500000,
+          "Confidence": 0.0,
+          "AccuracyScore": 97.0,
+          "ErrorType": "None",
+          "Syllables": [
+            {
+              "Syllable": "ayl",
+              "Grapheme": "i'll",
+              "Offset": 500000,
+              "Duration": 1500000,
+              "AccuracyScore": 94.0
+            }
+          ],
+          "Phonemes": [
+            {
+              "Phoneme": "ay",
+              "Offset": 500000,
+              "Duration": 1000000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "l",
+              "Offset": 1600000,
+              "Duration": 400000,
+              "AccuracyScore": 81.0
+            }
+          ]
+        },
+        {
+          "Word": "grab",
+          "Offset": 2100000,
+          "Duration": 2200000,
+          "Confidence": 0.0,
+          "AccuracyScore": 100.0,
+          "ErrorType": "None",
+          "Syllables": [
+            {
+              "Syllable": "graeb",
+              "Grapheme": "grab",
+              "Offset": 2100000,
+              "Duration": 2200000,
+              "AccuracyScore": 100.0
+            }
+          ],
+          "Phonemes": [
+            {
+              "Phoneme": "g",
+              "Offset": 2100000,
+              "Duration": 500000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "r",
+              "Offset": 2700000,
+              "Duration": 500000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "ae",
+              "Offset": 3300000,
+              "Duration": 500000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "b",
+              "Offset": 3900000,
+              "Duration": 400000,
+              "AccuracyScore": 100.0
+            }
+          ]
+        },
+        {
+          "Word": "a",
+          "Offset": 4400000,
+          "Duration": 600000,
+          "Confidence": 0.0,
+          "AccuracyScore": 97.0,
+          "ErrorType": "None",
+          "Syllables": [
+            {
+              "Syllable": "ax",
+              "Grapheme": "a",
+              "Offset": 4400000,
+              "Duration": 600000,
+              "AccuracyScore": 97.0
+            }
+          ],
+          "Phonemes": [
+            {
+              "Phoneme": "ax",
+              "Offset": 4400000,
+              "Duration": 600000,
+              "AccuracyScore": 97.0
+            }
+          ]
+        },
+        {
+          "Word": "coffee",
+          "Offset": 5100000,
+          "Duration": 3500000,
+          "Confidence": 0.0,
+          "AccuracyScore": 97.0,
+          "ErrorType": "None",
+          "Syllables": [
+            {
+              "Syllable": "kaa",
+              "Grapheme": "cof",
+              "Offset": 5100000,
+              "Duration": 1900000,
+              "AccuracyScore": 97.0
+            },
+            {
+              "Syllable": "fiy",
+              "Grapheme": "fee",
+              "Offset": 7100000,
+              "Duration": 1500000,
+              "AccuracyScore": 97.0
+            }
+          ],
+          "Phonemes": [
+            {
+              "Phoneme": "k",
+              "Offset": 5100000,
+              "Duration": 500000,
+              "AccuracyScore": 97.0
+            },
+            {
+              "Phoneme": "aa",
+              "Offset": 5700000,
+              "Duration": 1300000,
+              "AccuracyScore": 97.0
+            },
+            {
+              "Phoneme": "f",
+              "Offset": 7100000,
+              "Duration": 700000,
+              "AccuracyScore": 97.0
+            },
+            {
+              "Phoneme": "iy",
+              "Offset": 7900000,
+              "Duration": 700000,
+              "AccuracyScore": 97.0
+            }
+          ]
+        },
+        {
+          "Word": "before",
+          "Offset": 8700000,
+          "Duration": 3500000,
+          "Confidence": 0.0,
+          "AccuracyScore": 100.0,
+          "ErrorType": "None",
+          "Syllables": [
+            {
+              "Syllable": "bax",
+              "Grapheme": "be",
+              "Offset": 8700000,
+              "Duration": 1500000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Syllable": "faor",
+              "Grapheme": "fore",
+              "Offset": 10300000,
+              "Duration": 1900000,
+              "AccuracyScore": 100.0
+            }
+          ],
+          "Phonemes": [
+            {
+              "Phoneme": "b",
+              "Offset": 8700000,
+              "Duration": 500000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "ax",
+              "Offset": 9300000,
+              "Duration": 900000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "f",
+              "Offset": 10300000,
+              "Duration": 500000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "ao",
+              "Offset": 10900000,
+              "Duration": 500000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "r",
+              "Offset": 11500000,
+              "Duration": 700000,
+              "AccuracyScore": 100.0
+            }
+          ]
+        },
+        {
+          "Word": "the",
+          "Offset": 12300000,
+          "Duration": 900000,
+          "Confidence": 0.0,
+          "AccuracyScore": 94.0,
+          "ErrorType": "None",
+          "Syllables": [
+            {
+              "Syllable": "dhax",
+              "Grapheme": "the",
+              "Offset": 12300000,
+              "Duration": 900000,
+              "AccuracyScore": 91.0
+            }
+          ],
+          "Phonemes": [
+            {
+              "Phoneme": "dh",
+              "Offset": 12300000,
+              "Duration": 300000,
+              "AccuracyScore": 78.0
+            },
+            {
+              "Phoneme": "ax",
+              "Offset": 12700000,
+              "Duration": 500000,
+              "AccuracyScore": 100.0
+            }
+          ]
+        },
+        {
+          "Word": "meeting",
+          "Offset": 13300000,
+          "Duration": 3700000,
+          "Confidence": 0.0,
+          "AccuracyScore": 100.0,
+          "ErrorType": "None",
+          "Syllables": [
+            {
+              "Syllable": "miy",
+              "Offset": 13300000,
+              "Duration": 1500000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Syllable": "tihng",
+              "Offset": 14900000,
+              "Duration": 2100000,
+              "AccuracyScore": 100.0
+            }
+          ],
+          "Phonemes": [
+            {
+              "Phoneme": "m",
+              "Offset": 13300000,
+              "Duration": 700000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "iy",
+              "Offset": 14100000,
+              "Duration": 700000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "t",
+              "Offset": 14900000,
+              "Duration": 500000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "ih",
+              "Offset": 15500000,
+              "Duration": 700000,
+              "AccuracyScore": 100.0
+            },
+            {
+              "Phoneme": "ng",
+              "Offset": 16300000,
+              "Duration": 700000,
+              "AccuracyScore": 100.0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
