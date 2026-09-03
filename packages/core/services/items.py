@@ -593,6 +593,41 @@ def checkpoint_held(user_id: int, *, unit_number: int) -> dict[str, int]:
 
 
 
+def checkpoint_held_any_version(user_id: int, *, unit_number: int) -> dict[str, int]:
+    """Every unattempted checkpoint row on each target, **validator version
+    ignored.** W10d.
+
+    **NOT a replacement for `checkpoint_held` and never subtracted from a
+    demand.** That function counts exactly what `checkpoint_items` would SERVE,
+    and its docstring's guarantee -- same predicate, not a second copy -- is what
+    stops `--fill` planning against a set the selector refuses. **This one counts
+    what EXISTS.**
+
+    **The pair is the whole point.** Their difference is rows the code cannot
+    serve, and it separates a GENERATION shortfall from a RE-VALIDATION one --
+    two problems with completely different fixes, one a billed run and the other
+    a re-gate. **On 2026-09-02 they were equal on all four of unit 1's targets**,
+    which is an evidenced negative rather than an absent question: the query that
+    established it needed both columns.
+
+    Built from the same fragments as `_CHECKPOINT_STOCK` minus
+    `_CURRENT_VALIDATOR`, so a change to the cohort predicate or the unattempted
+    rule reaches both and cannot drift (#132's family).
+    """
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            "SELECT items.payload ->> 'grammar_target', count(*)::int"
+            "  FROM items"
+            " WHERE items.user_id = %s AND items.unit_number = %s"
+            + " AND " + _COHORT + " = 'checkpoint'"
+            + _UNATTEMPTED
+            + " GROUP BY 1",
+            (user_id, unit_number),
+        )
+        return {row[0]: int(row[1]) for row in cur.fetchall() if row[0]}
+
+
 def items_by_id(user_id: int, item_ids: Sequence[int]) -> list[ItemPresentation]:
     """The named items, **in the order asked for**. #269's read.
 

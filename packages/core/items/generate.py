@@ -1612,6 +1612,128 @@ def unit_plan(
     return plan
 
 
+# ── the shortfall, WHOLE ─────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class ShortfallRow:
+    """One target's demand against what the bank can actually serve.
+
+    `servable` is what `checkpoint_items` would serve -- the same
+    `_CHECKPOINT_STOCK` predicate, `validator_version` filter included.
+    `any_version` is every unattempted checkpoint row on the target.
+    **`stale` is the difference, and the two columns are here because that
+    difference tells a GENERATION shortfall apart against a RE-VALIDATION one,
+    and the two have completely different fixes.** On 2026-09-02 they were equal
+    on every row of unit 1 -- an evidenced negative, not an absent question.
+
+    *(Worded around the word pair the purity scanner treats as a statement: it
+    flagged this docstring, correctly, and the scan is blunt by design. The
+    response is prose that does not read as SQL, never an exemption.)*
+    """
+
+    target: str
+    demand: int
+    servable: int
+    any_version: int
+
+    @property
+    def short(self) -> int:
+        """Never negative: a re-weighted retake can want FEWER of a target than
+        a first sitting bought, and `_shortfall_slots` clamps at zero rather
+        than raising. This agrees with it rather than reimplementing it."""
+        return max(0, self.demand - self.servable)
+
+    @property
+    def stale(self) -> int:
+        return max(0, self.any_version - self.servable)
+
+
+def shortfall_table(
+    demand: dict[str, int],
+    held: dict[str, int],
+    held_any_version: dict[str, int],
+) -> tuple[ShortfallRow, ...]:
+    """Every target's shortfall. **EVERY target, never the first.**
+
+    **THE MEASURED FAILURE THIS EXISTS AGAINST.** `checkpoint_items` returns on
+    the first target it cannot fill, so on 2026-09-02 its `INFO` line reported
+    `have=4 want=5` -- a shortfall of ONE -- against an actual shortfall of
+    FIVE across TWO targets, understating it by 80% **deterministically rather
+    than by chance**, because it iterates the blueprint's key order. Acting on
+    that line would have bought one item, spent real money, left the retake
+    blocked, and produced a second identical-looking line reading as fresh news.
+
+    **`checkpoint_items` IS NOT CHANGED BY THIS.** Refusing a cohort whole on
+    the first unfillable target is correct -- it is what stops a short checkpoint
+    reaching a learner. **The defect was never the early return; it was that its
+    only reader was a log line.** The run reports the whole shortfall; the
+    selector keeps refusing.
+
+    Satisfied targets are included. A table listing only the shortfalls could not
+    show that the others were checked.
+    """
+    return tuple(
+        ShortfallRow(
+            target=target,
+            demand=int(wanted),
+            servable=int(held.get(target, 0)),
+            any_version=int(held_any_version.get(target, held.get(target, 0))),
+        )
+        for target, wanted in demand.items()
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ExposureRow:
+    """One target's blueprint allocation against the worst retake could ask."""
+
+    target: str
+    allocation: int
+    worst_case: int
+
+    @property
+    def gap(self) -> int:
+        return max(0, self.worst_case - self.allocation)
+
+
+def worst_case_exposure(unit_number: int) -> tuple[ExposureRow, ...]:
+    """**#352's generalisation, printed before it is met rather than after.**
+
+    *A retake that misses a low-allocation target is structurally unfillable
+    from a bank built to the blueprint.* Unit 1's composite target has an
+    allocation of **1**; `quota_map` re-weights a missed target to **5**; a bank
+    built to the blueprint therefore holds at most 1 where the retake needs 5.
+
+    The worst case is the maximum this target's quota reaches across every
+    non-empty missed-set -- computed, not assumed, because `quota_map`'s
+    re-weighting is not a formula this function is entitled to restate.
+
+    **MEASURED AND REPORTED, NEVER ENFORCED (#197's shape).** This slice does not
+    buy a bigger bank: building to the worst case is 20 items per unit against
+    the blueprint's 12, bought before anyone has failed anything, and that is a
+    product decision about the checkpoint's cost model rather than a generator
+    change. **Filed, not answered.**
+    """
+    from itertools import combinations
+
+    from core.syllabus.content import units
+
+    unit = {u.unit_number: u for u in units()}[unit_number]
+    allocation = dict(unit.checkpoint["per_target"])
+    targets = list(allocation)
+    worst = {t: allocation[t] for t in targets}
+    for size in range(1, len(targets) + 1):
+        for missed in combinations(targets, size):
+            quotas = checkpoint_quotas(allocation, list(missed))
+            for target, wanted in quotas.items():
+                worst[target] = max(worst[target], int(wanted))
+    return tuple(
+        ExposureRow(target=t, allocation=allocation[t], worst_case=worst[t])
+        for t in targets
+    )
+
+
 # ── dry run ─────────────────────────────────────────────────────────────────
 
 
@@ -1854,6 +1976,63 @@ def dry_run(
               "bytes). A live run\n     APPENDS, and the rebuilt report takes the "
               "last write per slot — move it\n     aside first unless you mean to "
               "continue it. **")
+
+    # **THE WHOLE SHORTFALL, NEVER THE FIRST — W10d COMMIT 1.**
+    #
+    # Printed only when the run was told what the bank holds, because without
+    # `held` there is nothing to subtract and a table of zeros would read as a
+    # measurement. **`checkpoint_items`'s early return is untouched**; this is
+    # the reader that log line never had.
+    if checkpoint and held is not None:
+        from core.services.items import checkpoint_held_any_version
+
+        print("\n=== the shortfall, per target ===")
+        print("  demand is the map that APPLIES: the blueprint for a first "
+              "sitting, the\n  re-weighted retake map when --retake named a "
+              "failed sitting.")
+        for number in numbers:
+            entry = plan[number]
+            demand = checkpoint_quotas(
+                dict(entry["unit"].checkpoint["per_target"]),
+                (missed or {}).get(number, ()),
+            )
+            rows = shortfall_table(
+                demand,
+                held.get(number, {}),
+                checkpoint_held_any_version(user_id, unit_number=number),
+            )
+            print(f"  unit {number}:")
+            print(f"    {'demand':>6} {'servable':>8} {'anyver':>6} "
+                  f"{'short':>5}  target")
+            for row in rows:
+                flag = "  <-- SHORT" if row.short else ""
+                stale = "  (stale rows the selector cannot serve)" if row.stale else ""
+                print(f"    {row.demand:>6} {row.servable:>8} {row.any_version:>6} "
+                      f"{row.short:>5}  {row.target}{flag}{stale}")
+            total = sum(r.short for r in rows)
+            print(f"    ** {total} items short across "
+                  f"{sum(1 for r in rows if r.short)} target(s). "
+                  f"Held {sum(r.servable for r in rows)}, "
+                  f"demanded {sum(r.demand for r in rows)}. **")
+            if total and sum(r.servable for r in rows) == sum(r.demand for r in rows):
+                print("    ** The bank holds exactly what the sitting needs and "
+                      "STILL cannot fill it:\n       the right NUMBER in the "
+                      "wrong SHAPE. A guard asking `are there twelve?`\n       "
+                      "answers yes. (#352) **")
+
+            # **#352's generalisation, before it is met rather than after.**
+            # Measured and reported, never enforced (#197's shape).
+            exposure = [e for e in worst_case_exposure(number) if e.gap]
+            if exposure:
+                print(f"  unit {number} — worst-case retake exposure "
+                      "(reported, never enforced):")
+                for e in exposure:
+                    print(f"    allocation {e.allocation} -> a retake missing "
+                          f"this target wants {e.worst_case} "
+                          f"(gap {e.gap})  {e.target}")
+                print("    ** A retake that misses a low-allocation target is "
+                      "unfillable from a\n       bank built to the blueprint. "
+                      "This slice does not buy a bigger bank. **")
 
     print("\n=== billed calls ===")
     ceiling = (
@@ -2335,20 +2514,57 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--retake only means anything with --checkpoint")
     if args.fill and not args.checkpoint:
         parser.error("--fill only means anything with --checkpoint")
-    if args.fill and args.retake:
-        # **The error says WHY, not just no.** Both adjust the twelve and they
-        # adjust it from opposite directions: `--retake` RE-WEIGHTS a fresh
-        # sitting toward the targets a learner missed, and `--fill` SUBTRACTS the
-        # items already banked. Combining them has a defensible meaning -- top up
-        # a re-weighted sitting -- and nobody has needed it, so it is refused
-        # rather than given a semantics invented at the parser.
-        parser.error(
-            "--fill and --retake cannot be combined. --retake re-weights a fresh "
-            "sitting toward missed targets; --fill subtracts what is already "
-            "banked. Both adjust the same twelve from opposite directions, and no "
-            "combined meaning has been ruled. Run the retake plan, then --fill "
-            "against what it leaves short."
-        )
+    # ── #352 / W10d COMMIT 1: `--fill --retake` IS PERMITTED, 2026-09-03 ─────
+    #
+    # **THE REFUSAL THIS REPLACES, QUOTED WHOLE WITH ITS ARGUMENT INTACT (#82's
+    # shape), BECAUSE A REFUSAL DELETED WITHOUT ITS ARGUMENT ANSWERED IS HOW THE
+    # NEXT PERSON RE-ADDS IT:**
+    #
+    #     if args.fill and args.retake:
+    #         # **The error says WHY, not just no.** Both adjust the twelve and
+    #         # they adjust it from opposite directions: `--retake` RE-WEIGHTS a
+    #         # fresh sitting toward the targets a learner missed, and `--fill`
+    #         # SUBTRACTS the items already banked. Combining them has a
+    #         # defensible meaning -- top up a re-weighted sitting -- and nobody
+    #         # has needed it, so it is refused rather than given a semantics
+    #         # invented at the parser.
+    #         parser.error(
+    #             "--fill and --retake cannot be combined. --retake re-weights a "
+    #             "fresh sitting toward missed targets; --fill subtracts what is "
+    #             "already banked. Both adjust the same twelve from opposite "
+    #             "directions, and no combined meaning has been ruled. Run the "
+    #             "retake plan, then --fill against what it leaves short."
+    #         )
+    #
+    # **THIS IS A RULING, NOT A FIX. THE PARSER CONTAINED NO BUG.** Its message
+    # said no combined meaning had been ruled, and it was right: nobody had
+    # ruled one, and refusing an undecided semantics is the correct thing to do
+    # with an undecided semantics. **Assistant-recommended, operator-accepted
+    # 2026-09-02**, with three alternatives declined on the record (a third
+    # `--top-up` flag; making `--fill` imply the retake map, which would let a
+    # DATABASE READ change what a flag means; and making `--retake` subtract
+    # automatically, which removes the operator's ability to buy a fresh twelve
+    # deliberately).
+    #
+    # **THE SENTENCE TO WITHDRAW IS *both adjust the same twelve from opposite
+    # directions*.** They answer different questions: **`--retake` adjusts WHICH
+    # twelve; `--fill` adjusts HOW MANY of them still need buying.** Composed,
+    # they are `checkpoint_quotas(demand, missed)` minus `held` -- which
+    # `unit_plan` has always computed and nothing could reach.
+    #
+    # **AND ITS OWN SUGGESTED WORKAROUND NEVER REACHED THIS CASE:** *run the
+    # retake plan, then --fill against what it leaves short* fails because
+    # `--fill`'s demand is the BLUEPRINT's, not the retake's -- measured on
+    # #352, where `--fill` alone plans zero against a bank that is five short.
+    #
+    # **MEASURED BEFORE THE CHANGE, on user 3 / unit 1: first sitting 12 slots,
+    # `--retake` alone 12 (buys twelve to get five), `--fill` alone 0, both 5 --
+    # one past continuous and four composite, which is #352's answer exactly.**
+    #
+    # **THE REFUSAL BELOW IS A DIFFERENT ONE AND IS NOT TOUCHED:** `--retake`
+    # without a failed sitting still errors, and it must keep firing when
+    # `--fill` is present. Deleting one `parser.error` next to another is
+    # exactly how the second one goes with it.
     chosen_types = None
     if args.types:
         chosen_types = tuple(t.strip() for t in args.types.split(",") if t.strip())
@@ -2374,6 +2590,13 @@ def main(argv: list[str] | None = None) -> int:
     # **The missed targets are READ, not passed in.** A retake's re-weighting is
     # a fact about what this learner got wrong, and asking an operator to type it
     # is asking them to be the source of truth for something the database holds.
+    # **W10d COMMIT 1, AND THIS IS THE WHOLE MECHANISM: EACH IS COMPUTED ON ITS
+    # OWN FLAG AND NEITHER EXCLUDES THE OTHER.** `unit_plan` has always composed
+    # them -- `checkpoint_quotas(demand, missed)` minus `held`, one expression --
+    # and until 2026-09-03 the parser refused the invocation that reached it.
+    #
+    # `--retake` decides WHICH twelve; `--fill` decides HOW MANY of them still
+    # need buying. Different questions, so neither branch is an `elif`.
     missed: dict[int, tuple[str, ...]] | None = None
     held = None
     if args.fill:
