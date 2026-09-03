@@ -447,6 +447,12 @@ BLOCKING_CALLS = {
     ("llm", "chat"),
     ("speech", "transcribe"),
     ("speech", "synthesize"),
+    # W14. Added in the same commit as the wrapper, because **a sweep that does
+    # not know about a new blocking call passes vacuously** -- CLAUDE.md §3
+    # rule 4, a green test over an unreachable path. `assess_pronunciation`
+    # posts to a provider with a 20s timeout, so an `async def` route holding it
+    # would stall every other request this worker is serving.
+    ("speech", "assess_pronunciation"),
 }
 HTTP_METHODS = frozenset(
     {"get", "post", "put", "patch", "delete", "head", "options"}

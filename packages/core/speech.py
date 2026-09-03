@@ -13,6 +13,7 @@ from typing import Any
 
 import openai
 
+from core import speech_api
 from core.config import Settings, load_settings
 
 logger = logging.getLogger(__name__)
@@ -219,3 +220,120 @@ def _speech_response_bytes(response: Any) -> bytes:
         data = response.read()
         return bytes(data)
     raise SpeechError("TTS response contained no audio bytes")
+
+
+# ---------------------------------------------------------------------------
+# W14 -- Azure pronunciation assessment
+# ---------------------------------------------------------------------------
+#
+# **THIS IS THE REQUEST HALF ONLY. THE PARSER IS DELIBERATELY NOT HERE.**
+#
+# CLAUDE.md §3 rule 2 fires: new provider, new request construction. Azure's
+# pronunciation-assessment RESPONSE SHAPE is the one thing in this slice no test
+# can establish from our side -- the nesting of the four aggregates, the
+# per-word list, the per-phoneme list, and what a quota refusal looks like on
+# the wire. **A mock built from a guessed shape is a mocked suite passing over a
+# malformed request, which is rule 2's originating failure verbatim.**
+#
+# So `assess_pronunciation` returns the provider's decoded JSON UNCHANGED, and
+# normalisation into `speech_attempts`' columns is written against a RECORDED
+# response from `python -m core.speech_probe` (P0a), not against this file's
+# assumptions. **On F0 that call is free, so there is no reason to defer it and
+# every reason to make it a stop point.**
+#
+# EVERY CONSTANT BELOW IS UNVERIFIED UNTIL P0a RUNS. If the probe shows the
+# shape differs from what the plan assumed, **the plan is wrong and says so**
+# (W10c's precedent, where one real call found a bug that would otherwise have
+# failed at `--apply` on production after a whole run was paid for).
+
+#: The only audio shape this wrapper sends: **mono 16-bit PCM WAV**, produced in
+#: the browser (§1c) because the two learners' phones emit mp4/AAC and
+#: webm/Opus, neither natively accepted, and putting GStreamer or ffmpeg on a
+#: SHARED production host is refused outright (CLAUDE.md §5).
+#:
+#: **THE SAMPLE RATE IS A PARAMETER AND NOT A CONSTANT, AND THAT IS S2.** P0a
+#: sends 16 kHz *and* 48 kHz: if the native rate is accepted there is no
+#: resample in the browser at all and WebKit's `OfflineAudioContext` refusal
+#: (#362) stops mattering. This default is the conservative one.
+DEFAULT_SAMPLE_RATE_HZ = 16000
+
+
+class SpeechQuotaExceeded(SpeechError):
+    """The provider refused for quota or concurrency reasons.
+
+    **Its own type because the surface must behave differently.** Every other
+    `SpeechError` is a fault; this one is a stated, expected condition on a free
+    tier and the screen says *scoring is off today* rather than showing an
+    error. Separating them is what stops a quota refusal being rendered as a
+    failure of the learner's attempt.
+    """
+
+
+def assess_pronunciation(
+    audio: bytes,
+    reference_text: str,
+    *,
+    sample_rate_hz: int = DEFAULT_SAMPLE_RATE_HZ,
+    language: str = "en-US",
+    settings: Settings | None = None,
+) -> dict:
+    """Score `audio` against `reference_text`. Returns the provider's raw JSON.
+
+    **NOTHING IS WRITTEN TO DISK ON ANY PATH THROUGH THIS FUNCTION.** The bytes
+    arrive in memory, go out as a request body, and are dropped. There is no
+    `open`, no `tempfile`, no `Path.write_*` and no `shutil` here or anywhere
+    below it -- asserted by an AST test rather than promised by this sentence
+    (CLAUDE.md §5, PRD §8, W14 test 4).
+
+    **THE RECOGNISED TRANSCRIPT IN THE RESPONSE IS THE CALLER'S TO DISCARD.**
+    It is never persisted and never logged; `speech_attempts` has no column that
+    could hold one.
+
+    **RETRY POLICY DIVERGES FROM `transcribe`/`synthesize` DELIBERATELY.** Those
+    retry 429 with backoff. This does not: on F0 a 429 is concurrency between
+    two learners, a backoff would extend a wait a learner is sitting through
+    (§1a bounds it at ~1-2 s), and the surface's answer to *unavailable* is to
+    say so plainly rather than to stall. **Timeouts, connection errors and 5xx
+    still retry** -- those are faults, not refusals.
+    """
+    cfg = settings or load_settings()
+    if not cfg.azure_speech_key or not cfg.azure_speech_region:
+        raise SpeechError(
+            "AZURE_SPEECH_KEY and AZURE_SPEECH_REGION are not both set"
+        )
+    if not reference_text.strip():
+        raise SpeechError("reference_text is empty")
+    if not audio:
+        raise SpeechError("no audio bytes")
+
+    last_error: Exception | None = None
+    for attempt, delay in enumerate(_RETRY_BACKOFF_SECONDS):
+        try:
+            return speech_api.post_pronunciation_assessment(
+                audio,
+                reference_text,
+                sample_rate_hz=sample_rate_hz,
+                language=language,
+                settings=cfg,
+            )
+        except speech_api.ProviderRefused as exc:
+            # A stated condition, not a fault: re-raised as this module's own
+            # type so callers depend on `core.speech` and never on the door.
+            raise SpeechQuotaExceeded(str(exc)) from exc
+        except speech_api.Retriable as exc:
+            last_error = exc
+            logger.warning(
+                "pronunciation retriable failure attempt=%s/%s: %s",
+                attempt + 1,
+                len(_RETRY_BACKOFF_SECONDS),
+                exc,
+            )
+            if attempt < len(_RETRY_BACKOFF_SECONDS) - 1:
+                time.sleep(delay)
+        except SpeechError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — wrap unknown provider errors
+            raise SpeechError(str(exc)) from exc
+
+    assert last_error is not None
+    raise SpeechError(str(last_error)) from last_error

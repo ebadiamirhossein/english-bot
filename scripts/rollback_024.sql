@@ -1,0 +1,56 @@
+-- rollback_024.sql — reverse W14's pronunciation-score store.
+--
+--   psql "$DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 \
+--        -f scripts/rollback_024.sql
+--
+-- WHAT THIS RESTORES: the exact pre-024 shape. `speech_attempts` gone,
+-- schema_version back to 23. 024 creates one table and one index and touches
+-- no existing table, so there is nothing else to put back.
+--
+-- ---------------------------------------------------------------
+-- WHAT THIS ROLLBACK CANNOT REVERSE
+-- ---------------------------------------------------------------
+-- 1. **THE MEASUREMENTS ARE UNREPEATABLE, AND THIS IS THE ONE THAT MATTERS.**
+--    Unlike 023, no row here was paid for — the F0 call is free — so this is
+--    not money. **It is worse in one specific way: a gloss can be bought
+--    again, and a pronunciation attempt cannot.** Each row is a measurement of
+--    one utterance a learner made once, and **the audio it was derived from was
+--    discarded in-request by design** (CLAUDE.md §5, PRD §8). There is no
+--    recording, no cache and no second copy, so **dropping this table destroys
+--    evidence that cannot be regenerated at any price.** The learner would have
+--    to say every line again, and it would be a different utterance.
+--
+-- 2. **W17's INPUT GOES WITH IT.** `phonemes` is the per-phoneme accumulation
+--    PRD §8 exists for — *"your /θ/ and /w/ are the two costing you most"* —
+--    and it is the one thing in this product no LLM can fake. Weeks of it are
+--    weeks of it. **If the reason for rolling back is a schema mistake rather
+--    than a data one, dump the table first**:
+--
+--       pg_dump "$DATABASE_URL" -t speech_attempts --data-only \
+--         > /home/bot/speech_attempts_predrop.sql
+--
+--    That is not part of this script, deliberately: a rollback that quietly
+--    wrote a file somewhere would be a second surprise during an incident.
+--
+-- 3. **THE SESSION LOG BLOCK 4 GAINED GOES WITH IT.** `session_id` is what
+--    gives block 4 its first `session_id`-linked evidence. Dropping the table
+--    returns block 4 to having none. **It does NOT change any block's state**,
+--    because `_derive_done`'s `output` clause never read this table (#361) —
+--    `output` stays `ready` before and after, which is why this rollback is
+--    safe to run against a live session.
+--
+-- 4. **IT REVERSES NO APPLICATION CHANGE.** The route, the service, the wrapper
+--    and the frontend are git-reverted, not psql-reverted. A frontend calling
+--    `POST /shadow/{card_id}/score` against a database without this table gets
+--    a 500 and not a specified state, so **revert the application first and the
+--    schema second** — the opposite order leaves a live surface writing into
+--    nothing.
+--
+-- 5. It does not un-send audio. Anything already scored has already reached the
+--    provider; dropping our copy of the numbers changes nothing on their side.
+--    That is a §1c data-processing question, not a rollback one.
+
+DROP INDEX IF EXISTS idx_speech_attempts_user_created;
+DROP TABLE IF EXISTS speech_attempts;
+
+DELETE FROM schema_version WHERE version = 24;

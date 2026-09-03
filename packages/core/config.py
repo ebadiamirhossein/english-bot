@@ -99,6 +99,23 @@ class Settings:
     # publishes no output schema and so has no knowable per-video cost.
     # `codepoetry/youtube-transcript-ai-scraper` is the ruled fallback.
     apify_transcript_actor: str = "johnvc/YoutubeTranscripts"
+    # W14 — Azure Speech pronunciation assessment. **Neither is required at
+    # load**, for the reason the video keys carry: apps/api and every pure test
+    # must boot without them, and the surface that needs them refuses to run
+    # rather than running degraded. Absent means shadow scoring is unavailable,
+    # which is a state the surface states plainly (§1d) and never a silent stop.
+    #
+    # repr=False on the key, for the reason the R2 secret, the auth salt and the
+    # two video credentials carry it: one `logger.info("%s", settings)` in any
+    # file holding a Settings would put a live credential in a log file for
+    # good, and CLAUDE.md §5 says logs carry user ids and route names only.
+    #
+    # **THE REGION IS NOT A SECRET BUT IT IS NOT A LITERAL EITHER.** No region,
+    # endpoint or key value appears anywhere in this repository; both come from
+    # the host's `.env`. The endpoint is DERIVED from the region in `speech.py`
+    # rather than configured, so there is one place a region can be wrong.
+    azure_speech_key: str = field(default="", repr=False)
+    azure_speech_region: str = ""
     # S18 hardening — operator alerts + runtime files (optional ids).
     operator_telegram_id: int | None = None
     runtime_dir: str = ""
@@ -216,6 +233,8 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         os.environ.get("WHISPER_MODEL", "whisper-1").strip() or "whisper-1"
     )
     tts_model = os.environ.get("TTS_MODEL", "tts-1").strip() or "tts-1"
+    azure_speech_key = os.environ.get("AZURE_SPEECH_KEY", "").strip()
+    azure_speech_region = os.environ.get("AZURE_SPEECH_REGION", "").strip()
     tts_voice = os.environ.get("TTS_VOICE", "alloy").strip() or "alloy"
     tts_format = os.environ.get("TTS_FORMAT", "opus").strip() or "opus"
 
@@ -543,6 +562,8 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         tts_provider=tts_provider,
         openai_api_key=openai_api_key,
         whisper_model=whisper_model,
+        azure_speech_key=azure_speech_key,
+        azure_speech_region=azure_speech_region,
         tts_model=tts_model,
         tts_voice=tts_voice,
         tts_format=tts_format,

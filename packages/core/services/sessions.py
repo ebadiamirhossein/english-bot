@@ -1438,12 +1438,50 @@ def _focus_block(
     }
 
 
-def _output_block(unit: Any) -> tuple[str, dict[str, Any]]:
-    """Block 4. The unit's written task, corrected through the existing `/correct`.
+def _output_block(unit: Any, conn: Any = None, user_id: int | None = None) -> tuple[str, dict[str, Any]]:
+    """Block 4. PRD §4.1's *Speak or write* — and until W14 it only wrote.
 
-    The written half only. Speaking is W14 (`speech_attempts`, Azure scoring) and
-    W15, so `output_task_spoken` is deliberately not served here -- offering a
-    task nothing can score is worse than not offering it.
+    ────────────────────────────────────────────────────────────────────────────
+    **W14 GIVES THIS BLOCK ITS SPEAK HALF, AND THE OLD CLAUSE IS QUOTED RATHER
+    THAN DELETED (#82's shape) BECAUSE IT PROMISED MORE THAN W14 DELIVERS:**
+
+        *"The written half only. Speaking is W14 (`speech_attempts`, Azure
+        scoring) and W15, so `output_task_spoken` is deliberately not served
+        here -- offering a task nothing can score is worse than not offering
+        it."*
+
+    **THAT EXPECTATION IS MET IN PART, AND THE PART MATTERS.**
+    `output_task_spoken` is *"Tell me about your yesterday, from waking up to
+    going to bed. Two minutes, no notes."* — **PRD §8 RUNG 3 (Answer)**, an open
+    response scored by a model for content coverage. **W14 BUILDS RUNG 1
+    (Shadow), WHICH IS NOT THAT.** So this block gains a *speak* surface
+    **without serving `output_task_spoken`**; the 24 such strings in
+    `data/syllabus_units.json` stay unserved and **W15 owns them.** The original
+    clause's reasoning is still right and still binding on W15: offering a task
+    nothing can score is worse than not offering it.
+
+    **WHY SHADOW IS HERE AND NOT ON A SCREEN OF ITS OWN (§1e).** PRD §4.1's
+    block 4 is literally *"Speak or write. Corrected. Errors → journal."*, and
+    #160 forbids the alternative: *a tab whose counter accumulates while the
+    learner is away is a backlog presented*, and **a queue of sentences you have
+    not yet said out loud is a backlog in the most literal form this product can
+    produce.** #160 also settles it positively — *due cards surface inside the
+    daily session as real exercises: typed production, **spoken production**,
+    cued gaps* — and the shadow target **is** a deck card's sentence. W13-i ruled
+    the same way for the player, and `ARCHITECTURE §3`'s standalone
+    `watch/[videoId]/` was never built.
+
+    **THE LINE IS SERVED HERE AND NOWHERE ELSE.** There is no `GET /shadow/today`:
+    one place decides today's line, the way block 2's video arrives in this same
+    payload. `POST /shadow/{card_id}/score` is the only new route.
+
+    **THIS BLOCK STILL CANNOT SELF-REPORT `done`, AND A SHADOW LOG DOES NOT
+    CHANGE THAT (#361).** `_derive_done`'s `output` clause is about the WRITTEN
+    task — `POST /correct` records no `session_id` — so marking the block done
+    off a shadow attempt while the written task sits unanswered would claim a
+    learner completed work they did not do. **#259 does not close and is not
+    narrowed.**
+    ────────────────────────────────────────────────────────────────────────────
 
     **THIS BLOCK REPEATS. Every day, until W11.** `current_unit` cannot advance
     -- `user_unit_state` is empty and W11 owns every write to it -- so this is
@@ -1463,13 +1501,26 @@ def _output_block(unit: Any) -> tuple[str, dict[str, Any]]:
     only path that writes `errors`, it already has its integration test through
     the ASGI transport, and this block hands the learner to it.
     """
+    from core.services import shadow_score
+
     if unit is None:
         return "empty", {}
-    return "ready", {
+    payload: dict[str, Any] = {
         "unit_number": unit.unit_number,
         "mode": "write",
         "task": unit.output_task_written,
     }
+    # **THE SPEAK HALF IS ADDITIVE AND NEVER REPLACES THE WRITTEN TASK.** A deck
+    # with no usable sentence yields no line, and the block is exactly what it
+    # was before W14 -- `shadow` absent, not `shadow: null` with an empty face.
+    if conn is not None and user_id is not None:
+        line = shadow_score.shadow_line(conn, user_id)
+        if line is not None:
+            payload["shadow"] = {
+                "card_id": line.card_id,
+                "sentence": line.sentence,
+            }
+    return "ready", payload
 
 
 def _close_block(conn: Any, session_id: int, blocks_done: int) -> tuple[str, dict[str, Any]]:
@@ -1758,7 +1809,9 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
             ),
             "output": ("unavailable", {})
             if unit_failed
-            else _build_block("output", lambda: _output_block(unit)),
+            else _build_block(
+                "output", lambda: _output_block(unit, conn=conn, user_id=user_id)
+            ),
         }
 
     # Second checkout, taken by `cards.due_queue` itself. The first is released.

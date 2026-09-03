@@ -95,7 +95,16 @@ def _imported_roots(tree: ast.AST) -> set[str]:
 # test written to prevent this would have stayed green while the thing it exists
 # to prevent happened. An exemption that is visible is worth more than a
 # technicality that is not.
-HTTP_WRAPPERS = frozenset({CORE / "video_api.py"})
+# W14 adds the SECOND door, and by name for the same reason as the first. Azure
+# pronunciation assessment is reached over raw HTTP rather than through an SDK,
+# and `core/speech.py` stays the provider-agnostic wrapper holding POLICY --
+# validation, retry, error mapping -- while `core/speech_api.py` holds the
+# REQUEST. **The first attempt put httpx in `speech.py` and this test caught
+# it**, which is the exemption working as designed: the alternative that needs
+# no exemption is the Azure SDK, and its non-WAV codecs need GStreamer
+# system-wide on a SHARED host (CLAUDE.md §5). An exemption that is visible is
+# worth more than a system package that is not.
+HTTP_WRAPPERS = frozenset({CORE / "video_api.py", CORE / "speech_api.py"})
 
 
 def test_core_imports_no_web_framework() -> None:
@@ -110,20 +119,41 @@ def test_core_imports_no_web_framework() -> None:
             offenders.append(f"{rel}: {', '.join(sorted(hit))}")
     assert offenders == [], (
         "packages/core may not import a web framework, an HTTP client or "
-        "Telegram (CLAUDE.md §2); core/video_api.py is the one named "
-        "exemption: " + "; ".join(offenders)
+        "Telegram (CLAUDE.md §2); core/video_api.py and core/speech_api.py "
+        "are the named exemptions, one door per external provider: "
+        + "; ".join(offenders)
     )
 
 
-def test_the_http_wrapper_exemption_is_one_file_and_stays_one() -> None:
+def test_the_http_wrapper_exemption_is_one_door_per_provider_and_stays_pinned() -> None:
     """The exemption is a door, not a category.
 
-    Pinned so that widening it is a deliberate edit to this assertion rather
-    than a second path quietly appended to a frozenset -- which is how the first
-    exemption in any codebase becomes the third.
+    **W14 WIDENED THIS FROM ONE FILE TO TWO, AND THE OLD ASSERTION IS QUOTED
+    RATHER THAN DELETED (#82's shape):** *"assert HTTP_WRAPPERS == {CORE /
+    'video_api.py'}"*, under the title
+    `test_the_http_wrapper_exemption_is_one_file_and_stays_one`.
+
+    **The widening is what this test was built to force, not something it
+    failed to prevent.** Its own reasoning was *"pinned so that widening it is a
+    DELIBERATE EDIT TO THIS ASSERTION rather than a second path quietly appended
+    to a frozenset -- which is how the first exemption in any codebase becomes
+    the third."* W14's first attempt put `httpx` in `core/speech.py` and
+    `test_core_imports_no_web_framework` caught it; this is the edit that
+    follows, made in the open.
+
+    **THE INVARIANT IS NOT *ONE FILE*. IT IS *ONE DOOR PER EXTERNAL PROVIDER*,**
+    which is `video_api.py`'s own stated rule and the reason a second provider
+    earns a second file rather than a second import in an existing one:
+    `video_api.py` is YouTube + Apify, `speech_api.py` is Azure Speech.
+
+    **WHAT WOULD MAKE THIS A BAD WIDENING, so the next one is judged and not
+    waved through:** a third entry that is NOT a provider door -- a service, a
+    helper, or a second door to a provider that already has one. **The count is
+    still pinned exactly**, so a third requires editing this assertion again.
     """
-    assert HTTP_WRAPPERS == {CORE / "video_api.py"}
-    assert (CORE / "video_api.py").is_file()
+    assert HTTP_WRAPPERS == {CORE / "video_api.py", CORE / "speech_api.py"}
+    for door in HTTP_WRAPPERS:
+        assert door.is_file(), door
 
 
 def test_no_other_core_file_reaches_the_network_by_another_name() -> None:
