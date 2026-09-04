@@ -195,6 +195,39 @@ class AudioRejected(ShadowError):
     """The upload was not the shape this surface accepts."""
 
 
+#: `ErrorType` values for a word the learner said that is **not in the
+#: reference** — a stutter, a repetition, a filler.
+#:
+#: **THE LEARNER IS SHOWN THE REFERENCE, NEVER THE TRANSCRIPT (#377).** Azure's
+#: `Words` array is what it HEARD; with `EnableMiscue: true` it carries the
+#: reference words *plus* insertions. Rendering it verbatim put the learner's
+#: own disfluency into the sentence they were asked to read — observed live on
+#: 2026-09-04, where a repeated `was` rendered as *"the model was was
+#: incapable…"* with the first one marked weak.
+#:
+#: **THE STORE KEEPS EVERYTHING AND THE SCREEN DOES NOT.** An insertion is a
+#: real thing the learner did and belongs in `speech_attempts.words`; it is not
+#: part of the line they were asked to say, so it must not appear in it.
+#:
+#: **`Omission` IS DELIBERATELY NOT HERE.** An omitted word IS a reference word
+#: — it is how a learner sees they stopped early (#370) — while an inserted one
+#: is not. The asymmetry is the whole rule.
+NOT_IN_REFERENCE = frozenset({"Insertion"})
+
+
+def display_words(words: Any) -> list[dict]:
+    """The per-word list **as the learner sees it**: the reference, in order.
+
+    Separate from what is stored, and that separation is the fix for #377: the
+    same tuple used to serve both, so a stutter reached the screen as text.
+    """
+    return [
+        {"word": w.word, "accuracy": w.accuracy, "error_type": w.error_type}
+        for w in words
+        if w.error_type not in NOT_IN_REFERENCE
+    ]
+
+
 @dataclass(frozen=True)
 class ScoredAttempt:
     """**What the LEARNER is shown: per-word colouring and nothing else.**
@@ -365,10 +398,15 @@ def score_attempt(
     payload = speech.assess_pronunciation(audio, reference)
     result = speech.parse_assessment(payload)
 
-    words = tuple(
+    # **TWO LISTS, AND THE SPLIT IS #377's FIX.** `stored` is the measurement
+    # and keeps every word Azure returned, insertions included — the learner
+    # really did say them. `shown` is the reference line and cannot contain a
+    # word that was never in it.
+    stored = tuple(
         {"word": w.word, "accuracy": w.accuracy, "error_type": w.error_type}
         for w in result.words
     )
+    words = tuple(display_words(result.words))
     phonemes = [
         {"phoneme": p.phoneme, "accuracy": p.accuracy} for p in result.phonemes
     ]
@@ -387,7 +425,7 @@ def score_attempt(
                 user_id, session_id, card_id, reference,
                 result.accuracy, result.fluency, result.completeness,
                 result.pron_score, result.prosody,
-                Jsonb(list(words)), Jsonb(phonemes), seconds, moment,
+                Jsonb(list(stored)), Jsonb(phonemes), seconds, moment,
             ),
         ).fetchone()
         conn.commit()

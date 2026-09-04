@@ -662,3 +662,44 @@ def test_another_learners_card_cannot_be_heard(app, learner, db) -> None:
         response = get(app, f"/shadow/{other[0]}/audio", cookies=_as(learner))
     assert response.status_code == 404
     assert client_cls.call_count == 0
+
+
+def test_the_wire_shows_the_reference_while_the_store_keeps_the_stutter(
+    app, learner, db
+) -> None:
+    """#377, through the real entry point. **The split, at the boundary.**
+
+    An `Insertion` is a real thing the learner did and belongs in the
+    measurement; it is **not** part of the line they were asked to say, so it
+    must not reach the screen. One request proves both halves at once —
+    separate tests could pass while the two lists drifted apart.
+    """
+    stutter = json.loads(json.dumps(RECORDED))
+    words = stutter["NBest"][0]["Words"]
+    repeated = json.loads(json.dumps(words[1]))
+    repeated["ErrorType"] = "Insertion"
+    repeated["AccuracyScore"] = 41.0
+    words.insert(2, repeated)
+
+    class _R:
+        status_code = 200
+
+        def json(self):
+            return stutter
+
+    with patch("core.speech_api.httpx.post", lambda url, **kw: _R()):
+        response = post(app, f"/shadow/{learner.card_id}/score",
+                        body=wav(), cookies=_as(learner))
+    assert response.status_code == 200
+
+    on_the_wire = [w["word"] for w in response.json()["words"]]
+    assert on_the_wire == [
+        "i'll", "grab", "a", "coffee", "before", "the", "meeting",
+    ], "the learner is shown the reference, with no repeated word"
+
+    row = db.execute(
+        "SELECT words FROM speech_attempts WHERE user_id = %s", (learner.user_id,)
+    ).fetchone()
+    stored = [w["word"] for w in row[0]]
+    assert stored.count("grab") == 2, "the store keeps what the learner said"
+    assert [w["error_type"] for w in row[0]][2] == "Insertion"
