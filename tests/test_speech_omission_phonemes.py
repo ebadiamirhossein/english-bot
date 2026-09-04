@@ -1,24 +1,39 @@
 """W14 §A / #370 — **an unspoken word contributes no phonemes to the store.**
 
 ────────────────────────────────────────────────────────────────────────────────
-THE DEFECT THIS LOCKS OUT
+THIS IS A GUARD, NOT A REPAIR — AND THE ORIGINAL CLAIM HERE WAS WRONG.
 
-Azure returns a `Phonemes` array for an **omitted** word, at accuracy 0. W14's
-first writer flattened those into `speech_attempts.phonemes` beside real
-measurements, and **nothing downstream could tell them apart** — 0 means *never
-said* and 0 means *said terribly*, identically.
+**THE OLD TEXT IS QUOTED RATHER THAN DELETED (#82's shape):** *"Azure returns a
+`Phonemes` array for an omitted word, at accuracy 0. W14's first writer
+flattened those into `speech_attempts.phonemes` beside real measurements."*
 
-**PRODUCT-PRINCIPLES §5: a wrong row is permanent damage; a missing one is
-recoverable.** A phoneme row at 0 for a sound the learner never made is a
-measurement that did not happen, recorded as if it had.
+**THE HOST READ ON 2026-09-04 REFUTES IT.** Attempt 1's three `Omission` words —
+`staging`, `and`, `production` — each carry **`phonemes_on_word = 0`**. **Azure
+returns no phonemes for an omitted word at all**, so the store was never
+poisoned by that route and there was nothing to repair.
 
-**W17 IS THE READER THAT MAKES IT MATTER.** PRD §8's payoff — *your /θ/ and /w/
-are the two costing you most* — averages exactly these rows. A learner who stops
-early three times would acquire a profile condemning sounds **never uttered**.
+**WHAT THIS FILTER STILL DOES, stated honestly as prevention rather than fix:**
+`core/speech.py` is provider-agnostic by design — CLAUDE.md §2 requires that
+swapping providers be one environment variable — and **the parser is exactly
+where a provider's shape variation should be absorbed.** A different adapter, or
+Azure changing its granularity behaviour, could return phoneme rows for a word
+nobody said. **A phoneme for an unspoken word is not a measurement, so the
+parser refuses to produce one whether or not today's provider sends it.**
 
-**EVIDENCED, NOT HYPOTHETICAL.** Attempt 1 on production, 2026-09-03: `staging`,
-`and` and `production`, all `Omission` at 0.0, contiguous at positions 10–12 of
-a twelve-word sentence.
+**AND THE PAYLOAD BELOW IS SYNTHETIC — IT IS NOT A SHAPE AZURE PRODUCES.**
+`_payload` gives every word phonemes, including omitted ones, which is the whole
+point of the guard and is also **CLAUDE.md §3 rule 4's territory: a green test
+over a path that is currently unreachable.** It is kept because the cost is one
+`continue` and the failure it prevents is permanent damage (PRODUCT-PRINCIPLES
+§5) — **but it must not be read as evidence about Azure's behaviour, which is
+the opposite of what it asserts.**
+
+**WHAT THE READ DID FIND, AND IT INVERTS THE CAUTION:** phonemes at accuracy 0
+**do** exist in the store — 2 of 37 on attempt 1, 2 of 54 on attempt 2, 1 of 49
+on attempt 4 — **inside words that WERE spoken** (`deployment` at 10, `we` at
+46). Those are individual sounds a learner attempted and did not make. **They are
+real measurements and they are precisely the signal W17 exists to find.**
+See #370.
 
 **`words` IS DELIBERATELY UNCHANGED.** The omitted word stays in the per-word
 list — **it is how the learner sees they stopped early.** Only `phonemes` was
