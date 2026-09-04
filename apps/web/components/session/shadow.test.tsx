@@ -160,9 +160,21 @@ it("keeps the reference sentence visible and legible while recording (#367)", as
     // exactly the one a learner might reach for it in.
     const user = userEvent.setup();
     render(<ShadowLine cardId={1} sentence="A line to say." />);
-    const listen = screen.getByTestId("shadow-listen");
+    // **THE ASSERTION THAT WAS MISSING, AND WHY ROLE ALONE WOULD NOT HAVE
+    // CAUGHT IT.** This asserted only testid, text and disabled-state — none of
+    // which is *affordance* — and the control shipped as `variant="ghost"`,
+    // rendering as bare text a learner would read as a label.
+    //
+    // **Adding `getByRole("button")` would NOT have caught it either: it WAS a
+    // `<button>`.** The defect was invisible to every semantic query, because
+    // it lived entirely in the variant. So the assertion is on
+    // `data-variant`, which `Button` already exposes — checkable, and not the
+    // brittle class-string assertion that would rot on a restyle.
+    const listen = screen.getByRole("button", { name: SHADOW.listen });
+    expect(listen).toHaveAttribute("data-testid", "shadow-listen");
     expect(listen).toHaveTextContent(SHADOW.listen);
     expect(listen).not.toBeDisabled();
+    expect(listen).toHaveAttribute("data-variant", "outline");
 
     await user.click(screen.getByTestId("shadow-record"));
     expect(screen.getByTestId("shadow-listen")).toBeDisabled();

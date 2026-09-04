@@ -344,10 +344,18 @@ export function ShadowLine({
 
           `GET` on tap, never on page load, synthesised per request with no
           cache (#106) — `items/{id}/audio`'s shipped shape since W6. */}
+      {/* **`outline`, NOT `ghost` — and it shipped as `ghost`, which was the
+          defect.** `ghost` is `hover:bg-muted` over the base
+          `border-transparent`: **at rest it renders as bare text with no border
+          and no background**, between the sentence and the record control. A
+          learner reads that as a label, not something to tap — and every other
+          action on this surface (*Say it*, *Write it*, *Check*) is a bordered
+          pill. **An action nobody can find is not an action**, and this one is
+          the appeal the whole surface was missing (#372). */}
       <Button
         type="button"
         size="lg"
-        variant="ghost"
+        variant="outline"
         data-testid="shadow-listen"
         disabled={phase === "recording" || phase === "scoring" || playing}
         onClick={playLine}
