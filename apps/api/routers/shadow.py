@@ -60,7 +60,7 @@ import logging
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from apps.api.deps import rate_limit, require_current_user
 from apps.api.schemas import ShadowScoreOut, ShadowWordOut
@@ -173,3 +173,52 @@ async def score(
         ],
         improved=scored.improved,
     )
+
+
+@router.get(
+    "/{card_id}/audio",
+    dependencies=[
+        Depends(
+            rate_limit(
+                "shadow_audio", per_client=120, overall=400, window_seconds=3600
+            )
+        )
+    ],
+)
+def line_audio(
+    card_id: int,
+    session: AuthenticatedUser = Depends(require_current_user),
+) -> Response:
+    """The line as speech, so a learner can hear the target before saying it.
+
+    **PLAIN `def`, and here it needs no escape.** It reaches
+    `core.speech.synthesize`, so #7 applies — but unlike `POST .../score` there
+    is no request body to stream, so **the sanctioned `async`/`to_thread` escape
+    is not needed and the simpler rule wins.** `tests/test_api.py`'s sweep
+    covers it either way.
+
+    **Bytes in, bytes out. The text is never held here** — the module docstring's
+    standing rule, and `items.audio`'s precedent since W6.
+
+    **404 covers *no such line* AND *not on the allowlist*** (#364), because a
+    blocked learner must not learn the feature exists through the quieter door.
+
+    **503, not 500, on a provider failure**: the service is up and answering,
+    its dependency is not, and the client offers another tap. `items.audio`'s
+    ruling, applied unchanged.
+
+    Fetched **on tap, never on page load** — nothing about a session opening
+    changes — and **synthesised per request with no cache (#106)**.
+    """
+    try:
+        data = shadow_service.line_audio(session.id, card_id)
+    except (shadow_service.NoSuchLine, shadow_service.NotConsented):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such line")
+    except shadow_service.LineAudioUnavailable:
+        # No detail crosses the wire — a provider message is a free map of the
+        # backend (PRD §10).
+        logger.warning("shadow line audio unavailable card=%s", card_id)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "audio_unavailable"
+        ) from None
+    return Response(content=data, media_type="audio/mpeg")

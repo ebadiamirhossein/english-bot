@@ -133,6 +133,7 @@ export function ShadowLine({
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [scored, setScored] = useState<Scored | null>(null);
+  const [playing, setPlaying] = useState(false);
   const [level, setLevel] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -143,6 +144,37 @@ export function ShadowLine({
     analyser: AnalyserNode;
     timer: ReturnType<typeof setInterval>;
   } | null>(null);
+
+  const playLine = useCallback(async () => {
+    // **Nothing is stored.** The response is played from a blob URL that is
+    // revoked as soon as playback ends — no download, no cache, no IndexedDB.
+    setPlaying(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/shadow/${cardId}/audio`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        // 404 covers *no line* and *not on the allowlist* alike (#364); 503 is
+        // the provider. **The control simply re-arms** — a learner who taps and
+        // hears nothing may tap again, and there is no message, because
+        // "couldn't play that" on a control they may not have meant to press is
+        // noise rather than help.
+        setPlaying(false);
+        return;
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const audio = new Audio(url);
+      const release = () => {
+        URL.revokeObjectURL(url);
+        setPlaying(false);
+      };
+      audio.onended = release;
+      audio.onerror = release;
+      await audio.play();
+    } catch {
+      setPlaying(false);
+    }
+  }, [cardId]);
 
   const stopTracks = useCallback(() => {
     stream.current?.getTracks().forEach((track) => track.stop());
@@ -302,6 +334,28 @@ export function ShadowLine({
         <p className="text-sm text-muted-foreground">{SHADOW.improved}</p>
       ) : null}
 
+      {/* **HEAR THE TARGET — the appeal the surface did not have.**
+
+          **DISABLED WHILE RECORDING OR SCORING, AND THAT IS NOT COSMETIC:**
+          playing the line into a live microphone would capture the synthesised
+          voice and score the learner on it. The one state where this control
+          must not be tappable is exactly the one where a learner might reach
+          for it.
+
+          `GET` on tap, never on page load, synthesised per request with no
+          cache (#106) — `items/{id}/audio`'s shipped shape since W6. */}
+      <Button
+        type="button"
+        size="lg"
+        variant="ghost"
+        data-testid="shadow-listen"
+        disabled={phase === "recording" || phase === "scoring" || playing}
+        onClick={playLine}
+        className="h-11 w-full rounded-xl text-sm font-medium"
+      >
+        {SHADOW.listen}
+      </Button>
+
       {/* **#367: EVIDENCE THAT THE MICROPHONE IS LIVE.**
 
           Before this, *Say it* became *Done* with nothing between, and the
@@ -367,6 +421,7 @@ export function ShadowLine({
         <Button
           type="button"
           size="lg"
+          data-testid="shadow-record"
           variant={phase === "recording" ? "default" : "outline"}
           onClick={phase === "recording" ? stop : start}
           className="h-14 w-full rounded-2xl text-base font-semibold"

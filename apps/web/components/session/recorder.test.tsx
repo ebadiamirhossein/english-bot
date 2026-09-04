@@ -64,21 +64,32 @@ describe("the recording state", () => {
     expect(screen.queryByTestId("shadow-level")).toBeNull();
     expect(screen.queryByTestId("shadow-elapsed")).toBeNull();
 
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByTestId("shadow-record"));
 
     expect(screen.getByTestId("shadow-level")).toBeTruthy();
     expect(screen.getByTestId("shadow-elapsed")).toBeTruthy();
     // **ONE obvious stop control**, not a start that has quietly become a stop
     // among other buttons.
-    const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0]).toHaveTextContent(SHADOW.stop);
+    //
+    // **THE ASSERTION CHANGED IN THE SAME COMMIT THAT ADDED A SECOND BUTTON
+    // (§B's *Hear it*), AND IT GOT STRONGER RATHER THAN WEAKER.** It counted
+    // buttons; it now counts ENABLED buttons — because §B's control is
+    // deliberately disabled while recording (playing the line into a live
+    // microphone would score the learner on the synthesised voice). **The
+    // intent is unchanged: while recording there is exactly one thing a learner
+    // can press, and it stops.** Loosening this to *find the stop button among
+    // several* would have thrown the property away to accommodate the change.
+    const enabled = screen
+      .getAllByRole("button")
+      .filter((b) => !(b as HTMLButtonElement).disabled);
+    expect(enabled).toHaveLength(1);
+    expect(enabled[0]).toHaveTextContent(SHADOW.stop);
   });
 
   it("moves the meter with REAL input amplitude, not a fixed animation", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<ShadowLine cardId={1} sentence="A line to say aloud." />);
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByTestId("shadow-record"));
 
     mic.amplitude = 0;
     await act(async () => {
@@ -103,7 +114,7 @@ describe("the recording state", () => {
   it("counts elapsed seconds while recording", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<ShadowLine cardId={1} sentence="A line to say aloud." />);
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByTestId("shadow-record"));
 
     await act(async () => {
       vi.advanceTimersByTime(3000);
@@ -122,8 +133,8 @@ describe("the recording state", () => {
       })),
     );
     render(<ShadowLine cardId={1} sentence="A line to say aloud." />);
-    await user.click(screen.getByRole("button"));
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByTestId("shadow-record"));
+    await user.click(screen.getByTestId("shadow-record"));
 
     await waitFor(() => expect(screen.getByTestId("shadow-result")).toBeTruthy());
     expect(screen.queryByTestId("shadow-level")).toBeNull();
@@ -142,8 +153,8 @@ describe("a capture the app could not hear (#366)", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 422 })));
     const user = userEvent.setup();
     render(<ShadowLine cardId={1} sentence="A line to say aloud." />);
-    await user.click(screen.getByRole("button"));
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByTestId("shadow-record"));
+    await user.click(screen.getByTestId("shadow-record"));
 
     await waitFor(() =>
       expect(screen.getByTestId("shadow-not-heard")).toBeTruthy(),

@@ -369,6 +369,27 @@ def assess_pronunciation(
 #: `ErrorType` when the word is fine. **A string, not null** -- see (3) above.
 NO_ERROR = "None"
 
+#: `ErrorType` values meaning **the word was not spoken as part of the
+#: reference**, so nothing about its pronunciation was measured.
+#:
+#: **AN OMITTED WORD SCORES 0, WHICH IS THE SAME VALUE A CATASTROPHICALLY
+#: MISPRONOUNCED WORD GETS.** Azure still returns a `Phonemes` array for it, at
+#: 0 accuracy, and W14's first writer flattened those straight into
+#: `speech_attempts.phonemes` alongside real measurements. **Nothing downstream
+#: can tell the two apart.**
+#:
+#: **WHY THAT IS A DEFECT AND NOT A CAUTION FOR W17.** PRODUCT-PRINCIPLES §5:
+#: *a wrong row is permanent damage; a missing one is recoverable.* A phoneme
+#: row at 0 for a sound the learner **never made** is a measurement that did not
+#: happen, recorded as if it had -- and W17 exists to average exactly these rows
+#: into *your /theta/ and /w/ are the two costing you most*. **A learner who
+#: stops early three times would acquire a phoneme profile condemning sounds
+#: that were never uttered**, which is a diagnosis manufactured from silence.
+#:
+#: Evidenced by attempt 1 on production (2026-09-03): `staging`, `and` and
+#: `production` all `Omission` at 0.0, contiguous at sentence positions 10-12.
+NOT_MEASURED = frozenset({"Omission", "Insertion"})
+
 
 class NotRecognised(SpeechError):
     """The provider heard no usable speech.
@@ -459,6 +480,15 @@ def parse_assessment(payload: dict) -> PronunciationResult:
                 error_type=str(entry.get("ErrorType", NO_ERROR)),
             )
         )
+        # **THE OMITTED WORD STAYS IN `words` AND ITS PHONEMES DO NOT ENTER
+        # `phonemes`.** The word belongs in the per-word list -- it is how the
+        # learner sees they stopped early -- but its phonemes were never
+        # measured, and writing them at 0 records a measurement that did not
+        # happen (PRODUCT-PRINCIPLES §5). Filtered HERE, in the parser, rather
+        # than in the service: a `PhonemeScore` for a word nobody said is not a
+        # measurement, so it should not exist for any caller to store.
+        if str(entry.get("ErrorType", NO_ERROR)) in NOT_MEASURED:
+            continue
         for item in entry.get("Phonemes") or ():
             if not isinstance(item, dict):
                 raise SpeechError("Phonemes[] contained a non-object")

@@ -131,6 +131,9 @@ def consented(learner, monkeypatch):
     rest of the surface be exercised at all.
     """
     monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", str(learner.user_id))
+    # §B reaches `speech.synthesize`, which refuses without a key before it
+    # builds any request. Exported, never a scratch `.env` (#64).
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-real")
 
 
 @pytest.fixture
@@ -574,3 +577,88 @@ def test_the_shadow_line_is_served_in_block_four_and_nowhere_else(
     assert not any(
         p.startswith("/shadow") and p != "/shadow/{card_id}/score" for p in paths
     ), "there must be no second route serving a shadow target"
+
+
+# --- §B: listen to the line -------------------------------------------------
+#
+# **MOCKED AT THE OPENAI TRANSPORT, not at `speech.synthesize`** (standing rule
+# 7), so the wrapper's provider selection, credential check, retry and response
+# extraction all execute. `test_items_route.py:654` stubs the service function
+# for the older `/items/{id}/audio` route; that predates the rule and is not
+# followed here.
+
+
+def _tts(payload: bytes):
+    class _R:
+        content = payload
+
+    return _R()
+
+
+def get(app, path, *, cookies=None):
+    async def _go() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 51234))
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver", cookies=cookies
+        ) as http:
+            return await http.get(path)
+
+    return asyncio.run(_go())
+
+
+def test_the_line_audio_route_returns_bytes_and_never_the_text(app, learner) -> None:
+    """**Bytes in, bytes out** — `items.audio`'s standing rule since W6.
+
+    Mocked at `core.speech.synthesize`, which is where `shadow_score` reaches
+    the wrapper. The route must not hold the sentence: it is the learner's own
+    card content and CLAUDE.md §5 keeps message bodies out of `apps/api`.
+    """
+    with patch("core.speech.openai.OpenAI") as client_cls:
+        client = client_cls.return_value
+        client.audio.speech.create.return_value = _tts(b"ID3-audio-bytes")
+        response = get(app, f"/shadow/{learner.card_id}/audio", cookies=_as(learner))
+    assert response.status_code == 200
+    assert response.content == b"ID3-audio-bytes"
+    assert response.headers["content-type"] == "audio/mpeg"
+    # **THIS card's sentence and nothing else**, read at the transport so the
+    # wrapper's own request construction runs (standing rule 7).
+    assert client.audio.speech.create.call_args.kwargs["input"] == SENTENCE
+
+
+def test_a_learner_not_on_the_allowlist_cannot_hear_the_line_either(
+    app, learner, monkeypatch
+) -> None:
+    """**#364 must not leak through the quieter door.**
+
+    A blocked learner who could hear the line would learn the feature exists.
+    404, the same answer an absent line gives — never 403.
+    """
+    monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", "")
+    with patch("core.speech.openai.OpenAI") as client_cls:
+        response = get(app, f"/shadow/{learner.card_id}/audio", cookies=_as(learner))
+    assert response.status_code == 404
+    assert client_cls.call_count == 0, "no provider call for a blocked learner"
+
+
+def test_a_provider_failure_is_503_and_leaks_no_detail(app, learner) -> None:
+    """The service is up; its dependency is not. `items.audio`'s ruling."""
+    with patch("core.speech.openai.OpenAI") as client_cls:
+        client_cls.return_value.audio.speech.create.side_effect = RuntimeError(
+            "upstream said quota exceeded for key sk-xyz"
+        )
+        response = get(app, f"/shadow/{learner.card_id}/audio", cookies=_as(learner))
+    assert response.status_code == 503
+    assert "sk-xyz" not in response.text
+    assert "quota" not in response.text.lower()
+
+
+def test_another_learners_card_cannot_be_heard(app, learner, db) -> None:
+    other = db.execute(
+        "SELECT id FROM cards WHERE user_id <> %s LIMIT 1", (learner.user_id,)
+    ).fetchone()
+    if other is None:
+        pytest.skip("no other learner's card in this database")
+    with patch("core.speech.openai.OpenAI") as client_cls:
+        response = get(app, f"/shadow/{other[0]}/audio", cookies=_as(learner))
+    assert response.status_code == 404
+    assert client_cls.call_count == 0

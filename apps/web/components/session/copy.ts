@@ -283,6 +283,20 @@ export const SHADOW = {
   unavailable: "Scoring is off today. The line is still worth saying.",
   trouble: "That didn’t come through. Have another go whenever you like.",
   /**
+   * The listen control. **It is the appeal, not a convenience.**
+   *
+   * The surface marks a word amber and cannot demonstrate the difference: on
+   * 2026-09-03 `model` scored 44, was marked correctly, and the operator
+   * concluded he had said it right — **because nothing on screen could show
+   * him otherwise.** A verdict with no appeal is what §4 guards against even
+   * with no banned word present.
+   *
+   * **Never *hear it done properly* or *the correct version*.** The target is
+   * a reference, not a verdict on what the learner produced, and naming it
+   * *correct* makes every attempt an implicit failure to match it.
+   */
+  listen: "Hear it",
+  /**
    * **#366: the app could not hear the utterance at all** — Azure matched
    * nothing of the reference (`CompletenessScore` 0).
    *

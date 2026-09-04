@@ -289,7 +289,25 @@ git pull                                    # 2. pull
 .venv/bin/python -m core.db status          #    confirm the new schema_version
 sudo systemctl restart english-bot          # 5. restart
 sudo systemctl restart english-api          #    once W2's unit is installed
+sleep 5                                     # 6. WAIT before proving it live
 # english-worker is still not installed — see "The worker unit is blocked".
+```
+
+**Step 6 is not optional and it is not politeness (#351).** `systemctl restart`
+returns as soon as systemd has *started* the unit, not when uvicorn is accepting
+connections. A proof step chained straight onto the restart therefore hits a
+socket nobody is listening on yet and returns **502** — **and a 502 from a
+healthy deploy is indistinguishable from a 502 from a broken one**, which is the
+whole reason the proof step exists. Observed first on W11b's real deploy and
+**applied by hand on eight deploys since**, working every time, before it was
+finally written down here on 2026-09-04.
+
+**Prove it live on a GATED route, never `/health/auth`** — that route returns
+`null` by design and can never produce the 401 that shows the API is both
+registered and enforcing auth (W13-i/8):
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://api.foundgrant.com/review/queue
 ```
 
 **For the W2 deploy itself, follow "W2 — the auth deploy, in order" below

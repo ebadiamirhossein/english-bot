@@ -406,3 +406,47 @@ def score_attempt(
     return ScoredAttempt(
         attempt_id=int(row["id"]), words=words, improved=improved
     )
+
+
+class LineAudioUnavailable(ShadowError):
+    """The provider could not synthesise the line. **Not the learner's fault.**"""
+
+
+def line_audio(user_id: int, card_id: int) -> bytes:
+    """This card's sentence as speech, so a learner can hear the target.
+
+    **WHY THIS EXISTS, and it is a §4 argument rather than a convenience.** The
+    surface marks a word amber and **cannot demonstrate the difference.** On
+    2026-09-03 `model` scored 44 and was marked correctly, and the operator
+    concluded he had said it right -- **because the app supplied no evidence to
+    the contrary.** A verdict with no appeal is what CLAUDE.md §4 guards
+    against even when no banned word appears on screen. PRD §8 rung 1's other
+    half -- playback of the learner's OWN attempt -- is **blocked on #369**, an
+    unresolved collision with the discard rule. **This half is blocked on
+    nothing.**
+
+    **§1a: THIS IS NOT GENERATION WHILE A LEARNER WAITS.** No model authors
+    anything -- the sentence already exists in `cards.context_sentence`, chosen
+    when the card was made. TTS renders stored text as sound. **The precedent is
+    shipped, not argued:** `GET /items/{id}/audio` has synthesised on demand,
+    with a learner waiting, since W6 (ruling ⟨R1⟩), and **#106 is its standing
+    flag** -- no cache, so a sentence heard forty times is paid forty times.
+    **#106 applies here unchanged and is not re-argued.**
+
+    **GATED BY THE SAME ALLOWLIST AS SCORING (#364), and that is not belt and
+    braces:** a blocked learner who could hear the line would learn the feature
+    exists. **The gate must not leak through the quieter door.**
+    """
+    from core import speech
+    from core.db import connection
+
+    if not scoring_allowed_for(user_id):
+        raise NotConsented("shadow is not enabled for this learner")
+    with connection() as conn:
+        reference = _reference_for(conn, user_id, card_id)
+    try:
+        return speech.synthesize(reference)
+    except speech.SpeechError as exc:
+        # Converted here rather than propagated, so `apps/api` never holds a
+        # provider error object -- `services/items.py:55`'s precedent.
+        raise LineAudioUnavailable(str(exc)) from exc
