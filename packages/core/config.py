@@ -66,6 +66,25 @@ class Settings:
     conversation_awaiting_topic_minutes: int = 2
     conversation_max_turns: int = 12
     conversation_history_max_messages: int = 20
+
+    # W13b — **the per-learner, per-DAY ceiling on billed conversation turns**
+    # (PRD §8.6.7). Distinct from `conversation_max_turns`, which is v2's
+    # per-SESSION limit for the Telegram `/talk` handler and is untouched.
+    #
+    # **30, RAISED FROM THE PLAN'S PROPOSED 20 BY THE OPERATOR (2026-09-05)**:
+    # the direction is that conversation is the product, and twenty turns is
+    # roughly ten minutes. **The cost is not linear in this number** -- input
+    # tokens are quadratic, because the history is re-sent every turn -- so 30
+    # costs materially more than 20 rather than 1.5x more. **That is precisely
+    # what the first measured session exists to find out**, and P2's branch rule
+    # points at `conversation_history_max_messages` rather than at this number.
+    #
+    # **PRODUCT-PRINCIPLES §3 FLAG, #382:** the COUNTER is per-user from day one
+    # and is paid for now; this VALUE is one variable for both learners and
+    # would need to be per-user for a paid product. Cheap to move later because
+    # it is config and not a column -- which is why it is written down now
+    # rather than discovered then.
+    conversation_max_turns_per_day: int = 30
     # W4. How many of the commonest lemmas a new ledger assumes known, so that
     # coverage is not 0% for every text on day one and W12's comprehensible-
     # input band is reachable before W18's placement test exists. Written at
@@ -305,6 +324,11 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         os.environ.get("CONVERSATION_MAX_TURNS", "12"),
         errors,
     )
+    conversation_max_turns_per_day = _parse_int(
+        "CONVERSATION_MAX_TURNS_PER_DAY",
+        os.environ.get("CONVERSATION_MAX_TURNS_PER_DAY", "30"),
+        errors,
+    )
     conversation_history_max_messages = _parse_int(
         "CONVERSATION_HISTORY_MAX_MESSAGES",
         os.environ.get("CONVERSATION_HISTORY_MAX_MESSAGES", "20"),
@@ -537,6 +561,14 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
             "CONVERSATION_AWAITING_TOPIC_MINUTES must be >= 1 "
             f"(got {conversation_awaiting_topic_minutes})"
         )
+    if (
+        conversation_max_turns_per_day is not None
+        and conversation_max_turns_per_day < 1
+    ):
+        errors.append(
+            "CONVERSATION_MAX_TURNS_PER_DAY must be >= 1 "
+            f"(got {conversation_max_turns_per_day})"
+        )
     if conversation_max_turns is not None and conversation_max_turns < 2:
         errors.append(
             "CONVERSATION_MAX_TURNS must be >= 2 "
@@ -561,6 +593,7 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
     assert diary_max_seconds is not None
     assert conversation_timeout_minutes is not None
     assert conversation_awaiting_topic_minutes is not None
+    assert conversation_max_turns_per_day is not None
     assert conversation_max_turns is not None
     assert conversation_history_max_messages is not None
     assert log_max_bytes is not None
@@ -596,6 +629,7 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         conversation_timeout_minutes=conversation_timeout_minutes,
         conversation_awaiting_topic_minutes=conversation_awaiting_topic_minutes,
         conversation_max_turns=conversation_max_turns,
+        conversation_max_turns_per_day=conversation_max_turns_per_day,
         conversation_history_max_messages=conversation_history_max_messages,
         lexicon_assumed_known_top_n=lexicon_assumed_known_top_n,
         youtube_api_key=youtube_api_key,

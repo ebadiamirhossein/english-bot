@@ -28,6 +28,7 @@ from apps.api.routers import items as items_router
 from apps.api.routers import lessons as lessons_router
 from apps.api.routers import session as session_router
 from apps.api.routers import video as video_router
+from apps.api.routers import conversation as conversation_router
 from apps.api.routers import shadow as shadow_router
 from apps.api.routers import week as week_router
 from core.config import Settings, load_settings
@@ -198,6 +199,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(checkpoint_router.router)
     app.include_router(video_router.router)
     app.include_router(shadow_router.router)
+    app.include_router(conversation_router.router)
     app.include_router(week_router.router)
     logger.info(
         "API built origins=%s routes=%s",
@@ -222,6 +224,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     # open: nothing checks these two lists agree.
                     video_router.router,
                     shadow_router.router,
+                    # W13b. **Added to BOTH lists in the same commit**, which is
+                    # what the note above says W13-i failed to do -- the blind
+                    # spot is still unchecked, so the only defence is doing it
+                    # deliberately while editing.
+                    conversation_router.router,
                     week_router.router,
                 )
                 for route in router.routes

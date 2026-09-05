@@ -515,7 +515,7 @@ The topic **rotates**, it is **concrete enough to have something to say about**,
 
 ### 8.6.2 Two input modes
 
-**Typed text, and voice.** Voice is transcribed by **ElevenLabs Scribe v2**, which `docs/ACCOUNTS-AND-PURCHASES.md` already prices and rules on — $0.22/hour, 98%+, **word-level timestamps**, chosen there over Whisper.
+**Typed text, and voice.** Voice is transcribed by **OpenAI Whisper through `packages/core/speech.py`** — **AMENDED 2026-09-05 (W13b §O1, assistant-recommended, operator-accepted). The old text is quoted rather than deleted (#82's shape):** *"Voice is transcribed by **ElevenLabs Scribe v2**, which `docs/ACCOUNTS-AND-PURCHASES.md` already prices and rules on — $0.22/hour, 98%+, **word-level timestamps**, chosen there over Whisper."* **THE GROUND FOR THE AMENDMENT: Scribe's stated advantage is word-level timestamps and THIS SURFACE CONSUMES NONE** — no alignment, no highlighting, no scoring. Adopting it would be a wrapper change, a new `_KNOWN_STT_PROVIDERS` member, a credential that exists on no host, and a first call to a vendor this project has never made. **The ACCOUNTS ruling on Scribe is not withdrawn**; it stands for whichever surface needs timestamps, and **W15 or W17 owns that.**
 
 **Audio is transcribed and discarded.** §12's rule, and it holds here without exception: never written to disk, never uploaded. Only the transcript's corrections and scores survive the turn.
 

@@ -549,6 +549,25 @@ LESSONS = CORE / "lessons"
 # MODEL_REACHING_MODULES above and why these two files must be named.
 LESSONS_MODEL_CALLERS = {LESSONS / "gates.py", LESSONS / "generate.py"}
 
+# W13b. `core/conversation/` is the conversation surface's pure half: prompt
+# construction, history trimming, the cap arithmetic and the three close-out
+# guards.
+#
+# **THE PLAN PREDICTED A ONE-MEMBER ALLOW-LIST AND THE TREE DISAGREED IN THE
+# STRENGTHENING DIRECTION, SO THIS IS EMPTY.** The `*_MODEL_CALLERS` pins govern
+# PURE packages; a SERVICE may reach a provider, and
+# `core/services/shadow_score.py` is the shipped precedent -- it calls
+# `speech.assess_pronunciation` and holds its own SQL. The conversation's model
+# call belongs there for the same reason, so **nothing in this package reaches a
+# model at all.**
+#
+# That is `core/video/`'s ORIGINAL total guarantee, which #292 itself called the
+# stronger form: *"an allow-list with one entry added later would read as
+# normal."* Pinned by identity AND size below, so the commit that adds a first
+# member has to argue for it in the diff.
+CONVERSATION = CORE / "conversation"
+CONVERSATION_MODEL_CALLERS: set = set()
+
 
 def _import_targets(tree: ast.AST) -> set[str]:
     """Every dotted name an import makes available, submodules included.
@@ -1059,6 +1078,62 @@ def test_core_video_never_calls_the_model() -> None:
         "a model (CLAUDE.md §6). Transcript text reaches one in W13, not here: "
         + "; ".join(offenders)
     )
+
+
+def test_core_conversation_never_calls_the_model() -> None:
+    """W13b. The learner's own text is what this package handles, and **none of
+    it may reach a provider from here.**
+
+    Not because learner text is untrusted the way a scraped transcript is -- it
+    is the user's own speech, a weaker threat model, and the module docstring
+    says so rather than implying otherwise. The reason is architectural: the
+    provider call belongs in the service beside the SQL that records what it
+    cost, and a second door in the pure package would be a call nobody metered.
+
+    **THE OBLIGATION THIS DOES NOT DISCHARGE, NAMED RATHER THAN IMPLIED:** it
+    says nothing about prompt injection. That is defended at the CLOSE-OUT, in
+    `core/conversation/guards.py`, because the close-out is the only place a
+    conversation produces a durable privileged artefact -- a row in the error
+    journal. This test is a boundary; `test_conversation_guards.py` is the claim.
+    """
+    offenders: list[str] = []
+    for path in _python_files(CONVERSATION):
+        if path in CONVERSATION_MODEL_CALLERS:
+            continue
+        rel = path.relative_to(REPO_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hit = _import_targets(tree) & MODEL_REACHING_MODULES
+        if hit:
+            offenders.append(f"{rel}: imports {', '.join(sorted(hit))}")
+        sdk = _imported_roots(tree) & PROVIDER_SDKS
+        if sdk:
+            offenders.append(f"{rel}: imports {', '.join(sorted(sdk))}")
+    assert offenders == [], (
+        "core/conversation/ is the pure half; the provider call lives in "
+        "core/services/conversations.py: " + "; ".join(offenders)
+    )
+
+
+def test_the_conversation_model_ban_is_total_and_not_an_allow_list() -> None:
+    """Pinned at its exact contents, not at its size.
+
+    `len(...) == 0` and `== set()` are the same assertion here, and both are
+    written: the first commit to add a member fails on the identity check with
+    the reason in the diff, which is what #292 says the emptiness buys.
+    """
+    assert CONVERSATION_MODEL_CALLERS == set()
+    assert len(CONVERSATION_MODEL_CALLERS) == 0
+
+
+def test_w13b_did_not_widen_the_video_model_ban() -> None:
+    """**F4, asserted rather than remembered.**
+
+    The W13b slice prompt described #292's list as *"now one member; a
+    conversation module makes it two."* It is a PER-PACKAGE import ban, not a
+    list of permitted models, so a conversation module was never going to make
+    it two -- and this pins that W13b did not reach for it anyway.
+    """
+    assert VIDEO_MODEL_CALLERS == {VIDEO / "explain.py"}
 
 
 def test_the_video_model_ban_is_an_allow_list_of_exactly_one() -> None:

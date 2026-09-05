@@ -846,6 +846,32 @@ def test_no_guilt_copy_anywhere_in_the_frontend() -> None:
     )
 
 
+def test_the_conversation_cap_copy_carries_no_numeral() -> None:
+    """W13b. **The banned-phrase scan is not enough here and #348 is why.**
+
+    *"0 of 5 active days."* shipped to a learner every Sunday for a year and
+    contains no banned word. A remaining-turns figure is a backlog running
+    backwards; a tally of turns used is a score on someone for talking. So the
+    conversation copy is asserted to contain **no digit at all**, which is a
+    property a scan can hold where *is this a tally?* is not.
+
+    RED against `capReached: "That's 30 for today."`.
+    """
+    import re
+
+    src = (REPO_ROOT / "apps/web/components/session/copy.ts").read_text(
+        encoding="utf-8"
+    )
+    block = src[src.index("export const CONVERSATION") :]
+    strings = re.findall(r'"([^"]*)"', block)
+    assert strings, "the CONVERSATION copy block was not found"
+    offenders = [s for s in strings if re.search(r"[0-9]", s)]
+    assert offenders == [], (
+        "no conversation string may carry a numeral (#348, PRD §8.6.4): "
+        + "; ".join(offenders)
+    )
+
+
 def test_the_no_guilt_scan_catches_a_real_violation() -> None:
     from tests.support.no_guilt import offenders
 

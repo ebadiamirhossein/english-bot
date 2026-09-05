@@ -9,6 +9,7 @@ import { LessonBody } from "@/components/lessons/lesson";
 import { BlockShell } from "@/components/session/block-shell";
 import { BLOCKS, SEEN_BEFORE, NOTHING_DUE } from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
+import { Conversation } from "./conversation";
 import { ShadowLine } from "./shadow";
 import { VideoPlayer } from "@/components/video/player";
 import type {
@@ -347,6 +348,14 @@ export function OutputBlock({
               sessionId={sessionId}
             />
           ) : null}
+          {/* **W13b. ADDITIVE — it replaces nothing.** The written task
+              stands beside it, so PRD §8.6.6's warning about a sixth block does
+              not fire: block 4 gains a half, the session does not gain a block. */}
+          <Conversation
+            voice={Boolean(
+              (block.payload.conversation as { voice?: boolean } | undefined)?.voice,
+            )}
+          />
           <p className="text-base leading-relaxed" data-testid="output-task">
             {task}
           </p>

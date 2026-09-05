@@ -1501,7 +1501,7 @@ def _output_block(unit: Any, conn: Any = None, user_id: int | None = None) -> tu
     only path that writes `errors`, it already has its integration test through
     the ASGI transport, and this block hands the learner to it.
     """
-    from core.services import shadow_score
+    from core.services import conversations, shadow_score
 
     if unit is None:
         return "empty", {}
@@ -1520,6 +1520,23 @@ def _output_block(unit: Any, conn: Any = None, user_id: int | None = None) -> tu
                 "card_id": line.card_id,
                 "sentence": line.sentence,
             }
+        # **W13b. THE CONVERSATION IS BLOCK 4's OTHER SPEAK-OR-WRITE HALF, AND
+        # IT ARRIVES HERE RATHER THAN FROM A ROUTE OF ITS OWN** -- §1e's
+        # precedent, applied unchanged: one place decides what block 4 serves,
+        # because a second producer of one contract is #190's defect.
+        #
+        # **ADDITIVE, LIKE THE SHADOW LINE. It replaces nothing** -- the written
+        # task stands, and PRD §8.6.6's warning about a sixth block does not
+        # fire because no block is added.
+        #
+        # **NO COUNT AND NO NUMBER.** `voice` says whether the microphone is
+        # offered (#364's allowlist); nothing here reports turns used, turns
+        # left, or days since the last conversation -- #160 forbids a counter
+        # that accumulates while the learner is away, and a remaining-turns
+        # figure is that counter running backwards.
+        payload["conversation"] = {
+            "voice": conversations.voice_allowed_for(user_id),
+        }
     return "ready", payload
 
 

@@ -314,3 +314,40 @@ export const SHADOW = {
   notHeard: "I didn’t catch that one. The mic may not have picked it up.",
   listening: "Listening…",
 } as const;
+
+/**
+ * W13b — the conversation surface. PRD §8.6.
+ *
+ * **NOT ONE STRING HERE CONTAINS A NUMERAL, AND THAT IS ASSERTED BY NAME** in
+ * `tests/test_web_shell.py::test_the_conversation_cap_copy_carries_no_numeral`.
+ * #348 is why the regex alone is not enough: *"0 of 5 active days."* shipped to
+ * a learner weekly for a year and contains no banned word. A remaining-turns
+ * figure is a backlog running backwards; a tally of turns used is a score on
+ * someone for talking.
+ *
+ * **THE CAP LINE NAMES TOMORROW, NOT A LIMIT.** The conversation closes the way
+ * the End button does — corrections and all — so the learner's last message has
+ * already been answered and nothing stops mid-exchange.
+ */
+export const CONVERSATION = {
+  eyebrow: "Talk",
+  title: "Have a conversation",
+  /** The low-emphasis home entry point. **Never the primary call-to-action**
+   * and never a count (#160: a counter that accumulates while the learner is
+   * away is a backlog presented). */
+  homeLink: "Or just talk for a bit",
+  start: "Start talking",
+  send: "Send",
+  /** One swap, then the topic stands. §2c — v2's three-button picker is a
+   * browsable list and is deliberately not ported. */
+  another: "Something else",
+  end: "That’s enough for now",
+  thinking: "…",
+  /** **NO SPINNER APOLOGISES FOR THE WAIT.** 2–4 seconds is what conversation
+   * costs and it is not a defect (§0, cost 3). */
+  recording: "Listening…",
+  speak: "Hold to speak",
+  capReached: "That’s the conversation for today. There’s another one tomorrow.",
+  closing: "Here’s what stood out.",
+  trouble: "That didn’t go through. The conversation is still here.",
+} as const;

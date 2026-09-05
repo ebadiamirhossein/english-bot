@@ -45,6 +45,7 @@ def chat(
     images: list[bytes] | None = None,
     settings: Settings | None = None,
     reject_truncation: bool = False,
+    usage_out: dict | None = None,
 ) -> str | dict:
     """Provider chosen by settings.llm_provider. Retries 3x with backoff.
 
@@ -60,6 +61,24 @@ def chat(
 
     When ``reject_truncation=True``, a ``stop_reason`` of ``max_tokens`` raises
     LLMError (do not send mid-sentence or truncated JSON to the user).
+
+    ``usage_out`` is W13b's metering hook and is **optional and additive**: the
+    return type is unchanged and no existing caller moves. When a dict is
+    supplied, every provider response reached during this call **ADDS INTO** it
+    -- ``calls``, ``input_tokens``, ``output_tokens``,
+    ``cache_read_input_tokens``, ``cache_creation_input_tokens``.
+
+    **ADDS INTO, NEVER ASSIGNS, AND THAT IS THE CORRECTNESS POINT RATHER THAN A
+    STYLE CHOICE.** One ``chat()`` can reach the provider more than once: the
+    backoff retries up to three times, and ``json_mode``'s repair path makes a
+    further call with the failed text in it. **Every one of those is billed.** A
+    counter that recorded only the last response would under-report exactly the
+    way #321's floor did -- by excluding the part that costs -- and it would do
+    so silently, because the number it printed would still look precise.
+
+    **Accumulation happens BEFORE ``reject_truncation`` raises**, because a
+    truncated response was generated and billed; dropping it on the way out
+    would make the most expensive failure mode the one that reports zero.
     """
     cfg = settings or load_settings()
     provider = cfg.llm_provider or _DEFAULT_PROVIDER
@@ -77,6 +96,7 @@ def chat(
             max_tokens=max_tokens,
             settings=cfg,
             reject_truncation=reject_truncation,
+            usage_out=usage_out,
         )
 
     text = _chat_anthropic(
@@ -85,6 +105,7 @@ def chat(
         max_tokens=max_tokens,
         settings=cfg,
         reject_truncation=reject_truncation,
+        usage_out=usage_out,
     )
     try:
         return _parse_json(text)
@@ -99,6 +120,7 @@ def chat(
             max_tokens=max_tokens,
             settings=cfg,
             reject_truncation=reject_truncation,
+            usage_out=usage_out,
         )
         return _parse_json(repaired)
 
@@ -231,6 +253,7 @@ def _chat_anthropic(
     max_tokens: int,
     settings: Settings,
     reject_truncation: bool = False,
+    usage_out: dict | None = None,
 ) -> str:
     client = anthropic.Anthropic(api_key=settings.llm_api_key)
     kwargs: dict[str, Any] = {
@@ -255,6 +278,7 @@ def _chat_anthropic(
                 kwargs,
                 settings.llm_model,
                 reject_truncation=reject_truncation,
+                usage_out=usage_out,
             )
         except _RetriableError as exc:
             last_error = exc
@@ -275,6 +299,32 @@ def _chat_anthropic(
     raise LLMError(str(last_error)) from last_error
 
 
+def _accumulate_usage(
+    usage_out: dict | None,
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read: int,
+    cache_creation: int,
+) -> None:
+    """Sum one provider response into the caller's counter. **Never assigns.**
+
+    W13b. A no-op when no counter was supplied, so every existing caller is
+    untouched. See ``chat``'s docstring for why this adds rather than sets.
+    """
+    if usage_out is None:
+        return
+    usage_out["calls"] = usage_out.get("calls", 0) + 1
+    usage_out["input_tokens"] = usage_out.get("input_tokens", 0) + int(input_tokens)
+    usage_out["output_tokens"] = usage_out.get("output_tokens", 0) + int(output_tokens)
+    usage_out["cache_read_input_tokens"] = (
+        usage_out.get("cache_read_input_tokens", 0) + int(cache_read)
+    )
+    usage_out["cache_creation_input_tokens"] = (
+        usage_out.get("cache_creation_input_tokens", 0) + int(cache_creation)
+    )
+
+
 class _RetriableError(Exception):
     """Internal: signal that chat should back off and retry."""
 
@@ -285,6 +335,7 @@ def _anthropic_once(
     model: str,
     *,
     reject_truncation: bool = False,
+    usage_out: dict | None = None,
 ) -> str:
     started = time.perf_counter()
     try:
@@ -316,6 +367,16 @@ def _anthropic_once(
         cache_creation,
         stop_reason,
         duration_ms,
+    )
+    # **BEFORE the truncation raise below.** This response was generated and
+    # billed; a counter that skipped it would report zero for the single most
+    # expensive failure this wrapper has (#198's 8,000-token thinking budget).
+    _accumulate_usage(
+        usage_out,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read=cache_read,
+        cache_creation=cache_creation,
     )
     if reject_truncation and stop_reason == "max_tokens":
         # #198. **The response was generated and BILLED; discarding it makes the
