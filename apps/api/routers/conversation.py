@@ -53,6 +53,16 @@ router = APIRouter(prefix="/conversation", tags=["conversation"])
 MAX_AUDIO_BYTES = 2_000_000
 
 
+class OpenIn(BaseModel):
+    """§C1. The topic the learner picked, or none to let the app choose."""
+
+    topic_label: str | None = Field(default=None, max_length=200)
+
+
+class SaveWordIn(BaseModel):
+    word: str = Field(min_length=1, max_length=80)
+
+
 class TurnIn(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
 
@@ -80,9 +90,19 @@ class TurnOut(BaseModel):
 
 
 class CloseOut(BaseModel):
+    """§C2 and §C3.
+
+    **`summary` IS NOT ON THIS MODEL.** It is the app's own note about the
+    conversation, written for a consumer that does not exist yet (#391); putting
+    it on the wire would invite a client to render the app's assessment of the
+    learner back at them, which is a report card by another name.
+    """
+
     conversation_id: int
     corrections: list[CorrectionOut]
     did_well: str
+    #: §C2. Offered to the deck. **Nothing is saved without a tap.**
+    unknown_words: list[str]
 
 
 def _now() -> datetime:
@@ -107,13 +127,24 @@ def _as_turn(result: svc.TurnResult) -> TurnOut:
     ],
 )
 def open_conversation(
+    body: OpenIn | None = None,
     session_id: int | None = None,
     session: AuthenticatedUser = Depends(require_current_user),
 ) -> TurnOut:
-    """Open today's conversation. **409 when the day's turns are spent.**"""
+    """Open today's conversation. **409 when the day's turns are spent.**
+
+    `topic_label` is §C1's chosen suggestion. Omitting it keeps the original
+    behaviour — the opener chooses — so the route is backward compatible with
+    the shape W13b shipped.
+    """
     try:
         return _as_turn(
-            svc.open_conversation(session.id, _now(), session_id=session_id)
+            svc.open_conversation(
+                session.id,
+                _now(),
+                session_id=session_id,
+                topic_label=body.topic_label if body else None,
+            )
         )
     except svc.CapReached:
         raise HTTPException(status.HTTP_409_CONFLICT, "cap_reached")
@@ -254,4 +285,46 @@ def close(
             for c in result.corrections
         ],
         did_well=result.did_well,
+        unknown_words=list(result.unknown_words),
     )
+
+
+@router.post(
+    "/topics",
+    dependencies=[
+        Depends(rate_limit("conversation_topics", per_client=30, overall=120,
+                           window_seconds=3600))
+    ],
+)
+def topics(
+    session: AuthenticatedUser = Depends(require_current_user),
+) -> dict[str, list[str]]:
+    """§C1. Three suggestions the learner picks from.
+
+    **NO COUNT, NO BADGE, NO HISTORY OF SKIPPED TOPICS.** Those would make it a
+    backlog; three suggestions that accumulate nothing are not one. Calling it
+    again reshuffles — and nothing records that it was called.
+    """
+    return {"topics": svc.suggest_topics(session.id, _now())}
+
+
+@router.post(
+    "/save-word",
+    dependencies=[
+        Depends(rate_limit("conversation_save_word", per_client=60, overall=240,
+                           window_seconds=3600))
+    ],
+)
+def save_word(
+    body: SaveWordIn,
+    session: AuthenticatedUser = Depends(require_current_user),
+) -> dict[str, str]:
+    """§C2. One word from the conversation into the deck. **No model call.**
+
+    Returns `saved` or `already` — **`already` is a state, not an error**
+    (#178): a learner who taps a word twice has done nothing wrong.
+    """
+    try:
+        return {"state": svc.save_conversation_word(session.id, body.word, _now())}
+    except svc.ConversationError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "empty_word")

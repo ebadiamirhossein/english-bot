@@ -557,20 +557,49 @@ def test_output_does_not_reach_done_from_a_shadow_attempt_alone(
     )
 
 
-def test_the_shadow_line_is_served_in_block_four_and_nowhere_else(
+def test_the_shadow_line_is_retired_from_block_four_and_has_no_second_producer(
     app, learner
 ) -> None:
-    """§1e: one place decides today's line, so there is no second producer."""
+    """**AMENDED 2026-09-05 BY W13b/2 §B. THE OLD ASSERTION IS QUOTED RATHER
+    THAN DELETED (#82's shape), BECAUSE IT WAS CORRECT AND IS NOW REVERSED BY A
+    RULING RATHER THAN BY A DEFECT:**
+
+        def test_the_shadow_line_is_served_in_block_four_and_nowhere_else(...):
+            '''§1e: one place decides today's line, so there is no second
+            producer.'''
+            ...
+            assert output.payload["shadow"] == {
+                "card_id": learner.card_id,
+                "sentence": SENTENCE,
+            }
+
+    **THE OPERATOR RETIRED THE SHADOW CONTROL FROM THE SESSION ON 2026-09-05.**
+    #376 measured what the instrument cannot see: it catches a word said as a
+    different word and misses an inflectional ending, so a learner is told they
+    said it right when they did not.
+
+    **W14 IS NOT UN-MARKED AND NOT REOPENED, AND THIS TEST IS THE PLACE THAT
+    COULD MOST EASILY IMPLY OTHERWISE.** Its three acceptance criteria were met
+    and evidenced; *the surface is retired from the session pending W17* is a
+    different statement from *it failed*. **Everything else in this file still
+    passes unchanged** — the route, the scoring, the audio, the consent gate and
+    the discard are all live and all still tested.
+
+    **§1e's HALF THAT SURVIVES IS KEPT AND STILL ASSERTED:** there is no second
+    route serving a shadow target. That was never about whether block 4 offered
+    it; it was about there being one producer, and there is now zero, which
+    satisfies it more strongly than one did.
+    """
     from core.services import sessions as sessions_service
 
     session = sessions_service.today(
         learner.user_id, now=datetime.now(timezone.utc)
     )
     output = [b for b in session.blocks if b.kind == "output"][0]
-    assert output.payload["shadow"] == {
-        "card_id": learner.card_id,
-        "sentence": SENTENCE,
-    }
+    assert "shadow" not in output.payload, (
+        "block 4 must not offer the shadow control (operator ruling 2026-09-05, "
+        "#376) — the code stays for W17, the payload key does not"
+    )
     paths = {
         getattr(r, "path", "") for r in create_app().routes
     } | {"/shadow/{card_id}/score"}

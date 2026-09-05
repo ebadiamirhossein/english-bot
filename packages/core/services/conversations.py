@@ -118,6 +118,24 @@ def _templates() -> tuple[str, str]:
     return _turn_template, _close_template
 
 
+_close_v3_template: str | None = None
+
+
+def _close_v3() -> str:
+    """§C3's close prompt. **A NEW FILE, NOT AN EDIT TO THE SHARED ONE.**
+
+    `conversation_close.txt` is the v2 Telegram bot's and is left untouched:
+    adding a `summary` field to it would change a shipped surface's request for
+    a caller that does not read the field.
+    """
+    global _close_v3_template
+    if _close_v3_template is None:
+        _close_v3_template = (PROMPTS_DIR / "conversation_close_v3.txt").read_text(
+            encoding="utf-8"
+        )
+    return _close_v3_template
+
+
 def voice_allowed_for(user_id: int, settings: Any = None) -> bool:
     """**One condition, one home** -- shared with the shadow surface (#364).
 
@@ -339,37 +357,79 @@ def _track_for(track_weights: Any) -> str:
 def _topic_sources(conn: Any, user_id: int) -> dict[str, Any]:
     """This week's grammar target, the unit's lexis, and recent saved words.
 
-    **Every read here is best-effort and says so.** A learner with no
+    **§A, 2026-09-05 — THIS FUNCTION 500'd ON PRODUCTION ON ITS FIRST CALL AND
+    THE SURFACE HAD NEVER ONCE OPENED.** The first draft read
+    `su.target_lexemes` from `syllabus_units`. **That column does not exist and
+    never did.** It is not a rename: **the concept is a different table plus a
+    subtraction.**
+
+    * `syllabus_unit_lexemes` holds the CANDIDATE set — shared, no `user_id`,
+      migration 014's central design decision.
+    * The per-learner list is computed at read time:
+      `target_lexemes(user, unit) = unit_candidates(unit) - known_lemmas(user)`,
+      which is `core.services.syllabus.unit_target_lexemes`.
+
+    **SO THE FIX IS TO CALL THE FUNCTION THAT ALREADY DOES IT**, and it is
+    better than the column would have been: the words it returns are the ones
+    this learner does NOT yet know, which is exactly what a topic should reach
+    for.
+
+    **THE SHAPE, RECORDED BECAUSE IT IS #355's AND THIS IS ITS FOURTH INSTANCE
+    TODAY: the query was written from a document's description of a table rather
+    than from the table.** `docs/TASKS-v3-web.md`'s W8 row says each unit has
+    *"≥30 target lexemes"* — true, and it describes a DERIVED PER-LEARNER
+    QUANTITY, not a column. #355's closing condition is that verification
+    queries are written from a read of the migration or psql's own table
+    listing, never from
+    prose. **That rule was written for runbook queries and it applies to service
+    code in exactly the same way**, which is what this instance adds to the row.
+
+    **EVERY READ HERE IS BEST-EFFORT AND SAYS SO.** A learner with no
     `user_unit_state` row, an empty deck or an un-authored unit still gets a
-    conversation -- `topic_seed` renders "(none yet)" and the opener is asked to
-    be concrete anyway. **A surface that refuses to open because the syllabus is
-    thin would be #299's shape in a new place.**
+    conversation. **A surface that refused to open because the syllabus is thin
+    would be #299's shape in a new place** — and, as §A proved, a surface that
+    RAISES because the syllabus is thin is worse still.
     """
+    from core.services import syllabus as syllabus_service
+
     target: str | None = None
     lexemes: list[str] = []
-    row = conn.execute(
-        """
-        SELECT su.grammar_targets, su.target_lexemes
-          FROM user_unit_state uus
-          JOIN syllabus_units su ON su.unit_number = uus.unit_number
-         WHERE uus.user_id = %s
-      ORDER BY uus.unit_number DESC
-         LIMIT 1
-        """,
-        (user_id,),
-    ).fetchone()
-    if row is not None:
-        targets = row["grammar_targets"] or []
-        if targets:
-            first = targets[0]
-            target = first.get("label") if isinstance(first, dict) else str(first)
-        lexemes = [str(x) for x in (row["target_lexemes"] or [])]
+    try:
+        unit = syllabus_service.current_unit(conn, user_id)
+        row = conn.execute(
+            "SELECT grammar_targets FROM syllabus_units WHERE unit_number = %s",
+            (unit,),
+        ).fetchone()
+        if row is not None:
+            targets = row["grammar_targets"] or []
+            if targets:
+                first = targets[0]
+                # **THE KEY IS `target`, READ FROM THE ROW.** The first draft
+                # guessed `label` and got None on every unit -- the same defect
+                # as §A one level down, and it would have degraded silently
+                # instead of raising.
+                #
+                # **AND ONLY `target` IS TAKEN. `murphy_units` SITS BESIDE IT IN
+                # THE SAME DICT AND MUST NOT REACH A PROMPT**: #164 re-scoped it
+                # to an operator note and #171 asserts no surface renders it.
+                # Passing the whole dict would have put a Murphy citation into
+                # the model's context and, from there, potentially on a screen.
+                target = (
+                    str(first.get("target") or "") or None
+                    if isinstance(first, dict)
+                    else str(first)
+                )
+        lexemes = syllabus_service.unit_target_lexemes(conn, user_id, unit)[:12]
+    except Exception:  # noqa: BLE001
+        # **A THIN SYLLABUS MUST NOT BE A 500.** The topic falls back to
+        # "(none yet)" and the conversation still opens -- which is the whole
+        # lesson of §A, held here rather than only fixed.
+        logger.warning("topic sources unavailable user_id=%s", user_id)
 
     recent = conn.execute(
         """
-        SELECT DISTINCT lemma FROM cards
+        SELECT DISTINCT front FROM cards
          WHERE user_id = %s AND captured_at >= now() - interval '7 days'
-           AND lemma IS NOT NULL
          LIMIT 12
         """,
         (user_id,),
@@ -377,7 +437,7 @@ def _topic_sources(conn: Any, user_id: int) -> dict[str, Any]:
     return {
         "grammar_target": target,
         "unit_lexemes": lexemes,
-        "recent_words": [r["lemma"] for r in recent],
+        "recent_words": [r["front"] for r in recent],
     }
 
 
@@ -532,8 +592,93 @@ def _local_date(learner: dict, now: datetime) -> date:
     return local_today(learner["timezone"], now)
 
 
+#: §C1, operator ruling 2026-09-05. **THREE, OFFERED ONCE.**
+TOPIC_SUGGESTIONS = 3
+
+
+def suggest_topics(user_id: int, now: datetime) -> list[str]:
+    """Three topics the learner picks from. **§C1 REVERSES §2c, DELIBERATELY.**
+
+    **THE ORIGINAL RULING, QUOTED RATHER THAN DELETED (#82's shape):** *"one
+    topic, produced with the opener, plus exactly one alternative... v2's
+    three-button picker is a browsable list, refused by PRD §8.6.1, §7.4 and
+    CLAUDE.md §4."*
+
+    **THE OPERATOR'S RULING OF 2026-09-05 REVERSES IT, AND THE TENSION IS
+    RESOLVED RATHER THAN FUDGED.** CLAUDE.md §4 forbids presenting a BACKLOG,
+    and **a backlog is work that accumulates while you are away.** Three
+    suggestions accumulate nothing: nothing is owed, nothing is unfinished,
+    nothing counts up, and skipping all three leaves no trace. **#160's own
+    ruling is that what it forbids is THE COUNTER** — *a tab whose counter
+    accumulates while the learner is away is a backlog presented* — and there is
+    no counter here.
+
+    **WHAT WOULD MAKE IT A BACKLOG, AND IS THEREFORE FORBIDDEN:** a count of
+    topics, a badge, a history of skipped topics, or a *topics you haven't
+    tried* list. None of those is built and `TOPIC_SUGGESTIONS` is not rendered.
+
+    **COST, RECORDED AGAINST §0's FIRST ACCEPTED COST:** this is **one more
+    provider call per conversation** than §2c's shape, which produced the topic
+    as a side effect of the opener. A reshuffle is one more again. P2's token
+    prediction is unaffected — these are short completions with no history — but
+    the CALL count per conversation rises from 1 + turns + 1 to **2 + turns + 1**.
+    """
+    cfg = load_settings()
+    with connection() as conn:
+        _entry(conn, now, cfg)
+        learner = _learner(conn, user_id)
+        today = _local_date(learner, now)
+        sources = _topic_sources(conn, user_id)
+        turn_template, _ = _templates()
+        system = build_system_prompt(
+            turn_template,
+            cefr_level=learner["cefr_level"],
+            native_language=learner["native_language"],
+            topic_label="(choosing a topic)",
+            **topic_seed(
+                grammar_target=sources["grammar_target"],
+                unit_lexemes=sources["unit_lexemes"],
+                recent_words=sources["recent_words"],
+                track=_track_for(learner["track_weights"]),
+            ),
+        )
+        usage_out: dict = {}
+        raw = str(
+            llm.chat(
+                [{
+                    "role": "user",
+                    "content": (
+                        f"Suggest {TOPIC_SUGGESTIONS} short, concrete things we "
+                        "could talk about today, drawing on the material above. "
+                        "One per line, no numbering, under eight words each. "
+                        "Nothing else."
+                    ),
+                }],
+                system=system,
+                max_tokens=120,
+                usage_out=usage_out,
+            )
+        )
+        _record_llm(conn, user_id, today, usage_out)
+        conn.commit()
+
+    topics = [
+        line.strip(" -•*0123456789.").strip()
+        for line in raw.splitlines()
+        if line.strip()
+    ]
+    # **THE GUILT SCAN REACHES THE SUGGESTIONS TOO** -- they are learner-facing
+    # English like every other string in this surface (#348).
+    topics = [x for x in topics if x and not content_offenders(x)]
+    return topics[:TOPIC_SUGGESTIONS]
+
+
 def open_conversation(
-    user_id: int, now: datetime, *, session_id: int | None = None
+    user_id: int,
+    now: datetime,
+    *,
+    session_id: int | None = None,
+    topic_label: str | None = None,
 ) -> TurnResult:
     """Open today's conversation. **The opener IS the topic (§2c).**
 
@@ -579,9 +724,14 @@ def open_conversation(
         ).fetchone()
         conversation_id = int(row["id"])
 
+        chosen = (topic_label or "").strip()
         reply, band, usage_out = _generate_reply(
-            conn, user_id, learner, "today's topic", sources, [], None
+            conn, user_id, learner, chosen or "today's topic", sources, [], None
         )
+        # **THE LEARNER'S CHOSEN TOPIC WINS OVER THE DERIVED LABEL** -- it is
+        # what they picked, and rotation should record what they talked about
+        # rather than how the opener happened to start.
+        label = chosen or _label_from(reply)
         _append(conn, conversation_id, 0, "app", reply, coverage_band=band)
         conn.execute(
             """
@@ -589,14 +739,14 @@ def open_conversation(
                SET topic_label = %s, turns_app = 1, last_activity_at = %s
              WHERE id = %s
             """,
-            (_label_from(reply), now, conversation_id),
+            (label, now, conversation_id),
         )
         _bump_usage(conn, user_id, today, turns_app=1)
         _record_llm(conn, user_id, today, usage_out)
         conn.commit()
         return TurnResult(
             conversation_id=conversation_id,
-            topic_label=_label_from(reply),
+            topic_label=label,
             learner_text=None,
             reply=reply,
             turns_learner=0,
@@ -766,9 +916,143 @@ class CloseResult:
     conversation_id: int
     corrections: list[Correction]
     did_well: str
+    #: §C2. Lemmas from the learner's own TYPED turns that are outside their
+    #: ledger. Offered to the deck; **nothing is saved without a tap.**
+    unknown_words: tuple[str, ...] = ()
+    #: §C3. The app's own English about the conversation. Stored on the row and
+    #: **not shown to the learner** -- it is a note the app keeps for itself.
+    summary: str = ""
     #: How many of `corrections` reached `errors`. **A count for the record and
     #: the tests, never rendered** -- a tally shown to a learner is a score.
-    journaled: int
+    journaled: int = 0
+
+
+def unknown_words_from(conn: Any, user_id: int, turns: list[Turn]) -> tuple[str, ...]:
+    """§C2. The words the learner did not know, from their own typed turns.
+
+    **`coverage_for` ALREADY COMPUTES EXACTLY THIS** and is free and offline —
+    `unknown_lemmas` is the field, and W12a is the slice that made the
+    instrument trustworthy.
+
+    **VOICE TURNS ARE EXCLUDED, FOR THE SAME REASON THEY CANNOT SOURCE A
+    JOURNAL ROW: a Whisper mishearing must not become a card.** A misheard word
+    is not a word the learner did not know; it is a word they did not say.
+    **THE CONSEQUENCE, STATED RATHER THAN LEFT AS AN IMPLIED PASS: a
+    conversation held entirely by voice captures no words**, exactly as it
+    writes no journal rows.
+
+    **AND THE APP'S OWN TURNS ARE EXCLUDED**, which is a different point and
+    matters more than it looks: the app's reply is coverage-CHECKED against this
+    learner's ledger, so words the app used that they do not know are a defect
+    in the reply, not a capture opportunity. Harvesting them would turn a
+    failed coverage check into deck content.
+    """
+    typed = " ".join(t.content for t in turns if t.is_learner and not t.is_voice)
+    if not typed.strip():
+        return ()
+    report = coverage_for(conn, user_id, typed)
+    return tuple(report.unknown_lemmas)
+
+
+def save_conversation_word(user_id: int, word: str, now: datetime) -> str:
+    """Save one word from a conversation to the deck. **No model call.**
+
+    **THE SLICE PROMPT NAMED `cards.save_captured_word` AND IT CANNOT BE
+    REUSED — REPORTED RATHER THAN WORKED AROUND.** That function is
+    video-bound: it takes a `video_id` and reads a pre-generated `video_glosses`
+    row for the definition, register, neutral equivalent and who-says-this. **A
+    conversation word has no gloss row and no video.**
+
+    **AND GENERATING ONE HERE WOULD BREACH THE HALF OF THE 2026-08-27 RULING
+    §0's AMENDMENT EXPLICITLY LEFT STANDING:** *the app does not generate
+    material a learner will study without a gate.* **A card IS study material.**
+    A turn is not, which is why the amendment reached one and not the other.
+
+    **SO THE PATH REUSED IS W8f's, NOT W13-ii's**, and it is the right one: the
+    vocabulary import creates cards with **no model call at all**, at
+    `register='neutral'` / `register_source='import_default'` — the value
+    migration 015 widened the CHECK for precisely so a word can enter the deck
+    without one. The learner's own sentence is the context.
+
+    **THE ONE-CARD-PER-LEMMA GUARANTEE IS NOT FREE HERE, AND THE FIRST DRAFT OF
+    THIS DOCSTRING SAID IT WAS. CORRECTED ON THE INDEX DEFINITION, NOT ON
+    MEMORY — §A's defect attempted a third time in one commit.**
+
+    015's `cards_one_card_per_lemma` is
+    `UNIQUE (user_id, lexeme_id, card_type) WHERE lexeme_id IS NOT NULL`, **so
+    it does not reach a card whose `lexeme_id` is NULL** — and a word the
+    learner did not know is very often outside the frequency list and therefore
+    has no `lexemes` row at all. **The index protects precisely the words this
+    feature does NOT capture.** Measured: two saves of *aardvark* produced two
+    cards, ids 79322 and 79323, on the dev database.
+
+    **SO THE PRE-CHECK IS EXPLICIT AND IS THE ACTUAL GUARANTEE**, on
+    `(user_id, lower(front))` — the video path's own shape (`resolve_capture` 
+    pre-checks by `(user_id, context_sentence, front)` for the same reason). A
+    second save returns `"already"`, which is #178's *already saved* behaving
+    politely rather than erroring. **The index still holds for the words that DO
+    have a lexeme row, so both guards are live and neither is redundant.**
+
+    **NO TRACK WEIGHTING IS ATTEMPTED, AND #374 IS WHY: `cards` HAS NO `track`
+    COLUMN.** A weighting here would be invented rather than applied.
+
+    Returns `"saved"` or `"already"`.
+    """
+    from core.services.cards import CardState, create_card
+    from core.services.lexicon import lexeme_ids
+
+    lemma = (word or "").strip().lower()
+    if not lemma:
+        raise ConversationError("empty word")
+    with connection() as conn:
+        row = _open_row(conn, user_id)
+        ref = f"conversation:{row['id']}" if row else "conversation"
+        # **`lexeme_ids`, READ FROM `lexicon.py` RATHER THAN GUESSED.** The
+        # first draft called `lemma_id_for`, which does not exist — §A's defect
+        # attempted a second time in the same commit, caught here by importing
+        # before writing. A lemma outside the frequency list has no row, and
+        # `lexeme_id` is nullable for exactly that case (013).
+        lexeme_id = lexeme_ids(conn, [lemma]).get(lemma)
+
+        # **THE ACTUAL DUPLICATE GUARD.** See the docstring: 015's partial
+        # UNIQUE cannot see a NULL `lexeme_id`, which is most of what lands
+        # here.
+        seen = conn.execute(
+            "SELECT 1 FROM cards WHERE user_id = %s AND lower(front) = %s LIMIT 1",
+            (user_id, lemma),
+        ).fetchone()
+        if seen is not None:
+            return "already"
+
+        card_id = create_card(
+            conn,
+            user_id,
+            card_type="recognition",
+            front=lemma,
+            back=lemma,
+            register="neutral",
+            register_source="import_default",
+            # **The same `CardState` the capture path builds** -- a new card in
+            # `learning` at step 0, due now, with no FSRS parameters yet.
+            # 013's `cards_review_state_carries_both_parameters` CHECK is what
+            # makes `learning` the only state that may carry NULLs.
+            state=CardState(
+                fsrs_state="learning",
+                fsrs_step=0,
+                stability=None,
+                difficulty=None,
+                due=now,
+                last_review=None,
+                lapses=0,
+                reps=0,
+            ),
+            source_ref=ref,
+            lexeme_id=lexeme_id,
+            captured_at=now,
+            source_title="conversation",
+        )
+        conn.commit()
+    return "saved" if card_id is not None else "already"
 
 
 def _valid_error_types(conn: Any) -> frozenset[str]:
@@ -807,16 +1091,17 @@ def close_conversation(user_id: int, now: datetime) -> CloseResult:
 
         corrections: list[Correction] = []
         did_well = ""
+        summary = ""
+        # **§C2 RUNS BEFORE THE DELETE, LIKE THE GUARDS, AND FOR THE SAME
+        # REASON: it reads the turns.**
+        unknown = unknown_words_from(conn, user_id, turns)
         if turns and any(t.is_learner for t in turns):
-            _, close_template = _templates()
+            close_template = _close_v3()
             system = build_system_prompt(
                 close_template,
                 cefr_level=learner["cefr_level"],
                 native_language=learner["native_language"],
-                work_domain="general",
                 error_type_list=", ".join(sorted(_valid_error_types(conn))),
-                recurring_error_labels="(none yet)",
-                explanation_language_rule="",
             )
             usage_out: dict = {}
             try:
@@ -838,6 +1123,7 @@ def close_conversation(user_id: int, now: datetime) -> CloseResult:
 
             if isinstance(result, dict):
                 did_well = str(result.get("did_well") or "").strip()
+                summary = str(result.get("summary") or "").strip()
                 corrections = apply_guards(
                     list(result.get("errors") or []),
                     turns,
@@ -868,19 +1154,24 @@ def close_conversation(user_id: int, now: datetime) -> CloseResult:
             "DELETE FROM conversation_turns WHERE conversation_id = %s",
             (conversation_id,),
         )
+        # **§C3. The summary is written in the SAME transaction that deletes
+        # the turns.** It is the app's own English about the conversation, not
+        # the conversation by another name -- §O2 stands and the turns go.
         conn.execute(
-            "UPDATE conversations SET closed_at = %s WHERE id = %s",
-            (now, conversation_id),
+            "UPDATE conversations SET closed_at = %s, summary = %s WHERE id = %s",
+            (now, summary or None, conversation_id),
         )
         conn.commit()
 
     logger.info(
-        "conversation closed user_id=%s shown=%s journaled=%s",
-        user_id, len(corrections), journaled,
+        "conversation closed user_id=%s shown=%s journaled=%s words=%s",
+        user_id, len(corrections), journaled, len(unknown),
     )
     return CloseResult(
         conversation_id=conversation_id,
         corrections=corrections,
         did_well=did_well,
+        unknown_words=unknown,
+        summary=summary,
         journaled=journaled,
     )

@@ -1,0 +1,41 @@
+-- ============================================================================
+-- 026 — W13b/2, §C3. The summary that survives the conversation.
+--
+-- **NUMBER READ FREE BEFORE IT WAS TAKEN:** `migrations/` ran 001–025 with no
+-- gaps and the dev database reported 25. **026 IS WHAT THE AUTHORITATIVE TABLE
+-- RESERVED FOR W18 AFTER W13b TOOK 025 YESTERDAY**, so **W18 SHIFTS 026 → 027
+-- IN BOTH HALVES IN THIS SAME COMMIT.** W4b's policy: take the next number,
+-- never one above everything claimed.
+--
+-- **#185's TWELFTH on the *taken at implementation time* counting, which is the
+-- counting this file uses and the one 025's header used yesterday.** On the
+-- *shifted an unwritten row* counting it is the eleventh. **The two still do
+-- not reconcile and this file does not resolve them.** W18 has now been shifted
+-- twice in two days by the same slice, which is #185's own argument made
+-- louder rather than a new problem.
+--
+-- ----------------------------------------------------------------------------
+-- **WHY A COLUMN AND NOT A TABLE.** One summary per conversation, written once
+-- at close, never versioned and never listed on its own. A table would buy a
+-- second purge path for a lifecycle that is already the parent row's -- which
+-- is 021's exact reasoning for putting `transcript_cues` on `videos` rather
+-- than in a `video_cues` table.
+--
+-- **WHAT IT IS: THE APP'S OWN ENGLISH ABOUT THE CONVERSATION**, in the app's
+-- voice, not the learner's words. **THE TURNS ARE STILL DELETED AT CLOSE and
+-- §O2 stands** -- this column is not a transcript by another name, and the
+-- close-out writes it in the same transaction that removes the turns.
+--
+-- **AND IT COSTS NO EXTRA PROVIDER CALL.** The slice prompt anticipated one and
+-- recorded it against §0's cost 1; **it folds into the close-out's existing
+-- JSON response instead**, so a conversation still makes exactly one closing
+-- call. `conversation_close_v3.txt` asks for `summary` beside `errors` and
+-- `did_well`; the v2 bot's own `conversation_close.txt` is untouched.
+--
+-- **NOTHING READS IT YET, AND THAT IS FILED RATHER THAN IMPLIED (#391).** A
+-- summary nothing reads is a column, not a feature.
+-- ============================================================================
+
+ALTER TABLE conversations ADD COLUMN summary TEXT
+    CONSTRAINT conversations_summary_is_not_blank
+    CHECK (summary IS NULL OR length(btrim(summary)) > 0);

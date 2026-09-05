@@ -350,4 +350,15 @@ export const CONVERSATION = {
   capReached: "That’s the conversation for today. There’s another one tomorrow.",
   closing: "Here’s what stood out.",
   trouble: "That didn’t go through. The conversation is still here.",
+  /** §C1. Three suggestions, offered once. **No count, no badge, no history of
+   * skipped topics** — those would make it a backlog, which is work that
+   * accumulates while you are away. These accumulate nothing. */
+  pick: "What do you feel like talking about?",
+  reshuffle: "Show me others",
+  /** §C2. The words the learner did not know, offered to the deck. **Never a
+   * count and never framed as a gap** — "words you didn't know" is a verdict;
+   * "worth keeping" is an offer. */
+  wordsHeading: "Worth keeping",
+  save: "Keep",
+  saved: "Kept",
 } as const;

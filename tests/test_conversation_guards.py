@@ -283,3 +283,94 @@ def test_an_empty_seed_reads_as_none_yet_rather_than_refusing() -> None:
     )
     assert seed["unit_lexemes"] == "(none yet)"
     assert seed["grammar_target"] == "(none this week)"
+
+
+# ── §C1 · §C2 · §C3 ─────────────────────────────────────────────────────────
+
+
+def test_the_topic_suggestions_are_not_a_backlog() -> None:
+    """**§C1 REVERSES §2c AND THE TENSION IS RESOLVED, NOT FUDGED.**
+
+    CLAUDE.md §4 forbids presenting a BACKLOG, and **a backlog is work that
+    accumulates while you are away.** Three suggestions accumulate nothing:
+    nothing is owed, nothing is unfinished, nothing counts up, skipping all
+    three leaves no trace. #160's own ruling is that what it forbids is **the
+    counter**.
+
+    **SO WHAT THIS ASSERTS IS THE ABSENCE OF THE THINGS THAT WOULD MAKE IT
+    ONE** — a count, a badge, a skipped-topics history — in the component and
+    the copy. RED against a `topicsSeen` list or a `{topics.length} topics`
+    render.
+    """
+    import re
+    from pathlib import Path
+
+    raw = Path("apps/web/components/session/conversation.tsx").read_text(
+        encoding="utf-8"
+    )
+    # **COMMENTS ARE STRIPPED FIRST**, the way
+    # `test_no_guilt_copy_anywhere_in_the_frontend` does it. The first draft did
+    # not, and it failed on the comment that explains why these tokens are
+    # forbidden — a scan that cannot tell the rule from its own rationale is a
+    # scan somebody switches off.
+    src = re.sub(r"/\*[\s\S]*?\*/", " ", raw)
+    src = re.sub(r"^\s*//.*$", " ", src, flags=re.M)
+    for banned in ("topics.length", "topicsSeen", "skipped", "remaining"):
+        assert banned not in src, f"a topic {banned} would make this a backlog"
+
+
+def test_the_conversation_copy_still_carries_no_numeral_after_c1_and_c2() -> None:
+    """The no-numeral rule extends to the new strings, not just the cap line.
+
+    #348 is why: *"0 of 5 active days."* passed a banned-word scan for a year.
+    """
+    import re
+    from pathlib import Path
+
+    src = Path("apps/web/components/session/copy.ts").read_text(encoding="utf-8")
+    block = src[src.index("export const CONVERSATION") :]
+    offenders = [s for s in re.findall(r'"([^"]*)"', block) if re.search(r"[0-9]", s)]
+    assert offenders == []
+
+
+def test_unknown_words_exclude_voice_turns_and_the_apps_own_turns() -> None:
+    """**§C2's exclusions, and both matter for different reasons.**
+
+    A **voice** turn is Whisper's guess: a misheard word is not a word the
+    learner did not know, it is a word they did not say, and it must not become
+    a card — the same rule that keeps it out of the journal.
+
+    An **app** turn is coverage-checked against this learner's ledger, so a word
+    the app used that they do not know is **a defect in the reply**, not a
+    capture opportunity. Harvesting it would turn a failed coverage check into
+    deck content.
+
+    Asserted on the text the function assembles, so it needs no database.
+    """
+    import inspect
+
+    from core.services.conversations import unknown_words_from
+
+    src = inspect.getsource(unknown_words_from)
+    assert "t.is_learner and not t.is_voice" in src
+
+
+def test_the_summary_prompt_forbids_a_score_and_a_quote() -> None:
+    """§C3. The summary is the app's own English, and it is copy like any other.
+
+    It is never shown to the learner today, but #391 is filed precisely because
+    something will read it — so the constraints are asserted at the prompt
+    rather than left to whoever builds the consumer.
+    """
+    from pathlib import Path
+
+    from core.copy_rules import content_offenders
+
+    text = Path("packages/core/prompts/conversation_close_v3.txt").read_text(
+        encoding="utf-8"
+    )
+    for rule in ("Never quote the learner", "Never a score", "two sentences"):
+        assert rule.lower() in text.lower(), f"the summary prompt must say: {rule}"
+    # The prompt itself must not model guilt copy for the thing it is asking for.
+    body = text[text.index("Rules for summary") :]
+    assert content_offenders(body.replace("Never say the learner failed", "")) == ()

@@ -1501,7 +1501,7 @@ def _output_block(unit: Any, conn: Any = None, user_id: int | None = None) -> tu
     only path that writes `errors`, it already has its integration test through
     the ASGI transport, and this block hands the learner to it.
     """
-    from core.services import conversations, shadow_score
+    from core.services import conversations
 
     if unit is None:
         return "empty", {}
@@ -1514,12 +1514,35 @@ def _output_block(unit: Any, conn: Any = None, user_id: int | None = None) -> tu
     # with no usable sentence yields no line, and the block is exactly what it
     # was before W14 -- `shadow` absent, not `shadow: null` with an empty face.
     if conn is not None and user_id is not None:
-        line = shadow_score.shadow_line(conn, user_id)
-        if line is not None:
-            payload["shadow"] = {
-                "card_id": line.card_id,
-                "sentence": line.sentence,
-            }
+        # ────────────────────────────────────────────────────────────────────
+        # **THE SHADOW CONTROL IS RETIRED FROM BLOCK 4. OPERATOR RULING,
+        # 2026-09-05. THE CODE STAYS; ONLY THE PAYLOAD KEY IS GONE.**
+        #
+        # **THE REASON IS #376's MEASUREMENT, NOT A PREFERENCE.** Pronunciation
+        # assessment detects a word said as a DIFFERENT WORD and does not detect
+        # an INFLECTIONAL ENDING. The operator deliberately mispronounced
+        # `model→models`, `window→windows`, `can→can't` and `validation`, and
+        # **only `trust` was caught.** So a learner who wants to speak better is
+        # told they said it right when they did not, and **a surface whose
+        # silence is uninformative is worse than no surface.**
+        #
+        # **DISABLE, DO NOT DELETE — #348's PRECEDENT FROM THREE DAYS AGO.** The
+        # Sunday job was unregistered and its code left standing because W22
+        # deletes the bot wholesale and a partial deletion makes that harder to
+        # reason about. **AND THERE IS A SECOND REASON HERE: `speech_attempts`,
+        # the Azure door and the scoring feed W17's weak-spot surface**, which
+        # is the thing pronunciation assessment genuinely does well. W17 is the
+        # consumer that keeps this code alive.
+        #
+        # `shadow_line`, `score_attempt`, `line_audio`, both routes,
+        # `speech_api.py`, migration 024 and every shadow test are UNTOUCHED.
+        # **W14 IS NOT UN-MARKED AND NOT REOPENED**: its three acceptance
+        # criteria were met and evidenced. *The surface it built is retired from
+        # the session pending W17* is a different statement from *it failed*.
+        #
+        # `test_block_four_offers_no_shadow_control` holds this, so a later
+        # slice cannot restore the key without meeting the ruling.
+        # ────────────────────────────────────────────────────────────────────
         # **W13b. THE CONVERSATION IS BLOCK 4's OTHER SPEAK-OR-WRITE HALF, AND
         # IT ARRIVES HERE RATHER THAN FROM A ROUTE OF ITS OWN** -- §1e's
         # precedent, applied unchanged: one place decides what block 4 serves,

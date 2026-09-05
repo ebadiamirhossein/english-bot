@@ -10,7 +10,6 @@ import { BlockShell } from "@/components/session/block-shell";
 import { BLOCKS, SEEN_BEFORE, NOTHING_DUE } from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
 import { Conversation } from "./conversation";
-import { ShadowLine } from "./shadow";
 import { VideoPlayer } from "@/components/video/player";
 import type {
   CardFace,
@@ -321,9 +320,6 @@ export function OutputBlock({
   sessionId?: number;
 }) {
   const task = block.payload.task as string | undefined;
-  const shadow = block.payload.shadow as
-    | { card_id: number; sentence: string }
-    | undefined;
 
   return (
     <BlockShell
@@ -341,13 +337,12 @@ export function OutputBlock({
               task.** PRD §4.1's block 4 is *Speak or write*, and until W14 it
               only wrote. A deck with no usable sentence yields no `shadow` key
               at all — absent, never an empty face (§1e). */}
-          {shadow ? (
-            <ShadowLine
-              cardId={shadow.card_id}
-              sentence={shadow.sentence}
-              sessionId={sessionId}
-            />
-          ) : null}
+          {/* **THE SHADOW CONTROL IS RETIRED FROM BLOCK 4 (operator ruling,
+              2026-09-05).** #376: assessment catches a word said as a different
+              word and misses an inflectional ending, so the surface tells a
+              learner they said it right when they did not. **The code stays --
+              W17's weak-spot surface is the consumer that keeps it alive.**
+              #348's disable-don't-delete precedent. */}
           {/* **W13b. ADDITIVE — it replaces nothing.** The written task
               stands beside it, so PRD §8.6.6's warning about a sixth block does
               not fire: block 4 gains a half, the session does not gain a block. */}

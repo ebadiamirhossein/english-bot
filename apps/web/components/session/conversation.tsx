@@ -42,6 +42,12 @@ export function Conversation({ voice }: { voice: boolean }) {
   const [trouble, setTrouble] = useState(false);
   const [corrections, setCorrections] = useState<Correction[] | null>(null);
   const [swapped, setSwapped] = useState(false);
+  // §C1. Three suggestions, offered once. **Nothing records which were
+  // skipped** — a history of skipped topics is the backlog this must not be.
+  const [topics, setTopics] = useState<string[] | null>(null);
+  // §C2. Offered to the deck; nothing is saved without a tap.
+  const [words, setWords] = useState<string[]>([]);
+  const [kept, setKept] = useState<Record<string, boolean>>({});
 
   const api = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -74,8 +80,14 @@ export function Conversation({ voice }: { voice: boolean }) {
     }
   }
 
-  async function start() {
-    const out = await call("open");
+  async function suggest() {
+    const out = await call("topics");
+    if (!out) return;
+    setTopics(out.topics ?? []);
+  }
+
+  async function start(topic?: string) {
+    const out = await call("open", topic ? { topic_label: topic } : undefined);
     if (!out) return;
     setTopic(out.topic_label);
     setLines([{ who: "app", text: out.reply }]);
@@ -105,15 +117,46 @@ export function Conversation({ voice }: { voice: boolean }) {
   async function end() {
     const out = await call("close");
     setDone(true);
-    if (out) setCorrections(out.corrections ?? []);
+    if (out) {
+      setCorrections(out.corrections ?? []);
+      setWords(out.unknown_words ?? []);
+    }
+  }
+
+  async function keep(word: string) {
+    const out = await call("save-word", { word });
+    // **`already` is a state, not an error** (#178): tapping twice is fine.
+    if (out) setKept((k) => ({ ...k, [word]: true }));
   }
 
   if (lines.length === 0 && !done) {
     return (
       <div data-testid="conversation-idle">
-        <Button onClick={start} disabled={busy}>
-          {CONVERSATION.start}
-        </Button>
+        {topics === null ? (
+          <Button onClick={suggest} disabled={busy}>
+            {CONVERSATION.start}
+          </Button>
+        ) : (
+          <div data-testid="conversation-topics">
+            <p className="text-sm opacity-70">{CONVERSATION.pick}</p>
+            <div className="mt-2 flex flex-col gap-2">
+              {topics.map((topic) => (
+                <Button
+                  key={topic}
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => start(topic)}
+                >
+                  {topic}
+                </Button>
+              ))}
+              {/* Reshuffles. **Nothing records that it was tapped.** */}
+              <Button variant="ghost" onClick={suggest} disabled={busy}>
+                {CONVERSATION.reshuffle}
+              </Button>
+            </div>
+          </div>
+        )}
         {trouble ? <p className="mt-2 text-sm">{CONVERSATION.trouble}</p> : null}
       </div>
     );
@@ -130,6 +173,26 @@ export function Conversation({ voice }: { voice: boolean }) {
             rendering *this one didn't count* would be a tally about the
             learner's own speech. A voice-only conversation shows these and
             wrote none of them. */}
+        {/* §C2. **Offered, never counted.** The heading is "worth keeping"
+            rather than "words you didn't know", because the second is a verdict
+            about the learner and the first is an offer. */}
+        {words.length > 0 ? (
+          <div className="mt-4" data-testid="conversation-words">
+            <p className="text-sm opacity-70">{CONVERSATION.wordsHeading}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {words.map((w) => (
+                <Button
+                  key={w}
+                  variant="outline"
+                  disabled={busy || Boolean(kept[w])}
+                  onClick={() => keep(w)}
+                >
+                  {kept[w] ? `${CONVERSATION.saved}: ${w}` : `${CONVERSATION.save} ${w}`}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {corrections?.map((c, i) => (
           <div key={i} className="mt-3" data-testid="conversation-correction">
             <p className="text-sm opacity-70">{c.you_said}</p>
