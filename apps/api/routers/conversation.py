@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -298,14 +299,24 @@ def close(
 )
 def topics(
     session: AuthenticatedUser = Depends(require_current_user),
-) -> dict[str, list[str]]:
+) -> dict[str, Any]:
     """§C1. Three suggestions the learner picks from.
 
     **NO COUNT, NO BADGE, NO HISTORY OF SKIPPED TOPICS.** Those would make it a
     backlog; three suggestions that accumulate nothing are not one. Calling it
     again reshuffles — and nothing records that it was called.
+
+    **`voice` RIDES ALONG BECAUSE `/talk` IS A PAGE OF ITS OWN NOW (§A) AND HAS
+    NO SESSION PAYLOAD TO READ THE GATE FROM.** This is the page's first call,
+    so the flag costs no extra round trip. **It is the same predicate the
+    shadow surface uses** (`voice_allowed_for`, #364) — one condition, one
+    home — and a gated learner gets `false`, which renders **no control at
+    all** rather than a disabled one.
     """
-    return {"topics": svc.suggest_topics(session.id, _now())}
+    return {
+        "topics": svc.suggest_topics(session.id, _now()),
+        "voice": svc.voice_allowed_for(session.id),
+    }
 
 
 @router.post(

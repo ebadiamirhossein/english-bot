@@ -361,4 +361,18 @@ export const CONVERSATION = {
   wordsHeading: "Worth keeping",
   save: "Keep",
   saved: "Kept",
+  /** §A. Block 4's low-emphasis link into the page. **Never the primary
+   * call-to-action and never a count** — W11b's Sunday link is the shipped
+   * shape (#160 forbids a counter, not a page). */
+  blockLink: "Or have a conversation",
+  /** §B. The in-progress state. **The wait is the product** — this says the
+   * app is working and never how long it will take. No spinner, no bar. */
+  working: "Typing…",
+  composerLabel: "Message",
+  placeholder: "Say something…",
+  micStart: "Speak",
+  micStop: "Stop",
+  micTrouble: "The mic didn’t start. Typing works.",
+  you: "You",
+  app: "App",
 } as const;

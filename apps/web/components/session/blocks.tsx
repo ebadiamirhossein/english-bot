@@ -7,9 +7,8 @@ import { CardRunner } from "@/components/cards/card-runner";
 import { ItemCard } from "@/components/items/item-card";
 import { LessonBody } from "@/components/lessons/lesson";
 import { BlockShell } from "@/components/session/block-shell";
-import { BLOCKS, SEEN_BEFORE, NOTHING_DUE } from "@/components/session/copy";
+import { BLOCKS, CONVERSATION, SEEN_BEFORE, NOTHING_DUE } from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
-import { Conversation } from "./conversation";
 import { VideoPlayer } from "@/components/video/player";
 import type {
   CardFace,
@@ -343,14 +342,23 @@ export function OutputBlock({
               learner they said it right when they did not. **The code stays --
               W17's weak-spot surface is the consumer that keeps it alive.**
               #348's disable-don't-delete precedent. */}
-          {/* **W13b. ADDITIVE — it replaces nothing.** The written task
-              stands beside it, so PRD §8.6.6's warning about a sixth block does
-              not fire: block 4 gains a half, the session does not gain a block. */}
-          <Conversation
-            voice={Boolean(
-              (block.payload.conversation as { voice?: boolean } | undefined)?.voice,
-            )}
-          />
+          {/* **W13b/3 §A — BLOCK 4 LINKS TO THE CONVERSATION AND RENDERS NO
+              CHAT.** §3.2 put the chat here citing #160; that was an assistant
+              error. **#160 forbids a COUNTER, not a page** — its ruling keeps
+              `/review` reachable *"never as a daily obligation with a count"*.
+              Crammed into a card between a grammar exercise and a *Write it*
+              button, the chat had no room and no scroll region of its own.
+
+              **WHAT #160 STILL IMPOSES AND WHAT THIS LINK HONOURS: no count, no
+              badge, no dot, no days-since, and never the primary emphasis.**
+              W11b's Sunday link is the shipped shape. */}
+          <Link
+            href="/talk"
+            className="text-sm text-muted-foreground underline underline-offset-4"
+            data-testid="conversation-link"
+          >
+            {CONVERSATION.blockLink}
+          </Link>
           <p className="text-base leading-relaxed" data-testid="output-task">
             {task}
           </p>
