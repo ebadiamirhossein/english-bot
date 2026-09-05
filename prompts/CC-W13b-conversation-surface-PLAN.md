@@ -969,7 +969,7 @@ NONE DROPPED.**
    whether anything besides `/talk` is holding turn bodies:
 
    ```bash
-   psql english -c "SELECT task_type, count(*) AS sessions, count(DISTINCT user_id) AS learners, sum(jsonb_array_length(payload -> 'messages')) AS turns_held, min(date) AS oldest, max(date) AS newest FROM sessions WHERE jsonb_typeof(payload -> 'messages') = 'array' AND jsonb_array_length(payload -> 'messages') > 0 GROUP BY task_type ORDER BY sessions DESC;"
+   psql -d english_bot -c "SELECT s.task_type, count(*) AS sessions, count(DISTINCT s.user_id) AS learners, sum(jsonb_array_length(s.payload -> 'messages')) AS turns_held, min(s.date) AS oldest, max(s.date) AS newest FROM sessions s WHERE CASE WHEN jsonb_typeof(s.payload -> 'messages') = 'array' THEN jsonb_array_length(s.payload -> 'messages') > 0 ELSE false END GROUP BY s.task_type ORDER BY sessions DESC;"
    ```
 
    **Counts and dates only. No content, and none is to be pasted into the
