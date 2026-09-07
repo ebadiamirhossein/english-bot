@@ -39,13 +39,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CloseOut, type Correction } from "./close-out";
 import { CONVERSATION } from "./copy";
 import { useRecorder } from "./use-recorder";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 type Line = { who: "you" | "app"; text: string };
-type Correction = { you_said: string; correct_form: string; explanation: string };
 
 /**
  * `POST /conversation/close`'s response. **W13b/4.**
@@ -161,11 +161,11 @@ export function Conversation({
     setDone(true);
     if (out) {
       setCorrections(out.corrections ?? []);
-      // **Trimmed, and `""` is the absent state rather than a placeholder.** The
-      // field is `str` and not `str | None` on the wire, so an empty note
-      // arrives as an empty string; rendering a heading over nothing would be
-      // the app claiming to have something to say and then saying it blankly.
-      setDidWell((out.did_well ?? "").trim());
+      // **Passed through RAW.** Whitespace-is-absence is `CloseOut`'s rule and
+      // lives there alone; trimming here as well put one rule in two homes, and
+      // that is what let a `"   "` reach the component untrimmed by the other
+      // path and render an empty paragraph.
+      setDidWell(out.did_well ?? "");
       setWords(out.unknown_words ?? []);
     }
   }, [call]);
@@ -219,6 +219,28 @@ export function Conversation({
   );
   const rec = useRecorder(onRecorded);
 
+  /**
+   * **THE COMPOSER SPLITS FROM THE SEND CONTROL. W13b/4, operator ruling
+   * 2026-09-07, and it is ONE condition rather than two.**
+   *
+   * **The textarea stays live while the reply is coming.** The design's note is
+   * *"the composer stays live while it writes — you can keep typing"*, and the
+   * wait is 2–4 seconds of the learner's thinking time: a box that goes dead
+   * for it throws away the sentence they were forming. Shipped behaviour
+   * disabled both.
+   *
+   * **Send stays held until the reply lands**, so a second turn cannot go out
+   * in flight — that would interleave two turns on one conversation and the
+   * server has no notion of which came first.
+   *
+   * **ENTER IS THE SAME CONTROL AS SEND, AND THE GUARD IS IN `send` ALONE.**
+   * The first draft added `if (busy) return` here as well — and the red
+   * demonstration proved it did nothing: removing it left the suite green,
+   * because `send` already opens with `if (!text || busy) return`. **A guard
+   * whose removal changes no behaviour is a second home for one rule**, and
+   * the enforcement then lives in two places that can disagree. It is gone.
+   * The button's `disabled` is presentation; `send` is the rule.
+   */
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -268,54 +290,24 @@ export function Conversation({
   }
 
   // ── after it ends ─────────────────────────────────────────────────────────
+  // **W13b/4: the close-out is a surface of its own now** (`close-out.tsx`),
+  // and this component keeps the one thing it owns — the single call to
+  // `POST /conversation/close`, whose payload exists exactly once.
   if (done) {
     return (
-      <div className={`${shell} gap-4 overflow-y-auto p-4`} data-testid="conversation-closed">
-        <p className="text-base">
-          {capped ? CONVERSATION.capReached : CONVERSATION.closing}
-        </p>
-        {/* **W13b/4 — the raise, announced.** Rendered BARE, with no heading of
-            its own, and that is a scope decision rather than a style one: a
-            heading would be a new user-facing string, and new close-out copy is
-            gated on reading the design file. The sentence stands on its own
-            here and moves without rewriting when the layout lands. */}
-        {didWell ? (
-          <p className="text-base" data-testid="conversation-did-well">
-            {didWell}
-          </p>
-        ) : null}
-        {words.length > 0 ? (
-          <div data-testid="conversation-words">
-            <p className="text-sm text-muted-foreground">
-              {CONVERSATION.wordsHeading}
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {words.map((w) => (
-                <Button
-                  key={w}
-                  variant="outline"
-                  disabled={busy || Boolean(kept[w])}
-                  onClick={async () => {
-                    const out = await call("save-word", { word: w });
-                    if (out) setKept((k) => ({ ...k, [w]: true }));
-                  }}
-                >
-                  {kept[w] ? `${CONVERSATION.saved}: ${w}` : `${CONVERSATION.save} ${w}`}
-                </Button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        {corrections?.map((c, i) => (
-          <div key={i} data-testid="conversation-correction">
-            <p className="text-sm text-muted-foreground">{c.you_said}</p>
-            <p className="text-base">{c.correct_form}</p>
-            {c.explanation ? (
-              <p className="text-sm text-muted-foreground">{c.explanation}</p>
-            ) : null}
-          </div>
-        ))}
-      </div>
+      <CloseOut
+        topic={topic}
+        didWell={didWell}
+        corrections={corrections ?? []}
+        words={words}
+        kept={kept}
+        capped={capped}
+        busy={busy}
+        onKeep={async (w) => {
+          const out = await call("save-word", { word: w });
+          if (out) setKept((k) => ({ ...k, [w]: true }));
+        }}
+      />
     );
   }
 
@@ -353,7 +345,19 @@ export function Conversation({
             <span className="sr-only">
               {l.who === "you" ? CONVERSATION.you : CONVERSATION.app}:{" "}
             </span>
-            <p className="whitespace-pre-wrap text-base leading-relaxed">
+            {/* **THREE SIGNALS, NONE OF THEM COLOUR** — the design's answer to
+                the constraint and the strongest available. Alignment,
+                container AND typeface differ: the app speaks in the display
+                serif the app already loads, the learner in the body sans.
+                `data-speaker` still carries it for the tests, because a test
+                asserting a typeface asserts Tailwind exactly as one asserting
+                a colour does. */}
+            <p
+              className={
+                "whitespace-pre-wrap text-base leading-relaxed " +
+                (l.who === "app" ? "font-heading" : "")
+              }
+            >
               {l.text}
             </p>
           </div>
@@ -405,15 +409,18 @@ export function Conversation({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={onKeyDown}
-              disabled={busy}
-              rows={1}
+              rows={4}
               aria-label={CONVERSATION.composerLabel}
               placeholder={CONVERSATION.placeholder}
               data-testid="conversation-composer"
-              // 3 — grows to a few lines, then scrolls inside itself. The send
-              // control cannot be pushed off screen because the footer is
-              // pinned and this is what is bounded.
-              className="max-h-32 min-h-[2.75rem] flex-1 resize-none overflow-y-auto rounded-md border bg-background px-3 py-2 text-base"
+              // 3 — **opens at four lines and grows to about seven, then
+              // scrolls inside itself.** The design's measurement, and its
+              // reason is that four lines is what people actually write; the
+              // shipped single row meant the operator's sentence scrolled out
+              // of view mid-thought. The send control cannot be pushed off
+              // screen because the footer is pinned and this is what is
+              // bounded.
+              className="max-h-44 min-h-24 flex-1 resize-none overflow-y-auto rounded-md border bg-background px-3 py-2 text-base"
             />
             {/* Absent, not disabled, when the learner is not on the allowlist. */}
             {micAllowed ? (

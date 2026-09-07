@@ -116,8 +116,15 @@ describe("the chat surface", () => {
     render(<Conversation voice={false} />);
     await open(user);
     const box = screen.getByTestId("conversation-composer") as HTMLTextAreaElement;
+    //
+    // **W13b/4 RESIZED IT TO THE DESIGN'S MEASUREMENT: four lines open, about
+    // seven before it scrolls.** The previous contract, quoted rather than
+    // deleted (#82's shape): `min-h-[2.75rem]` (one row) and `max-h-32`. The
+    // reason is the design's and it is about what people write rather than
+    // what fits: a one-row box asks for a one-row answer.
     expect(box.tagName).toBe("TEXTAREA");
-    expect(box.className).toContain("max-h-32");
+    expect(box.className).toContain("min-h-24");
+    expect(box.className).toContain("max-h-44");
     expect(box.className).toContain("overflow-y-auto");
 
     const long = "I went to the lake with my friends and we ".repeat(4);
@@ -356,106 +363,85 @@ describe("what /talk actually mounts", () => {
 });
 
 /**
- * W13b/4 — the close-out.
+ * W13b/4 — the composer split.
  *
- * **THIS IS THE FIRST TEST THIS BRANCH HAS EVER HAD.** `conversation-closed`
- * has been rendering since W13b/2 and no assertion in this suite opened it,
- * which is the same condition that let `did_well` be generated and discarded:
- * nobody looked, and nothing made looking mandatory.
+ * **THE CLOSE-OUT'S OWN TESTS MOVED TO `close-out.test.tsx`** when it became a
+ * component. They are not deleted and not duplicated: the surface has one home
+ * and one test file, which is the arrangement that stopped `did_well` being
+ * invisible.
  */
-describe("the close-out", () => {
-  function mount(close: Record<string, unknown>) {
+describe("the composer while a reply is coming", () => {
+  beforeEach(() => {
     mockAudio();
     globalThis.Element.prototype.scrollIntoView = vi.fn();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
-        if (String(url).endsWith("/topics")) {
+        if (String(url).endsWith("/topics"))
           return jsonOnce({ topics: ["Weekend plans"], voice: false });
-        }
-        if (String(url).endsWith("/open")) {
+        if (String(url).endsWith("/open"))
           return jsonOnce({
             conversation_id: 1,
             topic_label: "Weekend plans",
             reply: "Hey — what did you get up to?",
             state: "open",
           });
-        }
-        if (String(url).endsWith("/close")) return jsonOnce(close);
+        // **Never resolves.** The turn is left in flight on purpose: that is
+        // the state both assertions below are about, and a resolved promise
+        // would test the surface after the wait rather than during it.
+        if (String(url).endsWith("/turn")) return new Promise<Response>(() => {});
         return jsonOnce({});
       }),
     );
-  }
-
+  });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("shows what the learner did well, which the surface used to discard", async () => {
-    // **THE DEFECT: `CloseOut.did_well` is generated and billed on EVERY close
-    // and was rendered by nothing.** CLAUDE.md §4 — raises announced, drops
-    // silent — and the app was paying for the raise and swallowing it.
-    //
-    // **RED BY UNWIRING:** drop `setDidWell` from `end()` and this fails.
-    mount({
-      conversation_id: 1,
-      corrections: [],
-      did_well: "Your past tense held up all the way through.",
-      unknown_words: [],
-    });
+  it("keeps the textarea live so a learner can write during the wait", async () => {
+    // **THE DEFECT THIS CHANGES: both controls went dead for 2–4 seconds**, so
+    // the sentence someone was forming had nowhere to go. The design's ruling
+    // is that the wait is the learner's thinking time.
     const user = userEvent.setup();
     render(<Conversation voice={false} />);
-    await open(user);
-    await user.click(screen.getByTestId("conversation-end"));
+    await user.click(screen.getByRole("button", { name: CONVERSATION.start }));
+    await screen.findByTestId("conversation-topics");
+    await user.click(screen.getByRole("button", { name: "Weekend plans" }));
+    await screen.findByTestId("conversation-log");
 
-    await screen.findByTestId("conversation-closed");
-    expect(screen.getByTestId("conversation-did-well")).toHaveTextContent(
-      "Your past tense held up all the way through.",
-    );
+    const composer = screen.getByTestId("conversation-composer");
+    await user.type(composer, "I went out");
+    await user.click(screen.getByRole("button", { name: CONVERSATION.send }));
+
+    await screen.findByTestId("conversation-working");
+    expect(composer).not.toBeDisabled();
+    await user.type(composer, "and then");
+    expect(composer).toHaveValue("and then");
   });
 
-  it("renders nothing at all when there is nothing to say", async () => {
-    // **ABSENT, NOT BLANK.** `did_well` is `str` on the wire, so an empty note
-    // arrives as `""`. An empty element — or worse, a heading standing over
-    // nothing — is the app announcing it has something to say and then not
-    // saying it. The whitespace case is included because `" "` is what a
-    // trimmed-nothing looks like before it is trimmed.
-    mount({
-      conversation_id: 1,
-      corrections: [],
-      did_well: "   ",
-      unknown_words: [],
-    });
+  it("holds Send, and holds Enter with it, so no second turn goes out in flight", async () => {
+    // **ONE RULE, TWO PATHS.** A disabled button with a live Enter key puts the
+    // in-flight turn one keystroke away, and the JSX would not show it.
     const user = userEvent.setup();
     render(<Conversation voice={false} />);
-    await open(user);
-    await user.click(screen.getByTestId("conversation-end"));
+    await user.click(screen.getByRole("button", { name: CONVERSATION.start }));
+    await screen.findByTestId("conversation-topics");
+    await user.click(screen.getByRole("button", { name: "Weekend plans" }));
+    await screen.findByTestId("conversation-log");
 
-    await screen.findByTestId("conversation-closed");
-    expect(screen.queryByTestId("conversation-did-well")).toBeNull();
-  });
+    const composer = screen.getByTestId("conversation-composer");
+    await user.type(composer, "I went out");
+    await user.click(screen.getByRole("button", { name: CONVERSATION.send }));
+    await screen.findByTestId("conversation-working");
 
-  it("puts no numeral on the screen, whatever the close returns", async () => {
-    // #348 on the surface rather than in `copy.ts`. The close-out is where a
-    // tally would be written — *"3 corrections"*, *"you talked for 5 minutes"*
-    // — so the rendered output is asserted digit-free with a payload that has
-    // something to count.
-    mount({
-      conversation_id: 1,
-      corrections: [
-        {
-          you_said: "I have went",
-          correct_form: "I went",
-          explanation: "Past simple, no auxiliary.",
-        },
-      ],
-      did_well: "You kept it going without switching languages.",
-      unknown_words: ["errand"],
-    });
-    const user = userEvent.setup();
-    render(<Conversation voice={false} />);
-    await open(user);
-    await user.click(screen.getByTestId("conversation-end"));
+    expect(screen.getByRole("button", { name: CONVERSATION.send })).toBeDisabled();
 
-    const closed = await screen.findByTestId("conversation-closed");
-    expect(closed.textContent ?? "").not.toMatch(/[0-9]/);
+    // The learner's own turn, plus the app's opener. Enter must not add a third.
+    const before = screen.getByTestId("conversation-log").querySelectorAll(
+      "[data-speaker]",
+    ).length;
+    await user.type(composer, "second try{Enter}");
+    expect(
+      screen.getByTestId("conversation-log").querySelectorAll("[data-speaker]")
+        .length,
+    ).toBe(before);
   });
 });

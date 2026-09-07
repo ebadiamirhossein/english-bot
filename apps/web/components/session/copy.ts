@@ -347,7 +347,14 @@ export const CONVERSATION = {
    * costs and it is not a defect (§0, cost 3). */
   recording: "Listening…",
   speak: "Hold to speak",
-  capReached: "That’s the conversation for today. There’s another one tomorrow.",
+  /** **W13b/4 adopts the design's wording.** The shipped line was
+   * *"That's the conversation for today. There's another one tomorrow."*,
+   * quoted rather than deleted (#82's shape). The design's version names the
+   * ACTIVITY rather than the object and promises a new topic rather than a
+   * repeat, which is the more accurate description of what tomorrow holds --
+   * `_topic_sources` reseeds. **Still no numeral**, so it stays under
+   * `test_the_conversation_cap_copy_carries_no_numeral`. */
+  capReached: "That’s the talking done for today. There’ll be a new topic tomorrow.",
   closing: "Here’s what stood out.",
   trouble: "That didn’t go through. The conversation is still here.",
   /** §C1. Three suggestions, offered once. **No count, no badge, no history of
@@ -375,4 +382,28 @@ export const CONVERSATION = {
   micTrouble: "The mic didn’t start. Typing works.",
   you: "You",
   app: "App",
+
+  // ── W13b/4, the close-out ────────────────────────────────────────────────
+  //
+  // **EVERY ONE OF THESE LIVES IN THIS BLOCK ON PURPOSE.** `close-out.tsx`
+  // declares no copy of its own, because `test_the_conversation_copy_scan_
+  // covers_every_surface` fails the moment a conversation surface holds a copy
+  // block the numeral scan does not read -- #348's hole, one file to the left.
+
+  /** The eyebrow over the close-out. Names the thing, not the learner. */
+  closeEyebrow: "The conversation",
+  /** Heading over the corrections. **The design's phrase, and it is the
+   * point:** *worth a look* describes the sentence; *mistakes* would describe
+   * the person. Never red, never a cross (CLAUDE.md §4). */
+  correctionsHeading: "Worth a look",
+  /** Heading over the words. **An offer, not a gap** -- "words you didn't
+   * know" is a verdict. */
+  closeWordsHeading: "Words you asked about",
+  /** The close-out's terminal action. Leaves for home; **never "finish" or
+   * "complete"**, which imply a task with a state. */
+  backToToday: "Back to today",
+  /** Shown when the model returned nothing worth showing. **The close-out is
+   * still a close-out** -- an empty one says so plainly rather than rendering
+   * three empty headings. No apology and no blame. */
+  closeNothing: "Nothing to add this time. That was a good conversation.",
 } as const;
