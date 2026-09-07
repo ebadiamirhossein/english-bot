@@ -28,12 +28,30 @@
 import { Conversation } from "@/components/session/conversation";
 
 export default function TalkPage() {
-  // **FULL HEIGHT, AND THE PAGE ITSELF DOES NOT SCROLL.** `min-h-0` is what
-  // lets the child's own scroll region actually bound itself inside a flex
-  // column — without it the list grows and the page scrolls instead, which is
-  // the defect this route exists to fix.
+  // ────────────────────────────────────────────────────────────────────────
+  // **`h-full`, NOT `h-[100dvh]` — AND THE FIRST VERSION SHIPPED WITH THE
+  // COMPOSER BELOW THE FOLD BECAUSE OF EXACTLY THAT.**
+  //
+  // **THE DEFECT: a viewport-height box does not start at the top of the
+  // viewport.** `AppLayout` puts the `AppMenu` row above this and `main` adds
+  // `pt-4`, so this container's top edge sits ~4rem down. **A `100dvh` box
+  // beginning 4rem down ends 4rem BELOW the fold**, and the composer is its
+  // last flex child — so the learner saw the topic, the opening message, the
+  // log's `flex-1` region stretching to fill an oversized box, and no input at
+  // all. `main`'s `pb-32` (8rem, clearing the fixed `BottomNav`) put a further
+  // 8rem of page underneath it.
+  //
+  // **`h-full` SIZES THIS TO THE SPACE THE SHELL ACTUALLY LEAVES**, which
+  // already excludes the menu row (flex) and the nav (`pb-32`). The composer
+  // then lands 8rem above the viewport bottom, clear of the fixed nav.
+  //
+  // **AND IF THE PERCENTAGE EVER FAILS TO RESOLVE, IT DEGRADES TO CONTENT
+  // HEIGHT** — the composer sits directly under the messages and the page
+  // scrolls. That is a worse layout and a working surface, which is the right
+  // way round for a fallback; `100dvh` failed to a surface with no input.
+  // ────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <Conversation voice fullHeight />
     </div>
   );

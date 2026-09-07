@@ -256,3 +256,101 @@ describe("§C — the microphone", () => {
     expect(screen.queryByTestId("conversation-speak")).toBeNull();
   });
 });
+
+/**
+ * W13b/3b — **THE COMPOSER SHIPPED BELOW THE FOLD AND NINE GREEN TESTS DID NOT
+ * SEE IT. THIS BLOCK IS WHAT THEY WERE MISSING, AND ONE OF THE TWO IS HONEST
+ * ABOUT NOT CATCHING IT.**
+ *
+ * **WHAT THE NINE ABOVE ASSERT INSTEAD, STATED PLAINLY:**
+ *
+ * * **Every one of them mounts `<Conversation …/>` directly and none mounts the
+ *   PAGE.** So nothing exercised how `/talk` actually assembles the surface.
+ * * **None of them passes `fullHeight`** — the prop `/talk` always passes. The
+ *   `shell` branch the app runs had **zero coverage**, and the branch every
+ *   test ran is the block-4 one, which **no longer exists in the app at all**
+ *   since block 4 stopped rendering the chat. **That is #345's family at the
+ *   component level: a test constructing a state the app cannot reach**, and it
+ *   is the second time in this slice a green suite sat over a dead surface
+ *   (#389 was the first — 21 tests, all on one side of the service).
+ * * The *own scroll region* test asserts **class substrings on the log**
+ *   (`overflow-y-auto`, `min-h-0`, `flex-1`). All three were true. It is a
+ *   claim about the log and says nothing about the box the log sits in.
+ * * **jsdom HAS NO LAYOUT ENGINE.** `getBoundingClientRect` is zeros; nothing
+ *   is ever off-screen. **"Below the fold" is structurally invisible here.**
+ *
+ * **SO THE PRESENCE TEST BELOW WOULD NOT HAVE FAILED ON THIS BUG, AND SAYING SO
+ * IS THE POINT.** The composer was in the DOM the whole time — in the tests and
+ * in production. It closes a real class of defect (a composer gated on state
+ * the page never sets, which was the first hypothesis and was false) and it is
+ * not the one that shipped.
+ *
+ * **THE SECOND TEST IS THE ONE THAT WOULD HAVE FAILED.** The defect is a height
+ * contract, so it is asserted as a height contract.
+ */
+
+describe("what /talk actually mounts", () => {
+  beforeEach(() => {
+    mockAudio();
+    globalThis.Element.prototype.scrollIntoView = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).endsWith("/topics"))
+          return jsonOnce({ topics: ["Weekend plans"], voice: true });
+        if (String(url).endsWith("/open"))
+          return jsonOnce({
+            conversation_id: 1,
+            topic_label: "Weekend plans",
+            reply: "Hey — what did you get up to?",
+            state: "open",
+          });
+        return jsonOnce({});
+      }),
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("renders an enabled composer with the props the page really passes", async () => {
+    // **`voice fullHeight` — WHAT `/talk` PASSES.** Every earlier test passed
+    // `voice={false}` or nothing and none passed `fullHeight`, so the shell
+    // branch the app runs was never rendered by the suite.
+    //
+    // **THIS WOULD NOT HAVE CAUGHT THE BUG THAT SHIPPED** — the composer was
+    // present then too. It catches the composer being conditional on state the
+    // page never sets, which is a different defect and a real one.
+    const user = userEvent.setup();
+    render(<Conversation voice fullHeight />);
+    await open(user);
+
+    const box = screen.getByTestId("conversation-composer") as HTMLTextAreaElement;
+    expect(box).toBeTruthy();
+    expect(box.disabled).toBe(false);
+    expect(screen.getByRole("button", { name: CONVERSATION.send })).toBeTruthy();
+    expect(screen.getByTestId("conversation-speak")).toBeTruthy();
+  });
+
+  it("does not size /talk to the viewport, because it does not start at the top of one", async () => {
+    // **THIS IS THE ASSERTION THAT WOULD HAVE FAILED.**
+    //
+    // `/talk` is nested in `AppLayout`: an `AppMenu` row above it, `main`'s
+    // `pt-4` above that, and `pb-32` below to clear the fixed `BottomNav`. **A
+    // `100dvh` box starting ~4rem down ends ~4rem below the fold**, and the
+    // composer is its last flex child — which is precisely what shipped.
+    //
+    // **ASSERTED ON THE SOURCE RATHER THAN ON GEOMETRY, AND THAT IS FORCED
+    // RATHER THAN CHOSEN:** jsdom has no layout engine, so no rendering test in
+    // this suite can see an element pushed off-screen. The height contract is
+    // the thing that can be checked, so the height contract is what is checked.
+    const source = await import("node:fs").then((fs) =>
+      fs.readFileSync("app/(app)/talk/page.tsx", "utf8"),
+    );
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/^\s*\/\/.*$/gm, " ");
+    for (const unit of ["100dvh", "100vh", "h-screen", "min-h-screen"]) {
+      expect(code).not.toContain(unit);
+    }
+    expect(code).toContain("h-full");
+  });
+});

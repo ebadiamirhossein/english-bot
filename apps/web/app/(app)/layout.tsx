@@ -23,7 +23,18 @@ export default function AppLayout({
         <div className="flex justify-end px-3 pt-3">
           <AppMenu />
         </div>
-        <main className="flex-1 space-y-7 px-5 pb-32 pt-4">{children}</main>
+        {/* **`flex flex-col min-h-0` ADDED BY W13b/3b so a full-height route can
+            actually claim this box.** `main` was already `flex-1` in a
+            `min-h-dvh` column, so its height was definite — but a BLOCK child
+            asking for `h-full` inside it had nothing to resolve against, which
+            is why `/talk` reached for `100dvh` and put its composer off-screen.
+            **Harmless for every other screen:** these children are stacked
+            full-width blocks, and a column flex container with the default
+            `align-items: stretch` lays them out identically. `space-y-7` uses
+            sibling margins, which flex honours. */}
+        <main className="flex min-h-0 flex-1 flex-col space-y-7 px-5 pb-32 pt-4">
+          {children}
+        </main>
         <BottomNav />
       </div>
     </RequireSession>
