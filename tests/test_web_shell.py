@@ -846,6 +846,27 @@ def test_no_guilt_copy_anywhere_in_the_frontend() -> None:
     )
 
 
+#: ``(module, exported copy block)`` — every place a conversation string may be
+#: declared. **Named, not walked** (#257: a checker widened until it passes is a
+#: checker nobody can trust). `test_the_conversation_copy_scan_covers_every_
+#: surface` is what keeps the list honest as surfaces are added.
+_CONVERSATION_COPY: tuple[tuple[str, str], ...] = (
+    ("apps/web/components/session/copy.ts", "CONVERSATION"),
+)
+
+#: The files that RENDER the conversation, including the close-out. A copy block
+#: declared in one of these and absent from `_CONVERSATION_COPY` is a numeral
+#: check with a hole in it, which is the shape #348 shipped through for a year.
+#: `close-out.tsx` is listed **before it exists** — W13b/4's close-out layout is
+#: gated on reading the design file, and a guard that arrives with the file it
+#: guards has already missed its moment.
+_CONVERSATION_SURFACES: tuple[str, ...] = (
+    "apps/web/components/session/conversation.tsx",
+    "apps/web/components/session/close-out.tsx",
+    "apps/web/app/(app)/talk/page.tsx",
+)
+
+
 def test_the_conversation_cap_copy_carries_no_numeral() -> None:
     """W13b. **The banned-phrase scan is not enough here and #348 is why.**
 
@@ -859,16 +880,99 @@ def test_the_conversation_cap_copy_carries_no_numeral() -> None:
     """
     import re
 
-    src = (REPO_ROOT / "apps/web/components/session/copy.ts").read_text(
-        encoding="utf-8"
-    )
-    block = src[src.index("export const CONVERSATION") :]
-    strings = re.findall(r'"([^"]*)"', block)
-    assert strings, "the CONVERSATION copy block was not found"
-    offenders = [s for s in strings if re.search(r"[0-9]", s)]
+    offenders: list[str] = []
+    for rel, const in _CONVERSATION_COPY:
+        src = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        assert f"export const {const}" in src, f"{rel} declares no {const} block"
+        block = src[src.index(f"export const {const}") :]
+        strings = re.findall(r'"([^"]*)"', block)
+        assert strings, f"the {const} copy block in {rel} was not found"
+        offenders += [f"{rel}: {s}" for s in strings if re.search(r"[0-9]", s)]
     assert offenders == [], (
         "no conversation string may carry a numeral (#348, PRD §8.6.4): "
         + "; ".join(offenders)
+    )
+
+
+def test_no_conversation_surface_renders_a_numeral_inline() -> None:
+    """W13b/4. **The block scan covers `copy.ts`; this covers the JSX.**
+
+    #348's defect was not a bad string in a copy module — it was a **tally
+    rendered to a learner**, and a close-out page is where one would naturally
+    be written: *"You talked for 5 minutes"*, typed straight into the markup,
+    never passing through `copy.ts` and so never reaching the block scan above.
+
+    **WHAT THIS READS: literal text between two tags**, which is where inline
+    copy lives. `className` and every other attribute sit *inside* a tag and are
+    not text, so `rounded-2xl` and `max-w-[85%]` cannot reach it — that is the
+    reason for the shape of the pattern rather than a happy accident.
+
+    **THE FIRST VERSION OF THIS PATTERN WAS WRONG AND THE SUITE CAUGHT IT.** It
+    read *any* `>` as a tag boundary and flagged `{words.length > 0 ? (` — a
+    COMPARISON OPERATOR. So the `>` must not be preceded by a space or by
+    `=!<>`, which is what separates `">` at the end of a tag from ` > ` and
+    `=>` in code, and the text may not cross a newline.
+
+    **THE COST OF THAT FIX, STATED RATHER THAN LEFT TO BE DISCOVERED:** a
+    numeral in inline text broken across two lines is no longer caught. The
+    realistic shape — `<p>You talked for 5 minutes</p>` — is, and a scan that
+    over-reports on every comparison in the file is a scan that gets deleted.
+
+    **WHAT IT DELIBERATELY DOES NOT READ: anything containing `{`.** The
+    recording timer renders `{rec.elapsed}s`, a live counter of the seconds a
+    learner has been speaking, and it is **not** what #348 forbids — that rule
+    is about a tally of work done or work left, and shipped behaviour is not
+    quietly redefined by a test written for something else. An interpolated
+    numeral that IS a tally is not catchable here and is not claimed to be.
+
+    RED against `<p>You talked for 5 minutes</p>` in any listed surface.
+    """
+    import re
+
+    offenders: list[str] = []
+    for rel in _CONVERSATION_SURFACES:
+        path = REPO_ROOT / rel
+        if not path.exists():
+            continue
+        src = path.read_text(encoding="utf-8")
+        src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+        src = re.sub(r"^\s*//.*$", "", src, flags=re.M)
+        for text in re.findall(r"(?<![\s=!<>])>([^<>{}\n]+)<", src):
+            if re.search(r"[0-9]", text):
+                offenders.append(f"{rel}: {text.strip()}")
+    assert offenders == [], (
+        "no conversation surface may render a numeral inline (#348): "
+        + "; ".join(offenders)
+    )
+
+
+def test_the_conversation_copy_scan_covers_every_surface() -> None:
+    """W13b/4. **The list above is only as good as its completeness.**
+
+    A close-out page that declares `export const CLOSE_OUT = {…}` of its own
+    would be user-facing conversation copy that
+    `test_the_conversation_cap_copy_carries_no_numeral` never opens — the same
+    hole #348 went through, reopened one file to the left. So a copy block in a
+    conversation surface must be **named in `_CONVERSATION_COPY` or not exist**.
+
+    This is the check that fails when the design-gated close-out lands with its
+    own strings, and failing then is the entire point.
+    """
+    import re
+
+    named = {const for _, const in _CONVERSATION_COPY}
+    unnamed: list[str] = []
+    for rel in _CONVERSATION_SURFACES:
+        path = REPO_ROOT / rel
+        if not path.exists():
+            continue
+        src = path.read_text(encoding="utf-8")
+        for const in re.findall(r"export const ([A-Z][A-Z0-9_]*)\s*=", src):
+            if const not in named:
+                unnamed.append(f"{rel}: {const}")
+    assert unnamed == [], (
+        "a conversation surface declares copy the numeral scan does not read; "
+        "add it to _CONVERSATION_COPY (#348): " + "; ".join(unnamed)
     )
 
 

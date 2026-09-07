@@ -47,6 +47,40 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 type Line = { who: "you" | "app"; text: string };
 type Correction = { you_said: string; correct_form: string; explanation: string };
 
+/**
+ * `POST /conversation/close`'s response. **W13b/4.**
+ *
+ * **THIS TYPE IS HERE AND NOT IN `lib/api.ts` BECAUSE `lib/api.ts` HAS NO
+ * CONVERSATION LAYER AT ALL** — the conversation surface is the one surface in
+ * this app that calls `fetch` directly and reads `await res.json()` untyped,
+ * which is exactly how a field can be returned for a week and never noticed.
+ * Every other surface goes through a named function and a named type there.
+ *
+ * **Typing it locally is the small half of the fix and it is deliberately not
+ * the whole one.** Migrating the six conversation endpoints into `lib/api.ts`
+ * is a refactor of a shipped surface, not a line in a slice about the close-out
+ * page, so it is FILED rather than improvised here.
+ *
+ * `conversation_id` is carried on the wire and read by nothing. That is not the
+ * same finding as `did_well`: an id costs no generated tokens and says nothing
+ * to a learner, so it is recorded and left alone.
+ */
+type CloseResult = {
+  conversation_id: number;
+  corrections: Correction[];
+  /**
+   * **The model's note on what the learner did well — generated on every close,
+   * billed on every close, and rendered by nothing until W13b/4.**
+   *
+   * CLAUDE.md §4: *raises announced, drops silent*. The app was paying for the
+   * raise and then swallowing it. `/write` has rendered the same field from
+   * `POST /correct` since W9 (`app/(app)/write/page.tsx`), so this is the
+   * shipped shape rather than a new idea.
+   */
+  did_well: string;
+  unknown_words: string[];
+};
+
 export function Conversation({
   voice,
   fullHeight = false,
@@ -64,6 +98,7 @@ export function Conversation({
   const [capped, setCapped] = useState(false);
   const [trouble, setTrouble] = useState(false);
   const [corrections, setCorrections] = useState<Correction[] | null>(null);
+  const [didWell, setDidWell] = useState<string>("");
   const [words, setWords] = useState<string[]>([]);
   const [kept, setKept] = useState<Record<string, boolean>>({});
 
@@ -122,10 +157,15 @@ export function Conversation({
   }
 
   const end = useCallback(async () => {
-    const out = await call("close");
+    const out = (await call("close")) as CloseResult | null;
     setDone(true);
     if (out) {
       setCorrections(out.corrections ?? []);
+      // **Trimmed, and `""` is the absent state rather than a placeholder.** The
+      // field is `str` and not `str | None` on the wire, so an empty note
+      // arrives as an empty string; rendering a heading over nothing would be
+      // the app claiming to have something to say and then saying it blankly.
+      setDidWell((out.did_well ?? "").trim());
       setWords(out.unknown_words ?? []);
     }
   }, [call]);
@@ -234,6 +274,16 @@ export function Conversation({
         <p className="text-base">
           {capped ? CONVERSATION.capReached : CONVERSATION.closing}
         </p>
+        {/* **W13b/4 — the raise, announced.** Rendered BARE, with no heading of
+            its own, and that is a scope decision rather than a style one: a
+            heading would be a new user-facing string, and new close-out copy is
+            gated on reading the design file. The sentence stands on its own
+            here and moves without rewriting when the layout lands. */}
+        {didWell ? (
+          <p className="text-base" data-testid="conversation-did-well">
+            {didWell}
+          </p>
+        ) : null}
         {words.length > 0 ? (
           <div data-testid="conversation-words">
             <p className="text-sm text-muted-foreground">
