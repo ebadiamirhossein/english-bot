@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CardFace as CardFaceData, SessionBlock, SessionToday } from "@/lib/api";
 
 import { CloseBlock, FocusBlock, InputBlock, OutputBlock, ReviewBlock } from "./blocks";
+import { CONVERSATION } from "./copy";
 import { NOTHING_DUE } from "./copy";
 
 vi.mock("@/lib/api", async () => {
@@ -337,6 +338,39 @@ describe("the remaining blocks", () => {
     );
     expect(screen.getByTestId("close-summary").textContent).toContain("3 cards");
     expect(container.textContent).not.toContain("XP");
+  });
+
+  it("puts the conversation entry point on the closing block, as a control", () => {
+    // **W13b/5, design `1i`.** It was an underlined phrase inside block 4,
+    // styled to lose against that block's own action; the design makes it a
+    // filled button at the foot of the session.
+    //
+    // **THE #160 CLAUSE IS ASSERTED, NOT ASSUMED.** What that ruling forbids is
+    // a COUNTER, and the emphasis clause from W13b/3 §A is honoured by
+    // PLACEMENT — so the test checks the link is here, is a real control, and
+    // carries nothing that accumulates.
+    render(
+      <CloseBlock block={block({ n: 5, kind: "close", payload: { cards_reviewed: 3 } })} />,
+    );
+    const entry = screen.getByTestId("conversation-link");
+    expect(entry).toHaveAttribute("href", "/talk");
+    expect(entry).toHaveTextContent(CONVERSATION.entryAction);
+    expect(entry.querySelector("svg")).not.toBeNull();
+    expect(entry.className).not.toContain("underline");
+  });
+
+  it("puts nothing on the entry point that accumulates while the learner is away", () => {
+    // #160, asserted on the words rather than trusted to the styling. A count
+    // of conversations, a days-since, or a badge would each be a backlog
+    // presented — and the entry point is exactly where one would be added.
+    const { container } = render(
+      <CloseBlock block={block({ n: 5, kind: "close", payload: { cards_reviewed: 3 } })} />,
+    );
+    const text = (container.textContent ?? "").toLowerCase();
+    expect(text).toContain(CONVERSATION.entryAction.toLowerCase());
+    for (const banned of ["days since", "last conversation", "streak", "you haven"]) {
+      expect(text).not.toContain(banned);
+    }
   });
 });
 

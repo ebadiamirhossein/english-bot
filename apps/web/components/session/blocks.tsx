@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Mic } from "lucide-react";
 import { useState } from "react";
 
 import { CardRunner } from "@/components/cards/card-runner";
@@ -342,23 +343,22 @@ export function OutputBlock({
               learner they said it right when they did not. **The code stays --
               W17's weak-spot surface is the consumer that keeps it alive.**
               #348's disable-don't-delete precedent. */}
-          {/* **W13b/3 §A — BLOCK 4 LINKS TO THE CONVERSATION AND RENDERS NO
-              CHAT.** §3.2 put the chat here citing #160; that was an assistant
-              error. **#160 forbids a COUNTER, not a page** — its ruling keeps
-              `/review` reachable *"never as a daily obligation with a count"*.
-              Crammed into a card between a grammar exercise and a *Write it*
-              button, the chat had no room and no scroll region of its own.
+          {/* **W13b/5 MOVED THE CONVERSATION ENTRY POINT OFF BLOCK 4 AND ONTO
+              THE CLOSING BLOCK.** The old link is quoted rather than deleted
+              (#82's shape): an underlined `text-sm text-muted-foreground`
+              reading *"Or have a conversation"*, sitting above the written task
+              with `data-testid="conversation-link"`.
 
-              **WHAT #160 STILL IMPOSES AND WHAT THIS LINK HONOURS: no count, no
-              badge, no dot, no days-since, and never the primary emphasis.**
-              W11b's Sunday link is the shipped shape. */}
-          <Link
-            href="/talk"
-            className="text-sm text-muted-foreground underline underline-offset-4"
-            data-testid="conversation-link"
-          >
-            {CONVERSATION.blockLink}
-          </Link>
+              **WHY IT LEFT: it was competing with block 4's own action while
+              being styled to lose.** W13b/3 §A put it here to keep it away from
+              the primary emphasis, and the effect was a phrase a learner reads
+              past — the design's note names it as an underlined phrase that
+              should be a button. **The closing block is where the design puts
+              it (`Today · to close`) and where it competes with nothing**,
+              because every block's own action is behind the learner by then.
+
+              **#160 IS UNTOUCHED BY THE MOVE: no count, no badge, no dot, no
+              days-since**, and block 4's primary action is still *Write it*. */}
           <p className="text-base leading-relaxed" data-testid="output-task">
             {task}
           </p>
@@ -401,6 +401,39 @@ export function CloseBlock({ block }: { block: SessionBlock }) {
           ? "One card reviewed today."
           : `${reviewed} cards reviewed today.`}
       </p>
+
+      {/* **W13b/5 — THE CONVERSATION ENTRY POINT, design `1i`.** A filled button
+          at the foot of the session, replacing the underlined phrase inside
+          block 4.
+
+          **THIS IS THE ONE PLACE THE SLICE RAISES EMPHASIS, AND THE RULE IT HAS
+          TO CLEAR IS STATED RATHER THAN STEPPED AROUND.** W13b/3 §A wrote
+          *never the primary call-to-action*, on #160. **#160's actual ruling
+          forbids a COUNTER** — *"a tab whose counter accumulates while the
+          learner is away is a backlog presented"* — **and there is still no
+          counter here**: no count, no badge, no dot, nothing about days since
+          the last conversation, and a learner who never presses it is told
+          nothing about not having pressed it. **The emphasis clause is honoured
+          by PLACEMENT: this is the closing block, after every block's own
+          action, so it competes with none of them.** Block 4's primary action is
+          still *Write it*. **Operator ruling 2026-09-07.** */}
+      <div className="mt-5 border-t border-border pt-5">
+        <Button
+          asChild
+          size="lg"
+          className="h-14 w-full rounded-2xl text-base font-semibold"
+        >
+          <Link href="/talk" data-testid="conversation-link">
+            <Mic className="size-5" aria-hidden="true" />
+            {CONVERSATION.entryAction}
+          </Link>
+        </Button>
+        {/* Sets the expectation before the tap. **Nothing measures it and
+            nothing reports on it afterwards** — it is not a target. */}
+        <p className="mt-3 text-center text-sm text-muted-foreground">
+          {CONVERSATION.entryCaption}
+        </p>
+      </div>
     </BlockShell>
   );
 }

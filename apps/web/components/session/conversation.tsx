@@ -37,6 +37,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Mic, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { CloseOut, type Correction } from "./close-out";
@@ -255,29 +256,54 @@ export function Conversation({
   // ── before the conversation starts ────────────────────────────────────────
   if (lines.length === 0 && !done) {
     return (
-      <div className={`${shell} gap-3 p-4`} data-testid="conversation-idle">
+      <div className={`${shell} gap-4 px-5 py-6`} data-testid="conversation-idle">
         {topics === null ? (
-          <Button onClick={suggest} disabled={busy}>
+          /* **THE PRESS STAYS AND IS NOW A REAL PRIMARY BUTTON (#399).** The
+             design opens straight onto three cards; `suggest_topics` is a
+             PROVIDER CALL, so that would spend money on every page load —
+             including loads nobody uses. **Operator ruling 2026-09-07: the
+             direct open is declined and the gate is kept.** What changes is
+             that the gate stops looking incidental. */
+          <Button
+            size="lg"
+            className="h-14 w-full rounded-2xl text-base font-semibold"
+            onClick={suggest}
+            disabled={busy}
+          >
             {CONVERSATION.start}
           </Button>
         ) : (
           <div data-testid="conversation-topics">
-            <p className="text-sm text-muted-foreground">{CONVERSATION.pick}</p>
-            <div className="mt-3 flex flex-col gap-2">
+            <h2 className="font-heading text-2xl leading-tight">
+              {CONVERSATION.pick}
+            </h2>
+            <div className="mt-5 flex flex-col gap-2.5">
+              {/* The design's serif cards. **A card and not a list row**: three
+                  choices that each look like the beginning of something, which
+                  is the whole difference between choosing and picking off a
+                  menu. */}
               {topics.map((t) => (
-                <Button
+                <button
                   key={t}
-                  variant="outline"
-                  className="h-auto whitespace-normal py-3 text-left"
+                  type="button"
                   disabled={busy}
                   onClick={() => start(t)}
+                  data-testid="topic-card"
+                  className="w-full rounded-2xl border border-border bg-card px-5 py-4 text-left font-heading text-lg leading-snug shadow-sm transition-colors hover:border-primary disabled:opacity-60"
                 >
                   {t}
-                </Button>
+                </button>
               ))}
-              <Button variant="ghost" onClick={suggest} disabled={busy}>
+              {/* The fourth action is TEXT and not a card, so it never competes
+                  with the three. The design's own note. */}
+              <button
+                type="button"
+                onClick={suggest}
+                disabled={busy}
+                className="mt-2 self-start py-3 text-sm font-medium text-primary"
+              >
                 {CONVERSATION.reshuffle}
-              </Button>
+              </button>
             </div>
           </div>
         )}
@@ -314,15 +340,47 @@ export function Conversation({
   // ── the conversation ──────────────────────────────────────────────────────
   return (
     <div className={`${shell} h-full`} data-testid="conversation">
-      {/* 6 — the topic stays put while the list scrolls under it. */}
-      {topic ? (
-        <header
-          className="shrink-0 border-b bg-background px-4 py-3"
-          data-testid="conversation-topic"
-        >
-          <p className="text-sm text-muted-foreground">{topic}</p>
-        </header>
-      ) : null}
+      {/* **W13b/5 — THE SCREEN TITLE THE APP NEVER HAD, AND THE END CONTROL
+          MOVED INTO IT.** The design puts a mono eyebrow at the top of every
+          `/talk` state and the end control as a bordered pill at its right.
+          Before this the screen opened on a muted topic line and nothing said
+          where you were.
+
+          **7 — the end control is now visibly a control.** It was a ghost
+          button below the composer and read as bare text. It keeps its wording:
+          the design labels it *End the conversation*, and **"That's enough for
+          now" is deliberately kept** — the design's phrase describes the
+          mechanism, ours declines to make stopping sound like abandoning
+          something. The FORM is the design's; the words are the record's.
+
+          **6 — the topic still stays put while the list scrolls under it**,
+          which the design's thread does not show but which is a requirement
+          taken from the operator using it. A design is evidence about intent,
+          not about what was already learned. */}
+      <header className="shrink-0 border-b bg-background px-5 pb-3 pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
+            {CONVERSATION.eyebrow}
+          </span>
+          <button
+            type="button"
+            onClick={end}
+            disabled={busy}
+            data-testid="conversation-end"
+            className="shrink-0 rounded-full border border-border px-4 py-2.5 text-xs text-muted-foreground transition-colors hover:border-foreground hover:text-foreground disabled:opacity-50"
+          >
+            {CONVERSATION.end}
+          </button>
+        </div>
+        {topic ? (
+          <p
+            className="mt-2 text-sm text-muted-foreground"
+            data-testid="conversation-topic"
+          >
+            {topic}
+          </p>
+        ) : null}
+      </header>
 
       {/* 1 — THE scroll region. `min-h-0` is what bounds it inside the flex
           column; without it this grows and the page scrolls instead. */}
@@ -330,32 +388,31 @@ export function Conversation({
         className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
         data-testid="conversation-log"
       >
+        {/* **W13b/5 — THE TURNS READ AS A THREAD. FOUR SIGNALS, NONE OF THEM
+            COLOUR.** Before this both speakers were tinted bubbles with the
+            speaker's name in an `sr-only` span — **invisible**, so on a phone
+            the two sides were told apart by a background tint and an alignment
+            and nothing else, which is what the operator saw and could not read.
+
+            The design's answer, taken whole: **a VISIBLE mono label above each
+            turn; the app unboxed and full width; the learner in a bordered card
+            indented from the left; and the typeface split** already shipped in
+            W13b/4. `data-speaker` still carries it for the tests, because a
+            test asserting a class asserts Tailwind. */}
         {lines.map((l, i) => (
           <div
             key={i}
             data-speaker={l.who}
-            className={
-              l.who === "you"
-                ? "ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-4 py-2"
-                : "mr-auto max-w-[85%] rounded-2xl rounded-bl-sm bg-muted px-4 py-2"
-            }
+            className={l.who === "you" ? "flex flex-col items-end pl-10" : "pr-6"}
           >
-            {/* 2 — alignment AND background differ, and the label is there for
-                anyone who cannot rely on either. */}
-            <span className="sr-only">
-              {l.who === "you" ? CONVERSATION.you : CONVERSATION.app}:{" "}
+            <span className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
+              {l.who === "you" ? CONVERSATION.you : CONVERSATION.app}
             </span>
-            {/* **THREE SIGNALS, NONE OF THEM COLOUR** — the design's answer to
-                the constraint and the strongest available. Alignment,
-                container AND typeface differ: the app speaks in the display
-                serif the app already loads, the learner in the body sans.
-                `data-speaker` still carries it for the tests, because a test
-                asserting a typeface asserts Tailwind exactly as one asserting
-                a colour does. */}
             <p
               className={
-                "whitespace-pre-wrap text-base leading-relaxed " +
-                (l.who === "app" ? "font-heading" : "")
+                l.who === "you"
+                  ? "mt-1.5 whitespace-pre-wrap rounded-2xl rounded-br-sm border border-border bg-card px-4 py-2.5 text-base leading-relaxed"
+                  : "mt-1.5 whitespace-pre-wrap font-heading text-lg leading-relaxed"
               }
             >
               {l.text}
@@ -365,14 +422,23 @@ export function Conversation({
 
         {/* 5 — it is working. **No spinner, no bar, no estimate.** */}
         {busy ? (
-          <div
-            className="mr-auto max-w-[85%] rounded-2xl rounded-bl-sm bg-muted px-4 py-2"
-            data-speaker="app"
-            data-testid="conversation-working"
-          >
-            <p className="text-base text-muted-foreground">
+          <div className="pr-6" data-speaker="app" data-testid="conversation-working">
+            <span className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
               {CONVERSATION.working}
-            </p>
+            </span>
+            {/* **Three dots, and they are NOT a spinner or a bar.** *The wait
+                is the product*: nothing here implies it could be faster, claims
+                to know how long is left, or apologises. They say the app is
+                doing something, which is all the surface knows. */}
+            <div className="mt-2 flex h-4 items-center gap-1.5" aria-hidden="true">
+              {[0, 1, 2].map((n) => (
+                <span
+                  key={n}
+                  className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary"
+                  style={{ animationDelay: `${n * 180}ms` }}
+                />
+              ))}
+            </div>
           </div>
         ) : null}
         <div ref={listEnd} />
@@ -387,7 +453,21 @@ export function Conversation({
 
       {/* 3 · 7 — pinned composer, and the end control lives beside it so it is
           always reachable without scrolling. */}
-      <footer className="shrink-0 border-t bg-background px-4 py-3">
+      {/* **W13b/5 — THE COMPOSER IS A BLOCK, NOT A BOX WITH BUTTONS BESIDE
+          IT.** It was a `flex-1` field sharing one row with two controls, so on
+          a phone it read as a small box floating at the left with the actions
+          crowding it. The design gives the field the full width and puts the
+          controls in a row beneath — which is also what lets both of them be
+          thumb-sized rather than squeezed.
+
+          **3 — four lines open, about seven before it scrolls**, kept from
+          W13b/4. The send control still cannot be pushed off screen, because
+          the footer is pinned and the textarea is what is bounded.
+
+          **7 — the end control is NOT here any more.** It moved into the header
+          as a bordered pill; below the composer, as a ghost button, it read as
+          bare text. */}
+      <footer className="shrink-0 border-t bg-background px-5 pb-5 pt-3">
         {rec.recording ? (
           <div className="flex items-center gap-3" data-testid="conversation-recording">
             <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
@@ -397,13 +477,13 @@ export function Conversation({
                 data-testid="conversation-level"
               />
             </div>
-            <span className="tabular-nums text-sm text-muted-foreground">
+            <span className="font-mono text-sm tabular-nums text-muted-foreground">
               {rec.elapsed}s
             </span>
             <Button onClick={rec.stop}>{CONVERSATION.micStop}</Button>
           </div>
         ) : (
-          <div className="flex items-end gap-2">
+          <>
             <textarea
               ref={composer}
               value={draft}
@@ -413,42 +493,43 @@ export function Conversation({
               aria-label={CONVERSATION.composerLabel}
               placeholder={CONVERSATION.placeholder}
               data-testid="conversation-composer"
-              // 3 — **opens at four lines and grows to about seven, then
-              // scrolls inside itself.** The design's measurement, and its
-              // reason is that four lines is what people actually write; the
-              // shipped single row meant the operator's sentence scrolled out
-              // of view mid-thought. The send control cannot be pushed off
-              // screen because the footer is pinned and this is what is
-              // bounded.
-              className="max-h-44 min-h-24 flex-1 resize-none overflow-y-auto rounded-md border bg-background px-3 py-2 text-base"
+              className="block max-h-44 min-h-24 w-full resize-none overflow-y-auto rounded-2xl border bg-background px-4 py-3 text-base"
             />
-            {/* Absent, not disabled, when the learner is not on the allowlist. */}
-            {micAllowed ? (
-              <Button
-                variant="outline"
-                onClick={rec.start}
-                disabled={busy}
-                data-testid="conversation-speak"
+            {/* **ICON AND WORD, NEVER ICON ALONE AND NEVER A BARE WORD.** The
+                design's own note is that Speak and Send became a microphone and
+                a send glyph *"with the words kept as labels, so neither reads
+                as a bare link"*. The icons come from `lucide-react`, which the
+                app ALREADY depends on and already uses in `bottom-nav` and
+                `app-menu` — **no new dependency for this slice**. Each glyph is
+                `aria-hidden`; the word is the accessible name, so nothing here
+                is an icon a learner has to decode. */}
+            <div className="mt-2.5 flex items-center gap-2.5">
+              {/* Absent, not disabled, when the learner is not on the allowlist. */}
+              {micAllowed ? (
+                <button
+                  type="button"
+                  onClick={rec.start}
+                  disabled={busy}
+                  data-testid="conversation-speak"
+                  className="flex shrink-0 items-center gap-2 rounded-full border border-border px-4 py-3 text-sm font-medium transition-colors hover:border-foreground disabled:opacity-50"
+                >
+                  <Mic className="size-4" aria-hidden="true" />
+                  {CONVERSATION.micStart}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={send}
+                disabled={busy || !draft.trim()}
+                data-testid="conversation-send"
+                className="flex flex-1 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-opacity disabled:opacity-50"
               >
-                {CONVERSATION.micStart}
-              </Button>
-            ) : null}
-            <Button onClick={send} disabled={busy || !draft.trim()}>
-              {CONVERSATION.send}
-            </Button>
-          </div>
+                <Send className="size-4" aria-hidden="true" />
+                {CONVERSATION.send}
+              </button>
+            </div>
+          </>
         )}
-        <div className="mt-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={end}
-            disabled={busy}
-            data-testid="conversation-end"
-          >
-            {CONVERSATION.end}
-          </Button>
-        </div>
       </footer>
     </div>
   );

@@ -445,3 +445,166 @@ describe("the composer while a reply is coming", () => {
     ).toBe(before);
   });
 });
+
+/**
+ * W13b/5 — `/talk` brought to the design.
+ *
+ * **EVERY ASSERTION HERE CORRESPONDS TO A DIFFERENCE THE OPERATOR FOUND BY
+ * COMPARING THE DEPLOYED SCREEN WITH THE DESIGN, AND NOT ONE OF THEM WAS
+ * VISIBLE TO THIS SUITE BEFOREHAND.** W13b/5's changes are large enough to
+ * rewrite the header, the turns, the composer and the chooser, and the 223
+ * tests that existed passed over all of it unchanged. **A suite that cannot see
+ * a screen being wrong is the condition these tests exist to end**, and it is
+ * the same finding as `did_well` one slice earlier: nobody looked.
+ */
+describe("/talk, brought to the design", () => {
+  beforeEach(() => {
+    mockAudio();
+    globalThis.Element.prototype.scrollIntoView = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).endsWith("/topics"))
+          return jsonOnce({
+            topics: [
+              "A wedding you went to recently",
+              "Something you cooked this week",
+              "A place you keep meaning to visit",
+            ],
+            voice: true,
+          });
+        if (String(url).endsWith("/open"))
+          return jsonOnce({
+            conversation_id: 1,
+            topic_label: "A wedding you went to recently",
+            reply: "Hey — have you been to any weddings lately?",
+            state: "open",
+          });
+        if (String(url).endsWith("/turn"))
+          return jsonOnce({
+            conversation_id: 1,
+            topic_label: "A wedding you went to recently",
+            reply: "A garden wedding sounds lovely.",
+            state: "open",
+          });
+        return jsonOnce({});
+      }),
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function toThread(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: CONVERSATION.start }));
+    await screen.findByTestId("conversation-topics");
+    await user.click(
+      screen.getByRole("button", { name: "A wedding you went to recently" }),
+    );
+    await screen.findByTestId("conversation-log");
+  }
+
+  it("spends no provider call until the learner asks for topics (#399)", async () => {
+    // **THE COST GATE, ASSERTED AS BEHAVIOUR RATHER THAN TRUSTED AS A HABIT.**
+    // `suggest_topics` is a model call. The design opens straight onto three
+    // cards, which would spend it on every page load — including loads nobody
+    // uses. **Operator ruling 2026-09-07: the direct open is declined.**
+    //
+    // RED against a `useEffect(() => void suggest(), [])`.
+    render(<Conversation voice={false} />);
+    const calls = () =>
+      (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(calls().length).toBe(0);
+
+    await userEvent.setup().click(
+      screen.getByRole("button", { name: CONVERSATION.start }),
+    );
+    await screen.findByTestId("conversation-topics");
+    expect(calls().length).toBe(1);
+  });
+
+  it("names the screen, which it never did", async () => {
+    const user = userEvent.setup();
+    render(<Conversation voice={false} />);
+    await toThread(user);
+    expect(screen.getByText(CONVERSATION.eyebrow)).toBeInTheDocument();
+  });
+
+  it("makes ending the conversation a control, and keeps it out of the scroll region", async () => {
+    // **THE DEFECT: it was a ghost button below the composer and read as bare
+    // text.** It is now a bordered pill in the header. Asserted as *is a
+    // button* and *is not inside the log*, which is the structural claim; the
+    // border is not asserted, because that would be pinning Tailwind.
+    const user = userEvent.setup();
+    render(<Conversation voice={false} />);
+    await toThread(user);
+    const endControl = screen.getByTestId("conversation-end");
+    expect(endControl.tagName).toBe("BUTTON");
+    expect(screen.getByTestId("conversation-log").contains(endControl)).toBe(false);
+  });
+
+  it("shows each speaker's name on screen, not only to a screen reader", async () => {
+    // **THE DEFECT THE OPERATOR SAW: *no visible speaker sides*.** The label
+    // existed and was `sr-only`, so on a phone the two turns were told apart by
+    // a background tint and an alignment and nothing else.
+    //
+    // **THIS NAMES A CLASS, AND THAT IS DELIBERATE AND NOT THE THING THE
+    // COLOUR RULE FORBIDS:** `sr-only` IS the mechanism of invisibility, not a
+    // palette choice, and jsdom's `toBeVisible` cannot see it — the class
+    // clips the element rather than hiding it.
+    const user = userEvent.setup();
+    render(<Conversation voice={false} />);
+    await toThread(user);
+    await user.type(screen.getByTestId("conversation-composer"), "it was lovely");
+    await user.click(screen.getByTestId("conversation-send"));
+    await screen.findByText("A garden wedding sounds lovely.");
+
+    for (const name of [CONVERSATION.you, CONVERSATION.app]) {
+      const label = screen.getAllByText(name)[0];
+      expect(label).toBeInTheDocument();
+      expect(label.className).not.toContain("sr-only");
+    }
+  });
+
+  it("gives the composer the full width, with its controls in a row beneath", async () => {
+    // **THE DEFECT: a small box floating at the left with two buttons beside
+    // it.** The field and the controls shared one flex row, so the field got
+    // whatever was left. Asserted structurally — the send control is no longer
+    // a sibling of the textarea — rather than by measuring, which jsdom cannot
+    // do (it has no layout engine).
+    const user = userEvent.setup();
+    render(<Conversation voice={false} />);
+    await toThread(user);
+    const box = screen.getByTestId("conversation-composer");
+    const sendControl = screen.getByTestId("conversation-send");
+    expect(box.className).toContain("w-full");
+    expect(box.parentElement).not.toBe(sendControl.parentElement);
+  });
+
+  it("gives Speak and Send a glyph each, and keeps the word as the label", async () => {
+    // The design's own note: a microphone and a send glyph **"with the words
+    // kept as labels, so neither reads as a bare link"**. Both halves are
+    // asserted, because either alone is a different defect — an icon with no
+    // word is a puzzle, a word with no icon is what shipped.
+    const user = userEvent.setup();
+    render(<Conversation voice />);
+    await toThread(user);
+    for (const [id, word] of [
+      ["conversation-send", CONVERSATION.send],
+      ["conversation-speak", CONVERSATION.micStart],
+    ] as const) {
+      const control = screen.getByTestId(id);
+      expect(control.querySelector("svg")).not.toBeNull();
+      expect(control).toHaveTextContent(word);
+    }
+  });
+
+  it("offers the topics as cards, behind a full-width primary control", async () => {
+    const user = userEvent.setup();
+    render(<Conversation voice={false} />);
+    const startControl = screen.getByRole("button", { name: CONVERSATION.start });
+    expect(startControl.className).toContain("w-full");
+
+    await user.click(startControl);
+    await screen.findByTestId("conversation-topics");
+    expect(screen.getAllByTestId("topic-card")).toHaveLength(3);
+  });
+});

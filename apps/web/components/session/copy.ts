@@ -368,10 +368,27 @@ export const CONVERSATION = {
   wordsHeading: "Worth keeping",
   save: "Keep",
   saved: "Kept",
-  /** §A. Block 4's low-emphasis link into the page. **Never the primary
-   * call-to-action and never a count** — W11b's Sunday link is the shipped
-   * shape (#160 forbids a counter, not a page). */
-  blockLink: "Or have a conversation",
+  /** **W13b/5 MOVED THE ENTRY POINT OUT OF BLOCK 4 AND ONTO THE CLOSING
+   * BLOCK, AND PROMOTED IT FROM AN UNDERLINED PHRASE TO A FILLED BUTTON.**
+   * Operator ruling 2026-09-07, on the design's `1i`.
+   *
+   * The old string is quoted rather than deleted (#82's shape):
+   * *"Or have a conversation"*, rendered as
+   * `text-sm text-muted-foreground underline` inside block 4.
+   *
+   * **HOW THIS STAYS INSIDE #160 AND INSIDE W13b/3 §A's *never the primary
+   * emphasis*, WHICH IT WOULD OTHERWISE BREAK:** the button is not block 4's
+   * call-to-action and does not compete with the day's task — **block 4's
+   * primary action is still *Write it***. This sits on the CLOSING block,
+   * after every block's own action, which is the design's own placement (its
+   * card is headed *Today · to close*). **And #160's actual rule is untouched:
+   * no count, no badge, no dot, no days-since.** A learner who never presses it
+   * is told nothing about not having pressed it. */
+  entryTitle: "That’s the session. The rest of the English is up to you.",
+  entryAction: "Talk with the app",
+  /** Sets the expectation before the tap. **Not a target and not a minimum** —
+   * nothing measures it and nothing reports on it afterwards. */
+  entryCaption: "Ten minutes, in English, about anything.",
   /** §B. The in-progress state. **The wait is the product** — this says the
    * app is working and never how long it will take. No spinner, no bar. */
   working: "Typing…",
