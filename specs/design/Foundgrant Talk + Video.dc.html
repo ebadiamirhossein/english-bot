@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Public+Sans:wght@400;500;600&display=swap"><style>
+body{margin:0;background:#e9e5db;font-family:'Public Sans',Helvetica,sans-serif}
+a{color:#2E5E45}a:hover{color:#1C3D2B}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08)}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}
+.dv-tname{font:600 13px/1.2 'Public Sans',sans-serif;color:#1a1a1a}
+.dv-opts{display:flex;flex-wrap:wrap;gap:34px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}
+.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 'Public Sans',sans-serif;color:rgba(0,0,0,.55)}
+.dv-opt:target .dv-oid{background:#2E5E45;color:#fff}
+.dv-next{margin:26px 0 0;font:12px/1.5 'Public Sans',sans-serif;color:rgba(0,0,0,.5)}
+.dv-cap{margin:2px 0 0;max-width:280px;font:400 11.5px/1.45 'Public Sans',sans-serif;color:rgba(0,0,0,.5);text-wrap:pretty}
+@keyframes fgdot{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:.9;transform:translateY(-2px)}}
+@keyframes fglvl{from{transform:scaleY(.28)}to{transform:scaleY(1)}}
+@keyframes fgup{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+</style></helmet>
+
+<section class="dv-turn" id="t1">
+<div style="max-width:780px;margin:0 0 34px">
+<p style="margin:0 0 6px;font:600 10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;color:rgba(0,0,0,.45)">Foundgrant · round one</p>
+<h1 style="margin:0 0 14px;font:400 30px/1.2 'Source Serif 4',Georgia,serif;color:#1C1A17">The conversation page and the video screen</h1>
+<p style="margin:0 0 12px;font:400 14.5px/1.6 'Public Sans',sans-serif;color:#3B3832;text-wrap:pretty">Two working prototypes, phone-first, plus a board of every state and three sets of options where you asked for them. Tap through them — the thread sends, waits, records, and ends into the close-out.</p>
+<p style="margin:0 0 12px;font:400 14.5px/1.6 'Public Sans',sans-serif;color:#3B3832;text-wrap:pretty"><strong style="font-weight:600">What I changed and why.</strong> The two speakers now differ by three things at once: typeface (the app speaks in serif, the learner in sans), alignment, and container — the app's turns are unboxed and full-width, the learner's sit in a bordered card indented from the left, each group carrying a small text label. A machine that cannot see colour can still tell them apart. The composer opens at four lines and grows to about seven before it scrolls, because that is what people actually write. Speak and Send are now a microphone and a send glyph with the words kept as labels, so neither reads as a bare link. The entry point is a filled green button at the foot of the session, not an underlined phrase.</p>
+<p style="margin:0 0 12px;font:400 14.5px/1.6 'Public Sans',sans-serif;color:#3B3832;text-wrap:pretty">The close-out did not exist, so it is a page of its own, reached by ending the conversation and ordered payoff-first: what you talked about, then at most two things worth a second look, then the words you asked about with a save action on each. Corrections are amber with a triangle and the phrase <em>worth a look</em> — never red, never a cross. The wait state says the app is writing and nothing more. The daily limit is one sentence with no numeral in it.</p>
+<p style="margin:0;font:400 14.5px/1.6 'Public Sans',sans-serif;color:#3B3832;text-wrap:pretty">On the video screen the player holds the top of the phone and shrinks to a slim bar once you read past it, so the two never compete — <a class="dv-oid" href="#1b">1b</a>. The tab version — <a class="dv-oid" href="#1c">1c</a> — gives each full height instead. The transcript is broken into timed paragraphs with a hairline per paragraph, and marked words carry a dotted underline plus a trailing square, so the mark is not colour alone. Difficulty is three words. No percentage exists anywhere in either screen.</p>
+<p style="margin:14px 0 0;font:400 12.5px/1.55 'Public Sans',sans-serif;color:rgba(0,0,0,.5);text-wrap:pretty">Assumptions I made: your wedding conversation is used verbatim as the seeded thread; the video is a short kitchen-science clip standing in for a real pick; the player is a placeholder, not a live embed. Voice is hold-to-speak with an optional tap to lock, per your answer.</p>
+</div>
+
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Prototypes, states, options</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a"><div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>/talk — interactive, all six states</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" width="{{ devW }}" height="{{ devH }}" hint-size="390px,812px">
+<div data-screen-label="/talk" style="height:100%;box-sizing:border-box;display:flex;flex-direction:column;position:relative;overflow:hidden;background:#F7F4EC;font-family:'Public Sans',Helvetica,sans-serif;color:#1C1A17">
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;padding:58px 20px 12px;flex:none">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6F6A61">Talk</span>
+<sc-if value="{{ isThread }}" hint-placeholder-val="{{ true }}"><button onClick="{{ onEnd }}" style="appearance:none;border:1px solid rgba(28,26,23,.16);background:transparent;color:#6F6A61;font:400 12.5px/1 'Public Sans',sans-serif;padding:14px 14px;border-radius:999px;cursor:pointer" style-hover="border-color:rgba(28,26,23,.34);color:#1C1A17">End the conversation</button></sc-if>
+</div>
+
+<div style="flex:1;min-height:0;overflow:auto;padding:8px 20px 20px">
+
+<sc-if value="{{ isTopics }}" hint-placeholder-val="{{ true }}">
+<div style="padding-top:16px">
+<h2 style="margin:0 0 6px;font:400 26px/1.25 'Source Serif 4',Georgia,serif">What shall we talk about?</h2>
+<p style="margin:0 0 22px;font:400 14.5px/1.55 'Public Sans',sans-serif;color:#6F6A61">Pick one, or ask for others.</p>
+<div style="display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{ topics }}" as="t" hint-placeholder-count="3">
+<button onClick="{{ t.onPick }}" style="appearance:none;display:block;width:100%;text-align:left;background:#FFFDF8;border:1px solid rgba(28,26,23,.12);border-radius:16px;padding:18px 18px;font:400 18px/1.4 'Source Serif 4',Georgia,serif;color:#1C1A17;cursor:pointer;box-shadow:0 1px 2px rgba(28,26,23,.04)" style-hover="border-color:#2E5E45;box-shadow:0 2px 10px rgba(46,94,69,.12)">{{ t.label }}</button>
+</sc-for>
+</div>
+<button onClick="{{ onShowOthers }}" style="appearance:none;margin-top:18px;display:flex;align-items:center;gap:8px;background:transparent;border:0;padding:15px 0;font:500 14px/1 'Public Sans',sans-serif;color:#2E5E45;cursor:pointer">
+<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h10M8.5 3.5 12 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6"></path></svg>Show me others</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isThread }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:20px;padding-top:4px">
+<sc-for list="{{ msgs }}" as="m" hint-placeholder-count="4">
+<div>
+<sc-if value="{{ m.isApp }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:5px;padding-right:22px">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Foundgrant</span>
+<p style="margin:0;font:400 18px/1.55 'Source Serif 4',Georgia,serif;color:#1C1A17;text-wrap:pretty">{{ m.text }}</p>
+</div>
+</sc-if>
+<sc-if value="{{ m.isYou }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;padding-left:44px">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">You</span>
+<p style="margin:0;background:#FFFDF8;border:1px solid rgba(28,26,23,.14);border-radius:16px 16px 5px 16px;padding:12px 14px;font:400 16px/1.5 'Public Sans',sans-serif;color:#3B3832;text-wrap:pretty">{{ m.text }}</p>
+</div>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{ waiting }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:8px">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Foundgrant is writing</span>
+<div style="display:flex;gap:5px;align-items:center;height:20px">
+<span style="width:6px;height:6px;border-radius:99px;background:#2E5E45;animation:fgdot 1.1s ease-in-out infinite"></span>
+<span style="width:6px;height:6px;border-radius:99px;background:#2E5E45;animation:fgdot 1.1s ease-in-out .18s infinite"></span>
+<span style="width:6px;height:6px;border-radius:99px;background:#2E5E45;animation:fgdot 1.1s ease-in-out .36s infinite"></span>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ isCloseout }}" hint-placeholder-val="{{ true }}">
+<div style="padding:6px 0 8px;animation:fgup .28s ease-out">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">The conversation</span>
+<h2 style="margin:8px 0 10px;font:400 25px/1.25 'Source Serif 4',Georgia,serif">A wedding you went to recently</h2>
+<p style="margin:0 0 8px;font:400 16.5px/1.6 'Public Sans',sans-serif;color:#3B3832;text-wrap:pretty">You talked about a colleague's wedding in a garden last month — the weather, dinner outside, and the dancing afterwards.</p>
+<p style="margin:0 0 26px;font:400 16.5px/1.6 'Source Serif 4',Georgia,serif;color:#2E5E45;text-wrap:pretty">Your past tense held up across the whole story.</p>
+
+<div style="height:1px;background:rgba(28,26,23,.12);margin:0 0 20px"></div>
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Worth a look</span>
+<div style="display:flex;flex-direction:column;gap:12px;margin:12px 0 26px">
+<div style="background:#FBF3E4;border:1px solid rgba(140,84,16,.28);border-radius:14px;padding:14px 15px">
+<div style="display:flex;align-items:center;gap:7px;margin-bottom:8px"><svg width="11" height="10" viewBox="0 0 11 10" aria-hidden="true"><path d="M5.5 0 11 10H0z" fill="#8C5410"></path></svg><span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8C5410">Past tense</span></div>
+<p style="margin:0 0 6px;font:400 15.5px/1.5 'Public Sans',sans-serif;color:#6F6A61;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px">she marry last month</p>
+<p style="margin:0;font:400 17px/1.5 'Source Serif 4',Georgia,serif;color:#1C1A17">she got married last month</p>
+</div>
+<div style="background:#FBF3E4;border:1px solid rgba(140,84,16,.28);border-radius:14px;padding:14px 15px">
+<div style="display:flex;align-items:center;gap:7px;margin-bottom:8px"><svg width="11" height="10" viewBox="0 0 11 10" aria-hidden="true"><path d="M5.5 0 11 10H0z" fill="#8C5410"></path></svg><span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8C5410">Past tense</span></div>
+<p style="margin:0 0 6px;font:400 15.5px/1.5 'Public Sans',sans-serif;color:#6F6A61;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px">we sit outside for the dinner</p>
+<p style="margin:0;font:400 17px/1.5 'Source Serif 4',Georgia,serif;color:#1C1A17">we sat outside for dinner</p>
+</div>
+</div>
+
+<div style="height:1px;background:rgba(28,26,23,.12);margin:0 0 20px"></div>
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Words you asked about</span>
+<div style="display:flex;flex-direction:column;gap:2px;margin:10px 0 8px">
+
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid rgba(28,26,23,.09)">
+<div><p style="margin:0 0 3px;font:600 17px/1.3 'Source Serif 4',Georgia,serif">reception</p><p style="margin:0;font:400 13.5px/1.4 'Public Sans',sans-serif;color:#6F6A61">the party after the ceremony</p></div>
+<sc-if value="{{ w1 }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:6px;font:500 12.5px/1 'Public Sans',sans-serif;color:#2E5E45;flex:none"><svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 0 9 4.5 4.5 9 0 4.5z" fill="#2E5E45"></path></svg>In your deck</span></sc-if>
+<sc-if value="{{ nw1 }}" hint-placeholder-val="{{ true }}"><button onClick="{{ onAdd1 }}" style="appearance:none;flex:none;display:flex;align-items:center;gap:6px;background:transparent;border:1px solid rgba(46,94,69,.4);color:#2E5E45;font:500 12.5px/1 'Public Sans',sans-serif;padding:9px 12px;border-radius:999px;cursor:pointer" style-hover="background:rgba(46,94,69,.07)"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0v10M0 5h10" stroke="currentColor" stroke-width="1.6"></path></svg>Add</button></sc-if>
+</div>
+
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid rgba(28,26,23,.09)">
+<div><p style="margin:0 0 3px;font:600 17px/1.3 'Source Serif 4',Georgia,serif">to toast</p><p style="margin:0;font:400 13.5px/1.4 'Public Sans',sans-serif;color:#6F6A61">to raise a glass and say something</p></div>
+<sc-if value="{{ w2 }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:6px;font:500 12.5px/1 'Public Sans',sans-serif;color:#2E5E45;flex:none"><svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 0 9 4.5 4.5 9 0 4.5z" fill="#2E5E45"></path></svg>In your deck</span></sc-if>
+<sc-if value="{{ nw2 }}" hint-placeholder-val="{{ true }}"><button onClick="{{ onAdd2 }}" style="appearance:none;flex:none;display:flex;align-items:center;gap:6px;background:transparent;border:1px solid rgba(46,94,69,.4);color:#2E5E45;font:500 12.5px/1 'Public Sans',sans-serif;padding:9px 12px;border-radius:999px;cursor:pointer" style-hover="background:rgba(46,94,69,.07)"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0v10M0 5h10" stroke="currentColor" stroke-width="1.6"></path></svg>Add</button></sc-if>
+</div>
+
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0">
+<div><p style="margin:0 0 3px;font:600 17px/1.3 'Source Serif 4',Georgia,serif">the aisle</p><p style="margin:0;font:400 13.5px/1.4 'Public Sans',sans-serif;color:#6F6A61">the path she walks down</p></div>
+<sc-if value="{{ w3 }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:6px;font:500 12.5px/1 'Public Sans',sans-serif;color:#2E5E45;flex:none"><svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 0 9 4.5 4.5 9 0 4.5z" fill="#2E5E45"></path></svg>In your deck</span></sc-if>
+<sc-if value="{{ nw3 }}" hint-placeholder-val="{{ true }}"><button onClick="{{ onAdd3 }}" style="appearance:none;flex:none;display:flex;align-items:center;gap:6px;background:transparent;border:1px solid rgba(46,94,69,.4);color:#2E5E45;font:500 12.5px/1 'Public Sans',sans-serif;padding:9px 12px;border-radius:999px;cursor:pointer" style-hover="background:rgba(46,94,69,.07)"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0v10M0 5h10" stroke="currentColor" stroke-width="1.6"></path></svg>Add</button></sc-if>
+</div>
+
+</div>
+<button onClick="{{ onDone }}" style="appearance:none;width:100%;margin-top:22px;background:#2E5E45;border:0;border-radius:14px;padding:17px;font:500 16px/1 'Public Sans',sans-serif;color:#F7F4EC;cursor:pointer" style-hover="background:#254c38">Back to today</button>
+<p style="margin:14px 0 0;text-align:center"><button onClick="{{ onRestart }}" style="appearance:none;background:transparent;border:0;font:400 12.5px/1 'Public Sans',sans-serif;color:#6B6459;cursor:pointer;text-decoration:underline;text-underline-offset:3px">restart the prototype</button></p>
+</div>
+</sc-if>
+
+<sc-if value="{{ isLimit }}" hint-placeholder-val="{{ true }}">
+<div style="min-height:420px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:18px">
+<p style="margin:0;font:400 22px/1.45 'Source Serif 4',Georgia,serif;color:#1C1A17;text-wrap:pretty">That's the talking done for today. There'll be a new topic tomorrow.</p>
+<button onClick="{{ onRestart }}" style="appearance:none;background:transparent;border:0;font:400 12.5px/1 'Public Sans',sans-serif;color:#6B6459;cursor:pointer;text-decoration:underline;text-underline-offset:3px">restart the prototype</button>
+</div>
+</sc-if>
+
+</div>
+
+<sc-if value="{{ isThread }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;padding:12px 16px 44px;background:#F7F4EC;border-top:1px solid rgba(28,26,23,.1)">
+<textarea value="{{ draft }}" onChange="{{ onDraft }}" onInput="{{ onGrow }}" placeholder="Write in English…" style="display:block;width:100%;box-sizing:border-box;min-height:96px;max-height:172px;resize:none;overflow:auto;background:#FFFDF8;border:1px solid rgba(28,26,23,.16);border-radius:16px;padding:14px 14px;font:400 16.5px/1.5 'Public Sans',Helvetica,sans-serif;color:#1C1A17"></textarea>
+<div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+<button onMouseDown="{{ onMicDown }}" onMouseUp="{{ onMicUp }}" onTouchStart="{{ onMicDown }}" onTouchEnd="{{ onMicUp }}" style="appearance:none;display:flex;align-items:center;gap:8px;background:#FFFDF8;border:1px solid rgba(28,26,23,.16);border-radius:999px;padding:12px 16px;font:500 14px/1 'Public Sans',sans-serif;color:#1C1A17;cursor:pointer;user-select:none" style-hover="border-color:rgba(28,26,23,.34)">
+<svg width="17" height="17" viewBox="0 0 18 18" aria-hidden="true"><rect x="6.4" y="2" width="5.2" height="9" rx="2.6" fill="currentColor"></rect><path d="M4 9.4a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.5"></path><path d="M9 14.4v2" stroke="currentColor" stroke-width="1.5"></path></svg>Hold to speak</button>
+<button onClick="{{ onSend }}" style="appearance:none;flex:1;display:flex;align-items:center;justify-content:center;gap:8px;background:#2E5E45;border:0;border-radius:999px;padding:13px 18px;font:500 14.5px/1 'Public Sans',sans-serif;color:#F7F4EC;cursor:pointer" style-hover="background:#254c38">
+<svg width="17" height="17" viewBox="0 0 18 18" aria-hidden="true"><path d="M2.2 8.9 15.8 3.1 10.1 15.4 8.6 10.5z" fill="currentColor"></path></svg>Send</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ recording }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;background:#FFFDF8;border-top:1px solid rgba(28,26,23,.14);border-radius:22px 22px 0 0;padding:20px 20px 44px;box-shadow:0 -14px 40px rgba(28,26,23,.14);animation:fgup .2s ease-out">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+<span style="display:flex;align-items:center;gap:9px;font:600 10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;color:#2E5E45"><svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><rect x="6.4" y="2" width="5.2" height="9" rx="2.6" fill="currentColor"></rect><path d="M4 9.4a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg>Listening</span>
+<span style="font:400 14px/1 ui-monospace,Menlo,monospace;color:#6F6A61">{{ recTime }}</span>
+</div>
+<div style="display:flex;align-items:center;justify-content:center;gap:5px;height:52px;margin-bottom:16px">
+<span style="width:5px;height:44px;border-radius:99px;background:#2E5E45;transform-origin:center;animation:fglvl .62s ease-in-out infinite alternate"></span>
+<span style="width:5px;height:44px;border-radius:99px;background:#2E5E45;transform-origin:center;animation:fglvl .48s ease-in-out .06s infinite alternate"></span>
+<span style="width:5px;height:44px;border-radius:99px;background:#2E5E45;transform-origin:center;animation:fglvl .73s ease-in-out .12s infinite alternate"></span>
+<span style="width:5px;height:44px;border-radius:99px;background:#2E5E45;transform-origin:center;animation:fglvl .55s ease-in-out .19s infinite alternate"></span>
+<span style="width:5px;height:44px;border-radius:99px;background:#2E5E45;transform-origin:center;animation:fglvl .67s ease-in-out .25s infinite alternate"></span>
+<span style="width:5px;height:44px;border-radius:99px;background:#2E5E45;transform-origin:center;animation:fglvl .44s ease-in-out .31s infinite alternate"></span>
+<span style="width:5px;height:44px;border-radius:99px;background:#2E5E45;transform-origin:center;animation:fglvl .7s ease-in-out .37s infinite alternate"></span>
+<span style="width:5px;height:44px;border-radius:99px;background:#2E5E45;transform-origin:center;animation:fglvl .52s ease-in-out .43s infinite alternate"></span>
+<span style="width:5px;height:44px;border-radius:99px;background:#2E5E45;transform-origin:center;animation:fglvl .6s ease-in-out .5s infinite alternate"></span>
+</div>
+<sc-if value="{{ recLocked }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ onStopLocked }}" style="appearance:none;width:100%;background:#2E5E45;border:0;border-radius:14px;padding:16px;font:500 15px/1 'Public Sans',sans-serif;color:#F7F4EC;cursor:pointer">Stop and send</button>
+</sc-if>
+<sc-if value="{{ recUnlocked }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+<span style="font:400 13px/1.4 'Public Sans',sans-serif;color:#6F6A61">Let go when you've finished.</span>
+<sc-if value="{{ lockOffered }}" hint-placeholder-val="{{ true }}"><button onClick="{{ onLock }}" style="appearance:none;flex:none;display:flex;align-items:center;gap:7px;background:transparent;border:1px solid rgba(28,26,23,.2);border-radius:999px;padding:9px 13px;font:500 12.5px/1 'Public Sans',sans-serif;color:#1C1A17;cursor:pointer"><svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true"><rect x="1.5" y="4.6" width="8" height="6" rx="1.4" fill="currentColor"></rect><path d="M3.4 4.6V3.2a2.1 2.1 0 0 1 4.2 0v1.4" fill="none" stroke="currentColor" stroke-width="1.3"></path></svg>Keep it on</button></sc-if>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+</div>
+</x-import>
+<p class="dv-cap" style="max-width:390px">Starts on the topic chooser. Send the draft, hold the microphone, then end the conversation to reach the close-out.</p>
+</div>
+
+<div class="dv-opt" id="1b"><div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Video — player shrinks as you read</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" width="{{ devW }}" height="{{ devH }}" hint-size="390px,812px">
+<div data-screen-label="Video (sticky)" style="height:100%;box-sizing:border-box;display:flex;flex-direction:column;position:relative;overflow:hidden;background:#F7F4EC;font-family:'Public Sans',Helvetica,sans-serif;color:#1C1A17">
+
+<div style="flex:none;padding:58px 20px 10px;display:flex;align-items:flex-end;justify-content:space-between">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6F6A61">Today · the video</span>
+<button onClick="{{ onToggleTranscript }}" style="appearance:none;background:transparent;border:0;font:400 11px/1 ui-monospace,Menlo,monospace;color:#6F6A61;cursor:pointer;text-decoration:underline;text-underline-offset:3px">demo: transcript</button>
+</div>
+
+<sc-if value="{{ vidWide }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;padding:0 16px 12px">
+<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(28,26,23,.12);background:#1C1A17">
+<div style="position:relative;aspect-ratio:16/9;background:repeating-linear-gradient(135deg,#242220 0 9px,#1C1A17 9px 18px);display:flex;align-items:center;justify-content:center">
+<span style="position:absolute;left:12px;top:11px;font:400 9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:rgba(247,244,236,.5)">youtube embed</span>
+<span style="width:58px;height:58px;border-radius:99px;background:rgba(247,244,236,.94);display:flex;align-items:center;justify-content:center"><svg width="20" height="22" viewBox="0 0 20 22" aria-hidden="true"><path d="M0 0l20 11L0 22z" fill="#1C1A17"></path></svg></span>
+</div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px">
+<h2 style="margin:0;font:400 20px/1.3 'Source Serif 4',Georgia,serif;flex:1;min-width:0">Why bread rises</h2>
+<button onClick="{{ onSpeed }}" style="appearance:none;flex:none;display:flex;align-items:center;gap:7px;background:#FFFDF8;border:1px solid rgba(28,26,23,.16);border-radius:999px;padding:15px 14px;font:500 12.5px/1 ui-monospace,Menlo,monospace;color:#1C1A17;cursor:pointer" style-hover="border-color:rgba(28,26,23,.34)"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.2" fill="none" stroke="currentColor" stroke-width="1.3"></circle><path d="M6 6V2.6" stroke="currentColor" stroke-width="1.3"></path></svg>{{ speedLabel }}</button>
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:9px">
+<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 0 9 4.5 4.5 9 0 4.5z" fill="#6F6A61"></path></svg>
+<span style="font:600 10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6F6A61">About right for you</span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ vidSlim }}" hint-placeholder-val="{{ false }}">
+<div style="flex:none;padding:0 16px 10px">
+<div style="display:flex;align-items:center;gap:12px;background:#FFFDF8;border:1px solid rgba(28,26,23,.12);border-radius:14px;padding:9px 12px 9px 9px;box-shadow:0 2px 10px rgba(28,26,23,.07)">
+<span style="flex:none;width:52px;height:32px;border-radius:8px;background:repeating-linear-gradient(135deg,#242220 0 7px,#1C1A17 7px 14px);display:flex;align-items:center;justify-content:center"><svg width="10" height="11" viewBox="0 0 10 11" aria-hidden="true"><path d="M0 0l10 5.5L0 11z" fill="rgba(247,244,236,.9)"></path></svg></span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:400 14.5px/1.25 'Source Serif 4',Georgia,serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Why bread rises</p>
+<p style="margin:2px 0 0;font:600 9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6B6459">About right for you</p>
+</div>
+<button onClick="{{ onSpeed }}" style="appearance:none;flex:none;background:transparent;border:1px solid rgba(28,26,23,.16);border-radius:999px;padding:14px 12px;font:500 11.5px/1 ui-monospace,Menlo,monospace;color:#1C1A17;cursor:pointer">{{ speedLabel }}</button>
+</div>
+</div>
+</sc-if>
+
+<div onScroll="{{ onVidScroll }}" style="flex:1;min-height:0;overflow:auto;padding:6px 20px 44px">
+<sc-if value="{{ hasTranscript }}" hint-placeholder-val="{{ true }}">
+<div>
+<div style="display:flex;align-items:center;gap:10px;padding:8px 0 14px">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Transcript</span>
+<span style="flex:1;height:1px;background:rgba(28,26,23,.12)"></span>
+<span style="font:400 11px/1 'Public Sans',sans-serif;color:#6B6459">tap a marked word</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:2px">
+
+<div style="display:flex;gap:14px;padding:14px 0;border-top:1px solid rgba(28,26,23,.09)">
+<span style="flex:none;width:32px;font:400 11.5px/1.7 ui-monospace,Menlo,monospace;color:#6F6A61">0:04</span>
+<p style="margin:0;font:400 17px/1.65 'Source Serif 4',Georgia,serif;color:#1C1A17;text-wrap:pretty">Bread is mostly flour and water, but the interesting part is what happens between them. When you mix them, the proteins in the flour link up and form <button onClick="{{ onWGluten }}" style="appearance:none;background:transparent;border:0;padding:0;font:inherit;color:#8C5410;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px">gluten<span style="display:inline-block;width:4px;height:4px;background:#8C5410;margin-left:3px;vertical-align:5px"></span></button>.</p>
+</div>
+
+<div style="display:flex;gap:14px;padding:14px 0;border-top:1px solid rgba(28,26,23,.09)">
+<span style="flex:none;width:32px;font:400 11.5px/1.7 ui-monospace,Menlo,monospace;color:#6F6A61">0:19</span>
+<p style="margin:0;font:400 17px/1.65 'Source Serif 4',Georgia,serif;color:#1C1A17;text-wrap:pretty">Gluten is stretchy — think of it as a net. As the yeast begins to <button onClick="{{ onWFerment }}" style="appearance:none;background:transparent;border:0;padding:0;font:inherit;color:#8C5410;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px">ferment<span style="display:inline-block;width:4px;height:4px;background:#8C5410;margin-left:3px;vertical-align:5px"></span></button> the sugars in the dough, it releases gas, and the net <button onClick="{{ onWTrap }}" style="appearance:none;background:transparent;border:0;padding:0;font:inherit;color:#8C5410;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px">traps<span style="display:inline-block;width:4px;height:4px;background:#8C5410;margin-left:3px;vertical-align:5px"></span></button> it.</p>
+</div>
+
+<div style="display:flex;gap:14px;padding:14px 0;border-top:1px solid rgba(28,26,23,.09)">
+<span style="flex:none;width:32px;font:400 11.5px/1.7 ui-monospace,Menlo,monospace;color:#6F6A61">0:36</span>
+<p style="margin:0;font:400 17px/1.65 'Source Serif 4',Georgia,serif;color:#1C1A17;text-wrap:pretty">That is why dough expands. Not because you added air, but because something inside it is making air and cannot get out.</p>
+</div>
+
+<div style="display:flex;gap:14px;padding:14px 0;border-top:1px solid rgba(28,26,23,.09);border-bottom:1px solid rgba(28,26,23,.09)">
+<span style="flex:none;width:32px;font:400 11.5px/1.7 ui-monospace,Menlo,monospace;color:#6F6A61">0:52</span>
+<p style="margin:0;font:400 17px/1.65 'Source Serif 4',Georgia,serif;color:#1C1A17;text-wrap:pretty">In the oven the gas keeps expanding for a few minutes before the <button onClick="{{ onWCrust }}" style="appearance:none;background:transparent;border:0;padding:0;font:inherit;color:#8C5410;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px">crust<span style="display:inline-block;width:4px;height:4px;background:#8C5410;margin-left:3px;vertical-align:5px"></span></button> sets. Bakers call that the oven spring.</p>
+</div>
+
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ noTranscript }}" hint-placeholder-val="{{ false }}">
+<div style="padding:26px 0">
+<div style="display:flex;align-items:center;gap:10px;padding:0 0 14px">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Transcript</span>
+<span style="flex:1;height:1px;background:rgba(28,26,23,.12)"></span>
+</div>
+<p style="margin:0 0 8px;font:400 18px/1.55 'Source Serif 4',Georgia,serif;color:#1C1A17;text-wrap:pretty">There's no transcript for this one. The video plays as normal.</p>
+<p style="margin:0;font:400 14.5px/1.55 'Public Sans',sans-serif;color:#6F6A61;text-wrap:pretty">Listen twice if you like — once at normal speed, once slower.</p>
+</div>
+</sc-if>
+</div>
+
+<sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:0;right:0;bottom:0;background:#FFFDF8;border-top:1px solid rgba(28,26,23,.14);border-radius:22px 22px 0 0;padding:18px 20px 44px;box-shadow:0 -14px 40px rgba(28,26,23,.16);animation:fgup .22s ease-out">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+<div>
+<h3 style="margin:0 0 3px;font:600 24px/1.2 'Source Serif 4',Georgia,serif">{{ wordName }}</h3>
+<p style="margin:0 0 10px;font:400 11px/1 ui-monospace,Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;color:#6B6459">{{ wordPos }}</p>
+</div>
+<button onClick="{{ onCloseSheet }}" style="appearance:none;flex:none;width:44px;height:44px;border-radius:99px;background:rgba(28,26,23,.06);border:0;color:#6F6A61;cursor:pointer;font:400 15px/1 'Public Sans',sans-serif">✕</button>
+</div>
+<p style="margin:0 0 10px;font:400 17px/1.55 'Source Serif 4',Georgia,serif;color:#1C1A17;text-wrap:pretty">{{ wordGloss }}</p>
+<p style="margin:0 0 18px;padding-left:12px;border-left:2px solid rgba(28,26,23,.14);font:400 14.5px/1.55 'Public Sans',sans-serif;color:#6F6A61;text-wrap:pretty">{{ wordLine }}</p>
+<sc-if value="{{ wordSaved }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:8px;padding:16px 0;font:500 14.5px/1 'Public Sans',sans-serif;color:#2E5E45"><svg width="10" height="10" viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 0 9 4.5 4.5 9 0 4.5z" fill="#2E5E45"></path></svg>In your deck</div>
+</sc-if>
+<sc-if value="{{ wordUnsaved }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ onAddWord }}" style="appearance:none;width:100%;display:flex;align-items:center;justify-content:center;gap:9px;background:#2E5E45;border:0;border-radius:14px;padding:16px;font:500 15px/1 'Public Sans',sans-serif;color:#F7F4EC;cursor:pointer" style-hover="background:#254c38"><svg width="12" height="12" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0v10M0 5h10" stroke="currentColor" stroke-width="1.7"></path></svg>Save to my deck</button>
+</sc-if>
+</div>
+</sc-if>
+
+</div>
+</x-import>
+<p class="dv-cap" style="max-width:390px">Scroll the transcript: the player folds into a slim bar and stays reachable. The demo link at top right switches to the no-transcript state.</p>
+</div>
+
+<div class="dv-opt" id="1c"><div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Video — two tabs, each full height</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" width="{{ devW }}" height="{{ devH }}" hint-size="390px,812px">
+<div data-screen-label="Video (tabs)" style="height:100%;box-sizing:border-box;display:flex;flex-direction:column;background:#F7F4EC;font-family:'Public Sans',Helvetica,sans-serif;color:#1C1A17">
+<div style="flex:none;padding:58px 20px 12px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6F6A61">Today · the video</span>
+<h2 style="margin:10px 0 4px;font:400 22px/1.25 'Source Serif 4',Georgia,serif">Why bread rises</h2>
+<div style="display:flex;align-items:center;gap:8px"><svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 0 9 4.5 4.5 9 0 4.5z" fill="#6F6A61"></path></svg><span style="font:600 10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6F6A61">About right for you</span></div>
+</div>
+<div style="flex:none;display:flex;gap:6px;padding:6px 16px 12px">
+<button onClick="{{ onTabVideo }}" style="appearance:none;flex:1;background:{{ tabVideoBg }};border:1px solid rgba(28,26,23,.14);border-radius:999px;padding:15px 11px;font:500 13.5px/1 'Public Sans',sans-serif;color:#1C1A17;cursor:pointer">Watch</button>
+<button onClick="{{ onTabText }}" style="appearance:none;flex:1;background:{{ tabTextBg }};border:1px solid rgba(28,26,23,.14);border-radius:999px;padding:15px 11px;font:500 13.5px/1 'Public Sans',sans-serif;color:#1C1A17;cursor:pointer">Read along</button>
+</div>
+<div style="flex:1;min-height:0;overflow:auto;padding:0 20px 44px">
+<sc-if value="{{ tabIsVideo }}" hint-placeholder-val="{{ true }}">
+<div>
+<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(28,26,23,.12);background:#1C1A17;position:relative;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;background-image:repeating-linear-gradient(135deg,#242220 0 9px,#1C1A17 9px 18px)">
+<span style="position:absolute;left:12px;top:11px;font:400 9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:rgba(247,244,236,.5)">youtube embed</span>
+<span style="width:58px;height:58px;border-radius:99px;background:rgba(247,244,236,.94);display:flex;align-items:center;justify-content:center"><svg width="20" height="22" viewBox="0 0 20 22" aria-hidden="true"><path d="M0 0l20 11L0 22z" fill="#1C1A17"></path></svg></span>
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:14px">
+<button onClick="{{ onSpeed }}" style="appearance:none;display:flex;align-items:center;gap:7px;background:#FFFDF8;border:1px solid rgba(28,26,23,.16);border-radius:999px;padding:15px 15px;font:500 12.5px/1 ui-monospace,Menlo,monospace;color:#1C1A17;cursor:pointer"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.2" fill="none" stroke="currentColor" stroke-width="1.3"></circle><path d="M6 6V2.6" stroke="currentColor" stroke-width="1.3"></path></svg>{{ speedLabel }}</button>
+<span style="font:400 12.5px/1.4 'Public Sans',sans-serif;color:#6B6459">Slower is not cheating.</span>
+</div>
+<p style="margin:24px 0 0;font:400 16.5px/1.6 'Source Serif 4',Georgia,serif;color:#3B3832;text-wrap:pretty">Four minutes on what actually happens inside dough. The transcript is on the other tab if you want to read along.</p>
+</div>
+</sc-if>
+<sc-if value="{{ tabIsText }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;gap:14px;padding:14px 0;border-top:1px solid rgba(28,26,23,.09)">
+<span style="flex:none;width:32px;font:400 11.5px/1.7 ui-monospace,Menlo,monospace;color:#6F6A61">0:04</span>
+<p style="margin:0;font:400 17px/1.65 'Source Serif 4',Georgia,serif;text-wrap:pretty">Bread is mostly flour and water, but the interesting part is what happens between them. When you mix them, the proteins in the flour link up and form <button onClick="{{ onWGluten }}" style="appearance:none;background:transparent;border:0;padding:0;font:inherit;color:#8C5410;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px">gluten<span style="display:inline-block;width:4px;height:4px;background:#8C5410;margin-left:3px;vertical-align:5px"></span></button>.</p>
+</div>
+<div style="display:flex;gap:14px;padding:14px 0;border-top:1px solid rgba(28,26,23,.09)">
+<span style="flex:none;width:32px;font:400 11.5px/1.7 ui-monospace,Menlo,monospace;color:#6F6A61">0:19</span>
+<p style="margin:0;font:400 17px/1.65 'Source Serif 4',Georgia,serif;text-wrap:pretty">Gluten is stretchy — think of it as a net. As the yeast begins to <button onClick="{{ onWFerment }}" style="appearance:none;background:transparent;border:0;padding:0;font:inherit;color:#8C5410;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px">ferment<span style="display:inline-block;width:4px;height:4px;background:#8C5410;margin-left:3px;vertical-align:5px"></span></button> the sugars in the dough, it releases gas, and the net traps it.</p>
+</div>
+<div style="display:flex;gap:14px;padding:14px 0;border-top:1px solid rgba(28,26,23,.09);border-bottom:1px solid rgba(28,26,23,.09)">
+<span style="flex:none;width:32px;font:400 11.5px/1.7 ui-monospace,Menlo,monospace;color:#6F6A61">0:36</span>
+<p style="margin:0;font:400 17px/1.65 'Source Serif 4',Georgia,serif;text-wrap:pretty">That is why dough expands. Not because you added air, but because something inside it is making air and cannot get out.</p>
+</div>
+</div>
+</sc-if>
+</div>
+</div>
+</x-import>
+<p class="dv-cap" style="max-width:390px">Cheaper to build and each half gets the whole screen, but you cannot watch and read at once — worse for a learner following along.</p>
+</div>
+
+</div>
+
+<div class="dv-thd" style="margin:44px 0 20px"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">/talk — the six states as a board</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1d"><div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Choosing a topic</div>
+<div style="width:300px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:20px;padding:22px 18px;box-sizing:border-box;font-family:'Public Sans',Helvetica,sans-serif;color:#1C1A17">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6F6A61">Talk</span>
+<h3 style="margin:14px 0 18px;font:400 22px/1.25 'Source Serif 4',Georgia,serif">What shall we talk about?</h3>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="background:#FFFDF8;border:1px solid rgba(28,26,23,.12);border-radius:14px;padding:14px;font:400 15.5px/1.35 'Source Serif 4',Georgia,serif">A wedding you went to recently</div>
+<div style="background:#FFFDF8;border:1px solid rgba(28,26,23,.12);border-radius:14px;padding:14px;font:400 15.5px/1.35 'Source Serif 4',Georgia,serif">Something you cooked this week</div>
+<div style="background:#FFFDF8;border:1px solid rgba(28,26,23,.12);border-radius:14px;padding:14px;font:400 15.5px/1.35 'Source Serif 4',Georgia,serif">A place you keep meaning to visit</div>
+</div>
+<div style="display:flex;align-items:center;gap:7px;margin-top:16px;font:500 13px/1 'Public Sans',sans-serif;color:#2E5E45"><svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h10M8.5 3.5 12 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6"></path></svg>Show me others</div>
+</div>
+<sc-if value="{{ notes }}" hint-placeholder-val="{{ true }}"><p class="dv-cap">Three cards, one tap to start. The fourth action is text, not a card, so it never competes with the topics.</p></sc-if>
+</div>
+
+<div class="dv-opt" id="1e"><div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Conversing</div>
+<div style="width:300px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:20px;padding:22px 18px;box-sizing:border-box;font-family:'Public Sans',Helvetica,sans-serif;color:#1C1A17">
+<div style="display:flex;flex-direction:column;gap:16px">
+<div style="padding-right:14px">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Foundgrant</span>
+<p style="margin:5px 0 0;font:400 16px/1.55 'Source Serif 4',Georgia,serif;text-wrap:pretty">Hey there! So, have you been to any weddings lately?</p>
+</div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;padding-left:34px">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">You</span>
+<p style="margin:5px 0 0;background:#FFFDF8;border:1px solid rgba(28,26,23,.14);border-radius:14px 14px 4px 14px;padding:10px 12px;font:400 14.5px/1.5 'Public Sans',sans-serif;color:#3B3832">hi it was good and i like it. how are tou</p>
+</div>
+</div>
+<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(28,26,23,.1)">
+<div style="background:#FFFDF8;border:1px solid rgba(28,26,23,.16);border-radius:14px;padding:11px 12px;min-height:64px;font:400 14.5px/1.5 'Public Sans',sans-serif;color:#6F6A61">Write in English…</div>
+<div style="display:flex;gap:8px;margin-top:8px">
+<div style="display:flex;align-items:center;gap:7px;background:#FFFDF8;border:1px solid rgba(28,26,23,.16);border-radius:999px;padding:10px 13px;font:500 12.5px/1 'Public Sans',sans-serif"><svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><rect x="6.4" y="2" width="5.2" height="9" rx="2.6" fill="currentColor"></rect><path d="M4 9.4a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg>Hold to speak</div>
+<div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;background:#2E5E45;border-radius:999px;padding:11px;font:500 13px/1 'Public Sans',sans-serif;color:#F7F4EC"><svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><path d="M2.2 8.9 15.8 3.1 10.1 15.4 8.6 10.5z" fill="currentColor"></path></svg>Send</div>
+</div>
+</div>
+</div>
+<sc-if value="{{ notes }}" hint-placeholder-val="{{ true }}"><p class="dv-cap">Serif and unboxed for the app, sans in a card indented from the left for the learner, plus a label on each. Three signals, none of them colour.</p></sc-if>
+</div>
+
+<div class="dv-opt" id="1f"><div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Waiting for a reply</div>
+<div style="width:300px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:20px;padding:22px 18px;box-sizing:border-box;font-family:'Public Sans',Helvetica,sans-serif;color:#1C1A17">
+<div style="display:flex;flex-direction:column;align-items:flex-end;padding-left:34px;margin-bottom:18px">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">You</span>
+<p style="margin:5px 0 0;background:#FFFDF8;border:1px solid rgba(28,26,23,.14);border-radius:14px 14px 4px 14px;padding:10px 12px;font:400 14.5px/1.5 'Public Sans',sans-serif;color:#3B3832">my friend from work, she marry last month in a big garden</p>
+</div>
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Foundgrant is writing</span>
+<div style="display:flex;gap:5px;align-items:center;height:22px;margin-top:8px">
+<span style="width:6px;height:6px;border-radius:99px;background:#2E5E45;animation:fgdot 1.1s ease-in-out infinite"></span>
+<span style="width:6px;height:6px;border-radius:99px;background:#2E5E45;animation:fgdot 1.1s ease-in-out .18s infinite"></span>
+<span style="width:6px;height:6px;border-radius:99px;background:#2E5E45;animation:fgdot 1.1s ease-in-out .36s infinite"></span>
+</div>
+<p style="margin:26px 0 0;font:400 12.5px/1.5 'Public Sans',sans-serif;color:#6B6459;text-wrap:pretty">The composer stays live while it writes — you can keep typing.</p>
+</div>
+<sc-if value="{{ notes }}" hint-placeholder-val="{{ true }}"><p class="dv-cap">Says what is happening and nothing else. No spinner, no “sorry”, no elapsed time.</p></sc-if>
+</div>
+
+<div class="dv-opt" id="1g"><div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a>Recording</div>
+<div style="width:300px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:20px;overflow:hidden;box-sizing:border-box;font-family:'Public Sans',Helvetica,sans-serif;color:#1C1A17">
+<div style="padding:22px 18px 8px;opacity:.45">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Foundgrant</span>
+<p style="margin:5px 0 0;font:400 16px/1.55 'Source Serif 4',Georgia,serif">Tell me about it — whose wedding was it?</p>
+</div>
+<div style="background:#FFFDF8;border-top:1px solid rgba(28,26,23,.14);border-radius:18px 18px 0 0;padding:16px 18px 20px;box-shadow:0 -10px 30px rgba(28,26,23,.1)">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+<span style="display:flex;align-items:center;gap:8px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;color:#2E5E45"><svg width="13" height="13" viewBox="0 0 18 18" aria-hidden="true"><rect x="6.4" y="2" width="5.2" height="9" rx="2.6" fill="currentColor"></rect><path d="M4 9.4a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg>Listening</span>
+<span style="font:400 13px/1 ui-monospace,Menlo,monospace;color:#6F6A61">0:14</span>
+</div>
+<div style="display:flex;align-items:center;justify-content:center;gap:4px;height:44px;margin-bottom:14px">
+<span style="width:4px;height:38px;border-radius:99px;background:#2E5E45;animation:fglvl .6s ease-in-out infinite alternate"></span>
+<span style="width:4px;height:38px;border-radius:99px;background:#2E5E45;animation:fglvl .47s ease-in-out .07s infinite alternate"></span>
+<span style="width:4px;height:38px;border-radius:99px;background:#2E5E45;animation:fglvl .72s ease-in-out .13s infinite alternate"></span>
+<span style="width:4px;height:38px;border-radius:99px;background:#2E5E45;animation:fglvl .54s ease-in-out .2s infinite alternate"></span>
+<span style="width:4px;height:38px;border-radius:99px;background:#2E5E45;animation:fglvl .66s ease-in-out .26s infinite alternate"></span>
+<span style="width:4px;height:38px;border-radius:99px;background:#2E5E45;animation:fglvl .43s ease-in-out .32s infinite alternate"></span>
+<span style="width:4px;height:38px;border-radius:99px;background:#2E5E45;animation:fglvl .69s ease-in-out .38s infinite alternate"></span>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+<span style="font:400 12.5px/1.4 'Public Sans',sans-serif;color:#6F6A61">Let go when you've finished.</span>
+<span style="flex:none;display:flex;align-items:center;gap:6px;border:1px solid rgba(28,26,23,.2);border-radius:999px;padding:8px 11px;font:500 12px/1 'Public Sans',sans-serif"><svg width="10" height="10" viewBox="0 0 11 11" aria-hidden="true"><rect x="1.5" y="4.6" width="8" height="6" rx="1.4" fill="currentColor"></rect><path d="M3.4 4.6V3.2a2.1 2.1 0 0 1 4.2 0v1.4" fill="none" stroke="currentColor" stroke-width="1.3"></path></svg>Keep it on</span>
+</div>
+</div>
+</div>
+<sc-if value="{{ notes }}" hint-placeholder-val="{{ true }}"><p class="dv-cap">Level bars move with the voice; the timer counts up so they know how long they have spoken. “Keep it on” locks it for long answers.</p></sc-if>
+</div>
+
+<div class="dv-opt" id="1h"><div class="dv-olabel"><a class="dv-oid" href="#1h">1h</a>The close-out</div>
+<div style="width:300px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:20px;padding:22px 18px;box-sizing:border-box;font-family:'Public Sans',Helvetica,sans-serif;color:#1C1A17">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">The conversation</span>
+<h3 style="margin:8px 0 8px;font:400 21px/1.25 'Source Serif 4',Georgia,serif">A wedding you went to recently</h3>
+<p style="margin:0 0 6px;font:400 14.5px/1.55 'Public Sans',sans-serif;color:#3B3832;text-wrap:pretty">A colleague's garden wedding last month — the weather, dinner outside, the dancing.</p>
+<p style="margin:0 0 16px;font:400 15px/1.5 'Source Serif 4',Georgia,serif;color:#2E5E45">Your past tense held up throughout.</p>
+<div style="background:#FBF3E4;border:1px solid rgba(140,84,16,.28);border-radius:12px;padding:12px;margin-bottom:14px">
+<div style="display:flex;align-items:center;gap:6px;margin-bottom:7px"><svg width="10" height="9" viewBox="0 0 11 10" aria-hidden="true"><path d="M5.5 0 11 10H0z" fill="#8C5410"></path></svg><span style="font:600 9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8C5410">Worth a look</span></div>
+<p style="margin:0 0 5px;font:400 13.5px/1.45 'Public Sans',sans-serif;color:#6F6A61;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px">she marry last month</p>
+<p style="margin:0;font:400 15px/1.45 'Source Serif 4',Georgia,serif">she got married last month</p>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-top:1px solid rgba(28,26,23,.09)">
+<div><p style="margin:0;font:600 15px/1.3 'Source Serif 4',Georgia,serif">reception</p><p style="margin:2px 0 0;font:400 12px/1.35 'Public Sans',sans-serif;color:#6F6A61">the party after the ceremony</p></div>
+<span style="flex:none;display:flex;align-items:center;gap:5px;border:1px solid rgba(46,94,69,.4);color:#2E5E45;border-radius:999px;padding:7px 10px;font:500 11.5px/1 'Public Sans',sans-serif"><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0v10M0 5h10" stroke="currentColor" stroke-width="1.7"></path></svg>Add</span>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-top:1px solid rgba(28,26,23,.09)">
+<div><p style="margin:0;font:600 15px/1.3 'Source Serif 4',Georgia,serif">to toast</p><p style="margin:2px 0 0;font:400 12px/1.35 'Public Sans',sans-serif;color:#6F6A61">to raise a glass and say something</p></div>
+<span style="flex:none;display:flex;align-items:center;gap:5px;color:#2E5E45;font:500 11.5px/1 'Public Sans',sans-serif"><svg width="8" height="8" viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 0 9 4.5 4.5 9 0 4.5z" fill="#2E5E45"></path></svg>In your deck</span>
+</div>
+</div>
+<sc-if value="{{ notes }}" hint-placeholder-val="{{ true }}"><p class="dv-cap">Payoff first: what you talked about, then at most two things worth a look, then the words with a save on each.</p></sc-if>
+</div>
+
+<div class="dv-opt" id="1i"><div class="dv-olabel"><a class="dv-oid" href="#1i">1i</a>Done for today · and the entry point</div>
+<div style="display:flex;flex-direction:column;gap:16px">
+<div style="width:300px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:20px;padding:22px 18px;box-sizing:border-box;min-height:150px;display:flex;align-items:center;font-family:'Public Sans',Helvetica,sans-serif">
+<p style="margin:0;font:400 19px/1.45 'Source Serif 4',Georgia,serif;color:#1C1A17;text-wrap:pretty">That's the talking done for today. There'll be a new topic tomorrow.</p>
+</div>
+<div style="width:300px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:20px;padding:22px 18px;box-sizing:border-box;font-family:'Public Sans',Helvetica,sans-serif;color:#1C1A17">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Today · to close</span>
+<p style="margin:10px 0 16px;font:400 17px/1.5 'Source Serif 4',Georgia,serif;text-wrap:pretty">That's the session. The rest of the English is up to you.</p>
+<div style="display:flex;align-items:center;justify-content:center;gap:9px;background:#2E5E45;border-radius:14px;padding:16px;font:500 15px/1 'Public Sans',sans-serif;color:#F7F4EC"><svg width="15" height="15" viewBox="0 0 18 18" aria-hidden="true"><rect x="6.4" y="2" width="5.2" height="9" rx="2.6" fill="currentColor"></rect><path d="M4 9.4a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.5"></path><path d="M9 14.4v2" stroke="currentColor" stroke-width="1.5"></path></svg>Talk with the app</div>
+<p style="margin:12px 0 0;text-align:center;font:400 12.5px/1.4 'Public Sans',sans-serif;color:#6B6459">Ten minutes, in English, about anything.</p>
+</div>
+</div>
+<sc-if value="{{ notes }}" hint-placeholder-val="{{ true }}"><p class="dv-cap">The limit line carries no numeral. Below it, the old underlined link becomes the filled primary action at the foot of the session.</p></sc-if>
+</div>
+
+</div>
+
+<div class="dv-thd" style="margin:44px 0 20px"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Options where you asked for them</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1j"><div class="dv-olabel"><a class="dv-oid" href="#1j">1j</a>Composer — three ways</div>
+<div style="display:flex;gap:16px;align-items:flex-start">
+<div>
+<p style="margin:0 0 8px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:rgba(0,0,0,.45)">i · tall field, actions below</p>
+<div style="width:290px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:18px;padding:14px;box-sizing:border-box;font-family:'Public Sans',sans-serif">
+<div style="background:#FFFDF8;border:1px solid rgba(28,26,23,.16);border-radius:14px;padding:12px;min-height:92px;font:400 15px/1.5 'Public Sans',sans-serif;color:#3B3832">yes it was very warm, we sit outside for the dinner and after there was dancing until late</div>
+<div style="display:flex;gap:8px;margin-top:8px">
+<div style="display:flex;align-items:center;gap:7px;background:#FFFDF8;border:1px solid rgba(28,26,23,.16);border-radius:999px;padding:10px 13px;font:500 12.5px/1 'Public Sans',sans-serif"><svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><rect x="6.4" y="2" width="5.2" height="9" rx="2.6" fill="currentColor"></rect><path d="M4 9.4a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg>Hold to speak</div>
+<div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;background:#2E5E45;border-radius:999px;padding:11px;font:500 13px/1 'Public Sans',sans-serif;color:#F7F4EC"><svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><path d="M2.2 8.9 15.8 3.1 10.1 15.4 8.6 10.5z" fill="currentColor"></path></svg>Send</div>
+</div>
+</div>
+<p class="dv-cap" style="max-width:290px">Used in <a class="dv-oid" href="#1a">1a</a>. Four lines open, seven before it scrolls. Both actions always visible and thumb-high.</p>
+</div>
+<div>
+<p style="margin:0 0 8px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:rgba(0,0,0,.45)">ii · icons inside the field</p>
+<div style="width:290px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:18px;padding:14px;box-sizing:border-box;font-family:'Public Sans',sans-serif">
+<div style="background:#FFFDF8;border:1px solid rgba(28,26,23,.16);border-radius:16px;padding:12px 12px 8px">
+<div style="min-height:74px;font:400 15px/1.5 'Public Sans',sans-serif;color:#3B3832">yes it was very warm, we sit outside for the dinner</div>
+<div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(28,26,23,.08);padding-top:8px">
+<span style="display:flex;align-items:center;gap:6px;font:500 11.5px/1 'Public Sans',sans-serif;color:#6F6A61"><svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><rect x="6.4" y="2" width="5.2" height="9" rx="2.6" fill="currentColor"></rect><path d="M4 9.4a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg>Speak</span>
+<span style="width:34px;height:34px;border-radius:99px;background:#2E5E45;display:flex;align-items:center;justify-content:center;color:#F7F4EC"><svg width="15" height="15" viewBox="0 0 18 18" aria-hidden="true"><path d="M2.2 8.9 15.8 3.1 10.1 15.4 8.6 10.5z" fill="currentColor"></path></svg></span>
+</div>
+</div>
+</div>
+<p class="dv-cap" style="max-width:290px">Tighter, one object instead of three. The send target drops to 34px, under the 44 you want on a phone.</p>
+</div>
+<div>
+<p style="margin:0 0 8px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:rgba(0,0,0,.45)">iii · type or speak, chosen first</p>
+<div style="width:290px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:18px;padding:14px;box-sizing:border-box;font-family:'Public Sans',sans-serif">
+<div style="display:flex;gap:5px;background:rgba(28,26,23,.06);border-radius:999px;padding:4px;margin-bottom:10px">
+<span style="flex:1;text-align:center;background:#FFFDF8;border-radius:999px;padding:9px;font:500 12.5px/1 'Public Sans',sans-serif">Type</span>
+<span style="flex:1;text-align:center;padding:9px;font:500 12.5px/1 'Public Sans',sans-serif;color:#6F6A61">Speak</span>
+</div>
+<div style="background:#FFFDF8;border:1px solid rgba(28,26,23,.16);border-radius:14px;padding:12px;min-height:92px;font:400 15px/1.5 'Public Sans',sans-serif;color:#6F6A61">Write in English…</div>
+<div style="display:flex;align-items:center;justify-content:center;gap:7px;background:#2E5E45;border-radius:999px;padding:12px;margin-top:8px;font:500 13px/1 'Public Sans',sans-serif;color:#F7F4EC"><svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><path d="M2.2 8.9 15.8 3.1 10.1 15.4 8.6 10.5z" fill="currentColor"></path></svg>Send</div>
+</div>
+<p class="dv-cap" style="max-width:290px">Biggest field of the three, and speaking gets a full-width mic instead of a hold target. Costs a decision before every turn.</p>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1k"><div class="dv-olabel"><a class="dv-oid" href="#1k">1k</a>Close-out — two other shapes</div>
+<div style="display:flex;gap:16px;align-items:flex-start">
+<div>
+<p style="margin:0 0 8px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:rgba(0,0,0,.45)">i · said → try, side by side</p>
+<div style="width:300px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:20px;padding:20px 18px;box-sizing:border-box;font-family:'Public Sans',sans-serif;color:#1C1A17">
+<h4 style="margin:0 0 14px;font:400 20px/1.25 'Source Serif 4',Georgia,serif">Two things worth a look</h4>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+<div style="background:#FFFDF8;border:1px solid rgba(28,26,23,.12);border-radius:12px;padding:11px"><p style="margin:0 0 6px;font:600 9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6B6459">You said</p><p style="margin:0;font:400 14px/1.45 'Public Sans',sans-serif;color:#6F6A61">she marry last month</p></div>
+<div style="background:#FBF3E4;border:1px solid rgba(140,84,16,.28);border-radius:12px;padding:11px"><p style="margin:0 0 6px;font:600 9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8C5410">Try</p><p style="margin:0;font:400 15px/1.45 'Source Serif 4',Georgia,serif">she got married last month</p></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+<div style="background:#FFFDF8;border:1px solid rgba(28,26,23,.12);border-radius:12px;padding:11px"><p style="margin:0 0 6px;font:600 9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6B6459">You said</p><p style="margin:0;font:400 14px/1.45 'Public Sans',sans-serif;color:#6F6A61">we sit outside for the dinner</p></div>
+<div style="background:#FBF3E4;border:1px solid rgba(140,84,16,.28);border-radius:12px;padding:11px"><p style="margin:0 0 6px;font:600 9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8C5410">Try</p><p style="margin:0;font:400 15px/1.45 'Source Serif 4',Georgia,serif">we sat outside for dinner</p></div>
+</div>
+</div>
+<p class="dv-cap" style="max-width:300px">The comparison is explicit, but two columns on a 390-wide phone means four short measures and a lot of wrapping.</p>
+</div>
+<div>
+<p style="margin:0 0 8px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:rgba(0,0,0,.45)">ii · words as a grid, summary on top</p>
+<div style="width:300px;background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:20px;padding:20px 18px;box-sizing:border-box;font-family:'Public Sans',sans-serif;color:#1C1A17">
+<p style="margin:0 0 16px;font:400 18px/1.5 'Source Serif 4',Georgia,serif;text-wrap:pretty">You told the story of a garden wedding, start to finish, in the past tense.</p>
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Words you asked about</span>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px">
+<span style="display:flex;align-items:center;gap:7px;background:#FFFDF8;border:1px solid rgba(28,26,23,.14);border-radius:999px;padding:10px 13px;font:400 15px/1 'Source Serif 4',Georgia,serif">reception<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0v10M0 5h10" stroke="#2E5E45" stroke-width="1.7"></path></svg></span>
+<span style="display:flex;align-items:center;gap:7px;background:#FFFDF8;border:1px solid rgba(28,26,23,.14);border-radius:999px;padding:10px 13px;font:400 15px/1 'Source Serif 4',Georgia,serif">to toast<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0v10M0 5h10" stroke="#2E5E45" stroke-width="1.7"></path></svg></span>
+<span style="display:flex;align-items:center;gap:7px;background:#EFF3EF;border:1px solid rgba(46,94,69,.3);border-radius:999px;padding:10px 13px;font:400 15px/1 'Source Serif 4',Georgia,serif">the aisle<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 0 9 4.5 4.5 9 0 4.5z" fill="#2E5E45"></path></svg></span>
+</div>
+<div style="background:#FBF3E4;border:1px solid rgba(140,84,16,.28);border-radius:12px;padding:12px">
+<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><svg width="10" height="9" viewBox="0 0 11 10" aria-hidden="true"><path d="M5.5 0 11 10H0z" fill="#8C5410"></path></svg><span style="font:600 9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8C5410">Worth a look · past tense</span></div>
+<p style="margin:0;font:400 15px/1.45 'Source Serif 4',Georgia,serif">she got married last month</p>
+</div>
+</div>
+<p class="dv-cap" style="max-width:300px">Fastest to save several words, and the corrections sit last so nothing leads with a fix. Meanings have to move into the tap.</p>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1l"><div class="dv-olabel"><a class="dv-oid" href="#1l">1l</a>Marked words — three treatments</div>
+<div style="display:flex;flex-direction:column;gap:14px;width:330px">
+<div style="background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:16px;padding:16px">
+<p style="margin:0 0 10px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:rgba(0,0,0,.45)">i · dotted underline + square</p>
+<p style="margin:0;font:400 17px/1.7 'Source Serif 4',Georgia,serif;color:#1C1A17">As the yeast begins to <span style="color:#8C5410;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px">ferment<span style="display:inline-block;width:4px;height:4px;background:#8C5410;margin-left:3px;vertical-align:5px"></span></span> the sugars, the net <span style="color:#8C5410;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px">traps<span style="display:inline-block;width:4px;height:4px;background:#8C5410;margin-left:3px;vertical-align:5px"></span></span> the gas.</p>
+<p class="dv-cap" style="max-width:none;margin-top:8px">Used in <a class="dv-oid" href="#1b">1b</a>. Dotted reads as tappable, the square survives greyscale, and the line of type stays quiet.</p>
+</div>
+<div style="background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:16px;padding:16px">
+<p style="margin:0 0 10px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:rgba(0,0,0,.45)">ii · tinted chip</p>
+<p style="margin:0;font:400 17px/1.9 'Source Serif 4',Georgia,serif;color:#1C1A17">As the yeast begins to <span style="background:#FBF3E4;border:1px solid rgba(140,84,16,.3);border-radius:6px;padding:1px 5px">ferment</span> the sugars, the net <span style="background:#FBF3E4;border:1px solid rgba(140,84,16,.3);border-radius:6px;padding:1px 5px">traps</span> the gas.</p>
+<p class="dv-cap" style="max-width:none;margin-top:8px">Unmistakably a button. Several per paragraph start to look like a form and break the reading rhythm.</p>
+</div>
+<div style="background:#F7F4EC;border:1px solid rgba(28,26,23,.14);border-radius:16px;padding:16px">
+<p style="margin:0 0 10px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:rgba(0,0,0,.45)">iii · marginal dot, word untouched</p>
+<div style="display:flex;gap:10px">
+<div style="flex:none;display:flex;flex-direction:column;gap:16px;padding-top:9px"><span style="width:6px;height:6px;background:#8C5410;display:block"></span><span style="width:6px;height:6px;background:#8C5410;display:block"></span></div>
+<p style="margin:0;font:400 17px/1.7 'Source Serif 4',Georgia,serif;color:#1C1A17">As the yeast begins to ferment the sugars, the net traps the gas — two words here are new to you.</p>
+</div>
+<p class="dv-cap" style="max-width:none;margin-top:8px">Cleanest text of the three, but it does not say <em>which</em> word, so the tap target has to be the whole line.</p>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1m"><div class="dv-olabel"><a class="dv-oid" href="#1m">1m</a>Dark mode</div>
+<div style="display:flex;gap:16px;align-items:flex-start">
+<div style="width:300px;background:#14130F;border:1px solid rgba(242,239,231,.14);border-radius:20px;padding:22px 18px;box-sizing:border-box;font-family:'Public Sans',sans-serif;color:#F2EFE7">
+<div style="display:flex;flex-direction:column;gap:16px">
+<div style="padding-right:14px">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#8E887C">Foundgrant</span>
+<p style="margin:5px 0 0;font:400 16px/1.55 'Source Serif 4',Georgia,serif;text-wrap:pretty">Tell me about it — whose wedding was it?</p>
+</div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;padding-left:34px">
+<span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#8E887C">You</span>
+<p style="margin:5px 0 0;background:#232219;border:1px solid rgba(242,239,231,.16);border-radius:14px 14px 4px 14px;padding:10px 12px;font:400 14.5px/1.5 'Public Sans',sans-serif;color:#DDD8CC">my friend from work, she marry last month in a big garden</p>
+</div>
+</div>
+<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(242,239,231,.12)">
+<div style="background:#1D1C18;border:1px solid rgba(242,239,231,.16);border-radius:14px;padding:11px 12px;min-height:60px;font:400 14.5px/1.5 'Public Sans',sans-serif;color:#A29C90">Write in English…</div>
+<div style="display:flex;gap:8px;margin-top:8px">
+<div style="display:flex;align-items:center;gap:7px;background:#1D1C18;border:1px solid rgba(242,239,231,.16);border-radius:999px;padding:10px 13px;font:500 12.5px/1 'Public Sans',sans-serif;color:#F2EFE7"><svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><rect x="6.4" y="2" width="5.2" height="9" rx="2.6" fill="currentColor"></rect><path d="M4 9.4a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg>Hold to speak</div>
+<div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;background:#8CBBA0;border-radius:999px;padding:11px;font:500 13px/1 'Public Sans',sans-serif;color:#12211A"><svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><path d="M2.2 8.9 15.8 3.1 10.1 15.4 8.6 10.5z" fill="currentColor"></path></svg>Send</div>
+</div>
+</div>
+</div>
+<div style="width:300px;background:#14130F;border:1px solid rgba(242,239,231,.14);border-radius:20px;padding:22px 18px;box-sizing:border-box;font-family:'Public Sans',sans-serif;color:#F2EFE7">
+<div style="border-radius:14px;overflow:hidden;border:1px solid rgba(242,239,231,.12);aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;background-image:repeating-linear-gradient(135deg,#26241f 0 9px,#1b1a16 9px 18px)">
+<span style="width:48px;height:48px;border-radius:99px;background:rgba(242,239,231,.9);display:flex;align-items:center;justify-content:center"><svg width="17" height="19" viewBox="0 0 20 22" aria-hidden="true"><path d="M0 0l20 11L0 22z" fill="#14130F"></path></svg></span>
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin:12px 0 4px"><svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 0 9 4.5 4.5 9 0 4.5z" fill="#A29C90"></path></svg><span style="font:600 10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;text-transform:uppercase;color:#A29C90">A stretch, but fine</span></div>
+<div style="display:flex;gap:12px;padding:14px 0;border-top:1px solid rgba(242,239,231,.1);margin-top:8px">
+<span style="flex:none;width:30px;font:400 11px/1.7 ui-monospace,Menlo,monospace;color:#A29C90">0:19</span>
+<p style="margin:0;font:400 15.5px/1.65 'Source Serif 4',Georgia,serif;color:#F2EFE7;text-wrap:pretty">Gluten is stretchy — think of it as a net. As the yeast begins to <span style="color:#E0A867;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px">ferment<span style="display:inline-block;width:4px;height:4px;background:#E0A867;margin-left:3px;vertical-align:5px"></span></span> the sugars, the net <span style="color:#E0A867;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px">traps<span style="display:inline-block;width:4px;height:4px;background:#E0A867;margin-left:3px;vertical-align:5px"></span></span> it.</p>
+</div>
+</div>
+</div>
+<sc-if value="{{ notes }}" hint-placeholder-val="{{ true }}"><p class="dv-cap" style="max-width:616px">Near-black stays warm rather than grey. The green lightens to carry text on dark; amber lightens the same way. Both keep 4.5:1 or better.</p></sc-if>
+</div>
+
+<div class="dv-opt" id="1n"><div class="dv-olabel"><a class="dv-oid" href="#1n">1n</a>Type, spacing, icons</div>
+<div style="width:340px;background:#FFFDF8;border:1px solid rgba(28,26,23,.14);border-radius:20px;padding:22px 20px;box-sizing:border-box;font-family:'Public Sans',sans-serif;color:#1C1A17">
+<p style="margin:0 0 16px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Type scale</p>
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(28,26,23,.08);padding-bottom:10px"><span style="font:400 26px/1.2 'Source Serif 4',Georgia,serif">Screen title</span><span style="font:400 10.5px/1 ui-monospace,Menlo,monospace;color:#6B6459">serif 26/1.25</span></div>
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(28,26,23,.08);padding-bottom:10px"><span style="font:400 18px/1.5 'Source Serif 4',Georgia,serif">The app's turn</span><span style="font:400 10.5px/1 ui-monospace,Menlo,monospace;color:#6B6459">serif 18/1.55</span></div>
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(28,26,23,.08);padding-bottom:10px"><span style="font:400 17px/1.6 'Source Serif 4',Georgia,serif">Transcript body</span><span style="font:400 10.5px/1 ui-monospace,Menlo,monospace;color:#6B6459">serif 17/1.65</span></div>
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(28,26,23,.08);padding-bottom:10px"><span style="font:400 16.5px/1.5 'Public Sans',sans-serif">The learner's turn</span><span style="font:400 10.5px/1 ui-monospace,Menlo,monospace;color:#6B6459">sans 16.5/1.5</span></div>
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(28,26,23,.08);padding-bottom:10px"><span style="font:400 13.5px/1.4 'Public Sans',sans-serif;color:#6F6A61">Gloss, helper</span><span style="font:400 10.5px/1 ui-monospace,Menlo,monospace;color:#6B6459">sans 13.5</span></div>
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px"><span style="font:600 10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6F6A61">Speaker label</span><span style="font:400 10.5px/1 ui-monospace,Menlo,monospace;color:#6B6459">mono 10.5 caps</span></div>
+</div>
+<p style="margin:22px 0 10px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Spacing · 4pt steps</p>
+<div style="display:flex;align-items:flex-end;gap:6px;margin-bottom:6px">
+<span style="width:4px;height:14px;background:#2E5E45"></span><span style="width:8px;height:14px;background:#2E5E45"></span><span style="width:12px;height:14px;background:#2E5E45"></span><span style="width:16px;height:14px;background:#2E5E45"></span><span style="width:20px;height:14px;background:#2E5E45"></span><span style="width:28px;height:14px;background:#2E5E45"></span><span style="width:40px;height:14px;background:#2E5E45"></span>
+</div>
+<p style="margin:0 0 20px;font:400 11.5px/1.4 'Public Sans',sans-serif;color:#6F6A61">Gutter 20 · card padding 18 · turn gap 20 · radius 16 cards, 14 buttons, 999 pills · discrete controls never under 44 tall. Two deliberate exceptions: words and phrases tapped inside a line of type (marked words in the transcript, the restart link), which take the line's height; and the 34px send circle in <a class="dv-oid" href="#1j">1j</a>-ii, which is why that option is not the one used.</p>
+<p style="margin:0 0 12px;font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.11em;text-transform:uppercase;color:#6B6459">Icons</p>
+<div style="display:flex;flex-wrap:wrap;gap:18px;color:#1C1A17">
+<span style="display:flex;flex-direction:column;align-items:center;gap:6px;font:400 9.5px/1 ui-monospace,Menlo,monospace;color:#6B6459"><svg width="20" height="20" viewBox="0 0 18 18" aria-hidden="true"><path d="M2.2 8.9 15.8 3.1 10.1 15.4 8.6 10.5z" fill="currentColor"></path></svg>send</span>
+<span style="display:flex;flex-direction:column;align-items:center;gap:6px;font:400 9.5px/1 ui-monospace,Menlo,monospace;color:#6B6459"><svg width="20" height="20" viewBox="0 0 18 18" aria-hidden="true"><rect x="6.4" y="2" width="5.2" height="9" rx="2.6" fill="currentColor"></rect><path d="M4 9.4a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.5"></path><path d="M9 14.4v2" stroke="currentColor" stroke-width="1.5"></path></svg>speak</span>
+<span style="display:flex;flex-direction:column;align-items:center;gap:6px;font:400 9.5px/1 ui-monospace,Menlo,monospace;color:#6B6459"><svg width="20" height="20" viewBox="0 0 11 11" aria-hidden="true"><rect x="1.5" y="4.6" width="8" height="6" rx="1.4" fill="currentColor"></rect><path d="M3.4 4.6V3.2a2.1 2.1 0 0 1 4.2 0v1.4" fill="none" stroke="currentColor" stroke-width="1.3"></path></svg>lock</span>
+<span style="display:flex;flex-direction:column;align-items:center;gap:6px;font:400 9.5px/1 ui-monospace,Menlo,monospace;color:#6B6459"><svg width="20" height="20" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0v10M0 5h10" stroke="currentColor" stroke-width="1.6"></path></svg>add</span>
+<span style="display:flex;flex-direction:column;align-items:center;gap:6px;font:400 9.5px/1 ui-monospace,Menlo,monospace;color:#6B6459"><svg width="20" height="20" viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 0 9 4.5 4.5 9 0 4.5z" fill="currentColor"></path></svg>saved</span>
+<span style="display:flex;flex-direction:column;align-items:center;gap:6px;font:400 9.5px/1 ui-monospace,Menlo,monospace;color:#6B6459"><svg width="20" height="20" viewBox="0 0 11 10" aria-hidden="true"><path d="M5.5 0 11 10H0z" fill="currentColor"></path></svg>look</span>
+<span style="display:flex;flex-direction:column;align-items:center;gap:6px;font:400 9.5px/1 ui-monospace,Menlo,monospace;color:#6B6459"><svg width="20" height="20" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.2" fill="none" stroke="currentColor" stroke-width="1.3"></circle><path d="M6 6V2.6" stroke="currentColor" stroke-width="1.3"></path></svg>speed</span>
+<span style="display:flex;flex-direction:column;align-items:center;gap:6px;font:400 9.5px/1 ui-monospace,Menlo,monospace;color:#6B6459"><svg width="20" height="20" viewBox="0 0 20 22" aria-hidden="true"><path d="M1 1l17 10L1 21z" fill="currentColor"></path></svg>play</span>
+</div>
+</div>
+<sc-if value="{{ notes }}" hint-placeholder-val="{{ true }}"><p class="dv-cap" style="max-width:340px">Components a developer builds: TopicCard, Turn (app / learner), WritingIndicator, Composer, RecordSheet, CorrectionCard, WordRow, PlayerHeader (wide / slim), TranscriptParagraph, MarkedWord, WordSheet, DifficultyLabel, PrimaryButton.</p></sc-if>
+</div>
+
+</div>
+<p class="dv-next">Try next: “take <a class="dv-oid" href="#1j">1j</a>-iii into the prototype” · “close-out as <a class="dv-oid" href="#1k">1k</a>-ii” · “desktop column for <a class="dv-oid" href="#1b">1b</a>” · “new directions for the topic chooser”</p>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;replyDelayMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:2200,&quot;min&quot;:600,&quot;max&quot;:4000,&quot;step&quot;:200,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Behaviour&quot;},&quot;voiceLock&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behaviour&quot;},&quot;showNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Presentation&quot;}}">
+class Component extends DCLogic {
+  state = {
+    step: 'topics', setIdx: 0,
+    msgs: [], waiting: false,
+    draft: "yes it was very warm, we sit outside for the dinner and after there was dancing until late",
+    rec: false, recLocked: false, recSec: 0,
+    w1: false, w2: true, w3: false,
+    vidCollapsed: false, speed: 1, transcript: true, tab: 'video',
+    word: null, savedWords: {}
+  };
+
+  seed = [
+    { who: 'app', text: "Hey there! So, have you been to any weddings lately?" },
+    { who: 'you', text: "hi it was good and i like it. how are tou" },
+    { who: 'app', text: "I'm good, thanks for asking! So you went to a wedding recently and you liked it, that's nice! Tell me about it — whose wedding was it?" },
+    { who: 'you', text: "my friend from work, she marry last month in a big garden" }
+  ];
+
+  sets = [
+    ["A wedding you went to recently", "Something you cooked this week", "A place you keep meaning to visit"],
+    ["A film you didn't finish", "How you get to work", "Someone who taught you something"],
+    ["A room in your home", "The last thing you fixed", "A habit you'd like to drop"]
+  ];
+
+  replies = [
+    "A garden wedding sounds lovely. Was it warm enough to be outside all day?",
+    "That sounds like a good evening. What was the food like?",
+    "Nice. And did you know many of the other guests?"
+  ];
+  replyIdx = 0;
+
+  words = {
+    gluten: { name: 'gluten', pos: 'noun', gloss: "A stretchy substance that forms when flour and water are mixed. It gives bread its structure.", line: "…the proteins in the flour link up and form gluten." },
+    ferment: { name: 'ferment', pos: 'verb', gloss: "To break sugar down and produce gas or alcohol.", line: "…as the yeast begins to ferment the sugars in the dough…" },
+    trap: { name: 'trap', pos: 'verb', gloss: "To hold something so that it cannot escape.", line: "…it releases gas, and the net traps it." },
+    crust: { name: 'crust', pos: 'noun', gloss: "The hard outer layer of a loaf of bread.", line: "…the gas keeps expanding for a few minutes before the crust sets." }
+  };
+
+  componentWillUnmount() { clearInterval(this.tick); clearTimeout(this.timer); }
+
+  start = (label) => this.setState({ step: 'thread', msgs: this.seed.slice(), topic: label });
+  others = () => this.setState(s => ({ setIdx: (s.setIdx + 1) % this.sets.length }));
+
+  push = (who, text) => this.setState(s => ({ msgs: s.msgs.concat([{ who: who, text: text }]) }));
+
+  reply = () => {
+    clearTimeout(this.timer);
+    this.setState({ waiting: true });
+    const delay = this.props.replyDelayMs ?? 2200;
+    this.timer = setTimeout(() => {
+      const r = this.replies[this.replyIdx % this.replies.length];
+      this.replyIdx += 1;
+      this.setState(s => ({ waiting: false, msgs: s.msgs.concat([{ who: 'app', text: r }]) }));
+    }, delay);
+  };
+
+  send = () => {
+    const t = (this.state.draft || '').trim();
+    if (!t) return;
+    this.push('you', t);
+    this.setState({ draft: '' });
+    this.reply();
+  };
+
+  micDown = () => {
+    if (this.state.rec) return;
+    this.setState({ rec: true, recLocked: false, recSec: 0 });
+    clearInterval(this.tick);
+    this.tick = setInterval(() => this.setState(s => ({ recSec: s.recSec + 1 })), 1000);
+  };
+  micUp = () => { if (!this.state.recLocked) this.finishRec(); };
+  finishRec = () => {
+    clearInterval(this.tick);
+    this.setState({ rec: false, recLocked: false });
+    this.push('you', "it was in a garden near the river, and the music was very loud so we go outside to talk");
+    this.reply();
+  };
+
+  fmt = (n) => Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
+
+  vidScroll = (e) => {
+    const c = e.target.scrollTop > 88;
+    if (c !== this.state.vidCollapsed) this.setState({ vidCollapsed: c });
+  };
+
+  renderVals() {
+    const s = this.state;
+    const lock = this.props.voiceLock ?? true;
+    const w = s.word ? this.words[s.word] : null;
+    return {
+      devW: 390, devH: 812,
+      notes: this.props.showNotes ?? true,
+
+      isTopics: s.step === 'topics',
+      isThread: s.step === 'thread',
+      isCloseout: s.step === 'closeout',
+      isLimit: s.step === 'limit',
+
+      topics: this.sets[s.setIdx].map(l => ({ label: l, onPick: () => this.start(l) })),
+      onShowOthers: this.others,
+
+      msgs: s.msgs.map(m => ({ text: m.text, isApp: m.who === 'app', isYou: m.who === 'you' })),
+      waiting: s.waiting,
+
+      draft: s.draft,
+      onDraft: (e) => this.setState({ draft: e.target.value }),
+      onGrow: (e) => { const el = e.target; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 172) + 'px'; },
+      onSend: this.send,
+
+      onMicDown: this.micDown,
+      onMicUp: this.micUp,
+      onLock: () => this.setState({ recLocked: true }),
+      onStopLocked: this.finishRec,
+      recording: s.rec,
+      recLocked: s.recLocked,
+      recUnlocked: s.rec && !s.recLocked,
+      lockOffered: lock,
+      recTime: this.fmt(s.recSec),
+
+      onEnd: () => { clearTimeout(this.timer); this.setState({ step: 'closeout', waiting: false }); },
+      onDone: () => this.setState({ step: 'limit' }),
+      onRestart: () => this.setState({ step: 'topics', msgs: [], waiting: false, w1: false, w2: true, w3: false, draft: "yes it was very warm, we sit outside for the dinner and after there was dancing until late" }),
+
+      w1: s.w1, nw1: !s.w1, onAdd1: () => this.setState({ w1: true }),
+      w2: s.w2, nw2: !s.w2, onAdd2: () => this.setState({ w2: true }),
+      w3: s.w3, nw3: !s.w3, onAdd3: () => this.setState({ w3: true }),
+
+      onVidScroll: this.vidScroll,
+      vidWide: !s.vidCollapsed,
+      vidSlim: s.vidCollapsed,
+      speedLabel: s.speed === 1 ? '1×' : '0.75×',
+      onSpeed: () => this.setState(st => ({ speed: st.speed === 1 ? 0.75 : 1 })),
+      hasTranscript: s.transcript,
+      noTranscript: !s.transcript,
+      onToggleTranscript: () => this.setState(st => ({ transcript: !st.transcript })),
+
+      tabIsVideo: s.tab === 'video',
+      tabIsText: s.tab === 'text',
+      onTabVideo: () => this.setState({ tab: 'video' }),
+      onTabText: () => this.setState({ tab: 'text' }),
+      tabVideoBg: s.tab === 'video' ? '#FFFDF8' : 'transparent',
+      tabTextBg: s.tab === 'text' ? '#FFFDF8' : 'transparent',
+
+      onWGluten: () => this.setState({ word: 'gluten' }),
+      onWFerment: () => this.setState({ word: 'ferment' }),
+      onWTrap: () => this.setState({ word: 'trap' }),
+      onWCrust: () => this.setState({ word: 'crust' }),
+      sheetOpen: !!w,
+      wordName: w ? w.name : '',
+      wordPos: w ? w.pos : '',
+      wordGloss: w ? w.gloss : '',
+      wordLine: w ? w.line : '',
+      wordSaved: !!(w && s.savedWords[w.name]),
+      wordUnsaved: !!(w && !s.savedWords[w.name]),
+      onAddWord: () => this.setState(st => { const sw = Object.assign({}, st.savedWords); sw[this.words[st.word].name] = true; return { savedWords: sw }; }),
+      onCloseSheet: () => this.setState({ word: null })
+    };
+  }
+}
+
+</script>
+</body>
+</html>
