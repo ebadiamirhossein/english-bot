@@ -340,6 +340,49 @@ describe("the remaining blocks", () => {
     expect(container.textContent).not.toContain("XP");
   });
 
+  it("says nothing about cards on a day none were reviewed (#400)", () => {
+    // **#348's EXACT SHAPE, FOUND LIVE ON THE CLOSING BLOCK.** `cards_reviewed`
+    // defaults to 0 and every value but 1 went through the same template, so a
+    // learner who reviewed nothing read **"0 cards reviewed today."** — a
+    // numeric zero on a report, which is a score, on a day nobody promised
+    // anything about.
+    //
+    // **THE BLOCK CANNOT TELL WHY THE COUNT IS ZERO.** `cards_reviewed` counts
+    // rows in `card_reviews` for this session, so nothing was due and block 1
+    // was skipped are the same number. **Any sentence it writes about cards
+    // risks being false in one of those two worlds**, which is why the fix is
+    // silence rather than a friendlier count.
+    //
+    // **RAISES ANNOUNCED, DROPS SILENT** (CLAUDE.md §4): twenty cards is
+    // acknowledged, zero is not remarked on.
+    //
+    // RED against the shipped `${reviewed} cards reviewed today.`
+    const { container } = render(
+      <CloseBlock block={block({ n: 5, kind: "close", payload: { cards_reviewed: 0 } })} />,
+    );
+    expect(screen.queryByTestId("close-summary")).toBeNull();
+    expect(container.textContent ?? "").not.toMatch(/[0-9]/);
+    // #345: a sibling proving the block rendered at all, so "absent" cannot be
+    // satisfied by "nothing rendered".
+    expect(screen.getByTestId("conversation-link")).toBeInTheDocument();
+  });
+
+  it("carries the design's own closing-card copy", () => {
+    // **EXPECTED VALUES ARE THE DESIGN'S LITERAL STRINGS, NOT `BLOCKS.close`**
+    // — CLAUDE.md §3 rule 5: a test must never derive its expected value from
+    // the thing under test. Reading the constant back would pass whatever it
+    // said.
+    const { container } = render(
+      <CloseBlock block={block({ n: 5, kind: "close", payload: { cards_reviewed: 3 } })} />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("Today \u00b7 to close");
+    expect(text).toContain(
+      "That\u2019s the session. The rest of the English is up to you.",
+    );
+    expect(text).toContain("Ten minutes, in English, about anything.");
+  });
+
   it("puts the conversation entry point on the closing block, as a control", () => {
     // **W13b/5, design `1i`.** It was an underlined phrase inside block 4,
     // styled to lose against that block's own action; the design makes it a

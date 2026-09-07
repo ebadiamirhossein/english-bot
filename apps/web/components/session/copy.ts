@@ -117,8 +117,17 @@ export const BLOCKS = {
     action: "Write it",
   },
   close: {
-    eyebrow: "Close",
-    title: "That’s today.",
+    /**
+     * **W13b/5a takes the design's `1i` card copy.** Old values quoted rather
+     * than deleted (#82's shape): `eyebrow: "Close"`, `title: "That’s today."`.
+     *
+     * The design's line does more than name the block: *the rest of the English
+     * is up to you* is the product declining to claim the day is finished
+     * because the app is. CLAUDE.md §4 — ten minutes is the floor, never the
+     * ceiling, and nothing here counts what was not done.
+     */
+    eyebrow: "Today · to close",
+    title: "That’s the session. The rest of the English is up to you.",
   },
 } as const;
 
@@ -384,7 +393,16 @@ export const CONVERSATION = {
    * card is headed *Today · to close*). **And #160's actual rule is untouched:
    * no count, no badge, no dot, no days-since.** A learner who never presses it
    * is told nothing about not having pressed it. */
-  entryTitle: "That’s the session. The rest of the English is up to you.",
+  /**
+   * **`entryTitle` IS GONE AND IT WAS NEVER RENDERED.** W13b/5 added
+   * *"That’s the session. The rest of the English is up to you."* here and then
+   * rendered only the action and the caption — **dead copy from the day it was
+   * written**, found by comparing the shipped card against the design's `1i`.
+   * The sentence is real and it is the design's; it now lives in
+   * `BLOCKS.close.title`, which is the slot that actually paints it. **One
+   * string, one home** — keeping both would have been the same sentence in two
+   * places, and the one nobody rendered would have been the one edited.
+   */
   entryAction: "Talk with the app",
   /** Sets the expectation before the tap. **Not a target and not a minimum** —
    * nothing measures it and nothing reports on it afterwards. */

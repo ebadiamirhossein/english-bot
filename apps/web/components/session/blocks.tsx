@@ -396,11 +396,30 @@ export function CloseBlock({ block }: { block: SessionBlock }) {
       eyebrow={BLOCKS.close.eyebrow}
       title={BLOCKS.close.title}
     >
-      <p className="text-sm leading-relaxed" data-testid="close-summary">
-        {reviewed === 1
-          ? "One card reviewed today."
-          : `${reviewed} cards reviewed today.`}
-      </p>
+      {/* **#400 — THE ZERO CASE SAID *"0 cards reviewed today."* AND THAT
+          SHIPPED.** #348's exact shape: a numeric zero on a report is a score,
+          and a score of zero on a day nobody promised anything about is guilt
+          with no banned word in it. The banned-phrase scan passed over it
+          because the numeral is interpolated and the literal reads
+          *" cards reviewed today."*.
+
+          **THE FIX IS SILENCE, NOT A KINDER COUNT, AND THE REASON IS THAT THE
+          BLOCK DOES NOT KNOW WHY THE NUMBER IS ZERO.** `cards_reviewed` counts
+          rows in `card_reviews` for this session, so *nothing was due* and
+          *block 1 was skipped* arrive as the same integer. **Any sentence about
+          cards would be false in one of those two worlds** — and the one where
+          it is false is the one where the learner already feels it.
+
+          **CLAUDE.md §4: raises announced, drops silent.** Twenty cards is
+          worth saying; zero is not a thing to remark on. **Absent, not an empty
+          element** — the surrounding card still closes the session. */}
+      {reviewed > 0 ? (
+        <p className="text-sm leading-relaxed" data-testid="close-summary">
+          {reviewed === 1
+            ? "One card reviewed today."
+            : `${reviewed} cards reviewed today.`}
+        </p>
+      ) : null}
 
       {/* **W13b/5 — THE CONVERSATION ENTRY POINT, design `1i`.** A filled button
           at the foot of the session, replacing the underlined phrase inside

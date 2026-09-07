@@ -852,6 +852,15 @@ def test_no_guilt_copy_anywhere_in_the_frontend() -> None:
 #: surface` is what keeps the list honest as surfaces are added.
 _CONVERSATION_COPY: tuple[tuple[str, str], ...] = (
     ("apps/web/components/session/copy.ts", "CONVERSATION"),
+    # **W13b/5a ADDS `BLOCKS`, AND #400 IS WHY.** The closing block rendered
+    # *"0 cards reviewed today."* to a learner who reviewed nothing — #348's
+    # shape, live — and **neither scan could see it**: the numeral is
+    # interpolated in `blocks.tsx`, so the string literal in `copy.ts` is
+    # innocent and the JSX-text scan is scoped to the conversation surfaces.
+    # Bringing `BLOCKS` under the digit rule does not catch an interpolated
+    # count either; **what it does catch is the next literal one**, which is how
+    # #348 itself was written.
+    ("apps/web/components/session/copy.ts", "BLOCKS"),
 )
 
 #: The files that RENDER the conversation, including the close-out. A copy block
@@ -884,10 +893,30 @@ def test_the_conversation_cap_copy_carries_no_numeral() -> None:
     for rel, const in _CONVERSATION_COPY:
         src = (REPO_ROOT / rel).read_text(encoding="utf-8")
         assert f"export const {const}" in src, f"{rel} declares no {const} block"
-        block = src[src.index(f"export const {const}") :]
+        # **COMMENTS STRIPPED FIRST, AND `BLOCKS` IS WHAT PROVED IT NECESSARY.**
+        # This scan read raw source until W13b/5a. Widening it to `BLOCKS`
+        # reported three offenders and **all three were prose**: two doc-comment
+        # examples, and — the one that settles it — the literal
+        # *"0 of 5 active days."*, which is #348's OWN EXAMPLE quoted in a
+        # comment explaining the rule. **The scan reported the documentation of
+        # the defect as the defect.** That is exactly the trap
+        # `_shipped_sources` was written for: prose *about* a rule is not a
+        # breach of it, and a check satisfied only by deleting the explanation
+        # is a check that loses the explanation.
+        block = _without_comments(src[src.index(f"export const {const}") :])
         strings = re.findall(r'"([^"]*)"', block)
         assert strings, f"the {const} copy block in {rel} was not found"
-        offenders += [f"{rel}: {s}" for s in strings if re.search(r"[0-9]", s)]
+        # **`\u2019` CONTAINS DIGITS AND IS AN APOSTROPHE.** `BLOCKS` writes
+        # some of its curly quotes as escapes, so scanning the raw source
+        # reported `"No video today. There\u2019ll be one on Monday…"` as
+        # carrying a numeral. **A scan that fires on an apostrophe is a scan
+        # somebody switches off** (#257's shape), so escapes are decoded to the
+        # characters they denote before the digit rule is applied.
+        decoded = [
+            re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), t)
+            for t in strings
+        ]
+        offenders += [f"{rel}: {t}" for t in decoded if re.search(r"[0-9]", t)]
     assert offenders == [], (
         "no conversation string may carry a numeral (#348, PRD §8.6.4): "
         + "; ".join(offenders)
