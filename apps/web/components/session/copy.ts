@@ -371,10 +371,6 @@ export const CONVERSATION = {
    * accumulates while you are away. These accumulate nothing. */
   pick: "What do you feel like talking about?",
   reshuffle: "Show me others",
-  /** §C2. The words the learner did not know, offered to the deck. **Never a
-   * count and never framed as a gap** — "words you didn't know" is a verdict;
-   * "worth keeping" is an offer. */
-  wordsHeading: "Worth keeping",
   save: "Keep",
   saved: "Kept",
   /** **W13b/5 MOVED THE ENTRY POINT OUT OF BLOCK 4 AND ONTO THE CLOSING
@@ -431,9 +427,22 @@ export const CONVERSATION = {
    * point:** *worth a look* describes the sentence; *mistakes* would describe
    * the person. Never red, never a cross (CLAUDE.md §4). */
   correctionsHeading: "Worth a look",
-  /** Heading over the words. **An offer, not a gap** -- "words you didn't
-   * know" is a verdict. */
-  closeWordsHeading: "Words you asked about",
+  /** **THE LABEL SAID *"Words you asked about"* AND HE ASKED ABOUT NOTHING.**
+   * Quoted rather than deleted (#82's shape). It came from the design, where
+   * it describes an interaction this app does not have: the words are
+   * DETECTED from his own typed turns against his ledger, never requested.
+   * **A heading that tells the learner what he did is wrong about him**, and
+   * being wrong about the learner is the thing this copy exists to avoid.
+   *
+   * **AND ITS REPLACEMENT WAS ALREADY IN THIS FILE, UNUSED.** `wordsHeading:
+   * "Worth keeping"` had been dead copy since W13b/4 moved the close-out into
+   * its own component — the THIRD string in three slices declared here and
+   * rendered by nothing (`entryTitle` was the second). So this is a deletion,
+   * not an addition: the accurate string survives and the inaccurate one goes.
+   *
+   * *"Worth keeping"* claims nothing about him. It does not say he asked, does
+   * not say he did not know, and reads as an offer rather than a gap. */
+  wordsHeading: "Worth keeping",
   /** The close-out's terminal action. Leaves for home; **never "finish" or
    * "complete"**, which imply a task with a state. */
   backToToday: "Back to today",

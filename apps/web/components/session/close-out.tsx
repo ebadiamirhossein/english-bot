@@ -96,6 +96,7 @@ function Look() {
 
 export function CloseOut({
   topic,
+  summary,
   didWell,
   corrections,
   words,
@@ -105,6 +106,7 @@ export function CloseOut({
   onKeep,
 }: {
   topic: string | null;
+  summary: string;
   didWell: string;
   corrections: Correction[];
   words: string[];
@@ -126,7 +128,7 @@ export function CloseOut({
   // **The empty close-out says so, rather than rendering three empty
   // headings.** A surface with a heading and nothing under it reads as a thing
   // that failed to load (`BLOCK_UNAVAILABLE`'s whole distinction).
-  const bare = !well && !hasCorrections && !hasWords;
+  const bare = !well && !summary.trim() && !hasCorrections && !hasWords;
 
   return (
     <div
@@ -149,6 +151,24 @@ export function CloseOut({
           {capped ? CONVERSATION.capReached : CONVERSATION.closing}
         </p>
       </div>
+
+      {/* **THE RECAP. ON THE WIRE SINCE 2026-09-08, AND IT IS THE DESIGN'S
+          OPENING LINE** — `1i` leads the close-out with what was talked about,
+          before anything that could read as a fix.
+
+          **`CloseOut` REFUSED TO CARRY THIS FIELD UNTIL THE FIRST ONE WAS
+          READ.** The refusal called it *"the app's assessment of the learner
+          rendered back at them"*; the first real summary was a recap of a
+          wedding in Trakai, and the operator overturned it on that evidence.
+          **The rule it was protecting has not gone away — it moved to the
+          prompt**, where `conversation_close_v3.txt` forbids a score and
+          forbids quoting the learner, asserted by a test. **Absent, never
+          blank**, like every other field on this surface. */}
+      {summary.trim() ? (
+        <p className="text-base leading-relaxed" data-testid="close-summary-text">
+          {summary.trim()}
+        </p>
+      ) : null}
 
       {/* The raise, announced. Serif and brand-coloured: the app's own voice,
           and the only sentence on this screen that is about the learner going
@@ -211,7 +231,7 @@ export function CloseOut({
       {hasWords ? (
         <section data-testid="conversation-words">
           <p className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
-            {CONVERSATION.closeWordsHeading}
+            {CONVERSATION.wordsHeading}
           </p>
           <div className="mt-1 flex flex-col">
             {words.map((w) => (

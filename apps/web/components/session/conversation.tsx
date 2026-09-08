@@ -79,6 +79,9 @@ type CloseResult = {
    * shipped shape rather than a new idea.
    */
   did_well: string;
+  /** §C3's recap. On the wire since 2026-09-08 — see `CloseOut`'s schema
+   * docstring for the refusal it reverses and the evidence that settled it. */
+  summary: string;
   unknown_words: string[];
 };
 
@@ -100,6 +103,7 @@ export function Conversation({
   const [trouble, setTrouble] = useState(false);
   const [corrections, setCorrections] = useState<Correction[] | null>(null);
   const [didWell, setDidWell] = useState<string>("");
+  const [summary, setSummary] = useState<string>("");
   const [words, setWords] = useState<string[]>([]);
   const [kept, setKept] = useState<Record<string, boolean>>({});
 
@@ -167,6 +171,7 @@ export function Conversation({
       // that is what let a `"   "` reach the component untrimmed by the other
       // path and render an empty paragraph.
       setDidWell(out.did_well ?? "");
+      setSummary(out.summary ?? "");
       setWords(out.unknown_words ?? []);
     }
   }, [call]);
@@ -323,6 +328,7 @@ export function Conversation({
     return (
       <CloseOut
         topic={topic}
+        summary={summary}
         didWell={didWell}
         corrections={corrections ?? []}
         words={words}

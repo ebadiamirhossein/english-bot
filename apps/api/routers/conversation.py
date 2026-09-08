@@ -93,16 +93,50 @@ class TurnOut(BaseModel):
 class CloseOut(BaseModel):
     """§C2 and §C3.
 
-    **`summary` IS NOT ON THIS MODEL.** It is the app's own note about the
-    conversation, written for a consumer that does not exist yet (#391); putting
-    it on the wire would invite a client to render the app's assessment of the
-    learner back at them, which is a report card by another name.
+    ────────────────────────────────────────────────────────────────────────
+    **`summary` IS ON THIS MODEL AS OF 2026-09-08, AND THE REFUSAL IT REVERSES
+    IS QUOTED RATHER THAN DELETED** (#82's shape):
+
+        *"**`summary` IS NOT ON THIS MODEL.** It is the app's own note about
+        the conversation, written for a consumer that does not exist yet
+        (#391); putting it on the wire would invite a client to render the
+        app's assessment of the learner back at them, which is a report card
+        by another name."*
+
+    **THE REFUSAL WAS NOT WRONG; IT WAS UNTESTED, AND W13b/4 RECORDED IT AS
+    DEFERRED PENDING EVIDENCE RATHER THAN DECLINED.** At that point all three
+    stored summaries on production were empty, because no conversation had ever
+    been closed — **nobody had read one.** The evidence arrived on 2026-09-08,
+    conversation 7:
+
+        *"The conversation was about an embarrassing moment at a wedding the
+        learner attended with their girlfriend in Trakai, Lithuania. They
+        described the venue, activities, and a funny near-fall by the groom's
+        father, keeping the exchange lively and engaging throughout."*
+
+    **That is a recap, not a verdict.** It says what was talked about; the one
+    evaluative clause is *keeping the exchange lively and engaging*, which is
+    praise, and praise is the half CLAUDE.md §4 asks to be announced. **The
+    refusal was written against "the app's assessment of the learner rendered
+    back at them" and this is not that.** Assistant-recommended,
+    operator-accepted 2026-09-08.
+
+    **WHAT STILL HOLDS, AND IS NOW THE PROMPT'S JOB RATHER THAN THE WIRE'S:**
+    `conversation_close_v3.txt` forbids a score and forbids quoting the
+    learner, and `test_the_summary_prompt_forbids_a_score_and_a_quote` is what
+    keeps that true. **The wire stopped being the place that rule was enforced;
+    it was never a good place for it.**
+    ────────────────────────────────────────────────────────────────────────
     """
 
     conversation_id: int
     corrections: list[CorrectionOut]
     did_well: str
-    #: §C2. Offered to the deck. **Nothing is saved without a tap.**
+    #: §C3. What was talked about. **A recap, never a score** — the prompt is
+    #: what holds that, and #391's option (a) is closed by this field existing.
+    summary: str
+    #: §C2. Offered to the deck. **Nothing is saved without a tap**, and since
+    #: #402 nothing reaches this list that is not real, CEFR-levelled English.
     unknown_words: list[str]
 
 
@@ -286,6 +320,7 @@ def close(
             for c in result.corrections
         ],
         did_well=result.did_well,
+        summary=result.summary,
         unknown_words=list(result.unknown_words),
     )
 

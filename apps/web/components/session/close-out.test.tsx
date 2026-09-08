@@ -36,6 +36,8 @@ const CORRECTIONS = [
 function mount(props: Partial<React.ComponentProps<typeof CloseOut>> = {}) {
   const merged = {
     topic: "A wedding you went to recently",
+    summary:
+      "You talked about a colleague's wedding in a garden last month — the weather, dinner outside, and the dancing afterwards.",
     didWell: "Your past tense held up across the whole story.",
     corrections: CORRECTIONS,
     words: ["reception", "to toast"],
@@ -63,7 +65,7 @@ describe("the close-out", () => {
     const topicAt = text.indexOf("A wedding you went to recently");
     const wellAt = text.indexOf("Your past tense held up");
     const lookAt = text.indexOf(CONVERSATION.correctionsHeading);
-    const wordsAt = text.indexOf(CONVERSATION.closeWordsHeading);
+    const wordsAt = text.indexOf(CONVERSATION.wordsHeading);
 
     // Each index is asserted found on its own, so a missing section cannot
     // satisfy the ordering by returning -1 (#345).
@@ -149,11 +151,11 @@ describe("the close-out", () => {
   });
 
   it("says so plainly when there is nothing to show, rather than empty headings", () => {
-    mount({ didWell: "", corrections: [], words: [] });
+    mount({ didWell: "", summary: "", corrections: [], words: [] });
     const surface = screen.getByTestId("conversation-closed");
     expect(surface).toHaveTextContent(CONVERSATION.closeNothing);
     expect(surface).not.toHaveTextContent(CONVERSATION.correctionsHeading);
-    expect(surface).not.toHaveTextContent(CONVERSATION.closeWordsHeading);
+    expect(surface).not.toHaveTextContent(CONVERSATION.wordsHeading);
   });
 
   it("puts no numeral on the screen, whatever the close returns", () => {
@@ -176,5 +178,51 @@ describe("the close-out", () => {
     for (const banned of ["minute", "turn", "score", "streak", "total", "out of"]) {
       expect(text).not.toContain(banned);
     }
+  });
+});
+
+
+/**
+ * W13b/6 — the recap, and the heading that was wrong about the learner.
+ */
+describe("the close-out's recap", () => {
+  it("opens on what was talked about, before anything that reads as a fix", () => {
+    // **DESIGN `1i`'s ORDERING, AND IT IS NOW COMPLETE.** W13b/4 built the
+    // card without this line because `CloseOut` refused to carry the field;
+    // the refusal was overturned on 2026-09-08 once a real summary could be
+    // read. Asserted as ORDER, like `did_well` — a recap printed below the
+    // corrections would still pass a presence test.
+    mount();
+    const text = screen.getByTestId("conversation-closed").textContent ?? "";
+    const summaryAt = text.indexOf("You talked about a colleague");
+    const wellAt = text.indexOf("Your past tense held up");
+    const lookAt = text.indexOf(CONVERSATION.correctionsHeading);
+    expect(summaryAt).toBeGreaterThan(-1);
+    expect(wellAt).toBeGreaterThan(-1);
+    expect(lookAt).toBeGreaterThan(-1);
+    expect(summaryAt).toBeLessThan(wellAt);
+    expect(wellAt).toBeLessThan(lookAt);
+  });
+
+  it("renders no recap element at all when the summary is empty", () => {
+    // Absent, never blank — the same rule as `did_well`, and the #345 sibling
+    // proving the surface rendered so "absent" cannot be met by "nothing".
+    mount({ summary: "   " });
+    expect(screen.getByTestId("conversation-closed")).toBeInTheDocument();
+    expect(screen.queryByTestId("close-summary-text")).toBeNull();
+  });
+
+  it("does not tell the learner he asked for the words, because he did not", () => {
+    // **#403.** The heading read *"Words you asked about"* — the design's
+    // phrase for an interaction this app does not have. The words are DETECTED
+    // from his own typed turns against his ledger; nothing was requested.
+    //
+    // Expected values are literal, never read back from `CONVERSATION`
+    // (CLAUDE.md §3 rule 5) — reading the constant would pass whatever it said.
+    mount({ words: ["reception"] });
+    const text = screen.getByTestId("conversation-closed").textContent ?? "";
+    expect(text).toContain("Worth keeping");
+    expect(text).not.toContain("you asked about");
+    expect(text.toLowerCase()).not.toContain("didn\u2019t know");
   });
 });

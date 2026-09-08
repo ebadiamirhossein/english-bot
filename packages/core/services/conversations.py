@@ -36,6 +36,8 @@ stored, computed or printed** (#321).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -59,6 +61,7 @@ from core.config import load_settings
 from core.copy_rules import content_offenders
 from core.db import connection
 from core.services.errors import record_errors
+from core.lexicon.normalize import cefr_tagged_lemmas, lemmatize
 from core.services.lexicon import coverage_for
 from core.video.score import BAND_LOW, BAND_HIGH
 
@@ -951,7 +954,71 @@ def unknown_words_from(conn: Any, user_id: int, turns: list[Turn]) -> tuple[str,
     if not typed.strip():
         return ()
     report = coverage_for(conn, user_id, typed)
-    return tuple(report.unknown_lemmas)
+    return capturable(report.unknown_lemmas)
+
+
+def capturable(lemmas: Iterable[str]) -> tuple[str, ...]:
+    """The subset of an unknown-word list that may be offered to the deck.
+
+    ────────────────────────────────────────────────────────────────────────
+    **#402. THE CLOSE-OUT OFFERED ELEVEN WORDS TO A LEARNER AND TEN OF THEM
+    WERE NOT WORDS:** `weed, w, experinence, iwth, trakai, lithuania,
+    togehter, grom, brade, drunck, fo`. Eight misspellings, two place names,
+    one real word. **Tapping *Keep* on any of them writes it into `cards` as
+    vocabulary and FSRS drills it for months** — CLAUDE.md §5, where a wrong
+    row is permanent damage and a missing one is recoverable.
+
+    **THE CAUSE IS NOT A BUG IN `compute_coverage`. IT IS THE RIGHT
+    INSTRUMENT READ FOR THE WRONG QUESTION.** An unresolved token counts as
+    unknown there **deliberately** — its own comment says *"Never guessed at.
+    An unresolved token counts unknown, so the number reads low rather than
+    falsely high"* — because a learner who cannot read a token genuinely does
+    not follow that part of the text. **Coverage must over-report; capture
+    must not.** §C2 took a list built to be pessimistic and offered it as a
+    list of things worth keeping. So the fix belongs HERE, at the capture
+    boundary, and `compute_coverage` is deliberately not touched: changing it
+    would bias W12's comprehensible-input band high, which is the drowning
+    direction.
+
+    **TWO CONDITIONS, AND THE SECOND IS THE ONE THAT ANSWERS PROPER NOUNS.**
+
+    1. **It must resolve against the reference lexicon** — `lemmatize` with an
+       empty vocabulary, so the learner's own grown lexemes cannot vouch for a
+       token. A string no dictionary contains is a typo, not vocabulary. This
+       alone removes nine of the eleven.
+
+    2. **Its lemma must carry a CEFR tag.** This is not belt-and-braces; **a
+       lexicon check cannot answer proper nouns and the codebase already
+       knows it.** `cefr_tagged_lemmas`'s docstring: *"john at rank 548,
+       sarah at 1221, paris at 1107. None of them carries a CEFR tag;
+       internet carries A1. 'Is this in the lexeme table' cannot tell a name
+       from a word here, and 'does a vocabulary syllabus level it' can."*
+       `trakai` and `lithuania` fall to condition 1 only by luck — they sit
+       outside the 15k table — and `paris` would not. It also removes `fo`,
+       which IS in the table and is not a word anybody means.
+
+    **WHAT THIS DELIBERATELY DOES NOT DO: catch a typo that lands on another
+    real word.** `weed` survives, and in conversation 7 it was a misspelling
+    of `wedding` or `we'd`. **Nothing about the token is wrong**, so only
+    context could tell — and context is a model call, which the standing
+    2026-08-27 ruling forbids on a learner's tap. **Eleven offers become one,
+    and the one is real English.** That bound is pinned by a test rather than
+    left for a later reader to mistake for a defect.
+
+    **ERRING TOWARD OFFERING TOO LITTLE IS THE SAFE DIRECTION**, and it is the
+    same choice `Transcript.surfaceKey` records for the same reason: a missed
+    offer is a word the learner can save from the transcript instead; a wrong
+    one is a permanent row in the journal.
+    """
+    tagged = cefr_tagged_lemmas()
+    kept: list[str] = []
+    for word in lemmas:
+        lemma = lemmatize(word, frozenset())
+        if lemma is None or lemma not in tagged:
+            continue
+        if lemma not in kept:
+            kept.append(lemma)
+    return tuple(kept)
 
 
 def save_conversation_word(user_id: int, word: str, now: datetime) -> str:

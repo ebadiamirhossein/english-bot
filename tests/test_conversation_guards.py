@@ -374,3 +374,130 @@ def test_the_summary_prompt_forbids_a_score_and_a_quote() -> None:
     # The prompt itself must not model guilt copy for the thing it is asking for.
     body = text[text.index("Rules for summary") :]
     assert content_offenders(body.replace("Never say the learner failed", "")) == ()
+
+
+# ── W13b/6 · #402 — the capture filter ──────────────────────────────────────
+
+
+#: **The exact list conversation 7 offered the operator on 2026-09-08.** Kept
+#: verbatim rather than paraphrased into a tidy fixture: these are the eleven
+#: strings a real learner's real conversation actually produced, and a fixture
+#: invented afterwards would be one written to pass.
+CONVERSATION_7_OFFERED = (
+    "weed", "w", "experinence", "iwth", "trakai", "lithuania",
+    "togehter", "grom", "brade", "drunck", "fo",
+)
+
+
+def test_typos_and_place_names_are_not_offered_as_vocabulary() -> None:
+    """**#402. The close-out offered eleven words and ten were not words.**
+
+    `coverage_for` reports an unresolved token as unknown **on purpose** — an
+    unreadable token means the learner does not follow that part of the text,
+    so coverage must read low. **W13b's §C2 reused that list as a capture
+    list, where the same bias is damage:** tapping *Keep* on `experinence`
+    writes a misspelling into `cards` as vocabulary and FSRS drills it for
+    months. CLAUDE.md §5 — a wrong row is permanent damage.
+
+    RED against `unknown_words_from` returning `report.unknown_lemmas` whole.
+    """
+    from core.services.conversations import capturable
+
+    kept = capturable(CONVERSATION_7_OFFERED)
+    for junk in ("w", "experinence", "iwth", "togehter", "grom", "brade",
+                 "drunck", "fo"):
+        assert junk not in kept, f"{junk!r} is not vocabulary"
+    for name in ("trakai", "lithuania"):
+        assert name not in kept, f"{name!r} is a place, not vocabulary"
+
+
+def test_a_real_word_the_learner_may_not_know_still_survives() -> None:
+    """**The other direction, and it is the one that makes the filter honest.**
+
+    A filter that dropped everything would pass the test above. These are the
+    words the same wedding conversation would legitimately offer.
+    """
+    from core.services.conversations import capturable
+
+    kept = capturable(
+        ("reception", "aisle", "venue", "groom", "embarrass", "toast")
+    )
+    assert set(kept) == {"reception", "aisle", "venue", "groom", "embarrass",
+                         "toast"}
+
+
+def test_the_filter_holds_names_that_sit_high_in_the_frequency_list() -> None:
+    """**The dictionary floor alone does NOT answer proper nouns, and this
+    pins the reason.**
+
+    `trakai` and `lithuania` happen to be outside the 15k lexeme table, so a
+    lexicon check catches them — **and that is luck, not the rule.**
+    `cefr_tagged_lemmas`'s own docstring records the general case: `john` sits
+    at rank 548, `paris` at 1107, `sarah` at 1221, **all three inside the
+    table**, none carrying a CEFR tag. A filter that only asked *is this in the
+    lexicon* would offer `paris` as vocabulary.
+    """
+    from core.services.conversations import capturable
+
+    assert capturable(("john", "paris", "sarah", "london", "america")) == ()
+    # And the discriminator does not simply reject every capitalisable word:
+    # `monday` is A1-tagged and is real vocabulary.
+    assert capturable(("monday",)) == ("monday",)
+
+
+def test_the_filter_cannot_catch_a_typo_that_lands_on_a_real_word() -> None:
+    """**The limit, asserted so it is not mistaken for a bug later.**
+
+    `weed` is a real B2 word and survives the filter. In conversation 7 it was
+    a misspelling — of `wedding` or `we'd`, and **no dictionary can know
+    which**, because nothing about the token is wrong. Only context could tell,
+    and context is a model call the pre-generation ruling forbids on a tap.
+
+    **The filter turns eleven offers into one, and the one is a real English
+    word.** That is the honest bound, and this test is what stops a later
+    reader reading the survivor as a failure of the filter.
+    """
+    from core.services.conversations import capturable
+
+    assert capturable(("weed",)) == ("weed",)
+    assert len(capturable(CONVERSATION_7_OFFERED)) == 1
+
+
+def test_the_capture_filter_is_actually_wired_into_the_close(monkeypatch) -> None:
+    """**#402's OTHER HALF, AND IT WAS FOUND BY A RED DEMONSTRATION THAT
+    REFUSED TO GO RED.**
+
+    The four tests above call `capturable` directly. **Deleting the call site
+    in `unknown_words_from` left every one of them green** — a filter that is
+    correct, tested, and reaches nobody. That is CLAUDE.md §3 rule 4 (*a green
+    test over an unreachable path proves nothing*) and it is the same shape as
+    `did_well`, which was generated and billed for a month while no surface
+    rendered it.
+
+    So this asserts the WIRING, behaviourally, with `coverage_for` stubbed so
+    no database is needed: the raw report carries the typos, and what comes
+    back out does not.
+    """
+    from types import SimpleNamespace
+
+    from core.lexicon.coverage import CoverageReport
+    from core.services import conversations as conv
+
+    monkeypatch.setattr(
+        conv,
+        "coverage_for",
+        lambda conn, user_id, text: CoverageReport(
+            coverage=0.5,
+            total_tokens=12,
+            counted_tokens=11,
+            excluded_tokens=1,
+            unknown_lemmas=CONVERSATION_7_OFFERED,
+        ),
+    )
+    turns = [SimpleNamespace(content="anything", is_learner=True, is_voice=False)]
+
+    out = conv.unknown_words_from(object(), 3, turns)
+
+    assert "experinence" not in out, "the filter is not wired into the close"
+    assert "trakai" not in out
+    assert out == ("weed",)
