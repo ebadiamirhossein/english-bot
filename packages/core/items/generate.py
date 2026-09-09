@@ -200,8 +200,42 @@ from core.syllabus.checkpoint import slot_plan as checkpoint_plan
 
 logger = logging.getLogger(__name__)
 
-#: PRD §4.1 block 3: "90-second explanation + **8 generated items**".
+#: **THE SIZE OF ONE GENERATION COHORT. NOT A PER-SESSION NUMBER, AND THE
+#: CITATION THAT USED TO SIT HERE IS WHY #299 HAPPENED.**
+#:
+#: This read `PRD §4.1 block 3: "90-second explanation + 8 generated items"` --
+#: **the same line `FOCUS_ITEM_COUNT` cites, which is a PER-SESSION figure.**
+#: Two different quantities pinned to one sentence meant the BANK was sized at
+#: one session, so even at 100% yield a unit reached a **one-day cycle**, and a
+#: learner met the same items on day two. **Nothing in the PRD ever said the
+#: bank should be eight.**
+#:
+#: **EIGHT SURVIVES AS THE COHORT SIZE ON MEASUREMENT, NOT ON INHERITANCE**
+#: (F4). Enlarging it was proposed and refused on three: at 40 slots the ~3,400
+#: tokens of item text sit under a 16,000 ceiling that is text PLUS adaptive
+#: thinking, where an eight-slot cohort's thinking once consumed 8,000 on its
+#: own and returned an empty text block; `_expected_calls` would print 47 while
+#: the run made ~204 (#305); and `judge_naturalness` does not batch at all
+#: (#306). **Eight is the size every gate, ceiling and test was measured
+#: against.** The run reaches the target by LOOPING over bounded cohorts.
 ITEMS_PER_UNIT = 8
+
+#: **HOW BIG THE FOCUS BANK MUST BE: 56 items per unit per learner.** Ruled
+#: 2026-08-31; the third of the three numbers the single PRD citation used to
+#: collapse into one.
+#:
+#: Seven days, Saturday to Saturday, no repeats. **Ruled at 40 earlier the same
+#: day and revised on measurement, which is the record working rather than
+#: changing its mind:** 40 came from PRD §4.2's five practice days, and the host
+#: showed the built app has **no weekday gating** -- unit 1 `entered_at`
+#: 2026-08-26 against `retake_due_on` 2026-09-02 is an **eight-day span**, and
+#: user 3 has six `daily` sessions on six consecutive dates including a Saturday
+#: and a Sunday (#310). **40 would have bought five days of an eight-day unit
+#: and the learner would wrap on day 6 -- #299 recurring inside its own fix.**
+#: 64 was considered and rejected: that span is inflated by a failed checkpoint,
+#: and days 7-8 of a *failed* unit repeating is a far smaller harm than day 2
+#: repeating, which is what a learner actually met.
+FOCUS_BANK_TARGET = 56
 
 #: The units this run covers. Three, and units 1-3 rather than a spread, because
 #: `core.services.syllabus.current_unit` returns 1 for both learners and cannot
@@ -719,7 +753,9 @@ def _draft_to_item(raw: dict, slot: Slot, unit_number: int) -> BaseItem:
 # ── the cohort: one unit, eight slots, cheapest gate first ──────────────────
 
 
-def generator_system_prompt(item_types: Sequence[str] = SLOT_TYPES) -> str:
+def generator_system_prompt(
+    item_types: Sequence[str] = SLOT_TYPES, *, avoid: Sequence[str] = ()
+) -> str:
     """`item_generate.txt` with the field contract substituted in.
 
     **The contract is DERIVED from `core.items.schema`, never written here.**
@@ -738,17 +774,24 @@ def generator_system_prompt(item_types: Sequence[str] = SLOT_TYPES) -> str:
     return (
         template
         .replace("{contract}", contract_block(seen))
-        .replace("{constraints}", constraint_block(seen))
+        .replace("{constraints}", constraint_block(seen, avoid=avoid))
     )
 
 
 def generate_drafts(
-    payload: dict, *, settings: Settings | None = None
+    payload: dict,
+    *,
+    settings: Settings | None = None,
+    avoid: Sequence[str] = (),
 ) -> list[dict]:
-    """One billed call. The raw drafts, in the order the model returned them."""
+    """One billed call. The raw drafts, in the order the model returned them.
+
+    `avoid` is F2's list of sentences the bank already holds; it reaches the
+    model through `constraint_block`, whose docstring carries the argument.
+    """
     response = gates._chat(
         [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-        system=generator_system_prompt(),
+        system=generator_system_prompt(avoid=avoid),
         json_mode=True,
         max_tokens=GENERATE_MAX_TOKENS,
         reject_truncation=True,
@@ -1514,6 +1557,7 @@ def unit_plan(
     missed: dict[int, tuple[str, ...]] | None = None,
     types: Sequence[str] | None = None,
     held: dict[int, dict[str, int]] | None = None,
+    focus_held: dict[int, int] | None = None,
 ) -> dict[int, dict]:
     """Everything the run needs about each unit. **The Murphy strip is here.**
 
@@ -1602,12 +1646,49 @@ def unit_plan(
                 )
         else:
             slots = slot_plan(number, targets)
+        # ── W10d COMMIT 2: THE FOCUS SHORTFALL, EXPRESSED IN COHORTS ────────
+        #
+        # **`slots` STAYS AT EIGHT AND THE RUN LOOPS** (F4). The cohort is the
+        # unit every gate, ceiling and token measurement was taken against;
+        # widening it was refused on three measurements recorded at
+        # `ITEMS_PER_UNIT`. So the shortfall is carried as a COUNT OF COHORTS
+        # beside the one cohort's plan, and the run repeats it.
+        #
+        # **A SEPARATE PARAMETER FROM `held`, NOT AN OVERLOAD OF IT.** The
+        # checkpoint's `held` is per-target because a sitting has a quota per
+        # target and a shortfall must be composed target by target; the focus
+        # bank has no quota and its shortfall is one integer. Feeding an int
+        # through a parameter annotated `dict[str, int]` to save a name is how
+        # two meanings end up in one field and neither is checked.
+        held_here = None if focus_held is None else focus_held.get(number, 0)
+        if held_here is None:
+            cohorts = 1
+            shortfall = None
+        else:
+            shortfall = max(0, FOCUS_BANK_TARGET - held_here)
+            # **`-(-a // b)` ROUNDS UP, AND UP IS THE ONLY SAFE DIRECTION.**
+            # 52 items over 8-slot cohorts is 6.5; six cohorts buy 48 and leave
+            # the bank four short of the target it exists to reach -- #299
+            # surviving inside its own fix. Seven buys 56, and the surplus is
+            # items a learner can use rather than a repeat they cannot.
+            #
+            # `max(0, ...)` first, so a bank at or past the target plans ZERO
+            # rather than a negative that would round to one and spend.
+            cohorts = -(-shortfall // ITEMS_PER_UNIT)
         plan[number] = {
             "unit": unit,
             "targets": targets,
             "slots": slots,
             "candidates": target_candidates(number, targets, all_targets),
             "checkpoint": checkpoint,
+            #: How many times the run repeats this cohort. 1 on every path that
+            #: is not a focus `--fill`, so nothing that existed before moves.
+            "cohorts": cohorts,
+            #: What the bank holds, or `None` when nobody asked. **`None` and
+            #: not 0**: "not counted" and "counted and empty" are different
+            #: facts and the dry report prints them differently.
+            "held": held_here,
+            "shortfall": shortfall,
         }
     return plan
 
@@ -1737,9 +1818,31 @@ def worst_case_exposure(unit_number: int) -> tuple[ExposureRow, ...]:
 # ── dry run ─────────────────────────────────────────────────────────────────
 
 
-def _expected_calls(numbers: tuple[int, ...]) -> int:
-    """The ceiling, itemised. Printed before anything is spent."""
-    per_unit = (
+def _expected_calls(plan: dict[int, dict]) -> int:
+    """The ceiling, itemised. Printed before anything is spent.
+
+    ── W10d COMMIT 2, #305 ──────────────────────────────────────────────────
+    **THIS TOOK `numbers` AND COSTED ONE COHORT PER UNIT.** A filled focus run
+    loops over bounded cohorts (F4), so at unit 1's real shortfall it would
+    **print a ceiling for one cohort while the run made seven**. #305's own
+    words: *the ceiling is printed before anything is spent and is what the
+    operator types back to confirm a billed run, so an under-stated ceiling is
+    an authorisation given against a number that is a quarter of the real one.*
+
+    **It now takes the PLAN, like `_expected_checkpoint_calls` already did**, and
+    multiplies the per-cohort work by `entry["cohorts"]`. That is #262's rule
+    applied one function to the left: derive the number from the thing being
+    costed, never from a constant that happens to match today.
+
+    **THE PER-COHORT TERMS ARE STILL CONSTANTS AND THAT IS STILL CORRECT HERE**
+    -- a focus cohort's composition IS `SLOT_TYPES`, fixed at eight, which is
+    what `_expected_checkpoint_calls`'s own docstring says the difference is.
+    **What was wrong was never the composition; it was the count of cohorts.**
+
+    A unit with nothing to buy contributes nothing, so a full bank costs
+    `CONTROL_RUNS` alone rather than quietly pricing a cohort the run skips.
+    """
+    per_cohort = (
         1                       # generation
         + 1                     # one batched naturalness call for the cohort
         + (len(SLOT_TYPES) - 1)  # probes; match_pairs is unprobed (family `exact`)
@@ -1747,7 +1850,8 @@ def _expected_calls(numbers: tuple[int, ...]) -> int:
         + len(SLOT_TYPES)       # probe_target, one per surviving item
         + 1                     # back-translation, the one l1_to_l2_production
     )
-    return CONTROL_RUNS + len(numbers) * per_unit * 2  # x2 allows one top-up round
+    cohorts = sum(entry.get("cohorts", 1) for entry in plan.values())
+    return CONTROL_RUNS + cohorts * per_cohort * 2  # x2 allows one top-up round
 
 
 def _expected_checkpoint_calls(plan: dict[int, dict]) -> int:
@@ -1867,9 +1971,11 @@ def dry_run(
     missed: dict[int, tuple[str, ...]] | None = None,
     types: Sequence[str] | None = None,
     held: dict[int, dict[str, int]] | None = None,
+    focus_held: dict[int, int] | None = None,
 ) -> int:
     settings = load_settings()
-    plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types, held=held)
+    plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types,
+                     held=held, focus_held=focus_held)
 
     print("=== model ===")
     print(settings.llm_model)
@@ -1892,6 +1998,31 @@ def dry_run(
             for target, count in quotas.items():
                 mark = " *" if missed and target in (missed.get(number) or ()) else ""
                 print(f"    {count} (blueprint {were.get(target, 0)}) {target}{mark}")
+
+    # ── W10d COMMIT 2: THE FOCUS BANK, BEFORE THE SPEND ───────────────────
+    #
+    # **THE OPERATOR AUTHORISES A BILLED RUN AGAINST THIS TEXT**, so it states
+    # the bank the plan was computed FROM and not only the plan -- #262's rule
+    # and #305's: a number printed before the spend must be checkable against
+    # the thing it was derived from, or it reads as authority rather than as
+    # arithmetic.
+    if not checkpoint and any(e["held"] is not None for e in plan.values()):
+        print("\n=== focus bank ===")
+        print(f"  target {FOCUS_BANK_TARGET} items per unit, per learner "
+              f"(seven days, no repeats)")
+        for number in numbers:
+            entry = plan[number]
+            if entry["held"] is None:
+                continue
+            short, cohorts = entry["shortfall"], entry["cohorts"]
+            mark = "" if short else "  — nothing to buy"
+            print(f"  unit {number}: holds {entry['held']}, short {short}, "
+                  f"{cohorts} cohort(s) of {ITEMS_PER_UNIT}{mark}")
+            if cohorts * ITEMS_PER_UNIT > short:
+                # Stated rather than left for a reader to notice: rounding up
+                # is deliberate, and the surplus is items rather than a repeat.
+                print(f"    (rounds up: buys {cohorts * ITEMS_PER_UNIT}, "
+                      f"{cohorts * ITEMS_PER_UNIT - short} over)")
 
     print("\n=== system (item_generate.txt, contract substituted) ===")
     # **`generator_system_prompt()` and NOT the template file.** The first draft
@@ -2036,7 +2167,7 @@ def dry_run(
 
     print("\n=== billed calls ===")
     ceiling = (
-        _expected_checkpoint_calls(plan) if checkpoint else _expected_calls(numbers)
+        _expected_checkpoint_calls(plan) if checkpoint else _expected_calls(plan)
     )
     print(f"  ceiling {ceiling} "
           f"(control {CONTROL_RUNS} + {len(numbers)} units, one top-up allowed)")
@@ -2056,6 +2187,28 @@ def dry_run(
 _confirm = confirm
 
 
+def _bank_sentences(user_id: int, unit_number: int) -> tuple[str, ...]:
+    """F2's avoid-list: what this learner's focus bank already says.
+
+    **`prompt_text` AND `answer`, because a cloze prompt without its answer is
+    not a sentence** — *"I ___ to the shops"* tells a model very little, and the
+    duplicate it produces would differ only in the blank.
+
+    Reads through `core.services.items`, which is where SQL lives; this module
+    is pure otherwise and imports it at call time the same way `main()` does.
+    """
+    from core.services.items import bank_for_session
+
+    out: list[str] = []
+    for row in bank_for_session(user_id, unit_number=unit_number, limit=200):
+        text = (getattr(row, "prompt_text", "") or "").strip()
+        answer = (getattr(row, "answer", "") or "").strip()
+        joined = f"{text} [{answer}]" if answer else text
+        if joined and joined not in out:
+            out.append(joined)
+    return tuple(out)
+
+
 def run(
     user_id: int,
     numbers: tuple[int, ...],
@@ -2068,9 +2221,11 @@ def run(
     missed: dict[int, tuple[str, ...]] | None = None,
     types: Sequence[str] | None = None,
     held: dict[int, dict[str, int]] | None = None,
+    focus_held: dict[int, int] | None = None,
 ) -> int:
     settings = settings or load_settings()
-    plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types, held=held)
+    plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types,
+                     held=held, focus_held=focus_held)
     spent: Counter = Counter()
     reference = coverage_reference()
     journal = Journal(journal_path)
@@ -2081,7 +2236,7 @@ def run(
     print(f"    python -m core.items.generate --report {journal_path}")
 
     ceiling = (
-        _expected_checkpoint_calls(plan) if checkpoint else _expected_calls(numbers)
+        _expected_checkpoint_calls(plan) if checkpoint else _expected_calls(plan)
     ) - (CONTROL_RUNS if skip_control else 0)
     print(f"\nAbout to make up to {ceiling} billed model calls.")
     print("Nothing is written to any database by this step." if not apply
@@ -2147,45 +2302,74 @@ def run(
         print(f"UNIT {number} — {entry['unit'].can_do}")
         print("=" * 78)
 
-        payload = build_payload(number, entry["unit"].can_do, entry["slots"])
-        drafts = generate_drafts(payload, settings=settings)
-        spent["generate"] += 1
-        outcomes = verify_cohort(
-            entry["slots"], drafts, unit_number=number,
-            candidates=entry["candidates"], settings=settings, calls=spent,
-            reference=reference,
-        )
+        # ── W10d COMMIT 2: ONE COHORT PER ROUND, AND THE RUN LOOPS ────────
+        #
+        # **F4: THE COHORT STAYS AT EIGHT SLOTS AND THE RUN REPEATS IT.** Eight
+        # is the size every gate, ceiling and token measurement was taken
+        # against; a 40-slot cohort's adaptive thinking once consumed 8,000
+        # tokens on its own and returned an empty text block. So a 52-item
+        # shortfall is **seven requests of eight**, never one request of 52.
+        #
+        # `cohorts` is 1 on every path that is not a focus `--fill`, so this is
+        # a no-op for every caller that existed before commit 2.
+        for _round in range(entry["cohorts"]):
+            if entry["cohorts"] > 1:
+                print(f"\n  --- cohort {_round + 1} of {entry['cohorts']} ---")
+            # **RE-READ INSIDE THE LOOP, AND THIS IS THE HALF THAT IS EASY TO
+            # GET WRONG.** Reading the bank once before the loop would let
+            # cohort 2 write what cohort 1 just wrote — #299's third cause
+            # surviving inside its own fix, and **invisible, because both
+            # requests look correct in isolation.**
+            #
+            # Only `--apply` actually changes the bank between rounds; on a dry
+            # or `--live` run this re-reads the same list. That costs one cheap
+            # query and keeps the two paths identical, which is worth more than
+            # the query — a `--live` rehearsal that sent different prompts from
+            # the `--apply` it is rehearsing would be measuring the wrong thing.
+            avoid = (
+                _bank_sentences(user_id, number)
+                if entry["held"] is not None
+                else ()
+            )
+            payload = build_payload(number, entry["unit"].can_do, entry["slots"])
+            drafts = generate_drafts(payload, settings=settings, avoid=avoid)
+            spent["generate"] += 1
+            outcomes = verify_cohort(
+                entry["slots"], drafts, unit_number=number,
+                candidates=entry["candidates"], settings=settings, calls=spent,
+                reference=reference,
+            )
 
-        # **WRITTEN BEFORE THE TOP-UP RUNS, and that ordering is the fix.**
-        # W10c's fourth attempt crashed inside `_top_up` and the traceback ended
-        # the process before anything printed, so eight rejection codes that had
-        # already been paid for were destroyed by a failure that came after them.
-        journal.record(outcomes)
+            # **WRITTEN BEFORE THE TOP-UP RUNS, and that ordering is the fix.**
+            # W10c's fourth attempt crashed inside `_top_up` and the traceback ended
+            # the process before anything printed, so eight rejection codes that had
+            # already been paid for were destroyed by a failure that came after them.
+            journal.record(outcomes)
 
-        # --- one top-up round, asking for exactly the shortfall
-        short = [o for o in outcomes if not o.accepted]
-        if short:
-            print(f"\n  {len(short)} slot(s) short — one top-up round, "
-                  "with the failures fed back.")
-            try:
-                outcomes = _top_up(
-                    outcomes, short, entry, number, settings=settings, calls=spent
-                )
-            except Exception:  # noqa: BLE001 — a top-up is an EXTRA, not the run
-                # **A top-up failing must cost the top-up and nothing else.** It
-                # is a second chance at slots that already failed once; letting
-                # it take down a unit whose first cohort is already on disk
-                # trades something valuable for something optional. The unit
-                # keeps its original outcomes, already journalled above.
-                logger.exception("top-up failed for unit %s; keeping the "
-                                 "cohort as first decided", number)
-                print(f"\n  ** TOP-UP FAILED for unit {number} — see the log. "
-                      "The unit keeps its\n     original outcomes, which were "
-                      "written to the journal before this ran. **")
-            else:
-                journal.record([o for o in outcomes if o.topped_up])
+            # --- one top-up round, asking for exactly the shortfall
+            short = [o for o in outcomes if not o.accepted]
+            if short:
+                print(f"\n  {len(short)} slot(s) short — one top-up round, "
+                      "with the failures fed back.")
+                try:
+                    outcomes = _top_up(
+                        outcomes, short, entry, number, settings=settings, calls=spent
+                    )
+                except Exception:  # noqa: BLE001 — a top-up is an EXTRA, not the run
+                    # **A top-up failing must cost the top-up and nothing else.** It
+                    # is a second chance at slots that already failed once; letting
+                    # it take down a unit whose first cohort is already on disk
+                    # trades something valuable for something optional. The unit
+                    # keeps its original outcomes, already journalled above.
+                    logger.exception("top-up failed for unit %s; keeping the "
+                                     "cohort as first decided", number)
+                    print(f"\n  ** TOP-UP FAILED for unit {number} — see the log. "
+                          "The unit keeps its\n     original outcomes, which were "
+                          "written to the journal before this ran. **")
+                else:
+                    journal.record([o for o in outcomes if o.topped_up])
 
-        accepted_outcomes.extend(o for o in outcomes if o.accepted)
+            accepted_outcomes.extend(o for o in outcomes if o.accepted)
 
     # --- the report, READ BACK FROM DISK
     #
@@ -2512,8 +2696,21 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--live and --apply are alternatives; --apply implies --live")
     if args.retake and not args.checkpoint:
         parser.error("--retake only means anything with --checkpoint")
-    if args.fill and not args.checkpoint:
-        parser.error("--fill only means anything with --checkpoint")
+    # ── W10d COMMIT 2: `--fill` NOW MEANS SOMETHING WITHOUT `--checkpoint` ──
+    #
+    # **THE REFUSAL THIS REPLACES, QUOTED WITH ITS ARGUMENT (#82's shape):**
+    #
+    #     if args.fill and not args.checkpoint:
+    #         parser.error("--fill only means anything with --checkpoint")
+    #
+    # It was true when written: `focus_held` did not exist, so there was nothing
+    # for `--fill` to subtract on the focus path and the flag would have been
+    # accepted and ignored. **Commit 2 builds the counter, so the refusal is now
+    # the only thing standing between #299 and its fix.**
+    #
+    # **NO NEW FLAG AND NO CHANGE TO WHAT `--fill` MEANS** — it has always meant
+    # *buy the shortfall, not the whole bank*. It now computes that against the
+    # focus bank as well as the checkpoint cohort.
     # ── #352 / W10d COMMIT 1: `--fill --retake` IS PERMITTED, 2026-09-03 ─────
     #
     # **THE REFUSAL THIS REPLACES, QUOTED WHOLE WITH ITS ARGUMENT INTACT (#82's
@@ -2599,7 +2796,14 @@ def main(argv: list[str] | None = None) -> int:
     # need buying. Different questions, so neither branch is an `elif`.
     missed: dict[int, tuple[str, ...]] | None = None
     held = None
-    if args.fill:
+    focus_bank: dict[int, int] | None = None
+    if args.fill and not args.checkpoint:
+        # **Read HERE and passed in**, exactly as the checkpoint side does, so
+        # `unit_plan` stays pure and its tests need no database.
+        from core.services.items import focus_held
+
+        focus_bank = {n: focus_held(args.user, unit_number=n) for n in numbers}
+    if args.fill and args.checkpoint:
         # **Read HERE and passed in, exactly as `--retake` reads `missed_targets`
         # below.** `unit_plan` stays pure -- no database -- which is what lets its
         # tests run without one and what keeps the planner testable.
@@ -2622,10 +2826,10 @@ def main(argv: list[str] | None = None) -> int:
         return run(args.user, numbers, apply=args.apply,
                    skip_control=args.skip_control, journal_path=args.journal,
                    checkpoint=args.checkpoint, missed=missed, types=chosen_types,
-                   held=held)
+                   held=held, focus_held=focus_bank)
     return dry_run(args.user, numbers, journal_path=args.journal,
                    checkpoint=args.checkpoint, missed=missed, types=chosen_types,
-                   held=held)
+                   held=held, focus_held=focus_bank)
 
 
 if __name__ == "__main__":  # pragma: no cover

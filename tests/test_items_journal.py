@@ -165,7 +165,10 @@ def test_a_top_up_crash_costs_the_top_up_and_nothing_else(tmp_path, monkeypatch,
 
     monkeypatch.setattr(
         module, "generate_drafts",
-        lambda payload, settings=None: [
+        # `avoid` accepted and ignored: W10d commit 2 gave `generate_drafts`
+        # F2's avoid-list, and a stub that refuses the argument fails on the
+        # signature rather than on the behaviour this test is about.
+        lambda payload, settings=None, avoid=(): [
             {"answer": "x", "explanation": "e", "definition": "d", "l1_gloss": "g"}
             for _ in payload["items"]
         ],

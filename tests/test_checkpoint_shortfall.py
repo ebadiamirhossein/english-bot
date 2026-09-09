@@ -322,8 +322,25 @@ def test_retake_without_a_failed_sitting_is_still_refused_with_fill(
         ])
 
 
-def test_fill_without_checkpoint_is_still_refused(db, learner) -> None:
+def test_fill_without_checkpoint_is_now_the_focus_bank(db, learner, capsys) -> None:
+    """**INVERTED BY W10d COMMIT 2, AND THE OLD ASSERTION IS QUOTED RATHER THAN
+    DELETED** (#82's shape):
+
+        def test_fill_without_checkpoint_is_still_refused(db, learner) -> None:
+            with pytest.raises(SystemExit):
+                main(["--user", str(learner), "--units", "1", "--fill"])
+
+    **THAT REFUSAL WAS CORRECT WHEN WRITTEN AND IS NOW THE DEFECT.**
+    `focus_held` did not exist in commit 1, so `--fill` on the focus path had
+    nothing to subtract and would have been accepted and ignored. Commit 2
+    builds the counter, so the refusal became **the only thing standing between
+    #299 and its fix** — unit 1's block 3 serving four items a day.
+
+    A test that still demanded the refusal would have made restoring #299 the
+    green path, which is why this is inverted in the same commit that removes
+    the `parser.error` rather than left for a later one to notice.
+    """
     from core.items.generate import main
 
-    with pytest.raises(SystemExit):
-        main(["--user", str(learner), "--units", "1", "--fill"])
+    assert main(["--user", str(learner), "--units", "1", "--fill"]) == 0
+    assert "focus bank" in capsys.readouterr().out.lower()

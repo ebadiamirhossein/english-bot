@@ -493,7 +493,9 @@ NOT_EXPRESSIBLE: dict[str, str] = {
 }
 
 
-def constraint_block(item_types: Sequence[str]) -> str:
+def constraint_block(
+    item_types: Sequence[str], *, avoid: Sequence[str] = ()
+) -> str:
     """The SHAPE rules each type must satisfy, derived from `core.items.checks`.
 
     **This exists because the first real accept rate was 6 of 24 and its own
@@ -515,6 +517,26 @@ def constraint_block(item_types: Sequence[str]) -> str:
     failure code a type can produce is either expressed here or named in
     `NOT_EXPRESSIBLE` -- so a new check fails a test rather than quietly going
     unstated.
+
+    ── `avoid` — W10d COMMIT 2, F2 ──────────────────────────────────────────
+    **THE SENTENCES THE BANK ALREADY HOLDS, SO THE GENERATOR STOPS WRITING THEM
+    AGAIN.** This is #299's third cause and the one that decided the slice:
+    `seen` is a list of item TYPES, so a second run sent a **byte-identical
+    request**, and its output either bounced off `content_hash` or passed as the
+    same sentence in different clothes (#169, ids 21 and 29). **More runs on a
+    generator that is never told what the bank holds cannot reach 56** -- F1
+    raises the target and, without this, sends the whole yield to duplicates.
+
+    **Cheap and it scales:** ~590 input tokens for 40 items, ~800 at 56.
+    `GENERATE_MAX_TOKENS` is an OUTPUT budget, so the two never compete.
+
+    **EMPTY MEANS NO SECTION AT ALL, NOT AN EMPTY HEADING.** A first run has
+    nothing to avoid; a heading with nothing under it spends tokens saying
+    nothing and reads to a model as a constraint it cannot satisfy.
+
+    **WHAT THIS CANNOT DO, AND #271 IS THE RULE: it reduces duplication and
+    cannot detect it.** A guard can refuse a bad draft; it can never show the
+    model understood. **#169 stays open across both commits of W10d.**
     """
     from core.items.checks import (
         BANK_SIZE,
@@ -592,6 +614,13 @@ def constraint_block(item_types: Sequence[str]) -> str:
         if rules:
             lines.append(f"  {item_type}")
             lines.extend(f"    - {rule}" for rule in rules)
+    if avoid:
+        lines.append("")
+        lines.append(
+            "ALREADY IN THIS LEARNER'S BANK — do not write these sentences "
+            "again, and do not rephrase them:"
+        )
+        lines.extend(f"- {one}" for one in avoid)
     return "\n".join(lines)
 
 

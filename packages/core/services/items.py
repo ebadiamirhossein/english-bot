@@ -373,6 +373,31 @@ _CHECKPOINT_STOCK = (
     + _UNATTEMPTED
 )
 
+
+#: **THE FOCUS BANK'S PREDICATE, W10d COMMIT 2 — and `_COHORT` is doing the
+#: single most expensive thing in this file.**
+#:
+#: The four live focus rows carry **no `cohort` key at all**; Q1 confirmed it on
+#: the host on 2026-08-31, where `payload ->> 'cohort'` was blank on all 14 focus
+#: rows and only the 24 checkpoint rows carried an explicit key. **A counter
+#: keyed on `payload ->> 'cohort' = 'focus'` would see 0 instead of 4, plan the
+#: 52-item shortfall as a 56-item one, and buy those four items twice.** That is
+#: a paid-for duplicate run, not a tidiness question, and it is why this composes
+#: from `_COHORT` rather than writing its own comparison.
+#:
+#: **NO `_UNATTEMPTED`, AND THE ASYMMETRY WITH `_CHECKPOINT_STOCK` IS THE POINT.**
+#: A checkpoint sitting needs items nobody has answered, so the reserve is
+#: unattempted-only. **The focus bank is a seven-day cycle and an item a learner
+#: saw on Monday is still in it** — `bank_for_session` orders by least recently
+#: attempted rather than excluding what was attempted. Counting only unattempted
+#: rows would report the bank as empty the day after a session and buy a second
+#: 56 every week.
+_FOCUS_STOCK = (
+    " WHERE items.user_id = %s AND items.unit_number = %s"
+    + _CURRENT_VALIDATOR
+    + " AND " + _COHORT + " = 'focus'"
+)
+
 def list_bank(
     user_id: int, *, item_type: str | None = None, limit: int = 50
 ) -> list[StoredItem]:
@@ -526,7 +551,19 @@ def checkpoint_items(
     return [_present(one) for one in chosen]
 
 
-#: PRD §4.1 block 3: "90-second explanation + **8 generated items**".
+#: **HOW MANY ITEMS BLOCK 3 SERVES IN ONE SESSION.** `docs/PRD-v3-web.md:213`,
+#: §4.1 block 3: *"90-second explanation + **8 generated items**"*.
+#:
+#: **THIS IS THE ONE CONSTANT ENTITLED TO CITE THAT LINE, AND W10d MADE THAT A
+#: RULE RATHER THAN A CONVENTION.** `core.items.generate.ITEMS_PER_UNIT` cited
+#: it too, and two different quantities pinned to one per-session sentence meant
+#: the BANK was sized at one session -- so even at 100% yield a unit reached a
+#: one-day cycle and a learner met the same items on day two (#299).
+#:
+#: Three numbers, not one: this is the SESSION size, `ITEMS_PER_UNIT` is the
+#: COHORT size, and `FOCUS_BANK_TARGET` is how big the bank must be.
+#: `test_the_bank_target_and_the_session_size_are_different_numbers` holds them
+#: apart.
 FOCUS_ITEM_COUNT = 8
 
 
@@ -558,6 +595,38 @@ def focus_items(
         for row in bank_for_session(user_id, unit_number=unit_number, limit=limit)
     ]
 
+
+
+def focus_held(user_id: int, *, unit_number: int) -> int:
+    """How many focus items this learner already holds in this unit. **W10d.**
+
+    **What a focus `--fill` subtracts from `FOCUS_BANK_TARGET`**, so a second
+    run buys the shortfall rather than re-buying the bank. Unit 1 holds four
+    against a target of 56, so it needs 52 — and the difference between reading
+    4 and reading 0 here is four items bought twice.
+
+    **An int and not a per-target dict, unlike `checkpoint_held`, because the
+    two banks are shaped differently.** A checkpoint is a quota per target — five
+    past simple, four past continuous — and a shortfall must be computed per
+    target or the sitting cannot be composed. **The focus bank has no quota: it
+    is N items for a seven-day cycle**, and `slot_plan` already spreads types
+    across the unit's targets. Returning a dict here would invent a demand
+    structure the blueprint does not state.
+
+    **It counts what `bank_for_session` can SERVE**, sharing `_FOCUS_STOCK`'s
+    validator predicate, because a counter that included rows block 3 cannot
+    reach would understate the purchase and leave #299 in place inside its own
+    fix. `test_focus_held_cannot_diverge_from_bank_for_session` drives that
+    property rather than the constant.
+    """
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            "SELECT count(*)::int FROM items" + _FOCUS_STOCK,
+            (user_id, unit_number, VALIDATOR_VERSION),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
 
 def checkpoint_held(user_id: int, *, unit_number: int) -> dict[str, int]:
