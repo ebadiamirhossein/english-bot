@@ -227,6 +227,9 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 
 Record every decision that deviates from or resolves ambiguity in the spec. Newest first.
 
+| 2026-09-09 | **TWO STANDING RULES ADOPTED: `CLAUDE.md` §1a DESIGN FIRST AND §3a PLAYWRIGHT CARRIES THE SCREEN CHECKS. OPERATOR RULING.** | **§1a — every new surface is designed in Claude Design first, the export is committed to `specs/design/`, and Claude Code reads THE REAL FILE.** Adopted after three consecutive slices whose built screen bore no relation to what the learner needed, and after #392 — a plan that spent three paragraphs defending a misreading of #160 rather than reading the design. **The rule carries the two sub-rulings the last four slices established rather than leaving them to be re-derived:** a design is evidence about INTENT and not about what exists, so an element with no data behind it is reported unmet and never approximated; and **where the shipped product beats the design the shipped product wins, with the reason written down** — a mock's brand name is not this product's name, and a requirement learned from the operator using the thing outranks a drawing that never saw it. **§3a — jsdom has no layout engine, so the current suite cannot see a screen at all.** #401's cost, restated in the rule: **223 tests passed unchanged over six visible defects**, and W13b/3b shipped a composer below the fold with nine green tests over that component. Five assertions are now owed by any slice touching a screen: visible in viewport, no overflow, reachable and enabled, light and dark, phone and desktop. |
+| 2026-09-09 | **PLAYWRIGHT IS NOT A DEPENDENCY AND THERE IS NO e2e SUITE. THE PREMISE THAT ONE MIGHT ALREADY RUN IT WAS CHECKED AND IS FALSE.** | **MEASURED, NOT ASSUMED, BEFORE THE RULE WAS WRITTEN.** `apps/web/package.json` declares **no `@playwright/test`, no puppeteer, no selenium, no cypress, no webdriver** — the devDependencies are Vitest 2.1.8, jsdom 25, Testing Library and the Next/ESLint/Tailwind toolchain, and `npm test` is `vitest run`. **No `playwright.config.*` anywhere, no `e2e/` directory, and no `.github/workflows` — there is no CI at all and both suites are run by hand.** And **`playwright` appears ZERO times across `BUILD_PROGRESS.md`, `docs/` and `CLAUDE.md`** before this commit. **SO §3a IS OWED, NOT MET, AND THE RULE STATES THAT IN ITS OWN TEXT.** A constitutional rule nothing can currently satisfy is a rule that gets skipped on its first slice and then read a month later as though the capability existed — **which is #364's shape exactly: the plan and the record both said the right thing and nothing in the tree held it.** Writing *the harness does not exist yet* into the rule is what stops it becoming that. **THE FIRST SLICE THAT TOUCHES A SCREEN BUILDS THE HARNESS AS PART OF ITS WORK**, and its cost is named rather than discovered: a dev dependency, a config, a browser download, and — because there is no CI — **a suite somebody has to remember to run**, which is the same standing weakness `pytest` and Vitest already have here. **Playwright is not on §2's forbidden list** (ORM, Alembic, Redis, Celery, Docker orchestration, queues, GraphQL, microservices, React Native), checked before adopting it. |
+| 2026-09-09 | **§3a'S BOUNDARY IS HALF THE RULE, AND IT IS THE HALF THAT GETS DROPPED.** | **Playwright can prove a control is on screen and reachable. It cannot judge whether a screen is good, whether a sentence teaches, or whether generated content is worth a learner's time.** Those stay human checks and are written into Next action as such. **THE FAILURE THIS FORESTALLS IS SPECIFIC AND THIS RECORD HAS THE EVIDENCE FOR IT:** a slice reporting a screen *verified* because a browser test went green has confused **the button is tappable** with **the thing is worth tapping**. #271's rule arriving in a new place — a check can refuse a bad draft and can never show the thing was right — and #169 is the standing proof that a machine check can be blind to the difference that matters. **THREE NAMED CHECKS THAT MUST SURVIVE THIS HARNESS: the reading of the focus bank (#299 closes on a person reading 56 items, never on a run reporting 56), the reading of the close-out, and the operator's phone check.** None is automatable and none is retired when Playwright lands. |
 | 2026-09-09 | **THE REHEARSAL IS A WORKING RULE NOW, NOT A HABIT — `CLAUDE.md` §5c. OPERATOR RULING.** | **SIX RUNBOOK DEFECTS IN TWO SLICES, ALL FOUND BY EXECUTING THE BLOCK BEFORE HANDING IT OVER, NONE CATCHABLE BY EITHER SUITE.** **W14r, four:** `psql "$DATABASE_URL"` (the shell never reads `.env` as `bot`; no `root` role — #151); no `set +H`, so a `!` in a double-quoted `psql -c` is rewritten before psql sees it; `set -euo pipefail` around greps that **pass by finding nothing and exiting 1**, so the block aborted on its own success; and the privilege split ignored. **W10d commit 2, two:** a ceiling line reading `control 3 + 1 units` beside a **seven-cohort** figure of 311, and an acceptance query missing `validator_version` that would have counted rows block 3 cannot serve. **WHY IT BELONGS IN THE CONSTITUTION AND NOT IN A DECISIONS ENTRY: a decisions entry records what was done once; §3's rules are the ones that exist because a real failure recurred.** This one has now recurred across two consecutive slices, in both directions — a command that could not run, and a command that ran and printed something false. **#215 is the row for the first half and has seven-or-eight sightings; the second half had no row at all**, because a report line that executes cleanly and says the wrong thing is not a runbook defect in #215's sense. **THE GENERALISATION, WHICH IS THE PART WORTH KEEPING: the suite covers code, and nobody was covering the commands or the text printed beside them.** Both are things a person reads and acts on, and both were unverified by construction. **§5c's operative sentence is that a number in a host block which has not been produced by running something is a guess handed over as evidence.** **AND THE HONEST LIMIT IS WRITTEN INTO THE RULE: some steps cannot be rehearsed** — a service restart, a production write — **so those are checked against the Environment table by hand and the block says which they are**, rather than the rule pretending everything is executable. |
 | 2026-09-09 | **THE JOURNAL FILE ON PRODUCTION IS NOT THE ONE ON DEV, AND THE MOVE-ASIDE STEP HAS TO NAME THE RIGHT SIZE.** | The dry run warns that `w10c-journal.jsonl` already exists and that **a live run APPENDS**, because `read_journal` takes the last write per `(unit, slot)` and a continued file silently merges two campaigns' outcomes. **The rehearsal on dev reported 146,663 bytes; the host reports 30,203.** **THE FIGURE WAS NEVER WRITTEN INTO THIS RECORD AND THAT IS THE ONLY REASON IT COST NOTHING** — it was stated in chat from the dev rehearsal, and a dev byte count quoted as a production fact is exactly the shape #309 files against the yield numbers. **The production figure is now the one on the record**, and the pre-run step names it. **THE TWO FILES ARE DIFFERENT CAMPAIGNS, WHICH IS WHY THE SIZES DIVERGE:** dev accumulated W10c's attempts and this slice's rehearsals; production holds what the applied W10c run wrote. **Neither is deleted and neither should be** — #309 already records that the applied run has no journal of its own, so the host's 30,203 bytes are the closest thing to one that exists. **Move aside, never remove.** |
 | 2026-09-09 | **W10d COMMIT 2 — TWO DEFECTS FOUND BY REHEARSING THE DRY RUN AND READING ITS OUTPUT, NEITHER OF WHICH ANY TEST WAS LOOKING AT.** | **(1) THE CEILING'S ITEMISATION CONTRADICTED THE CEILING.** After #305 the figure counts cohorts; the line beside it still read `control 3 + 1 units`, so the real output printed **`ceiling 311 (control 3 + 1 units …)`** — **311 is a seven-cohort number and *1 units* reads as a one-cohort authorisation.** That is **#262's own sentence** — *a wrong denominator that matches by accident reads as a right one* — **surviving in the prose beside its own fix**, on the line the operator types a confirmation against. It now names cohorts, their size, and the unit count. **Found by running the command, not by a test**, and a test was added afterwards. **(2) THE ACCEPTANCE QUERY OMITTED `validator_version = 3`.** `_FOCUS_STOCK` carries `_CURRENT_VALIDATOR`, so the host count in the Next-action block would have counted rows **block 3 cannot serve** — the exact divergence `test_focus_held_cannot_diverge_from_bank_for_session` exists to prevent, **reappearing in the query that decides whether #299 closes.** A before/after pair that disagrees with what the code reads would have settled the criterion on the wrong number. **THE PATTERN IS THE ONE #215 IS ABOUT AND IT IS TWO SLICES RUNNING: the runbook line and the report text are not covered by the suite, and both were wrong until somebody executed them.** W14r's block had four such defects; this one had two, and both were found the same way — **by rehearsing the command locally against the dev database before handing it over.** That rehearsal is free and it has now caught six defects in two slices. |
@@ -4485,6 +4488,59 @@ Migration **019** (renumbered from 018, which W11 took) — `videos`,
 ---
 
 ## Next action
+
+### THE HEAD OF THIS LIST, 2026-09-09 — **TWO STANDING RULES ADOPTED. §3a IS OWED BY THE NEXT SCREEN SLICE, AND IT IS NOT MET TODAY.**
+
+**RECORDS ONLY.** `CLAUDE.md` and `BUILD_PROGRESS.md`. No code, no test, no
+migration, no `data/` change, no `packages/core` change, no `apps/web` change and
+therefore **no Vercel rebuild**. Nothing to deploy; `schema_version` untouched
+at 26.
+
+**§1a — DESIGN FIRST.** Every new surface is designed in Claude Design, the
+export is committed to `specs/design/`, and Claude Code reads **the real file**.
+
+**§3a — PLAYWRIGHT CARRIES THE SCREEN CHECKS, AND NOTHING SATISFIES IT YET.**
+Checked before the rule was written: **there is no Playwright dependency, no
+config, no `e2e/` directory and no CI in this repository.** `apps/web` runs
+Vitest + jsdom + Testing Library, by hand. `playwright` appeared **zero times**
+in this record before today.
+
+**H1 — THE NEXT SLICE THAT TOUCHES A SCREEN BUILDS THE HARNESS.** Its cost is
+named rather than discovered: a dev dependency, a config, a browser download,
+and — because there is no CI — **a suite somebody has to remember to run.** Until
+then §3a is **owed, not met**, which is the honest state and is written into the
+rule itself so it is not later read as a capability.
+
+**H2 — THE BOUNDARY IS NOT OPTIONAL.** Playwright proves a control is on screen
+and reachable. **It cannot judge whether a screen is good, whether a sentence
+teaches, or whether generated content is worth a learner's time.** Three named
+human checks survive it and are not retired when it lands: **the reading of the
+focus bank** (#299 closes on a person reading 56 items, never on a run reporting
+56), **the reading of the close-out**, and **the operator's phone check.**
+
+---
+
+**H3 — #299'S BILLED RUN IS STILL THE OPEN ITEM ON W10d**, and the journal
+move-aside comes first: the host's `w10c-journal.jsonl` is **30,203 bytes** and a
+live run **appends**. Move it, never remove it (#309).
+
+**H4 — #388 IS THE OLDEST UNMET ACCEPTANCE CRITERION IN THE PRODUCT**, `high`,
+and untouched by the last five slices: W13b's measured session, the four
+predictions checked, and the Anthropic console figure written into the record.
+
+**CARRIED, NONE DROPPED:** **#364** — `high`, open, and **the second learner has
+still never been asked whether her voice may leave her device**, four questions
+owed against OpenAI; **#401** — the row §3a answers, and it **stays open** until
+the harness exists and even then only for the half a browser can see;
+**#378**'s interim; **W13-i's four phone checks**; **T1** — `video_glosses` still
+empty, every tap still `no_gloss`; **T2**; **T4**; **#352's 33 calls**; **#306**;
+**#309**; **#169**; **#387**; **#391** (b) and (c); **#393**; **#396**,
+**#397**; **#398**; **#376**, **#370**, **#390**; **#307**;
+**#215/#141/#151** — with **§5c** now the standing rule that catches its
+instances early, and `psql "$DATABASE_URL"` still at 21 pre-existing sites;
+**unit 2's generation held on #299/#249**; **W11c and W14 await the operator's
+✅**.
+
 
 ### THE HEAD OF THIS LIST, 2026-09-09 — **W10d COMMIT 2 IS DEPLOYED AND CONFIRMED ON PRODUCTION. THE ONLY STEP LEFT ON #299 IS A BILLED RUN, AND IT IS THE OPERATOR'S.**
 
