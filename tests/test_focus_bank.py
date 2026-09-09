@@ -441,3 +441,27 @@ def test_the_run_repeats_the_cohort_and_refreshes_the_avoid_list(
     )
     for prompt in generation_prompts:
         assert "already-0 " in prompt or "already-0" in prompt
+
+
+def test_the_ceiling_line_itemises_cohorts_not_units(learner, capsys) -> None:
+    """**#262's SHAPE IN THE LINE THE OPERATOR AUTHORISES AGAINST: the number
+    was right and its explanation was wrong.**
+
+    After #305 the ceiling counts cohorts, but the itemisation beside it still
+    read `control 3 + 1 units` while the figure priced **seven cohorts**. *"A
+    wrong denominator that matches by accident reads as a right one"* — and here
+    it would read as a ceiling for one unit's single cohort, which is the exact
+    misreading #305 exists to prevent, surviving in the prose next to the fix.
+
+    Caught by reading the dry run's real output rather than by a test, which is
+    why this test exists now.
+    """
+    from core.items.generate import dry_run
+
+    _write(learner, cohort=None, n=8, tag="ceil")
+    dry_run(learner, (1,), focus_held={1: 8})
+    out = capsys.readouterr().out
+
+    line = next(one for one in out.splitlines() if "ceiling" in one)
+    assert "6 cohorts" in line, line
+    assert "1 units" not in line

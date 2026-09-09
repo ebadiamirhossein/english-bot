@@ -2169,8 +2169,18 @@ def dry_run(
     ceiling = (
         _expected_checkpoint_calls(plan) if checkpoint else _expected_calls(plan)
     )
+    # **THE ITEMISATION MUST NAME WHAT THE FIGURE COUNTS.** This read
+    # `+ {len(numbers)} units` and, after #305 made the ceiling count COHORTS,
+    # the number was right and its explanation was wrong — 311 beside the words
+    # *1 units*, which reads as a ceiling for a single cohort. **That is #262's
+    # own sentence** — *a wrong denominator that matches by accident reads as a
+    # right one* — **surviving in the prose next to its own fix**, on the line
+    # the operator types a confirmation against.
+    cohort_total = sum(entry.get("cohorts", 1) for entry in plan.values())
     print(f"  ceiling {ceiling} "
-          f"(control {CONTROL_RUNS} + {len(numbers)} units, one top-up allowed)")
+          f"(control {CONTROL_RUNS} + {cohort_total} cohorts of "
+          f"{CHECKPOINT_ITEM_COUNT if checkpoint else ITEMS_PER_UNIT} across "
+          f"{len(numbers)} unit(s), one top-up allowed)")
     print("  ZERO TTS and ZERO STT: no audio type is permitted by these units.")
 
     print("\ndry run — nothing was sent and nothing was written.")
