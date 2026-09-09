@@ -227,6 +227,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 
 Record every decision that deviates from or resolves ambiguity in the spec. Newest first.
 
+| 2026-09-08 | **W14r — THE DEPLOY BLOCK AS FIRST WRITTEN COULD NOT HAVE RUN, AND IT CARRIED #151's EXACT LINE INSIDE A SLICE THAT QUOTES #215.** | **FOUND BY VERIFYING THE LINES AGAINST THE ENVIRONMENT TABLE BEFORE HANDING THEM OVER — which is the check #215 exists because nobody performs.** Four defects, and none of them would have failed a test: **(1) `psql "$DATABASE_URL"`** — #151 in full: **the shell never reads `.env`**, so as `bot` the variable expands to empty and connects to nothing, and as `root` there is no PostgreSQL role. **The working form is `psql english_bot` run as `bot`**, and it is now used at both count steps — **the two lines the whole evidenced-negative rests on.** **(2) NO `set +H`** — #151's third and quietest trap: history expansion fires inside double quotes, so a `!` in a `psql -c` argument is rewritten before psql sees it. **(3) `set -euo pipefail` WITH `grep` CHECKS** — two of the verification greps PASS by finding nothing and exiting 1, so the block would have aborted on its own success. `set -e` is dropped and the reason is written above the greps. **(4) THE PRIVILEGE SPLIT WAS IGNORED** — bare `pip`, bare `scripts/backup.sh`, and `sudo systemctl` mixed into one `cd`. The Environment table's rule is that `.env`, `git`, `pip` and `backup.sh` run as **`bot`** and `systemctl` needs **root**; the block now uses `sudo -u bot` per step and `.venv/bin/pip` rather than `pip`. **THE UNCOMFORTABLE PART: I WROTE #215's DEFECT INTO THE SLICE THAT QUOTES #215 IN ITS OWN COMMIT MESSAGE.** The row is not about a wrong line; it is about the **missing check**, and this is the seventh-or-eighth sighting arriving from the author of the sighting count. **`psql "$DATABASE_URL"` STILL APPEARS AT 21 OTHER SITES in this file** — all pre-existing, all in earlier deploy blocks, all #151's filed class. **They are NOT swept here**, because #151's close condition is `docs/DEPLOYMENT.md` and a hand-sweep is exactly what W10r proved does not hold (#215's sixth sighting: it swept these lines and left the defect under a ✓). **Counted, not estimated: 22 before this correction, 21 after — the one removed is W14r's own.** |
 | 2026-09-08 | **W14r — THE AZURE SPEECH PATH IS RETIRED. OPERATOR RULING, ON A MEASUREMENT.** | **#376 IS THE EVIDENCE AND IT IS FOUR-OF-FIVE:** `model→models`, `window→windows`, `can→can't` and `validation` were deliberately mispronounced and **only `trust` was caught**, at 44.0 against neighbours at 97. **Pronunciation assessment detects a word said as a DIFFERENT WORD and does not detect an INFLECTIONAL ENDING.** **THAT IS NOT A TUNING PROBLEM, IT IS THE INSTRUMENT'S SHAPE**, and inflection and agreement are most of what a B1→B2 learner gets wrong and most of what `errors` exists to collect — **so the instrument is blind to the errors this product is built around.** And W13b's conversation now does the job the ladder was climbing toward. **THE MECHANISM IS THE REMOVAL OF CONFIGURATION, NOT A FLAG.** `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` are gone from `Settings`, so there is **nowhere to load them into** and a stale `.env` line cannot reach the provider; the existing missing-credentials refusal in `assess_pronunciation` becomes the retirement without a new branch anybody could mistake for a feature flag. **A flag would have been the wrong shape: it invites being flipped back.** **AND THE EVIDENCE STAYS EXECUTABLE, WHICH IS THE HARDER HALF.** All 29 shadow tests and the 9 request-construction tests still RUN — the route tests mount the retired router themselves and inject the configuration the retirement removed. **The asymmetry is the whole design: the tests can build that object and no application path can.** Deleting them would have deleted the record of a thing that was built, measured and retired. |
 | 2026-09-08 | **W14r — #364 DOES NOT CLOSE. IT CHANGES RECIPIENT, AND THAT IS THE THING THE RETIREMENT DOES NOT FIX.** | **STATED AS ITS OWN ENTRY BECAUSE THE TEMPTING READING IS THAT RETIRING AZURE ANSWERS IT, AND THAT READING IS WRONG.** #364's four questions were about **Microsoft**. `/talk`'s voice half transcribes through **Whisper — OpenAI**, live and in daily use. **The second learner's voice still leaves her device to a third party the moment the gate lifts; only the company changed.** So the row is **re-titled to name voice generally rather than Azure**, kept `high`, kept open, and **its four questions are rewritten against OpenAI**: retention of submitted audio and whether it can be turned off; jurisdiction of processing; what the DPA says about **voice specifically, as distinct from text** — the typed English already reaches Anthropic under a different agreement, and voice is a biometric-adjacent category a text DPA may not cover; and whether she must be told and agree. **The old set is quoted, not answered.** **WHAT MUST NOT CLOSE IT: retiring one provider** — which is precisely what happened today and moved the recipient without answering a single question. |
 | 2026-09-08 | **W14r — THE ALLOWLIST IS RENAMED, AND THE REASON W13b DECLINED THE RENAME HAS EXPIRED RATHER THAN BEEN OVERRULED.** | `voice_allowed_for`'s docstring said the variable was *"not renamed in this slice — it fails closed, so a half-applied rename on a live `.env` would close a feature rather than open one, but it is still a production edit with no reason behind it."* **That was right when written and it is quoted rather than deleted.** **THE REASON IT EXPIRED: there is no shadow surface.** `SHADOW_ALLOWED_USER_IDS` now names a feature that does not exist while holding the one that does, and a gate whose name lies is a gate somebody clears by mistake. **THE RISK IT NAMED IS UNCHANGED AND IS HANDLED IN THE DEPLOY ORDER, NOT ARGUED AWAY:** the gate fails closed, so a `.env` carrying neither name **closes `/talk`'s microphone rather than opening it** — the safe direction, and still a surprise. **So the host block sets `VOICE_ALLOWED_USER_IDS` BEFORE removing `SHADOW_ALLOWED_USER_IDS`**, and there is a moment where both are present, which is harmless in that order and is not in the other. |
@@ -4472,48 +4473,71 @@ window in which neither name is set **closes `/talk`'s microphone** — the safe
 direction, and still a surprise. A window in which both are set is harmless.
 
 ```bash
-# W14r — run as one block, from the host, as the deploy user.
-set -euo pipefail
+# ── W14r — from root@78.46.240.136. Paste as one block. ───────────────────
+#
+# `set +H` FIRST: #151's third trap. History expansion fires inside double
+# quotes, so a `!` in a psql -c argument is rewritten before psql sees it.
+set +H
+
+# NO `set -e` HERE, DELIBERATELY. Several checks below are `grep`, which exits
+# 1 when it finds nothing — and "finds nothing" is the PASS for two of them.
+# Under `set -e` this block would abort on its own success.
+
 cd /home/bot/english-bot
 
-# 0a — backup FIRST, no argument.
-scripts/backup.sh
+# ── 1. EVIDENCE BEFORE ANYTHING CHANGES ───────────────────────────────────
+# `psql english_bot` run AS BOT — #151: `psql "$DATABASE_URL"` expands to
+# empty because the shell never reads .env, and `psql english_bot` as root
+# fails because there is no root PostgreSQL role.
+sudo -u bot psql english_bot -c \
+  "SELECT count(*) AS speech_attempts_before FROM speech_attempts;"
 
-# 1 — EVIDENCE BEFORE ANYTHING CHANGES. Write this number into the record.
-#     Nothing in this slice deletes a row; this is what proves it.
-psql "$DATABASE_URL" -c "SELECT count(*) AS speech_attempts_before FROM speech_attempts;"
+# ── 2. BACKUP, THEN DEPLOY. backup.sh takes NO argument (it names the
+#       database internally, at scripts/backup.sh:13). ─────────────────────
+sudo -u bot scripts/backup.sh
+sudo -u bot git pull --ff-only
+sudo -u bot .venv/bin/pip install -e packages/core
 
-git pull --ff-only
-pip install -e packages/core
+# No migration in this slice. schema_version stays at 26.
 
-# 2 — THE NEW GATE GOES IN BEFORE THE OLD ONE COMES OUT.
-#     Replace <ID> with the same value SHADOW_ALLOWED_USER_IDS currently holds.
-grep -n 'SHADOW_ALLOWED_USER_IDS' .env
-echo "VOICE_ALLOWED_USER_IDS=<ID>" >> .env
+# ── 3. THE NEW GATE GOES IN BEFORE THE OLD ONE COMES OUT ──────────────────
+# The gate fails closed: a window with neither name closes /talk's microphone.
+# A window with both is harmless. Read the current value, then write it back
+# under the new name.
+sudo -u bot grep -n 'SHADOW_ALLOWED_USER_IDS' .env
+# Substitute the id you just read for <ID>:
+sudo -u bot sh -c 'echo "VOICE_ALLOWED_USER_IDS=<ID>" >> .env'
+sudo -u bot grep -n 'VOICE_ALLOWED_USER_IDS' .env
 
-# 3 — now remove the superseded lines. Azure first, the old gate last.
-sed -i.w14r.bak '/^AZURE_SPEECH_KEY=/d;/^AZURE_SPEECH_REGION=/d' .env
-sed -i '/^SHADOW_ALLOWED_USER_IDS=/d' .env
-grep -c 'AZURE_SPEECH\|SHADOW_ALLOWED' .env   # expect 0
-grep -c 'VOICE_ALLOWED_USER_IDS' .env          # expect 1
+# ── 4. NOW REMOVE THE SUPERSEDED LINES. Azure first, the old gate last. ────
+sudo -u bot sed -i.w14r.bak \
+  -e '/^AZURE_SPEECH_KEY=/d' \
+  -e '/^AZURE_SPEECH_REGION=/d' \
+  -e '/^SHADOW_ALLOWED_USER_IDS=/d' .env
 
-# No migration in this slice. schema_version is untouched.
+# Both of these SHOULD print nothing and exit 1. That is the pass.
+sudo -u bot grep -n 'AZURE_SPEECH' .env
+sudo -u bot grep -n 'SHADOW_ALLOWED_USER_IDS' .env
+# This one should print exactly one line.
+sudo -u bot grep -c 'VOICE_ALLOWED_USER_IDS' .env
 
-# 4 — restart the API ONLY. fonderis-worker, Caddy and PostgreSQL are shared.
-sudo systemctl restart english-api
+# ── 5. RESTART THE API ONLY (root). fonderis-worker, Caddy and PostgreSQL
+#       are shared with a production service that is not ours. ─────────────
+systemctl restart english-api
 sleep 5
 
-# 5 — the retired route must now be gone; the live one must still be gated.
+# ── 6. THE RETIRED ROUTE IS GONE; THE LIVE ONE IS STILL GATED ─────────────
 curl -s -o /dev/null -w 'shadow=%{http_code}\n' -X POST \
   https://api.foundgrant.com/shadow/1/score
 curl -s -o /dev/null -w 'session=%{http_code}\n' \
   https://api.foundgrant.com/session/today
 
-# 6 — AND THE ROWS ARE STILL THERE. Same number as step 1.
-psql "$DATABASE_URL" -c "SELECT count(*) AS speech_attempts_after FROM speech_attempts;"
+# ── 7. AND THE ROWS ARE STILL THERE — same number as step 1. ──────────────
+sudo -u bot psql english_bot -c \
+  "SELECT count(*) AS speech_attempts_after FROM speech_attempts;"
 
 systemctl is-active english-api
-sudo journalctl -u english-api -n 40 --no-pager
+journalctl -u english-api -n 40 --no-pager
 ```
 
 **EXPECTED: `shadow=404` and `session=401`.** A `shadow=200` or `405` means the
