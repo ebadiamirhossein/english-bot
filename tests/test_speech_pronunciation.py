@@ -38,16 +38,52 @@ REFERENCE = "I'll grab a coffee first."
 AUDIO = b"RIFF....WAVEfake-pcm-bytes"
 
 
-def _settings(**over) -> Settings:
+def _settings(**over):
+    """A settings object carrying the Azure fields **that `Settings` no longer
+    has.**
+
+    ── W14r, 2026-09-08 ──────────────────────────────────────────────────────
+    What this replaces, quoted (#82's shape):
+
+        base = dict(..., azure_speech_key="test-key",
+                    azure_speech_region="test-region")
+        return Settings(**base)
+
+    **THE FIELDS WERE REMOVED FROM `Settings` SO THAT A STALE `.env` COULD NOT
+    MAKE THE PATH REACHABLE**, which means the real settings object can no
+    longer express this configuration at all. `speech_api` is duck-typed on its
+    `settings` argument, so a stand-in keeps **all seven of these tests running
+    against the request construction they were written for.**
+
+    **THAT IS THE RETIREMENT'S EXACT SHAPE: the evidence stays executable and
+    the application cannot reproduce it.** These tests are the record that
+    W14's request half was built correctly before #376 measured the provider
+    and the operator retired it — deleting them would delete that record.
+    """
     base = dict(
         database_url="postgresql://x/y",
         telegram_bot_token="",
         llm_api_key="k",
-        azure_speech_key="test-key",
-        azure_speech_region="test-region",
     )
-    base.update(over)
-    return Settings(**base)
+    base.update({k: v for k, v in over.items() if k not in _AZURE})
+    # `Settings` is frozen, so the two attributes are carried by a wrapper
+    # rather than assigned onto it — which is also the more honest shape: this
+    # is not a Settings that happens to have Azure fields, it is a different
+    # object that the application has no way to construct.
+    return _WithAzure(Settings(**base), **over)
+
+
+#: The two attributes `Settings` stopped carrying at W14r.
+_AZURE = {"azure_speech_key": "test-key", "azure_speech_region": "test-region"}
+
+
+class _WithAzure:
+    """Settings, plus the two fields the retirement removed. Tests only."""
+
+    def __init__(self, base: Settings, **over):
+        self.__dict__.update(base.__dict__)
+        for key, default in _AZURE.items():
+            setattr(self, key, over.get(key, default))
 
 
 class _Response:

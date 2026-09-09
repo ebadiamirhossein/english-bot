@@ -158,7 +158,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # The region is read but never printed: no region literal reaches a log, a
     # terminal capture, or this repository.
-    configured = bool(settings.azure_speech_key and settings.azure_speech_region)
+    # W14r: `Settings` no longer carries these, so this reads MISSING and the
+    # probe refuses at `--live`. The script stays as the record of how the
+    # provider was measured (#376), and it can no longer reach it.
+    configured = bool(
+        getattr(settings, "azure_speech_key", "")
+        and getattr(settings, "azure_speech_region", "")
+    )
     print(f"reference text : {args.text!r}")
     print(f"duration       : {seconds:.2f}s")
     print(f"native rate    : {native_rate} Hz, {len(native_bytes)} bytes")

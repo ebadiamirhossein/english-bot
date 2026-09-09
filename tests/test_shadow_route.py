@@ -117,8 +117,40 @@ def azure_configured(monkeypatch):
 
     **These are not real values and no real value exists in this repository.**
     """
-    monkeypatch.setenv("AZURE_SPEECH_KEY", "test-key-not-real")
-    monkeypatch.setenv("AZURE_SPEECH_REGION", "test-region")
+    # ── W14r: THE ENV VARS NO LONGER REACH ANYTHING ────────────────────────
+    #
+    # What this replaces, quoted (#82's shape):
+    #
+    #     monkeypatch.setenv("AZURE_SPEECH_KEY", "test-key-not-real")
+    #     monkeypatch.setenv("AZURE_SPEECH_REGION", "test-region")
+    #
+    # **`Settings` NO LONGER CARRIES THE AZURE FIELDS**, so setting the
+    # environment now does nothing and `assess_pronunciation` refuses before
+    # building a request — which is the retirement working, observed here as
+    # ten 502s the first time this suite ran after it.
+    #
+    # **THE CONFIGURATION IS INJECTED WHERE THE RETIREMENT REMOVED IT, AND
+    # NOTHING BELOW IT IS MOCKED.** `core.speech.load_settings` is patched to
+    # return the real settings plus the two attributes; the transport
+    # (`httpx.post`) is still the seam every assertion runs through, so the
+    # endpoint derivation, the headers, the retry policy and the status mapping
+    # all still EXECUTE. **Patching `assess_pronunciation` itself would have
+    # been easier and would have hollowed out every test in this file** —
+    # standing rule 7, and #345's fifth instance.
+    #
+    # **NO APPLICATION CODE PATH CAN BUILD THIS OBJECT.** That asymmetry is the
+    # retirement: the evidence stays runnable, the product cannot reach it.
+    import core.speech as _speech
+
+    real = load_settings()
+
+    class _WithAzure:
+        def __init__(self, base):
+            self.__dict__.update(base.__dict__)
+            self.azure_speech_key = "test-key-not-real"
+            self.azure_speech_region = "test-region"
+
+    monkeypatch.setattr(_speech, "load_settings", lambda: _WithAzure(real))
 
 
 @pytest.fixture(autouse=True)
@@ -130,7 +162,7 @@ def consented(learner, monkeypatch):
     asserts the closed default and the refusal; this fixture is what lets the
     rest of the surface be exercised at all.
     """
-    monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", str(learner.user_id))
+    monkeypatch.setenv("VOICE_ALLOWED_USER_IDS", str(learner.user_id))
     # §B reaches `speech.synthesize`, which refuses without a key before it
     # builds any request. Exported, never a scratch `.env` (#64).
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-real")
@@ -138,7 +170,25 @@ def consented(learner, monkeypatch):
 
 @pytest.fixture
 def app() -> FastAPI:
-    return create_app()
+    """The retired router, mounted for the test and for nothing else.
+
+    **W14r UNREGISTERED `/shadow` FROM `create_app()`.** This fixture used to
+    return the real application; it now builds one and mounts the router
+    explicitly, so **all 29 assertions below keep running against the code they
+    were written for** while the product exposes none of it.
+
+    **THAT IS THE WHOLE POINT OF #390's disable-don't-delete, applied to a test
+    suite rather than to a module.** These tests are the evidence W14's surface
+    worked — the gate, the 2 MB body cap, the 404-not-403 mapping, the retry
+    policy — and deleting them would delete the record of a thing that was
+    built, measured and retired. **`tests/test_shadow_retired.py` asserts the
+    other half: that the real app serves none of these paths.**
+    """
+    from apps.api.routers import shadow as shadow_router
+
+    retired = create_app()
+    retired.include_router(shadow_router.router)
+    return retired
 
 
 @pytest.fixture
@@ -662,7 +712,7 @@ def test_a_learner_not_on_the_allowlist_cannot_hear_the_line_either(
     A blocked learner who could hear the line would learn the feature exists.
     404, the same answer an absent line gives — never 403.
     """
-    monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", "")
+    monkeypatch.setenv("VOICE_ALLOWED_USER_IDS", "")
     with patch("core.speech.openai.OpenAI") as client_cls:
         response = get(app, f"/shadow/{learner.card_id}/audio", cookies=_as(learner))
     assert response.status_code == 404

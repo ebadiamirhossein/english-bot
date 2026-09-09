@@ -298,7 +298,28 @@ def assess_pronunciation(
     still retry** -- those are faults, not refusals.
     """
     cfg = settings or load_settings()
-    if not cfg.azure_speech_key or not cfg.azure_speech_region:
+    # ── W14r, 2026-09-08: THIS GUARD IS NOW THE RETIREMENT ──────────────────
+    #
+    # **`Settings` NO LONGER CARRIES THESE FIELDS**, so under any configuration
+    # the application can produce, `getattr` returns `""` and this refuses
+    # before a byte leaves the machine. **The refusal is not new — it is the
+    # same one that always guarded missing credentials — and that is the point:
+    # the path was closed by REMOVING ITS CONFIGURATION rather than by adding a
+    # branch that a later reader could take for a feature flag.**
+    #
+    # `getattr` rather than attribute access, and the reason is the tests: they
+    # hand this function a stand-in object carrying the two attributes, which
+    # keeps W14's request-construction evidence executable. **Nothing in the
+    # application can build such an object** — that is what makes the retirement
+    # real rather than declared.
+    #
+    # **NOT DELETED**, per #390's disable-don't-delete precedent: the retry
+    # policy, the status mapping and the endpoint derivation below are what the
+    # 18 shadow tests and `tests/test_speech_pronunciation.py` assert, and they
+    # are the evidence the surface worked before it was retired by ruling.
+    if not getattr(cfg, "azure_speech_key", "") or not getattr(
+        cfg, "azure_speech_region", ""
+    ):
         raise SpeechError(
             "AZURE_SPEECH_KEY and AZURE_SPEECH_REGION are not both set"
         )

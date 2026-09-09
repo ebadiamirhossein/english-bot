@@ -102,15 +102,15 @@ def test_the_allowlist_is_empty_by_default_and_that_direction_is_the_point(
     monkeypatch,
 ) -> None:
     """**Unset means NOBODY.** Forgetting it costs a feature, never a voice."""
-    monkeypatch.delenv("SHADOW_ALLOWED_USER_IDS", raising=False)
-    assert load_settings().shadow_allowed_user_ids == ()
+    monkeypatch.delenv("VOICE_ALLOWED_USER_IDS", raising=False)
+    assert load_settings().voice_allowed_user_ids == ()
 
 
 def test_a_learner_not_on_the_allowlist_is_offered_no_line(
     learner: int, monkeypatch
 ) -> None:
     """The card is otherwise perfect, so **only the gate can be excluding it.**"""
-    monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", str(learner + 1000))
+    monkeypatch.setenv("VOICE_ALLOWED_USER_IDS", str(learner + 1000))
     with connection() as conn:
         assert shadow_score.shadow_line(conn, learner) is None
 
@@ -120,7 +120,7 @@ def test_a_learner_on_the_allowlist_is_offered_the_line(
 ) -> None:
     """**The positive control.** Without it the negative above would pass even
     if `shadow_line` were broken and returned `None` for everyone (#345)."""
-    monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", str(learner))
+    monkeypatch.setenv("VOICE_ALLOWED_USER_IDS", str(learner))
     with connection() as conn:
         line = shadow_score.shadow_line(conn, learner)
     assert line is not None
@@ -128,7 +128,7 @@ def test_a_learner_on_the_allowlist_is_offered_the_line(
 
 
 def test_an_allowlist_of_several_ids_is_parsed(learner: int, monkeypatch) -> None:
-    monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", f" 99 , {learner} ,101 ")
+    monkeypatch.setenv("VOICE_ALLOWED_USER_IDS", f" 99 , {learner} ,101 ")
     with connection() as conn:
         assert shadow_score.shadow_line(conn, learner) is not None
 
@@ -142,7 +142,7 @@ def test_scoring_refuses_for_a_blocked_learner_before_any_provider_call(
     Asserts **no provider call**, because a gate that refuses only after sending
     the audio would have already done the thing it exists to prevent.
     """
-    monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", "")
+    monkeypatch.setenv("VOICE_ALLOWED_USER_IDS", "")
     monkeypatch.setenv("AZURE_SPEECH_KEY", "test-key-not-real")
     monkeypatch.setenv("AZURE_SPEECH_REGION", "test-region")
     with connection() as conn:

@@ -133,10 +133,28 @@ class Settings:
     # endpoint or key value appears anywhere in this repository; both come from
     # the host's `.env`. The endpoint is DERIVED from the region in `speech.py`
     # rather than configured, so there is one place a region can be wrong.
-    azure_speech_key: str = field(default="", repr=False)
-    azure_speech_region: str = ""
+    # ── W14r, 2026-09-08: THE AZURE FIELDS ARE GONE ─────────────────────────
+    #
+    # Removed, quoted rather than deleted silently (#82's shape):
+    #
+    #     azure_speech_key: str = field(default="", repr=False)
+    #     azure_speech_region: str = ""
+    #
+    # **AND REMOVING THEM FROM `Settings` IS THE WHOLE MECHANISM, NOT
+    # HOUSEKEEPING.** `speech.assess_pronunciation` refuses when the key and
+    # region are not both set. With no field to load them into, **a stale
+    # `AZURE_SPEECH_KEY` left in the host's `.env` can no longer reach it** —
+    # the door is shut by configuration rather than by a flag somebody could
+    # flip back. The `.env` lines are removed as well, but the code no longer
+    # depends on that having happened.
+    #
+    # `speech_api.py` stays on disk and is duck-typed on its `settings`
+    # argument, so `tests/test_speech_pronunciation.py` can still hand it the
+    # two attributes explicitly and keep W14's request-construction evidence
+    # runnable. **Nothing in the application can produce such an object.**
+    #
     # W14 — **the consent gate, and it is TEMPORARY.** An explicit allowlist of
-    # `users.id` permitted to send audio to Azure.
+    # `users.id` permitted to send audio to a third party.
     #
     # **EMPTY MEANS NOBODY, and that direction is the whole point** (known issue
     # #31's shape: silence is never the default). Forgetting this variable costs
@@ -151,7 +169,13 @@ class Settings:
     # agreement that her voice may leave her device, AND answers to §1c's four
     # data-processing questions. It is not a feature flag and must not be
     # cleared as one.
-    shadow_allowed_user_ids: tuple[int, ...] = ()
+    # **RENAMED FROM `shadow_allowed_user_ids` / `SHADOW_ALLOWED_USER_IDS` BY
+    # W14r**, because the surface it named no longer exists and the gate it
+    # holds does. The question was never about shadowing: it is *may this
+    # learner's voice leave her device*, and `/talk` asks it every time the
+    # microphone is used. See `voice_allowed_for`, whose docstring records why
+    # the rename was declined in W13b and why that reason has now expired.
+    voice_allowed_user_ids: tuple[int, ...] = ()
     # S18 hardening — operator alerts + runtime files (optional ids).
     operator_telegram_id: int | None = None
     runtime_dir: str = ""
@@ -269,8 +293,6 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         os.environ.get("WHISPER_MODEL", "whisper-1").strip() or "whisper-1"
     )
     tts_model = os.environ.get("TTS_MODEL", "tts-1").strip() or "tts-1"
-    azure_speech_key = os.environ.get("AZURE_SPEECH_KEY", "").strip()
-    azure_speech_region = os.environ.get("AZURE_SPEECH_REGION", "").strip()
     tts_voice = os.environ.get("TTS_VOICE", "alloy").strip() or "alloy"
     tts_format = os.environ.get("TTS_FORMAT", "opus").strip() or "opus"
 
@@ -434,9 +456,9 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
             f"(got {r2_endpoint!r})"
         )
     watch_dir = os.environ.get("WATCH_DIR", "").strip()
-    shadow_allowed_user_ids = tuple(
+    voice_allowed_user_ids = tuple(
         int(part.strip())
-        for part in os.environ.get("SHADOW_ALLOWED_USER_IDS", "").split(",")
+        for part in os.environ.get("VOICE_ALLOWED_USER_IDS", "").split(",")
         if part.strip()
     )
     shared_book_slugs = tuple(
@@ -617,8 +639,6 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         tts_provider=tts_provider,
         openai_api_key=openai_api_key,
         whisper_model=whisper_model,
-        azure_speech_key=azure_speech_key,
-        azure_speech_region=azure_speech_region,
         tts_model=tts_model,
         tts_voice=tts_voice,
         tts_format=tts_format,
@@ -654,7 +674,7 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         r2_required=r2_required,
         watch_dir=watch_dir,
         shared_book_slugs=shared_book_slugs,
-        shadow_allowed_user_ids=shadow_allowed_user_ids,
+        voice_allowed_user_ids=voice_allowed_user_ids,
         couple_chat_id=couple_chat_id,
         web_origin=web_origin,
         webauthn_rp_id=webauthn_rp_id,

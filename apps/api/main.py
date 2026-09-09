@@ -29,7 +29,10 @@ from apps.api.routers import lessons as lessons_router
 from apps.api.routers import session as session_router
 from apps.api.routers import video as video_router
 from apps.api.routers import conversation as conversation_router
-from apps.api.routers import shadow as shadow_router
+# W14r: `shadow` is no longer imported here — see the unregistration below.
+# **The module is NOT orphaned:** `tests/test_shadow_retired.py` imports it
+# and mounts it, so a retired router that stopped importing would still fail
+# a test rather than rot unnoticed.
 from apps.api.routers import week as week_router
 from core.config import Settings, load_settings
 from core.logging import configure_console_logging
@@ -198,7 +201,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(lessons_router.router)
     app.include_router(checkpoint_router.router)
     app.include_router(video_router.router)
-    app.include_router(shadow_router.router)
+    # ── W14r: THE SHADOW ROUTES ARE NO LONGER REGISTERED, 2026-09-08 ────────
+    #
+    # The registration this replaces, quoted rather than removed silently
+    # (#82's shape, and #348's precedent for an unregistration):
+    #
+    #     app.include_router(shadow_router.router)
+    #
+    # **WHY, AND IT IS A MEASUREMENT AND NOT A PREFERENCE (#376).** Azure
+    # pronunciation assessment **detects a word said as a different word and
+    # does not detect an inflectional ending.** Four deliberate errors were put
+    # to it — `model→models`, `window→windows`, `can→can't`, `validation` — and
+    # **only `trust` was caught**, at 44.0 against neighbours at 97.
+    # **Inflection and agreement are most of what a B1→B2 learner gets wrong
+    # and most of what the error journal exists to collect**, so the instrument
+    # is blind to the errors this product is built around. And W13b's
+    # conversation now does the job the ladder was climbing toward.
+    #
+    # **OPERATOR RULING 2026-09-08.** W14's three acceptance criteria were met
+    # and evidenced; this is a retirement, which is a different sentence from a
+    # failure.
+    #
+    # **NOTHING IS DELETED.** `apps/api/routers/shadow.py`,
+    # `services/shadow_score.py`, `speech_api.py`, migration 024,
+    # `speech_attempts` and all 29 shadow tests are untouched. The tests build
+    # their own app and mount this router explicitly, so the evidence stays
+    # runnable while the product stops exposing it.
+    #
+    # **WHAT IS NOT FIXED BY THIS, SAID SO NOBODY READS THE SILENCE AS AN
+    # ANSWER: #364 does not close.** `/talk`'s microphone sends the second
+    # learner's voice to OpenAI. The recipient changed; the question did not.
     app.include_router(conversation_router.router)
     app.include_router(week_router.router)
     logger.info(
@@ -223,7 +255,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     # set the app does not have. The blind spot itself stays
                     # open: nothing checks these two lists agree.
                     video_router.router,
-                    shadow_router.router,
+                    # W14r: unregistered above, so it is out of this list
+                    # too. **Keeping it here would make the startup log claim a
+                    # route set the app does not have** — #255's defect exactly,
+                    # which the comment above this block was written about.
+                    #
+                    #     shadow_router.router,
                     # W13b. **Added to BOTH lists in the same commit**, which is
                     # what the note above says W13-i failed to do -- the blind
                     # spot is still unchecked, so the only defence is doing it

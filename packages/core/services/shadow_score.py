@@ -180,7 +180,7 @@ def scoring_allowed_for(user_id: int, settings: Any = None) -> bool:
     **W13b MOVED THE PREDICATE AND LEFT THIS AS THE DELEGATION.** The
     conversation surface asks the identical question -- *may this learner's
     voice leave her device* -- and two copies of one condition is how they
-    drift. The variable is unchanged (`SHADOW_ALLOWED_USER_IDS`) and is
+    drift. The variable is `VOICE_ALLOWED_USER_IDS` (renamed by W14r) and is
     deliberately NOT renamed: it fails closed, so a half-applied rename on a
     live `.env` closes a feature rather than opening one, but it is still a
     production edit with no reason behind it.

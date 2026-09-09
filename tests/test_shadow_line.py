@@ -37,7 +37,7 @@ def consented(learner, monkeypatch):
     `None` from the predicate under test. Asserted separately in
     `tests/test_shadow_consent_gate.py`.
     """
-    monkeypatch.setenv("SHADOW_ALLOWED_USER_IDS", str(learner))
+    monkeypatch.setenv("VOICE_ALLOWED_USER_IDS", str(learner))
 
 
 @pytest.fixture()

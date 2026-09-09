@@ -142,12 +142,24 @@ def _close_v3() -> str:
 def voice_allowed_for(user_id: int, settings: Any = None) -> bool:
     """**One condition, one home** -- shared with the shadow surface (#364).
 
-    Reads the SAME `SHADOW_ALLOWED_USER_IDS`, deliberately: the question that
-    gate asks is *may this learner's voice leave her device*, and it is the same
-    question whether the audio goes to Microsoft or to OpenAI. **The variable is
-    not renamed in this slice** -- it fails closed, so a half-applied rename on a
-    live `.env` would close a feature rather than open one, but it is still a
-    production edit with no reason behind it.
+    Reads `VOICE_ALLOWED_USER_IDS`. The question this gate asks is *may this
+    learner's voice leave her device*, and it is the same question whether the
+    audio goes to Microsoft or to OpenAI.
+
+    **RENAMED BY W14r, 2026-09-08, AND THE OLD REASONING IS QUOTED BECAUSE IT
+    WAS RIGHT WHEN IT WAS WRITTEN** (#82's shape): *"Reads the SAME
+    `SHADOW_ALLOWED_USER_IDS`, deliberately... **The variable is not renamed in
+    this slice** -- it fails closed, so a half-applied rename on a live `.env`
+    would close a feature rather than open one, but it is still a production
+    edit with no reason behind it."*
+
+    **THE REASON HAS NOW EXPIRED: there is no shadow surface.** The routes are
+    unregistered, so a variable named after them gates a feature that does not
+    exist while holding the one that does. **The half-applied risk it named is
+    unchanged and is still real** — the gate fails closed, so a `.env` carrying
+    neither name closes `/talk`'s microphone rather than opening it. That is the
+    safe direction and it is still a surprise, which is why the deploy sets the
+    new variable **before** the old one is removed.
 
     `core.services.shadow_score.scoring_allowed_for` delegates here so there is
     one predicate rather than two that can drift.
@@ -158,7 +170,7 @@ def voice_allowed_for(user_id: int, settings: Any = None) -> bool:
     in text from day one; only the microphone waits on #364.**
     """
     cfg = settings or load_settings()
-    return user_id in cfg.shadow_allowed_user_ids
+    return user_id in cfg.voice_allowed_user_ids
 
 
 def band_for_reply(coverage: float, counted_tokens: int) -> str | None:
