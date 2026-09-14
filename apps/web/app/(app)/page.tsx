@@ -65,7 +65,7 @@ export default function TodayPage() {
             href="/write"
             className="text-primary underline underline-offset-4"
           >
-            write anything
+            write
           </Link>
           .
         </p>

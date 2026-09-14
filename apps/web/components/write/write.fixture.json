@@ -1,0 +1,301 @@
+{
+  "auth": {
+    "user_id": 3,
+    "name": "Learner",
+    "expires_at": "2026-10-15T00:00:00Z"
+  },
+  "session": {
+    "session_id": 90,
+    "date": "2026-09-15",
+    "l1_language": "fa",
+    "current_block": 4,
+    "completed": false,
+    "blocks": [
+      {
+        "n": 1,
+        "kind": "review",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 2,
+        "kind": "input",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 3,
+        "kind": "focus",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 4,
+        "kind": "output",
+        "state": "ready",
+        "payload": {
+          "day_kind": "journal"
+        }
+      },
+      {
+        "n": 5,
+        "kind": "close",
+        "state": "empty",
+        "payload": {}
+      }
+    ]
+  },
+  "today": {
+    "day_kind": "journal",
+    "session_id": 90,
+    "ceiling_reached": false,
+    "prompt": null
+  },
+  "today_no_session": {
+    "day_kind": "journal",
+    "session_id": null,
+    "ceiling_reached": false,
+    "prompt": null
+  },
+  "today_ceiling": {
+    "day_kind": "journal",
+    "session_id": 90,
+    "ceiling_reached": true,
+    "prompt": null
+  },
+  "two": {
+    "is_english": true,
+    "did_well": "You walk us through the whole day, from the dentist to the evening soup, in a clear order.",
+    "corrections": [
+      {
+        "you_said": "Today I go to the dentist",
+        "correct_form": "Today I went to the dentist",
+        "explanation": "It's already happened, so the verb moves into the past: went.",
+        "label": "Past tense"
+      },
+      {
+        "you_said": "two episodes from a series",
+        "correct_form": "two episodes of a series",
+        "explanation": "The episodes belong to the series, so it's of.",
+        "label": "Prepositions"
+      }
+    ],
+    "word_offers": []
+  },
+  "one": {
+    "is_english": true,
+    "did_well": "You walk us through the whole day, from the dentist to the evening soup, in a clear order.",
+    "corrections": [
+      {
+        "you_said": "Today I go to the dentist",
+        "correct_form": "Today I went to the dentist",
+        "explanation": "It's already happened, so the verb moves into the past: went.",
+        "label": "Past tense"
+      }
+    ],
+    "word_offers": []
+  },
+  "clean_no_line": {
+    "is_english": true,
+    "corrections": [],
+    "word_offers": []
+  },
+  "no_label": {
+    "is_english": true,
+    "corrections": [
+      {
+        "you_said": "Today I go to the dentist",
+        "correct_form": "Today I went to the dentist",
+        "explanation": "It's already happened, so the verb moves into the past: went."
+      }
+    ],
+    "word_offers": []
+  },
+  "not_english": {
+    "is_english": false,
+    "corrections": [],
+    "word_offers": []
+  },
+  "session_paragraph": {
+    "session_id": 90,
+    "date": "2026-09-17",
+    "l1_language": "fa",
+    "current_block": 4,
+    "completed": false,
+    "blocks": [
+      {
+        "n": 1,
+        "kind": "review",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 2,
+        "kind": "input",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 3,
+        "kind": "focus",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 4,
+        "kind": "output",
+        "state": "ready",
+        "payload": {
+          "day_kind": "paragraph"
+        }
+      },
+      {
+        "n": 5,
+        "kind": "close",
+        "state": "empty",
+        "payload": {}
+      }
+    ]
+  },
+  "today_paragraph": {
+    "day_kind": "paragraph",
+    "session_id": 90,
+    "ceiling_reached": false,
+    "prompt": "Write six sentences about yesterday. Put them in order and join them with time words."
+  },
+  "paragraph": {
+    "is_english": true,
+    "corrections": [
+      {
+        "you_said": "it depends of the person",
+        "correct_form": "it depends on the person",
+        "explanation": "Depend always takes on in English, whatever follows it.",
+        "label": "Prepositions"
+      },
+      {
+        "you_said": "now he earn much more money",
+        "correct_form": "now he earns much more money",
+        "explanation": "He, she and it add an s to the verb in the present: he earns.",
+        "label": "Subject and verb"
+      },
+      {
+        "you_said": "he miss his family",
+        "correct_form": "he misses his family",
+        "explanation": "Same rule: with he, the verb takes an s — misses.",
+        "label": "Subject and verb"
+      }
+    ],
+    "structure": [
+      {
+        "segments": [
+          {
+            "text": "You give your opinion in the first line and then back it with one real example, which is the right order for this kind of answer.",
+            "quote": false
+          }
+        ]
+      },
+      {
+        "segments": [
+          {
+            "text": "The turn at ",
+            "quote": false
+          },
+          {
+            "text": "But he told me",
+            "quote": true
+          },
+          {
+            "text": " is the strongest part — that's where the paragraph starts to argue with itself.",
+            "quote": false
+          }
+        ]
+      }
+    ],
+    "word_offers": [
+      {
+        "phrase": "to depend on",
+        "sentence": "it depends on the person",
+        "in_deck": false
+      },
+      {
+        "phrase": "to miss someone",
+        "sentence": "he misses his family",
+        "in_deck": true
+      }
+    ]
+  },
+  "paragraph_bare": {
+    "is_english": true,
+    "corrections": [
+      {
+        "you_said": "it depends of the person",
+        "correct_form": "it depends on the person",
+        "explanation": "Depend always takes on in English, whatever follows it.",
+        "label": "Prepositions"
+      },
+      {
+        "you_said": "now he earn much more money",
+        "correct_form": "now he earns much more money",
+        "explanation": "He, she and it add an s to the verb in the present: he earns.",
+        "label": "Subject and verb"
+      },
+      {
+        "you_said": "he miss his family",
+        "correct_form": "he misses his family",
+        "explanation": "Same rule: with he, the verb takes an s — misses.",
+        "label": "Subject and verb"
+      }
+    ],
+    "word_offers": []
+  },
+  "paragraph_one_offer": {
+    "is_english": true,
+    "corrections": [
+      {
+        "you_said": "it depends of the person",
+        "correct_form": "it depends on the person",
+        "explanation": "Depend always takes on in English, whatever follows it.",
+        "label": "Prepositions"
+      },
+      {
+        "you_said": "now he earn much more money",
+        "correct_form": "now he earns much more money",
+        "explanation": "He, she and it add an s to the verb in the present: he earns.",
+        "label": "Subject and verb"
+      }
+    ],
+    "structure": [
+      {
+        "segments": [
+          {
+            "text": "You give your opinion in the first line and then back it with one real example, which is the right order for this kind of answer.",
+            "quote": false
+          }
+        ]
+      },
+      {
+        "segments": [
+          {
+            "text": "The turn at ",
+            "quote": false
+          },
+          {
+            "text": "But he told me",
+            "quote": true
+          },
+          {
+            "text": " is the strongest part — that's where the paragraph starts to argue with itself.",
+            "quote": false
+          }
+        ]
+      }
+    ],
+    "word_offers": [
+      {
+        "phrase": "to depend on",
+        "sentence": "it depends on the person",
+        "in_deck": false
+      }
+    ]
+  }
+}

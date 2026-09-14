@@ -218,11 +218,11 @@ The app opens on **one button: Start today's session.** Not a menu. The single b
 
 | Day | Session shape |
 |---|---|
-| Mon | Full · **video** (BBC Learning English / FluentU) · output: **speaking** |
+| Mon | Full · **video** (BBC Learning English / FluentU) · output: **speaking — served by W15's retell and answer rungs** *(amended 2026-09-14 by W16a, old text quoted per #82: "output: **speaking**". The speaking surface this row assumed was retired by W14r on #376's measurement; speaking output returns with **W15**, and the day rule is revisited then.)* |
 | Tue | Light · **series episode** (HIMYM etc., mined via Trancy) · output: **writing** (journal, 5–10 sentences) |
-| Wed | Full · **video** (Learn English With TV Series) · output: **speaking** |
+| Wed | Full · **video** (Learn English With TV Series) · output: **speaking — served by W15's retell and answer rungs** *(amended 2026-09-14 by W16a, old text quoted per #82: "output: **speaking**". Retired surface, returns with **W15**; see Mon.)* |
 | Thu | Light · **series** · output: **writing** (paragraph on a prompt, graded on structure) |
-| Fri | Full · **video** (topic from your interest weights) · output: **speaking, unprepared** |
+| Fri | Full · **video** (topic from your interest weights) · output: **speaking, unprepared — served by W15's answer rung** *(amended 2026-09-14 by W16a, old text quoted per #82: "output: **speaking, unprepared**". Retired surface, returns with **W15**; see Mon.)* |
 | Sat | **Checkpoint** (12 items) + couple challenge + watch-together |
 | Sun | No tasks. Weekly report. Free extensive input, tracked but never required. |
 

@@ -18,8 +18,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.services.correction import MAX_CHARS as CORRECTION_MAX_CHARS
-from core.services.correction import MIN_CHARS as CORRECTION_MIN_CHARS
+from core.writing.rules import MAX_CHARS as WRITING_MAX_CHARS
+from core.writing.rules import MIN_CHARS as WRITING_MIN_CHARS
 
 
 class Health(BaseModel):
@@ -77,37 +77,97 @@ class Passkey(BaseModel):
     backed_up: bool | None
 
 
-class CorrectRequest(BaseModel):
-    """`POST /correct`. The bounds are the service's, not a second opinion."""
+class WriteTodayOut(BaseModel):
+    """`GET /write/today` (W16a). Every field traced to a design frame.
 
-    text: str = Field(min_length=CORRECTION_MIN_CHARS, max_length=CORRECTION_MAX_CHARS)
+    `day_kind` → `1c`/`1d`; `session_id` → posted back for Ruling 1, never
+    rendered; `ceiling_reached` → `1q` unavailable. **A boolean, never a count
+    and never a reset time** (Ruling 3).
+    """
+
+    day_kind: Literal["journal", "paragraph"]
+    session_id: int | None
+    ceiling_reached: bool
+    #: W16b → `1e`'s prompt card. The unit's task, verbatim; `null` on the journal.
+    prompt: str | None = None
+
+
+class CorrectRequest(BaseModel):
+    """`POST /correct` (W16a). The bounds are the writing service's, not a second opinion.
+
+    `day_kind` is the kind the learner was SHOWN — a server re-derivation across
+    local midnight would correct one kind as the other — and W16a accepts only
+    `journal`; W16b widens it. `session_id` is Ruling 1's, validated
+    server-side and silently dropped when it is not the learner's own today.
+    """
+
+    text: str = Field(min_length=WRITING_MIN_CHARS, max_length=WRITING_MAX_CHARS)
+    day_kind: Literal["journal", "paragraph"] = "journal"
+    session_id: int | None = None
 
 
 class Correction(BaseModel):
-    """One correction, in the v2 shape the learners already read in Telegram.
+    """One correction card, `1k`'s anatomy.
 
-    `murphy_units` is the Murphy reference for the error type — the "why" half,
-    which is the half that teaches.
+    **W16a removed `error_type` and `murphy_units` from the wire** — nothing
+    rendered either (#183's citation left the screen at W8h; the code was a
+    React key). `label` is the eyebrow, from `error_types.learner_label`, and is
+    absent when the taxonomy has none.
     """
 
     you_said: str
     correct_form: str
-    error_type: str
     explanation: str
-    murphy_units: str | None = None
+    label: str | None = None
 
 
 class CorrectionResult(BaseModel):
-    """What one piece of writing produced.
+    """What one journal entry produced (W16a).
 
-    `has_errors: false` with a `did_well` is the ordinary good outcome, not an
-    empty response — the praise is the content in that case.
+    **`did_well` is ABSENT when there is nothing worth saying — never blank,
+    never a fallback** (Ruling 2). The route serialises with
+    `response_model_exclude_none`, so absent means absent on the wire.
+    **`has_errors` is gone**: the client reads `corrections` and nothing read
+    the flag.
     """
 
     is_english: bool
-    has_errors: bool
-    did_well: str
+    did_well: str | None = None
     corrections: list[Correction] = []
+    #: W16b → `1n`. Absent on the journal and when the gate refuses it.
+    structure: list["StructureParagraph"] | None = None
+    #: W16b → `1o`. `[]` on the journal and when nothing survives the offer rule.
+    word_offers: list["WordOffer"] = []
+
+
+class StructureSegment(BaseModel):
+    """One run of structure prose; `quote: true` is the learner's own words → italic."""
+
+    text: str
+    quote: bool
+
+
+class StructureParagraph(BaseModel):
+    segments: list[StructureSegment]
+
+
+class WordOffer(BaseModel):
+    """`1o`'s KeepRow: the phrase, the app's sentence it came from, and the in-deck state."""
+
+    phrase: str
+    sentence: str
+    in_deck: bool
+
+
+class KeepRequest(BaseModel):
+    """`POST /write/keep` (W16b). Re-filtered server-side; never trusted as offered."""
+
+    phrase: str = Field(min_length=1, max_length=80)
+    sentence: str = Field(min_length=1, max_length=WRITING_MAX_CHARS)
+
+
+class KeepOut(BaseModel):
+    status: Literal["saved", "already"]
 
 
 class ItemPresentationOut(BaseModel):
@@ -606,3 +666,6 @@ class ShadowScoreOut(BaseModel):
     attempt_id: int
     words: list[ShadowWordOut]
     improved: bool | None = None
+
+
+CorrectionResult.model_rebuild()

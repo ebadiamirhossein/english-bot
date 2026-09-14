@@ -1,12 +1,16 @@
 /**
- * Input bounds mirrored from `packages/core/services/correction.py`.
+ * Input bounds mirrored from `packages/core/writing/rules.py` (W16a).
  *
  * The server is the authority — it answers 422 outside these — but a learner
- * should not have to round-trip to find out a sentence was too short. Kept in
- * one file so the two places that need them cannot each invent their own, and
- * asserted against the Python constants by
- * `tests/test_web_shell.py::test_the_correction_bounds_match_the_service`.
+ * should not have to round-trip to find out an entry was too short. **The floor
+ * is W3's ten, unchanged; the ceiling is Q-B's two thousand**, raised from the
+ * 1,000 that silently truncated a 300-word entry (D8). Asserted against the
+ * Python constants by
+ * `tests/test_web_shell.py::test_the_writing_bounds_match_the_service`.
+ *
+ * **Neither number is ever shown to a learner.** The too-short check is a floor
+ * inside the submit handler; its value appears in no string (design `1u`).
  */
 
-export const CORRECTION_MIN_CHARS = 10;
-export const CORRECTION_MAX_CHARS = 1000;
+export const WRITING_MIN_CHARS = 10;
+export const WRITING_MAX_CHARS = 2000;

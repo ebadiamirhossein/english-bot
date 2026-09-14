@@ -1,4 +1,4 @@
-"""W3: the single-language / no-transliteration rule reaches all five prompts.
+"""W3: the single-language / no-transliteration rule reaches all five prompts (six since W16a).
 
 **Known issue #45.** S26c fixed this for the conversation close-out by writing
 the rule inline, and left the other four explanation paths without it — so the
@@ -31,11 +31,21 @@ PROMPT_BUILDERS = {}
 
 def _register() -> None:
     from apps.bot.handlers import capture, conversation, diary, voice
-    from core.services import correction
+    from core.services import correction, writing
 
     PROMPT_BUILDERS.update(
         {
             "correction": correction.build_system_prompt,
+            # W16a. The web journal's own prompt. It shares the clause through
+            # `correction.explanation_language_rule`, and this entry is what
+            # proves it reaches the rendered text rather than the constant.
+            "writing_correction": lambda user: writing.build_system_prompt(
+                user, "journal"
+            ),
+            # W16b. The paragraph's own template, with a unit task.
+            "writing_paragraph": lambda user: writing.build_system_prompt(
+                user, "paragraph", "Write six sentences about yesterday."
+            ),
             "diary": diary.build_diary_system_prompt,
             # voice's builder also decides whether this is the closing turn;
             # the explanation rule is the same either way.
@@ -74,10 +84,12 @@ def builders():
         _register()
 
 
-def test_all_five_paths_are_covered() -> None:
+def test_all_seven_paths_are_covered() -> None:
     """A guard for everything below: a shrinking dict passes every check."""
     assert set(PROMPT_BUILDERS) == {
         "correction",
+        "writing_correction",
+        "writing_paragraph",
         "diary",
         "voice",
         "capture",
@@ -87,7 +99,7 @@ def test_all_five_paths_are_covered() -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["correction", "diary", "voice", "capture", "conversation_close"],
+    ["correction", "writing_correction", "writing_paragraph", "diary", "voice", "capture", "conversation_close"],
 )
 def test_the_rule_reaches_the_rendered_prompt_when_fallback_is_on(name) -> None:
     """The learner has asked for explanations in their own language.
@@ -97,7 +109,10 @@ def test_the_rule_reaches_the_rendered_prompt_when_fallback_is_on(name) -> None:
     the script.
     """
     prompt = PROMPT_BUILDERS[name](_learner(fallback=True))
-    expected = single_language_clause(fallback_enabled=True, native_language="fa")
+    # W16a F5: the writing prompt names the language ("Farsi") instead of
+    # sending the column value; the five v2-era paths still format the code.
+    native = "Farsi" if name.startswith("writing_") else "fa"
+    expected = single_language_clause(fallback_enabled=True, native_language=native)
     assert expected in prompt, f"{name} does not carry the single-language rule"
     assert "never Latin transliteration" in prompt
     assert "ONE language only" in prompt
@@ -105,7 +120,7 @@ def test_the_rule_reaches_the_rendered_prompt_when_fallback_is_on(name) -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["correction", "diary", "voice", "capture", "conversation_close"],
+    ["correction", "writing_correction", "writing_paragraph", "diary", "voice", "capture", "conversation_close"],
 )
 def test_the_rule_reaches_the_rendered_prompt_when_fallback_is_off(name) -> None:
     """Explanations stay English. The remaining failure is drifting into the
@@ -116,7 +131,7 @@ def test_the_rule_reaches_the_rendered_prompt_when_fallback_is_off(name) -> None
 
 @pytest.mark.parametrize(
     "name",
-    ["correction", "diary", "voice", "capture", "conversation_close"],
+    ["correction", "writing_correction", "writing_paragraph", "diary", "voice", "capture", "conversation_close"],
 )
 def test_the_native_language_placeholder_is_filled(name) -> None:
     """An unfilled `{native_language}` would ship a literal brace to the model.

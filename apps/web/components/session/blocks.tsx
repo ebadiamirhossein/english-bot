@@ -301,70 +301,54 @@ export function FocusBlock({
 }
 
 /**
- * Block 4 · Output. The unit's written task, corrected through `/write`.
+ * Block 4 · Output — design `1c`. **W16a.**
  *
- * The written half only: speaking is scored at W14 and offering a task nothing
- * can score would be worse than not offering it.
+ * **The card hands the learner to `/write` and carries no task text.** The old
+ * docstring said *"The written half only: speaking is scored at W14"* and *"This
+ * task repeats every day until W11"*; both were stale before W16a — W14r retired
+ * the speaking surface and W11 shipped unit advancement — and the card no longer
+ * shows the unit's task at all. `/write` asks `GET /write/today` for the day.
  *
- * **This task repeats every day until W11**, because `user_unit_state` has no
- * writer and the unit cannot advance — see
- * `core.services.syllabus.current_unit`. It ships repeating rather than empty
- * because the task is real and doing it twice is not harmful; the failure would
- * be presenting it as working content without saying it repeats.
+ * **`day_kind` is read, not decorative.** The copy is keyed by it, and a kind
+ * this build has no card for renders the empty state rather than the journal's
+ * words under another kind's name. W16b adds the paragraph card.
+ *
+ * **`sessionId` is accepted and not used, deliberately.** `/write` gets the
+ * session id from the server (`GET /write/today`), so a learner who opens
+ * `/write` from home after starting the session still finishes block 4. A query
+ * parameter would have been a second, client-side source for the same fact.
  */
 export function OutputBlock({
   block,
-  sessionId,
 }: {
   block: SessionBlock;
   sessionId?: number;
 }) {
-  const task = block.payload.task as string | undefined;
+  const dayKind = block.payload.day_kind;
+  const card =
+    dayKind === "journal"
+      ? BLOCKS.output.journal
+      : dayKind === "paragraph"
+        ? BLOCKS.output.paragraph
+        : null;
 
   return (
     <BlockShell
       n={block.n}
       kind={block.kind}
       state={block.state}
-      eyebrow={BLOCKS.output.eyebrow}
-      title={BLOCKS.output.title}
+      eyebrow={card ? card.eyebrow : BLOCKS.output.eyebrow}
+      title={card ? card.title : BLOCKS.output.title}
     >
-      {block.state === "empty" || !task ? (
+      {block.state === "empty" || !card ? (
         <Empty>{BLOCKS.output.empty}</Empty>
       ) : (
-        <div className="space-y-4">
-          {/* **W14: the speak half is ADDITIVE and never replaces the written
-              task.** PRD §4.1's block 4 is *Speak or write*, and until W14 it
-              only wrote. A deck with no usable sentence yields no `shadow` key
-              at all — absent, never an empty face (§1e). */}
-          {/* **THE SHADOW CONTROL IS RETIRED FROM BLOCK 4 (operator ruling,
-              2026-09-05).** #376: assessment catches a word said as a different
-              word and misses an inflectional ending, so the surface tells a
-              learner they said it right when they did not. **The code stays --
-              W17's weak-spot surface is the consumer that keeps it alive.**
-              #348's disable-don't-delete precedent. */}
-          {/* **W13b/5 MOVED THE CONVERSATION ENTRY POINT OFF BLOCK 4 AND ONTO
-              THE CLOSING BLOCK.** The old link is quoted rather than deleted
-              (#82's shape): an underlined `text-sm text-muted-foreground`
-              reading *"Or have a conversation"*, sitting above the written task
-              with `data-testid="conversation-link"`.
-
-              **WHY IT LEFT: it was competing with block 4's own action while
-              being styled to lose.** W13b/3 §A put it here to keep it away from
-              the primary emphasis, and the effect was a phrase a learner reads
-              past — the design's note names it as an underlined phrase that
-              should be a button. **The closing block is where the design puts
-              it (`Today · to close`) and where it competes with nothing**,
-              because every block's own action is behind the learner by then.
-
-              **#160 IS UNTOUCHED BY THE MOVE: no count, no badge, no dot, no
-              days-since**, and block 4's primary action is still *Write it*. */}
-          <p className="text-base leading-relaxed" data-testid="output-task">
-            {task}
+        <div className="space-y-4" data-testid="output-card" data-day-kind={dayKind}>
+          <p className="text-sm leading-relaxed text-muted-foreground" data-testid="output-subline">
+            {card.body}
           </p>
-          {/* `/write` is W3's correction surface, ✅ verified, and the only path
-              in this app that writes the error journal. The session hands the
-              learner to it rather than adding a second writer. */}
+          {/* **The only control on the card** (`1c`). Still the only path in
+              this app that writes the error journal. */}
           <Button asChild size="lg" className="h-14 w-full rounded-2xl text-base font-semibold">
             <Link href="/write">{BLOCKS.output.action}</Link>
           </Button>

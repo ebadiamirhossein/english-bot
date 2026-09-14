@@ -408,31 +408,80 @@ def test_a_stale_lesson_leaves_block_three_saying_it_is_on_its_way(db, learner) 
         db.commit()
 
 
-def test_block_four_carries_the_units_written_task_only(db, learner) -> None:
-    """The spoken half is W14's; offering a task nothing can score would be
-    worse than not offering it."""
+def test_block_four_carries_the_day_kind_and_nothing_else(db, learner) -> None:
+    """**W16a. The two tests that stood here were REPLACED, not deleted silently.**
+
+    They read `test_block_four_carries_the_units_written_task_only` (asserting
+    `mode == "write"` and a non-empty `task`) and
+    `test_block_four_shows_the_same_task_tomorrow` (W10's stated cost of #188).
+    **W16a removed `task`, `unit_number` and `mode` from the payload because
+    nothing rendered them** — design `1c` draws no task text — so both asserted
+    fields that no longer exist. The day's task lives on `/write`.
+    """
     block = _blocks(svc.today(learner, now=NOW))["output"]
     assert block.state == "ready"
-    assert block.payload["mode"] == "write"
-    assert block.payload["task"]
+    assert block.payload == {"day_kind": "journal"}
 
 
-def test_block_four_shows_the_same_task_tomorrow(db, learner) -> None:
-    """**The stated cost of W10, asserted rather than discovered on a phone.**
+def test_block_four_is_the_paragraph_on_thursday_and_the_journal_otherwise(db, learner) -> None:
+    """**W16b inverted W16a's `test_block_four_is_a_journal_on_every_day_of_a_week`**
+    (quoted, #82). NOW is Wednesday 2026-08-26 at 09:00 UTC, so offset 1 is the
+    learner's Thursday in Vilnius."""
+    kinds = [
+        _blocks(svc.today(learner, now=NOW + timedelta(days=offset)))["output"].payload["day_kind"]
+        for offset in range(7)
+    ]
+    assert kinds == ["journal", "paragraph", "journal", "journal", "journal", "journal", "journal"]
 
-    `user_unit_state` has no writer — W11 owns it — so `current_unit` returns 1
-    today and keeps returning 1. Block 4 is unit 1's single
-    `output_task_written` on day two and on day thirty.
 
-    This test exists so the repeat is a recorded property with a name, and so
-    the slice that fixes it has something to change rather than a comment to
-    notice. Filed against W11.
+def test_block_four_is_done_only_from_an_english_submission_for_this_session(db, learner) -> None:
+    """Ruling 1, at the service. **Red demonstration:** deleting the `output`
+    branch from `_derive_done` turned this red.
+
+    Rows are inserted directly because this test is about the derivation; the
+    route that writes them is tested end to end in `test_writing_route.py`.
     """
-    today = _blocks(svc.today(learner, now=NOW))["output"].payload["task"]
-    tomorrow = _blocks(
-        svc.today(learner, now=NOW + timedelta(days=1))
-    )["output"].payload["task"]
-    assert today == tomorrow
+    session = svc.today(learner, now=NOW)
+    assert _blocks(session)["output"].state == "ready"
+
+    db.execute(
+        """
+        INSERT INTO writing_submissions
+            (user_id, session_id, day_kind, local_date, is_english,
+             llm_input_tokens, llm_output_tokens,
+             llm_cache_creation_input_tokens, llm_cache_read_input_tokens)
+        VALUES (%s, %s, 'journal', %s, FALSE, 1, 1, 0, 0)
+        """,
+        (learner, session.id, session.date),
+    )
+    db.commit()
+    assert _blocks(svc.today(learner, now=NOW))["output"].state == "ready"
+
+    db.execute(
+        """
+        INSERT INTO writing_submissions
+            (user_id, session_id, day_kind, local_date, is_english,
+             llm_input_tokens, llm_output_tokens,
+             llm_cache_creation_input_tokens, llm_cache_read_input_tokens)
+        VALUES (%s, NULL, 'journal', %s, TRUE, 1, 1, 0, 0)
+        """,
+        (learner, session.date),
+    )
+    db.commit()
+    assert _blocks(svc.today(learner, now=NOW))["output"].state == "ready"
+
+    db.execute(
+        """
+        INSERT INTO writing_submissions
+            (user_id, session_id, day_kind, local_date, is_english,
+             llm_input_tokens, llm_output_tokens,
+             llm_cache_creation_input_tokens, llm_cache_read_input_tokens)
+        VALUES (%s, %s, 'journal', %s, TRUE, 1, 1, 0, 0)
+        """,
+        (learner, session.id, session.date),
+    )
+    db.commit()
+    assert _blocks(svc.today(learner, now=NOW))["output"].state == "done"
 
 
 def test_block_five_counts_what_happened_and_writes_no_xp(db, learner) -> None:

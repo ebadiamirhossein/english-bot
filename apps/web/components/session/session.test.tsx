@@ -316,20 +316,50 @@ describe("the remaining blocks", () => {
     );
   });
 
-  it("offers the unit's written task and hands over to /write", () => {
+  // **W16a replaced "offers the unit's written task and hands over to /write".**
+  // It rendered `payload.task`; W16a removed `task` from block 4's payload
+  // because design `1c` draws no task text, so the old test asserted a field
+  // that no longer exists. Red demonstration for the two below: keying the copy
+  // on nothing (always the journal card) turned the second red; restoring the
+  // old `output-task` paragraph turned the first red.
+  it("draws design 1c's journal card and hands over to /write", () => {
     render(
       <OutputBlock
-        block={block({
-          n: 4,
-          kind: "output",
-          payload: { unit_number: 1, mode: "write", task: "Tell me about your week." },
-        })}
+        block={block({ n: 4, kind: "output", payload: { day_kind: "journal" } })}
       />,
     );
-    expect(screen.getByTestId("output-task").textContent).toContain("your week");
-    expect(screen.getByRole("link", { name: /write/i }).getAttribute("href")).toBe(
-      "/write",
+    expect(screen.getByText("Today · your turn to write")).not.toBeNull();
+    expect(screen.getByText("Write a few lines about your day.")).not.toBeNull();
+    expect(screen.getByTestId("output-subline").textContent).toContain("one or two things");
+    expect(
+      screen.getByRole("link", { name: /start writing/i }).getAttribute("href"),
+    ).toBe("/write");
+    expect(screen.queryByTestId("output-task")).toBeNull();
+  });
+
+  it("draws design 1c's Thursday paragraph card (W16b)", () => {
+    render(
+      <OutputBlock
+        block={block({ n: 4, kind: "output", payload: { day_kind: "paragraph" } })}
+      />,
     );
+    expect(screen.getByText("Today · this week’s paragraph")).not.toBeNull();
+    expect(screen.getByText("One paragraph, on this week’s task.")).not.toBeNull();
+    expect(
+      screen.getByRole("link", { name: /start writing/i }).getAttribute("href"),
+    ).toBe("/write");
+  });
+
+  // **W16b moved this from `paragraph` to a kind that does not exist**, because
+  // the paragraph now has a card. Red demonstration: keying the copy on nothing.
+  it("draws no card for a day kind this build has no copy for", () => {
+    render(
+      <OutputBlock
+        block={block({ n: 4, kind: "output", payload: { day_kind: "essay" } })}
+      />,
+    );
+    expect(screen.getByTestId("block-empty")).not.toBeNull();
+    expect(screen.queryByRole("link", { name: /start writing/i })).toBeNull();
   });
 
   it("closes with what happened and no XP number", () => {

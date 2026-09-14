@@ -424,16 +424,21 @@ def test_the_write_screen_exists_and_is_behind_the_session_guard() -> None:
     assert "RequireSession" in layout
 
 
-def test_the_correction_bounds_match_the_service() -> None:
+def test_the_writing_bounds_match_the_service() -> None:
     """The frontend mirrors the bounds so a learner is not made to round-trip
-    to find out a sentence was too short. Mirrors drift, so this pins them to
+    to find out an entry was too short. Mirrors drift, so this pins them to
     the Python constants (rule 5 — the expected values are read from the other
-    side, not from the file under test)."""
-    from core.services.correction import MAX_CHARS, MIN_CHARS
+    side, not from the file under test).
+
+    **W16a repointed this** from `core.services.correction` (the bot's 10/1000)
+    to `core.writing.rules` (10/2000, Q-B): the web no longer calls the bot's
+    correction path, and a pin against a path the screen does not use would be
+    green over the wrong numbers."""
+    from core.writing.rules import MAX_CHARS, MIN_CHARS
 
     source = (WEB / "lib" / "limits.ts").read_text(encoding="utf-8")
-    assert f"CORRECTION_MIN_CHARS = {MIN_CHARS};" in source
-    assert f"CORRECTION_MAX_CHARS = {MAX_CHARS};" in source
+    assert f"WRITING_MIN_CHARS = {MIN_CHARS};" in source
+    assert f"WRITING_MAX_CHARS = {MAX_CHARS};" in source
 
 
 def test_the_write_screen_never_marks_what_the_learner_wrote() -> None:
@@ -444,6 +449,7 @@ def test_the_write_screen_never_marks_what_the_learner_wrote() -> None:
     """
     source = _without_comments(
         (WEB / "app" / "(app)" / "write" / "page.tsx").read_text(encoding="utf-8")
+        + (WEB / "components" / "write" / "writer.tsx").read_text(encoding="utf-8")
     )
     for banned in ("line-through", "text-destructive", "bg-destructive"):
         assert banned not in source, f"{banned} on the correction screen"
@@ -454,6 +460,7 @@ def test_no_red_reaches_the_correction_screen() -> None:
     exactly the screen someone would be tempted to add one to."""
     source = _without_comments(
         (WEB / "app" / "(app)" / "write" / "page.tsx").read_text(encoding="utf-8")
+        + (WEB / "components" / "write" / "writer.tsx").read_text(encoding="utf-8")
     )
     for banned in ("text-red", "bg-red", "border-red", "#f00", "rgb(255,0,0)"):
         assert banned not in source
@@ -852,6 +859,10 @@ def test_no_guilt_copy_anywhere_in_the_frontend() -> None:
 #: surface` is what keeps the list honest as surfaces are added.
 _CONVERSATION_COPY: tuple[tuple[str, str], ...] = (
     ("apps/web/components/session/copy.ts", "CONVERSATION"),
+    # **W16a adds `WRITE`.** The writing screen's copy is under the same digit
+    # rule as the conversation's: no count, no remaining, no length target in
+    # figures (design `1d`, `1u`). RED against `short: "At least 10 characters."`.
+    ("apps/web/components/session/copy.ts", "WRITE"),
     # **W13b/5a ADDS `BLOCKS`, AND #400 IS WHY.** The closing block rendered
     # *"0 cards reviewed today."* to a learner who reviewed nothing — #348's
     # shape, live — and **neither scan could see it**: the numeral is
@@ -873,6 +884,11 @@ _CONVERSATION_SURFACES: tuple[str, ...] = (
     "apps/web/components/session/conversation.tsx",
     "apps/web/components/session/close-out.tsx",
     "apps/web/app/(app)/talk/page.tsx",
+    # W16a. The writing screen renders a learner's own words back to them and a
+    # count would be the natural thing to type into it. RED against
+    # `<p>Two corrections</p>` becoming `<p>2 corrections</p>` in the JSX.
+    "apps/web/components/write/writer.tsx",
+    "apps/web/app/(app)/write/page.tsx",
 )
 
 
@@ -1376,3 +1392,14 @@ def test_sundays_home_carries_no_session_call_to_action() -> None:
     assert "Start today" not in source
     # The positive control: the branch this is asserting over really is there.
     assert "practise anyway" in sunday
+
+
+def test_the_writing_components_are_inside_the_no_guilt_walk() -> None:
+    """W16a. A new directory can fall outside a scan that walks named roots.
+
+    `components/write/` sits under `components`, which `SOURCE_DIRS` walks — and
+    this pins that it is actually reached rather than assuming it.
+    RED with `SOURCE_DIRS = ("app", "lib")`."""
+    walked = {path.relative_to(WEB).as_posix() for path in _source_files()}
+    assert "components/write/writer.tsx" in walked
+    assert "app/(app)/write/page.tsx" in walked

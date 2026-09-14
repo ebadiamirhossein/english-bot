@@ -1,0 +1,221 @@
+"""Regenerate `apps/web/components/write/write.fixture.json`.
+
+    python scripts/export_write_fixture.py            # write
+    python scripts/export_write_fixture.py --check    # exit 1 if stale
+
+**#190's shape, applied to W16a from the start rather than after a crash.** The
+Vitest tests and the Playwright harness render `/write` against bodies this
+script builds through the REAL serialisers — `gates.shape` for what survives a
+model response, `apps.api.routers.correct.result_out` for the wire, and the
+pydantic response models with the route's own `exclude_none` — never against a
+hand-written guess at the shape.
+`tests/test_write_fixture.py::test_the_committed_write_fixture_matches_the_wire`
+compares the committed keys against real ASGI response bodies.
+
+**No database and no model are touched.** The raw model responses below are
+fixed inputs; the opening lines are the two the §3 rule 2 call returned after
+F1, quoted from the operator's run. The labels are migration 027's strings for
+the codes used, and the key-level wire test is what holds them to the table's
+shape.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import date, datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "packages"))
+
+from apps.api.routers.correct import result_out  # noqa: E402
+from apps.api.schemas import BlockOut, Session, SessionTodayOut, WriteTodayOut  # noqa: E402
+from core.services import sessions  # noqa: E402
+from core.services.writing import WritingOutcome  # noqa: E402
+from core.writing import gates, offers, rules  # noqa: E402
+
+TARGET = REPO_ROOT / "apps" / "web" / "components" / "write" / "write.fixture.json"
+
+#: Design `1k`'s entry — the same text the probe sent.
+ENTRY = (
+    "Today I go to the dentist in the morning. I was very nervous because last "
+    "time it hurt a lot, but this time she only clean my teeth and it was fine. "
+    "After that I went to the office and we had a long meeting about the new "
+    "project. My colleague Rasa explain everything twice because nobody "
+    "understand the first time. In the evening I cooked soup and watched two "
+    "episodes from a series. I am tired now but it was a good day."
+)
+
+#: Migration 027's `learner_label` for the codes used here.
+LABELS = {"verb_tense_past": "Past tense", "preposition": "Prepositions", "word_order": "Word order"}
+
+#: Returned by the second §3 rule 2 call, after F1 (operator's run, 2026-09-14).
+LINE = "You walk us through the whole day, from the dentist to the evening soup, in a clear order."
+
+
+def _c(you_said: str, correct_form: str, code: str, explanation: str) -> dict:
+    return {"you_said": you_said, "correct_form": correct_form, "error_type": code, "explanation": explanation}
+
+
+TENSE = _c(
+    "Today I go to the dentist",
+    "Today I went to the dentist",
+    "verb_tense_past",
+    "It's already happened, so the verb moves into the past: went.",
+)
+OF = _c(
+    "two episodes from a series",
+    "two episodes of a series",
+    "preposition",
+    "The episodes belong to the series, so it's of.",
+)
+
+
+def _correct(raw: dict, labels: dict | None = None) -> dict:
+    shaped = gates.shape(raw, ENTRY, limit=rules.max_corrections("journal"), labels=labels or LABELS)
+    outcome = WritingOutcome(
+        is_english=shaped.is_english,
+        did_well=shaped.did_well,
+        corrections=shaped.corrections,
+        written=len(shaped.corrections),
+    )
+    return result_out(outcome).model_dump(mode="json", exclude_none=True)
+
+
+#: W16b — design `1n`'s paragraph, verbatim.
+PARAGRAPH = (
+    "I think is a good idea to move in another country for work, but it depends of "
+    "the person. My cousin moved to Norway three years ago and now he earn much more "
+    "money than before. But he told me that he miss his family very much, and in the "
+    "winter he is alone."
+)
+
+#: Unit 1's `output_task_written`, verbatim (the probe's `PARAGRAPH_TASK`).
+TASK = "Write six sentences about yesterday. Put them in order and join them with time words."
+
+PARA_LABELS = {"preposition": "Prepositions", "subject_verb_agreement": "Subject and verb"}
+
+PARA_RAW = {
+    "is_english": True,
+    "structure": [
+        {"segments": [{"text": "You give your opinion in the first line and then back it with one real example, which is the right order for this kind of answer.", "quote": False}]},
+        {"segments": [
+            {"text": "The turn at ", "quote": False},
+            {"text": "But he told me", "quote": True},
+            {"text": " is the strongest part — that's where the paragraph starts to argue with itself.", "quote": False},
+        ]},
+    ],
+    "corrections": [
+        {"you_said": "it depends of the person", "correct_form": "it depends on the person", "error_type": "preposition",
+         "explanation": "Depend always takes on in English, whatever follows it.", "keep": "to depend on"},
+        {"you_said": "now he earn much more money", "correct_form": "now he earns much more money", "error_type": "subject_verb_agreement",
+         "explanation": "He, she and it add an s to the verb in the present: he earns.", "keep": None},
+        {"you_said": "he miss his family", "correct_form": "he misses his family", "error_type": "subject_verb_agreement",
+         "explanation": "Same rule: with he, the verb takes an s — misses.", "keep": "to miss someone"},
+    ],
+}
+
+
+def _paragraph(raw: dict, *, in_deck: tuple[bool, ...] = ()) -> dict:
+    """Through `gates.shape(kind="paragraph")`, `offers.select` and `result_out`.
+
+    `in_deck` is a database fact the exporter cannot compute; it is set here so
+    both KeepRow states (`1o`: offer and in-deck) are drawn from one body.
+    """
+    shaped = gates.shape(raw, PARAGRAPH, limit=rules.max_corrections("paragraph"), labels=PARA_LABELS, kind="paragraph")
+    chosen = offers.select(shaped.corrections)
+    outcome = WritingOutcome(
+        is_english=shaped.is_english,
+        did_well=shaped.did_well,
+        corrections=shaped.corrections,
+        written=len(shaped.corrections),
+        structure=shaped.structure,
+        word_offers=tuple(
+            {"phrase": o.phrase, "sentence": o.sentence, "in_deck": in_deck[i] if i < len(in_deck) else False}
+            for i, o in enumerate(chosen)
+        ),
+    )
+    return result_out(outcome).model_dump(mode="json", exclude_none=True)
+
+
+def _today(**over) -> dict:
+    spec = {"day_kind": rules.day_kind(date(2026, 9, 15)), "session_id": 90, "ceiling_reached": False}
+    spec.update(over)
+    return WriteTodayOut(**spec).model_dump(mode="json")
+
+
+def _session(local_date: date = date(2026, 9, 15)) -> dict:
+    """A session whose block 4 is `_output_block`'s real ready payload."""
+    state, payload = sessions._output_block(SimpleNamespace(unit_number=1), local_date=local_date)
+    blocks = [
+        BlockOut(n=1, kind="review", state="empty", payload={}),
+        BlockOut(n=2, kind="input", state="empty", payload={}),
+        BlockOut(n=3, kind="focus", state="empty", payload={}),
+        BlockOut(n=4, kind="output", state=state, payload=payload),
+        BlockOut(n=5, kind="close", state="empty", payload={}),
+    ]
+    return SessionTodayOut(
+        session_id=90,
+        date=local_date,
+        l1_language="fa",
+        current_block=4,
+        completed=False,
+        blocks=blocks,
+    ).model_dump(mode="json")
+
+
+def bodies() -> dict:
+    return {
+        "auth": Session(
+            user_id=3, name="Learner", expires_at=datetime(2026, 10, 15, tzinfo=timezone.utc)
+        ).model_dump(mode="json"),
+        "session": _session(),
+        "today": _today(),
+        "today_no_session": _today(session_id=None),
+        "today_ceiling": _today(ceiling_reached=True),
+        "two": _correct({"is_english": True, "corrections": [TENSE, OF], "did_well": LINE}),
+        "one": _correct({"is_english": True, "corrections": [TENSE], "did_well": LINE}),
+        "clean_no_line": _correct({"is_english": True, "corrections": [], "did_well": None}),
+        "no_label": _correct(
+            {"is_english": True, "corrections": [TENSE], "did_well": None},
+            labels={"verb_tense_past": None},
+        ),
+        "not_english": _correct({"is_english": False, "corrections": [], "did_well": None}),
+        # W16b — 2026-09-17 is a Thursday.
+        "session_paragraph": _session(date(2026, 9, 17)),
+        "today_paragraph": _today(day_kind=rules.day_kind(date(2026, 9, 17)), prompt=TASK),
+        "paragraph": _paragraph(PARA_RAW, in_deck=(False, True)),
+        "paragraph_bare": _paragraph({**PARA_RAW, "structure": [], "corrections": [
+            {**c, "keep": None} for c in PARA_RAW["corrections"]]}),
+        "paragraph_one_offer": _paragraph({**PARA_RAW, "corrections": PARA_RAW["corrections"][:2]}),
+    }
+
+
+def rendered() -> str:
+    return json.dumps(bodies(), ensure_ascii=False, indent=2) + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="exit 1 if stale")
+    args = parser.parse_args(argv)
+    current = rendered()
+    if args.check:
+        on_disk = TARGET.read_text(encoding="utf-8") if TARGET.is_file() else ""
+        if on_disk != current:
+            print(f"{TARGET} is stale — re-run without --check", file=sys.stderr)
+            return 1
+        print(f"{TARGET} is current")
+        return 0
+    TARGET.parent.mkdir(parents=True, exist_ok=True)
+    TARGET.write_text(current, encoding="utf-8")
+    print(f"wrote {len(bodies())} bodies to {TARGET}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

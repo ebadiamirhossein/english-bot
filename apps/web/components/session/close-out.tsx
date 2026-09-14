@@ -86,7 +86,9 @@ export type Correction = {
 /** The triangle from the design's icon set. **Not a cross and never red** —
  * CLAUDE.md §4, and `test_no_red_anywhere_in_the_frontend` holds the palette
  * side of it. */
-function Look() {
+/** The *worth a look* triangle. Exported for `/write`'s correction cards (W16a)
+ * so the glyph has one home. */
+export function Look() {
   return (
     <svg width="11" height="10" viewBox="0 0 11 10" aria-hidden="true">
       <path d="M5.5 0 11 10H0z" fill="currentColor" />

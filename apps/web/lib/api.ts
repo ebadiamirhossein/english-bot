@@ -82,35 +82,89 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-/** One correction, the same shape learners already read in Telegram. */
+/** `day_kind` on the wire. W16a writes only `journal`; `paragraph` is W16b's. */
+export type DayKind = "journal" | "paragraph";
+
+/**
+ * `GET /write/today` (W16a). **A boolean, never a count** (Ruling 3): the
+ * ceiling reaches the screen as whether today's writing is done, and nothing
+ * says how many were used or when it resets. `session_id` is posted back so
+ * block 4 can finish; `null` when `/write` was opened before the session.
+ */
+export type WriteToday = {
+  day_kind: DayKind;
+  session_id: number | null;
+  ceiling_reached: boolean;
+  /** W16b → `1e`'s prompt card. The unit's task, verbatim; `null` on the journal. */
+  prompt: string | null;
+};
+
+export function getWriteToday(): Promise<WriteToday> {
+  return request<WriteToday>("/write/today");
+}
+
+/**
+ * One correction card, design `1k`'s anatomy. **W16a took `error_type`,
+ * `murphy_units` and `has_errors` off the wire** — nothing rendered them.
+ * `label` is the eyebrow, from `error_types.learner_label`, and is ABSENT when
+ * the taxonomy has none.
+ */
 export type Correction = {
   you_said: string;
   correct_form: string;
-  error_type: string;
   explanation: string;
-  murphy_units: string | null;
-};
-
-export type CorrectionResult = {
-  is_english: boolean;
-  has_errors: boolean;
-  did_well: string;
-  corrections: Correction[];
+  label?: string;
 };
 
 /**
- * Correct a piece of free writing.
- *
- * `Content-Type: application/json` is not decoration — it is what keeps this a
- * preflighted request. A form encoding would make it a simple request, and the
- * CORS preflight is the actual CSRF barrier for this API (see
- * `apps/api/README.md`). The route refuses anything else with 415.
+ * What one journal entry produced. **`did_well` is ABSENT when there is nothing
+ * worth saying — never blank, never a fallback** (Ruling 2).
  */
-export function requestCorrection(text: string): Promise<CorrectionResult> {
+export type CorrectionResult = {
+  is_english: boolean;
+  did_well?: string;
+  corrections: Correction[];
+  /** W16b → `1n`. ABSENT on the journal and when the gate refused it. */
+  structure?: StructureParagraph[];
+  /** W16b → `1o`. `[]` on the journal and when nothing survived the offer rule. */
+  word_offers: WordOffer[];
+};
+
+/** One run of structure prose; `quote` is the learner's own words, set in italic. */
+export type StructureSegment = { text: string; quote: boolean };
+export type StructureParagraph = { segments: StructureSegment[] };
+
+/** `1o`'s KeepRow: the phrase, the app's sentence it came from, and whether it is kept. */
+export type WordOffer = { phrase: string; sentence: string; in_deck: boolean };
+
+/**
+ * `POST /write/keep` (W16b). The server re-applies the offer rule, so a phrase
+ * that was never offered is a `422`, never a card.
+ */
+export function keepPhrase(
+  phrase: string,
+  sentence: string,
+): Promise<{ status: "saved" | "already" }> {
+  return request<{ status: "saved" | "already" }>("/write/keep", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phrase, sentence }),
+  });
+}
+
+/**
+ * `POST /correct`. A `409` is the day's ceiling (Ruling 3) and a `503` is the
+ * model failing; both arrive as `ApiError` with the status, and neither carries
+ * a message the screen shows.
+ */
+export function requestCorrection(
+  text: string,
+  { dayKind, sessionId }: { dayKind: DayKind; sessionId: number | null },
+): Promise<CorrectionResult> {
   return request<CorrectionResult>("/correct", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, day_kind: dayKind, session_id: sessionId }),
   });
 }
 

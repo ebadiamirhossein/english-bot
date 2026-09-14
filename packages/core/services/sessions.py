@@ -1438,8 +1438,33 @@ def _focus_block(
     }
 
 
-def _output_block(unit: Any, conn: Any = None, user_id: int | None = None) -> tuple[str, dict[str, Any]]:
+def _output_block(
+    unit: Any,
+    conn: Any = None,
+    user_id: int | None = None,
+    *,
+    local_date: date | None = None,
+) -> tuple[str, dict[str, Any]]:
     """Block 4. PRD §4.1's *Speak or write* — and until W14 it only wrote.
+
+    ────────────────────────────────────────────────────────────────────────────
+    **W16a: THE PAYLOAD IS `{"day_kind"}` AND NOTHING ELSE.** It carried
+    `{"unit_number", "mode", "task"}` until now. **All three are gone because
+    nothing renders them**: design `1c`'s card draws no task text, and
+    `unit_number` and `mode` were never read by any component (#390/#398/#403's
+    rule — a field nothing renders is a defect). The day's task lives on
+    `/write`, which asks `GET /write/today` for it.
+
+    **`day_kind` is `journal` on every date in W16a** (`core.writing.rules`).
+    PRD §4.2's Thursday paragraph is W16b's and is reported unmet in W16a's
+    slice row. **The paragraphs below describing `output_task_written` served
+    every day are HISTORY as of W16a** and are left as written (#82's shape):
+    the unit's written task returns with W16b's paragraph, on Thursdays only.
+
+    **The block still needs a seeded unit to be `ready`** — an unseeded unit
+    keeps both blocks 3 and 4 `empty`, exactly as before. The journal does not
+    read the unit; changing that is not this slice's and is not done silently.
+    ────────────────────────────────────────────────────────────────────────────
 
     ────────────────────────────────────────────────────────────────────────────
     **W14 GIVES THIS BLOCK ITS SPEAK HALF, AND THE OLD CLAUSE IS QUOTED RATHER
@@ -1504,10 +1529,12 @@ def _output_block(unit: Any, conn: Any = None, user_id: int | None = None) -> tu
 
     if unit is None:
         return "empty", {}
+    # Imported here, not at module level: `core.writing.rules` imports
+    # `core.services.correction`, which imports this module.
+    from core.writing import rules as writing_rules
+
     payload: dict[str, Any] = {
-        "unit_number": unit.unit_number,
-        "mode": "write",
-        "task": unit.output_task_written,
+        "day_kind": writing_rules.day_kind(local_date) if local_date else "journal",
     }
     # ────────────────────────────────────────────────────────────────────
     # **THE SHADOW CONTROL IS RETIRED FROM BLOCK 4. OPERATOR RULING,
@@ -1670,10 +1697,19 @@ def _derive_done(conn, session_id: int, built: dict, stored_payload: dict) -> di
       it asks for.
     * ``focus`` -- every item it served has an `item_attempts` row for this
       session.
-    * ``output`` -- **cannot self-report.** `POST /correct` records no
-      `session_id`, so nothing links a correction to the sitting it happened in.
-      It stays `ready`, and that is why `sessions.completed` is still unreachable
-      and why #259 is NARROWED by this ruling rather than repaired.
+    * ``output`` -- **W16a: `done` when `writing_submissions` holds a row for
+      this session with `is_english`.** The old clause is quoted rather than
+      deleted (#82's shape): *"``output`` -- **cannot self-report.** `POST
+      /correct` records no `session_id`, so nothing links a correction to the
+      sitting it happened in. It stays `ready`, and that is why
+      `sessions.completed` is still unreachable and why #259 is NARROWED by this
+      ruling rather than repaired."* **The first half is now false and the
+      second half is STILL TRUE**: `sessions.completed` stays unreachable,
+      because `complete_block` was removed at W11 and `minutes`/`completed_at`
+      have no writer (#349, #361). **#259 is unchanged.** The row is the log
+      (migration 027), not a flag a route sets -- #258's own shape. A clean
+      entry writes a submission row and no `errors` row, which is why `errors`
+      could never have carried this.
     * ``close`` -- a summary, not a task. Nothing to answer.
 
     **A BLOCK THAT SERVED NOTHING IS `empty`, NOT `done`**, and the two must not
@@ -1731,6 +1767,21 @@ def _derive_done(conn, session_id: int, built: dict, stored_payload: dict) -> di
         answered = _answered_ids(conn, "item_attempts", "item_id", session_id)
         if all(one in answered for one in items):
             out["focus"] = ("done", focus_payload)
+
+    # W16a. A non-English submission spent a call and counts toward the ceiling,
+    # but it is not the learner's English, so it does not finish the block.
+    output_state, output_payload = built.get("output", ("empty", {}))
+    if output_state == "ready":
+        wrote = conn.execute(
+            """
+            SELECT 1 FROM writing_submissions
+             WHERE session_id = %s AND is_english
+             LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+        if wrote is not None:
+            out["output"] = ("done", output_payload)
 
     return out
 
@@ -1849,7 +1900,10 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
             "output": ("unavailable", {})
             if unit_failed
             else _build_block(
-                "output", lambda: _output_block(unit, conn=conn, user_id=user_id)
+                "output",
+                lambda: _output_block(
+                    unit, conn=conn, user_id=user_id, local_date=local_date
+                ),
             ),
         }
 

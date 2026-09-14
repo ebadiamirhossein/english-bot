@@ -1,20 +1,36 @@
-"""W3: `POST /correct` through the real ASGI transport.
+"""W3, then W16a: `POST /correct` through the real ASGI transport.
 
 CLAUDE.md §3 rule 1, and this route in particular. Free correction is the
 feature that died silently three times in v2 — 161 unit tests were green over a
 dead dispatch path because every one of them called the handler directly.
-Nothing here calls the route function or the service; every request goes through
+Nothing here calls the route function; every request goes through
 `httpx.ASGITransport` into the app `uvicorn apps.api.main:app` serves.
 
-The model is stubbed at `core.services.correction.chat`, which is the transport
-boundary for the LLM wrapper. That proves the route, the session gate, the
-journal write and the response shape. It does **not** prove the provider
-contract (rule 2) — the five real API calls in the W3 report are what does that.
+**W16a REPOINTED THIS FILE, AND THE REASON IS A NEAR MISS WORTH RECORDING.** The
+route stopped calling `core.services.correction` and started calling
+`core.services.writing`. The W3 tests stubbed `core.services.correction.chat`,
+so **after the switch eleven of them sailed past their stub into the real
+`llm.chat`** — every attempt ended in `Connection error` in the sandbox, so no
+call was billed, but **with network access they would have spent real calls on
+the repo-root key.** The stub now sits at `core.services.writing.chat`, and
+`test_no_route_test_can_reach_the_provider` below fails if a request through
+this app ever reaches `core.llm`'s transport.
+
+The model is stubbed at the writing service's import of the wrapper. That
+proves the route, the session gate, the journal write and the response shape. It
+does **not** prove the provider contract (rule 2) — `python -m core.writing.probe
+--live`, run by the operator on the Mac, is what does that.
+
+The W16a-specific rulings (the session link, the ceiling, the opening line, the
+labels, G1/G2) are in `tests/test_writing_route.py`. This file keeps W3's
+properties: the acceptance sentence, the gate, the CSRF barrier, the bounds, the
+one-call-site structure, and the bot's own path.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -27,16 +43,14 @@ from fastapi import FastAPI
 from apps.api.deps import SESSION_COOKIE_SECURE
 from apps.api.main import create_app
 from core.config import load_settings
-from core.services import auth
 
 # The acceptance sentence from docs/TASKS-v3-web.md, and the worked example in
-# the prompt template. It is here verbatim because the criterion is written in
+# `correction.txt`. It is here verbatim because W3's criterion is written in
 # terms of it.
 ACCEPTANCE_TEXT = "her english is not so much good"
 
 ACCEPTANCE_PAYLOAD = {
     "is_english": True,
-    "has_errors": True,
     "corrections": [
         {
             "you_said": "her english is not so much good",
@@ -45,7 +59,7 @@ ACCEPTANCE_PAYLOAD = {
             "explanation": '"so much" doesn\'t go before adjectives. Use "very".',
         }
     ],
-    "did_well": "Spelling of every word is fine.",
+    "did_well": "You kept the sentence short and to the point.",
 }
 
 
@@ -55,6 +69,17 @@ def auth_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WEBAUTHN_RP_ID", "foundgrant.com")
     monkeypatch.setenv("WEBAUTHN_ORIGIN", "https://app.foundgrant.com")
     monkeypatch.setenv("AUTH_RATE_LIMIT_SALT", secrets.token_hex(16))
+
+
+@pytest.fixture(autouse=True)
+def no_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """**The guard the W16a near miss asked for.** Any request that reaches the
+    wrapper's transport fails the test instead of trying the network."""
+
+    def _refuse(*args, **kwargs):
+        raise AssertionError("a route test reached the real LLM transport")
+
+    monkeypatch.setattr("core.llm._chat_anthropic", _refuse)
 
 
 @pytest.fixture
@@ -97,8 +122,6 @@ def learner(db):
         (telegram_user_id, user_id),
     )
     raw = secrets.token_urlsafe(32)
-    import hashlib
-
     db.execute(
         """
         INSERT INTO auth_sessions (token_hash, user_id, expires_at)
@@ -145,16 +168,16 @@ def jar(learner) -> dict[str, str]:
 
 
 def stub_model(monkeypatch: pytest.MonkeyPatch, payload) -> list[dict]:
-    """Replace the model call at the wrapper boundary; record what it was sent."""
+    """Replace the writing service's model call; record what it was sent."""
     seen: list[dict] = []
 
-    def _chat(messages, system=None, json_mode=False):
-        seen.append({"messages": messages, "system": system, "json_mode": json_mode})
+    def _chat(messages, **kwargs):
+        seen.append({"messages": messages, **kwargs})
         if isinstance(payload, Exception):
             raise payload
         return payload
 
-    monkeypatch.setattr("core.services.correction.chat", _chat)
+    monkeypatch.setattr("core.services.writing.chat", _chat)
     return seen
 
 
@@ -166,10 +189,10 @@ def test_the_acceptance_sentence_returns_the_shape_and_writes_the_journal(
 ) -> None:
     """docs/TASKS-v3-web.md W3, verbatim: typing "her english is not so much
     good" returns the correct shape and writes an `errors` row with
-    `error_type='quantifier_modifier'`.
+    `error_type='quantifier_modifier'` — now through W16a's service.
 
-    The user action: a learner types a sentence into "Write anything" and taps
-    Check.
+    The user action: a learner types a sentence into `/write` and taps
+    *Read it over*.
     """
     stub_model(monkeypatch, ACCEPTANCE_PAYLOAD)
 
@@ -181,14 +204,13 @@ def test_the_acceptance_sentence_returns_the_shape_and_writes_the_journal(
     body = response.json()
 
     assert body["is_english"] is True
-    assert body["has_errors"] is True
-    assert body["did_well"] == "Spelling of every word is fine."
+    assert body["did_well"] == "You kept the sentence short and to the point."
     assert len(body["corrections"]) == 1
     correction = body["corrections"][0]
     assert correction["you_said"] == "her english is not so much good"
     assert correction["correct_form"] == "her English isn't very good"
-    assert correction["error_type"] == "quantifier_modifier"
     assert correction["explanation"]
+    assert correction["label"] == "Quantifiers"
 
     # The journal row — read on this test's own connection, with its own query.
     rows = db.execute(
@@ -204,16 +226,24 @@ def test_the_acceptance_sentence_returns_the_shape_and_writes_the_journal(
     assert rows[0][4] is False
 
 
-def test_the_correction_carries_its_murphy_reference(
-    app, learner, monkeypatch
-) -> None:
-    """"Why" is the half that teaches, so the front end has to be given it."""
+def test_the_fields_nothing_renders_are_off_the_wire(app, learner, monkeypatch) -> None:
+    """D11. `has_errors`, `error_type` and `murphy_units` were read by nothing.
+
+    **Red demonstration:** re-adding `has_errors: bool = True` to
+    `CorrectionResult` turned this red. **Re-adding `murphy_units` would NOT
+    have** — the route serialises with `response_model_exclude_none`, so a
+    `None` field is omitted — which is why the demonstration uses a field with a
+    non-null default. The Murphy citation left the screen at W8h (#183); now it
+    has left the wire as well, and the `errors` column that holds it is
+    untouched.
+    """
     stub_model(monkeypatch, ACCEPTANCE_PAYLOAD)
     body = request(
         app, "POST", "/correct", json_body={"text": ACCEPTANCE_TEXT},
         cookies=jar(learner),
     ).json()
-    assert "murphy_units" in body["corrections"][0]
+    assert "has_errors" not in body
+    assert set(body["corrections"][0]) == {"you_said", "correct_form", "explanation", "label"}
 
 
 def test_the_learner_text_is_fenced_as_material_not_instructions(
@@ -233,55 +263,24 @@ def test_the_learner_text_is_fenced_as_material_not_instructions(
     assert seen[0]["json_mode"] is True
 
 
-def test_praise_when_there_is_nothing_to_correct(app, db, learner, monkeypatch) -> None:
-    """A learner writes something correct. CLAUDE.md §4: this is a real
-    outcome with real content, not an empty response."""
+def test_nothing_to_correct_writes_nothing(app, db, learner, monkeypatch) -> None:
+    """A learner writes something correct. The corrections list is empty and
+    the journal is untouched."""
     stub_model(
         monkeypatch,
-        {"is_english": True, "has_errors": False, "corrections": [],
-         "did_well": "Clean past tense throughout."},
+        {"is_english": True, "corrections": [],
+         "did_well": "Every verb stays in the past, start to finish."},
     )
     body = request(
         app, "POST", "/correct", json_body={"text": "I went to the shop yesterday."},
         cookies=jar(learner),
     ).json()
-    assert body["has_errors"] is False
-    assert body["did_well"] == "Clean past tense throughout."
+    assert body["did_well"] == "Every verb stays in the past, start to finish."
     assert body["corrections"] == []
     rows = db.execute(
         "SELECT count(*) FROM errors WHERE user_id = %s", (learner.user_id,)
     ).fetchone()
     assert rows[0] == 0, "nothing to correct must write nothing"
-
-
-def test_corrections_are_capped_at_three(app, db, learner, monkeypatch) -> None:
-    """PRD §8: more than three is demoralising. The cap is the service's, and
-    the route must not be able to widen it."""
-    stub_model(
-        monkeypatch,
-        {
-            "is_english": True,
-            "has_errors": True,
-            "did_well": "Good word order.",
-            "corrections": [
-                {
-                    "you_said": f"wrong {n}",
-                    "correct_form": f"right {n}",
-                    "error_type": "quantifier_modifier",
-                    "explanation": "x",
-                }
-                for n in range(6)
-            ],
-        },
-    )
-    body = request(
-        app, "POST", "/correct", json_body={"text": "a" * 40}, cookies=jar(learner)
-    ).json()
-    assert len(body["corrections"]) == 3
-    rows = db.execute(
-        "SELECT count(*) FROM errors WHERE user_id = %s", (learner.user_id,)
-    ).fetchone()
-    assert rows[0] == 3
 
 
 def test_an_invented_error_type_is_dropped_not_shown(
@@ -293,22 +292,20 @@ def test_an_invented_error_type_is_dropped_not_shown(
         monkeypatch,
         {
             "is_english": True,
-            "has_errors": True,
-            "did_well": "Nice rhythm.",
+            "did_well": None,
             "corrections": [
                 {
-                    "you_said": "x",
-                    "correct_form": "y",
+                    "you_said": "her english",
+                    "correct_form": "her English skills",
                     "error_type": "not_a_real_code",
-                    "explanation": "z",
+                    "explanation": "It reads better.",
                 }
             ],
         },
     )
     body = request(
-        app, "POST", "/correct", json_body={"text": "a" * 40}, cookies=jar(learner)
+        app, "POST", "/correct", json_body={"text": ACCEPTANCE_TEXT}, cookies=jar(learner)
     ).json()
-    assert body["has_errors"] is False
     assert body["corrections"] == []
     rows = db.execute(
         "SELECT count(*) FROM errors WHERE user_id = %s", (learner.user_id,)
@@ -320,7 +317,7 @@ def test_non_english_is_reported_without_writing(app, db, learner, monkeypatch) 
     """Someone writes in their own language. Not an error, not a journal entry."""
     stub_model(
         monkeypatch,
-        {"is_english": False, "has_errors": False, "corrections": [], "did_well": ""},
+        {"is_english": False, "corrections": [], "did_well": None},
     )
     body = request(
         app, "POST", "/correct", json_body={"text": "salam chetori khoobi"},
@@ -385,8 +382,7 @@ def test_a_form_encoded_body_is_refused(app, learner, monkeypatch) -> None:
     W2 recorded that `SameSite=Lax` is not the barrier — the barrier is that
     every state-changing route is a JSON `POST`, which always triggers a CORS
     preflight answered only for the two allowed origins. A form encoding is a
-    *simple request*: no preflight, no barrier. A cross-site form auto-submitted
-    from any page would then reach this route with the learner's cookie.
+    *simple request*: no preflight, no barrier.
     """
     seen = stub_model(monkeypatch, ACCEPTANCE_PAYLOAD)
     response = request(
@@ -415,8 +411,7 @@ def test_a_multipart_body_is_refused(app, learner, monkeypatch) -> None:
 def test_a_json_content_type_with_a_charset_is_accepted(
     app, learner, monkeypatch
 ) -> None:
-    """`application/json; charset=utf-8` is still JSON. A guard that rejected it
-    would break real clients while blocking nothing."""
+    """`application/json; charset=utf-8` is still JSON."""
     stub_model(monkeypatch, ACCEPTANCE_PAYLOAD)
     response = request(
         app, "POST", "/correct",
@@ -424,23 +419,32 @@ def test_a_json_content_type_with_a_charset_is_accepted(
         headers={"Content-Type": "application/json; charset=utf-8"},
         cookies=jar(learner),
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
 
 # --- bounds and failure -------------------------------------------------------
 
 
-@pytest.mark.parametrize("text", ["short", "", "a" * 1001])
+@pytest.mark.parametrize("text", ["short", "", "a" * 2001])
 def test_text_outside_the_service_bounds_is_refused(
     app, learner, monkeypatch, text
 ) -> None:
-    """The bounds are `core.services.correction`'s, so the two cannot drift."""
+    """Hardcoded bounds (§3 rule 5): ten characters up, two thousand at most (Q-B)."""
     seen = stub_model(monkeypatch, ACCEPTANCE_PAYLOAD)
     response = request(
         app, "POST", "/correct", json_body={"text": text}, cookies=jar(learner)
     )
     assert response.status_code == 422
     assert seen == [], "an out-of-bounds request must not reach the model"
+
+
+def test_a_long_entry_inside_the_new_ceiling_is_accepted(app, learner, monkeypatch) -> None:
+    """Design `1g`'s *300+ words* was silently truncated at 1,000 characters (D8)."""
+    stub_model(monkeypatch, {"is_english": True, "corrections": [], "did_well": None})
+    response = request(
+        app, "POST", "/correct", json_body={"text": "word " * 399}, cookies=jar(learner)
+    )
+    assert response.status_code == 200, response.text
 
 
 def test_a_model_failure_answers_503_not_500(app, learner, monkeypatch) -> None:
@@ -457,17 +461,27 @@ def test_a_model_failure_answers_503_not_500(app, learner, monkeypatch) -> None:
     assert "provider down" not in response.text, "no provider detail crosses the wire"
 
 
-# --- one call site -----------------------------------------------------------
+def test_no_route_test_can_reach_the_provider(app, learner) -> None:
+    """With NO stub, a request must fail on `no_provider`, never on the network.
+
+    This is the W16a near miss held by a test: if a later change moves the
+    model call behind a seam this file does not stub, the guard fires here
+    rather than a real call being attempted.
+    """
+    with pytest.raises(AssertionError, match="real LLM transport"):
+        request(
+            app, "POST", "/correct", json_body={"text": ACCEPTANCE_TEXT},
+            cookies=jar(learner),
+        )
+
+
+# --- one call site per path ----------------------------------------------------
 #
-# W3 first shipped with two: `core.services.correction.correct` and the bot's
-# `_call_llm_with_handler_retry` each built the prompt and called `chat`. Both
-# front ends' tests passed, because each patches its own module and neither can
-# see the other — so `json_mode`, the message role or the prompt construction
-# could have drifted on one side in silence.
-#
-# These pin the *number* of call sites, not their arguments. A test comparing
-# the two argument lists would go green on a change made wrongly in both places,
-# which is the failure mode that matters once there are two copies to edit.
+# W3 first shipped with two call sites for one correction, and each front end's
+# tests passed because each patched its own module. W16a gives the web its own
+# service — deliberately, so the bot stays byte-identical — so there are now TWO
+# PATHS, and each is pinned to exactly one call site. These pin the NUMBER of
+# call sites, not their arguments.
 
 
 def _repo():
@@ -495,28 +509,18 @@ def _module_reaches_the_model(path) -> list[str]:
     return hits
 
 
-def test_only_the_service_builds_and_sends_a_correction_prompt() -> None:
-    """One call site, enforced.
-
-    The bot must not import `chat` at all — a module that cannot name the
-    function cannot drift from the service that does. `apps/api` likewise.
-    """
+def test_neither_front_end_builds_or_sends_a_prompt_itself() -> None:
     bot = _repo() / "apps" / "bot" / "handlers" / "correction.py"
     route = _repo() / "apps" / "api" / "routers" / "correct.py"
     for path in (bot, route):
         hits = _module_reaches_the_model(path)
         assert hits == [], (
-            f"{path.name} builds or sends a correction prompt itself; it must "
-            f"go through core.services.correction.call_model: {hits}"
+            f"{path.name} builds or sends a correction prompt itself: {hits}"
         )
 
 
-def test_both_front_ends_go_through_call_model() -> None:
-    """The other half: not merely "does not call chat", but "does call ours".
-
-    Without this, deleting the correction entirely would satisfy the check
-    above.
-    """
+def test_each_front_end_goes_through_its_own_service() -> None:
+    """Not merely "does not call chat", but "does call ours"."""
     import ast
 
     bot = (_repo() / "apps" / "bot" / "handlers" / "correction.py").read_text()
@@ -529,15 +533,15 @@ def test_both_front_ends_go_through_call_model() -> None:
         for n in ast.walk(tree)
         if isinstance(n, ast.Call)
     }
-    assert "correct" in calls, "the route no longer calls correction.correct"
+    assert "correct_submission" in calls, "the route no longer calls writing.correct_submission"
+    assert "correct" not in calls, "the route reaches the bot's correction path again"
 
 
-def test_the_service_holds_exactly_one_chat_call() -> None:
-    """Two invocations inside the service would recreate the problem one layer
-    down, where it is harder to see."""
+@pytest.mark.parametrize("service", ["correction.py", "writing.py"])
+def test_each_service_holds_exactly_one_chat_call(service) -> None:
     import ast
 
-    path = _repo() / "packages" / "core" / "services" / "correction.py"
+    path = _repo() / "packages" / "core" / "services" / service
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     chat_calls = [
         n.lineno
@@ -545,18 +549,68 @@ def test_the_service_holds_exactly_one_chat_call() -> None:
         if isinstance(n, ast.Call)
         and getattr(n.func, "id", getattr(n.func, "attr", "")) == "chat"
     ]
-    assert len(chat_calls) == 1, f"expected one chat() call, found {chat_calls}"
+    assert len(chat_calls) == 1, f"expected one chat() call in {service}, found {chat_calls}"
+
+
+# --- the bot's path, which W16a does not touch --------------------------------
+
+
+def test_the_bot_path_still_caps_corrections_at_three(db, learner, monkeypatch) -> None:
+    """**Moved here from a route test by W16a, and the reason is rule 4.**
+
+    This read `test_corrections_are_capped_at_three` and drove `POST /correct`.
+    The route no longer reaches `core.services.correction`, so a route test of
+    its cap would have been a green test over an unreachable path. **The cap
+    still exists and is still live** — the Telegram handler uses it — so it is
+    asserted on the service the bot calls.
+    """
+    from core.services import correction
+    from core.services.users import get_user
+
+    monkeypatch.setattr(
+        "core.services.correction.chat",
+        lambda messages, **kwargs: {
+            "is_english": True,
+            "has_errors": True,
+            "did_well": "Good word order.",
+            "corrections": [
+                {
+                    "you_said": f"wrong {n}",
+                    "correct_form": f"right {n}",
+                    "error_type": "quantifier_modifier",
+                    "explanation": "x",
+                }
+                for n in range(6)
+            ],
+        },
+    )
+    outcome = correction.correct(get_user(learner.user_id), "a" * 40)
+    assert len(outcome.corrections) == 3
+    assert outcome.did_well == "Good word order."
+    rows = db.execute(
+        "SELECT count(*) FROM errors WHERE user_id = %s", (learner.user_id,)
+    ).fetchone()
+    assert rows[0] == 3
+
+
+def test_the_bot_path_keeps_its_fallback(db, learner, monkeypatch) -> None:
+    """The `"Nice."` fallback Ruling 2 removes from the WEB survives on the bot,
+    whose `👍 {did_well}` would otherwise print a bare thumb. Pinned so nobody
+    "fixes" the bot to match the web without a ruling."""
+    from core.services import correction
+    from core.services.users import get_user
+
+    monkeypatch.setattr(
+        "core.services.correction.chat",
+        lambda messages, **kwargs: {"is_english": True, "has_errors": False,
+                                    "corrections": [], "did_well": ""},
+    )
+    outcome = correction.correct(get_user(learner.user_id), "I went to the shop.")
+    assert outcome.did_well == "Nice."
 
 
 def test_the_bot_retry_still_speaks_to_the_learner(monkeypatch) -> None:
-    """The retry stayed in the bot, and it must still say so.
-
-    That is the whole reason the bot owns the retry rather than the call: a
-    service has no channel to tell someone it is trying again. If LLM_RETRY
-    stopped being sent, the retry would be silent and a learner would see a
-    long pause and then either an answer or nothing.
-    """
-    import asyncio
+    """The retry stayed in the bot, and it must still say so."""
     from unittest.mock import AsyncMock, MagicMock
 
     from apps.bot import texts
@@ -586,7 +640,12 @@ def test_the_bot_retry_still_speaks_to_the_learner(monkeypatch) -> None:
 
 
 def test_correction_is_rate_limited(app, learner, monkeypatch) -> None:
-    """It costs money per call on a surface that is scanned continuously."""
+    """It costs money per call on a surface that is scanned continuously.
+
+    **The ceiling fires first since W16a** — the sixth submission of the day is
+    a 409 — and the hourly rate limit still bounds every request after that,
+    which is what this asserts.
+    """
     stub_model(monkeypatch, ACCEPTANCE_PAYLOAD)
     statuses = [
         request(

@@ -111,10 +111,40 @@ export const BLOCKS = {
       "That’s all of this week’s grammar. The sections stay open above — practice below.",
   },
   output: {
+    /** For `empty` and `unavailable`, which draw no task card. */
     eyebrow: "Output",
     title: "Say something of your own.",
     empty: "No task is set up yet.",
-    action: "Write it",
+    /**
+     * **W16a — design `1c`, keyed by the payload's `day_kind`.** One component,
+     * one field; the Tuesday and Thursday cards differ only in these three
+     * strings. **Only `journal` exists in W16a** — the paragraph card is W16b's.
+     * The old ready-state copy is quoted rather than deleted (#82's shape): the
+     * card read *"Output"* / *"Say something of your own."* above the unit's
+     * written task, with a *"Write it"* button.
+     *
+     * **No day name, no count of sentences, no *you haven't written since…*,
+     * no dot or badge** (`1c`'s *absent* note).
+     */
+    journal: {
+      eyebrow: "Today · your turn to write",
+      title: "Write a few lines about your day.",
+      body: "In your own words, in English. I’ll read it and point out one or two things.",
+    },
+    /**
+     * **W16b — `1c`'s Thursday card.** The design's title reads *"One
+     * paragraph, on a question."* **Not taken, and the reason is the data:** the
+     * paragraph is the unit's `output_task_written`, and most of the 24 are
+     * tasks, not questions (*"Write six sentences about yesterday…"*). A title
+     * that says what the prompt is not is the design asking for something the
+     * data cannot support (§1a).
+     */
+    paragraph: {
+      eyebrow: "Today · this week’s paragraph",
+      title: "One paragraph, on this week’s task.",
+      body: "A bit longer than usual. I’ll go through all of it afterwards.",
+    },
+    action: "Start writing",
   },
   close: {
     /**
@@ -450,4 +480,73 @@ export const CONVERSATION = {
    * still a close-out** -- an empty one says so plainly rather than rendering
    * three empty headings. No apology and no blame. */
   closeNothing: "Nothing to add this time. That was a good conversation.",
+} as const;
+
+/**
+ * W16a — the writing screen, design `1d`–`1q`. **Copy in every frame is final and
+ * scanned**: no score, no mark, no percentage, no numeral in any count, no
+ * backlog. `tests/test_web_shell.py` holds this block to the no-numeral rule.
+ *
+ * **"Reading it", not the design's *"Foundgrant is reading it"*** — CLAUDE.md
+ * §1a: a mock's brand name is not this product's name, and the wordmark on
+ * screen is *Everyday English*. The second application of that rule; the
+ * close-out import made it first.
+ *
+ * **The design's `1m` fixed opening line (*"This reads well the way it is. I
+ * haven't changed anything."*) is NOT here.** Ruling 2 superseded it with the
+ * generated, gated `did_well`, which is absent when there is nothing to say.
+ */
+export const WRITE = {
+  eyebrow: "Write",
+  leave: "Leave this",
+  fieldLabel: "Your writing",
+  /** W16b — `1e`. */
+  paragraph: {
+    eyebrow: "Write · this week",
+    promptLabel: "The prompt",
+    /** **The design's *"I'll correct all of it"* is not taken**: Q-D caps the
+     * paragraph at eight corrections, so *all of it* would be false on a long
+     * paragraph. */
+    subline: "One paragraph. I’ll go through it and say something about the way it’s built.",
+    placeholder: "Write your paragraph here.",
+    /** `1g`: the prompt card collapses to this strip and taps to reopen. */
+    strip: "The prompt",
+  },
+  journal: {
+    title: "What happened today?",
+    /** Stated once, in words, and gone once the head collapses (`1d`, `1g`). */
+    length: "Five to ten sentences is about right.",
+    placeholder: "Start anywhere — the dentist, the bus, dinner.",
+    strip: "What happened today",
+  },
+  submit: "Read it over",
+  /** `1h`. Above the button, never a toast; the length line is suppressed
+   * beside it — restating the target next to a refusal turns guidance into a
+   * mark. */
+  short: "There’s not much here yet. Give me a few more sentences and I’ll read it properly.",
+  /** `1i`. No spinner, no bar, no elapsed time. */
+  reading: "Reading it",
+  whatYouWrote: "What you wrote",
+  worthALook: "Worth a look",
+  /** `1k` only. Written for a pair; `1l` removes it — the first silent branch. */
+  pickedTwo: "I’ve picked the two that matter most.",
+  back: "Back to today",
+  /** W16b — `1n`. Named in words, never dimensions; the prose is the model's. */
+  structureHeading: "How it’s put together",
+  /** W16b — `1o`. The intro names the number in words so one offer reads naturally. */
+  keepHeading: "Worth keeping",
+  keepIntroTwo: "Two phrases from the corrections. Saving one puts it in your deck with the sentence it came from.",
+  keepIntroOne: "One phrase from the corrections. Saving it puts it in your deck with the sentence it came from.",
+  keep: "Keep",
+  inDeck: "In your deck",
+  /** `1q` failure. No error code, no apology, does not blame the connection. */
+  /** Named `trouble`, not `failed`: the no-guilt scan reads source, and `/talk`
+   * already calls this state `trouble`. */
+  trouble: "That didn’t work. Nothing’s lost — your writing is still here.",
+  retry: "Try again",
+  /** No design frame draws this state (D10); the W3 string is kept. */
+  notEnglish: "That looks like it’s in another language — write it in English and I’ll take a look.",
+  /** `1q` unavailable. `/talk`'s sentence shape exactly: no count, no reset
+   * time, no come back later. */
+  ceiling: "That’s the writing done for today. There’ll be a new one tomorrow.",
 } as const;

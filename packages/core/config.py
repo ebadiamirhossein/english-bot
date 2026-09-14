@@ -85,6 +85,15 @@ class Settings:
     # it is config and not a column -- which is why it is written down now
     # rather than discovered then.
     conversation_max_turns_per_day: int = 30
+    # W16a — **the per-learner, per-DAY ceiling on writing submissions** (Ruling
+    # 3, operator-accepted 2026-09-14). Shaped exactly like `/talk`'s: a boolean
+    # reaches the screen, never a count, never a reset time. Counted from
+    # `writing_submissions` rows for the learner's local date, so the COUNTER is
+    # computed from the log rather than stored (PRODUCT-PRINCIPLES §3, first
+    # bullet, S2). **§3 SECOND BULLET, #405:** this VALUE is one variable for
+    # both learners and would need to be per-user for a paid product — the same
+    # split #382 records for the conversation cap.
+    writing_max_submissions_per_day: int = 5
     # W4. How many of the commonest lemmas a new ledger assumes known, so that
     # coverage is not 0% for every text on day one and W12's comprehensible-
     # input band is reachable before W18's placement test exists. Written at
@@ -356,6 +365,11 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         os.environ.get("CONVERSATION_HISTORY_MAX_MESSAGES", "20"),
         errors,
     )
+    writing_max_submissions_per_day = _parse_int(
+        "WRITING_MAX_SUBMISSIONS_PER_DAY",
+        os.environ.get("WRITING_MAX_SUBMISSIONS_PER_DAY", "5"),
+        errors,
+    )
 
     lexicon_assumed_known_top_n = _parse_int(
         "LEXICON_ASSUMED_KNOWN_TOP_N",
@@ -591,6 +605,14 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
             "CONVERSATION_MAX_TURNS_PER_DAY must be >= 1 "
             f"(got {conversation_max_turns_per_day})"
         )
+    if (
+        writing_max_submissions_per_day is not None
+        and writing_max_submissions_per_day < 1
+    ):
+        errors.append(
+            "WRITING_MAX_SUBMISSIONS_PER_DAY must be >= 1 "
+            f"(got {writing_max_submissions_per_day})"
+        )
     if conversation_max_turns is not None and conversation_max_turns < 2:
         errors.append(
             "CONVERSATION_MAX_TURNS must be >= 2 "
@@ -616,6 +638,7 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
     assert conversation_timeout_minutes is not None
     assert conversation_awaiting_topic_minutes is not None
     assert conversation_max_turns_per_day is not None
+    assert writing_max_submissions_per_day is not None
     assert conversation_max_turns is not None
     assert conversation_history_max_messages is not None
     assert log_max_bytes is not None
@@ -650,6 +673,7 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         conversation_awaiting_topic_minutes=conversation_awaiting_topic_minutes,
         conversation_max_turns=conversation_max_turns,
         conversation_max_turns_per_day=conversation_max_turns_per_day,
+        writing_max_submissions_per_day=writing_max_submissions_per_day,
         conversation_history_max_messages=conversation_history_max_messages,
         lexicon_assumed_known_top_n=lexicon_assumed_known_top_n,
         youtube_api_key=youtube_api_key,
