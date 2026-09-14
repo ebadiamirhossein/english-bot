@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     for kind, task in (("journal", None), ("paragraph", PARAGRAPH_TASK)):
         print(
             f"\nrequest ({kind}): json_mode=True "
-            f"max_tokens={rules.WRITING_MAX_TOKENS} reject_truncation=True "
+            f"max_tokens={rules.max_tokens(kind)} reject_truncation=True "
             f"max_corrections={rules.max_corrections(kind)}"
         )
         print(f"--- system prompt, {kind} (as sent) ---")

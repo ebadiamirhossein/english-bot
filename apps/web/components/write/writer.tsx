@@ -132,6 +132,14 @@ export function Writer() {
           : { kind: "composing", notice: "not_english" },
       );
     } catch (error) {
+      if (error instanceof ApiError && error.status === 422) {
+        // Finding (c): the server refused the kind this screen was shown — a
+        // Thursday paragraph left open into Friday (or a Thursday with no unit
+        // task). Ask for today's task again; `text` is state, so it survives.
+        // No notice: nothing went wrong that the learner did.
+        load();
+        return;
+      }
       setPhase(
         error instanceof ApiError && error.status === 409
           ? { kind: "ceiling" }

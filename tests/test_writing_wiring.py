@@ -130,11 +130,27 @@ PARA_PAYLOAD = {
 }
 
 
+#: Thursday 12:00 in Vilnius. **Fixed, not the wall clock**, since finding (c)
+#: made the service refuse a paragraph on any other day (§3 rule 6).
+THURSDAY = datetime(2026, 9, 17, 9, 0, tzinfo=timezone.utc)
+
+
 def _paragraph(user, monkeypatch):
     monkeypatch.setattr(writing, "chat", lambda messages, **kwargs: PARA_PAYLOAD)
     return writing.correct_submission(
-        user, PARA_TEXT, day_kind="paragraph", session_id=None, now=datetime.now(timezone.utc)
+        user, PARA_TEXT, day_kind="paragraph", session_id=None, now=THURSDAY
     )
+
+
+def test_the_day_kind_check_is_on_the_path(learner, monkeypatch) -> None:
+    """**Finding (c)'s call site, #402's lesson.** `rules.accepts_day_kind` replaced
+    by a stub that refuses everything must stop a journal submission too.
+    **Red demonstration:** deleting the check from `correct_submission` turned this red."""
+    from core.writing import rules
+
+    monkeypatch.setattr(rules, "accepts_day_kind", lambda kind, local: False)
+    with pytest.raises(writing.WrongDayKind):
+        _submit(learner)
 
 
 def test_the_paragraph_baseline_keeps_structure_and_an_offer(learner, monkeypatch) -> None:

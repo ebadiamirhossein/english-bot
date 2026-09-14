@@ -394,7 +394,7 @@ def test_a_dry_run_makes_no_model_call(learner) -> None:
 
 
 def test_the_run_repeats_the_cohort_and_refreshes_the_avoid_list(
-    learner, monkeypatch
+    learner, monkeypatch, tmp_path
 ) -> None:
     """**F4: the cohort stays at eight and the RUN loops.** Seven cohorts, not
     one 56-slot request.
@@ -431,8 +431,14 @@ def test_the_run_repeats_the_cohort_and_refreshes_the_avoid_list(
     from core.services.items import focus_held as held_now
 
     held = held_now(learner, unit_number=1)
+    # **#416. `journal_path` IS NOT OPTIONAL IN A TEST.** This call once omitted
+    # it, so `journal.record` appended to the cwd-relative default — the repo
+    # root's `w10c-journal.jsonl`, #309's journal for the applied W10c run — on
+    # every full suite. Found by making that file read-only for one run
+    # (`PermissionError` at `generate.py`'s `record`); demonstrated fixed the same
+    # way. The class has no detector yet (#420).
     gen.run(learner, (1,), apply=False, skip_control=True,
-            focus_held={1: held})
+            focus_held={1: held}, journal_path=tmp_path / "w10c-journal.jsonl")
 
     # 56 - 40 = 16, over 8-slot cohorts, is exactly two.
     generation_prompts = [p for p in seen_prompts if "ALREADY IN THIS" in p]

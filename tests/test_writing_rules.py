@@ -14,7 +14,7 @@ from `opening_line`; the cap applied before the gates in `shape`.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -64,6 +64,43 @@ def test_the_bounds() -> None:
     assert rules.MIN_CHARS == 10
     assert rules.MAX_CHARS == 2000
     assert rules.WRITING_MAX_TOKENS == 2000
+
+
+def test_the_paragraph_has_its_own_output_budget() -> None:
+    """**Finding (d).** One 2,000-token budget served both kinds, and the paragraph
+    asks for up to four times the corrections plus the structure prose. Adaptive
+    thinking counts against `max_tokens` (`llm.py:_describe_truncation`), and the
+    item generator reserves `THINKING_HEADROOM_TOKENS = 2000` for thinking ALONE —
+    so a 2,000 paragraph budget left no room for the answer, and a long paragraph
+    would 503 as truncated. **Red demonstration:** before `max_tokens(kind)` existed
+    this failed on the attribute; with the paragraph mapped to 2,000 it failed on
+    the number."""
+    assert rules.max_tokens("journal") == 2000
+    assert rules.max_tokens("paragraph") == 4000
+    with pytest.raises(ValueError):
+        rules.max_tokens("essay")  # type: ignore[arg-type]
+
+
+# ── which kind the server accepts (finding (c)) ─────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("local", "kind", "accepted"),
+    [
+        (datetime(2026, 9, 17, 0, 0), "paragraph", True),  # Thursday, first minute
+        (datetime(2026, 9, 17, 23, 59), "paragraph", True),  # Thursday, last minute
+        (datetime(2026, 9, 18, 2, 59), "paragraph", True),  # Friday, inside the grace
+        (datetime(2026, 9, 18, 3, 0), "paragraph", False),  # Friday, grace over
+        (datetime(2026, 9, 16, 23, 59), "paragraph", False),  # Wednesday night
+        (datetime(2026, 9, 14, 12, 0), "paragraph", False),  # Monday
+        (datetime(2026, 9, 17, 12, 0), "journal", True),  # the lighter kind, on Thursday
+        (datetime(2026, 9, 14, 12, 0), "journal", True),
+    ],
+)
+def test_the_server_accepts_the_paragraph_only_on_its_day(local, kind, accepted) -> None:
+    """**Red demonstration:** `accepts_day_kind` returning True for every kind turned
+    the four `False` rows red; the grace removed turned the Friday 02:59 row red."""
+    assert rules.accepts_day_kind(kind, local) is accepted
 
 
 # ── G1: self-produced ───────────────────────────────────────────────────────

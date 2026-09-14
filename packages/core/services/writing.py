@@ -37,6 +37,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from core import PROMPTS_DIR
 from core.config import Settings, load_settings
@@ -75,6 +76,10 @@ class WritingUnavailable(Exception):
 
 class CeilingReached(Exception):
     """Today's submissions are used. Carries no count — nothing may show one."""
+
+
+class WrongDayKind(Exception):
+    """A kind posted outside the day that serves it (finding (c)). No spend, no row."""
 
 
 class NoParagraphTask(Exception):
@@ -294,14 +299,15 @@ def call_model(
     """Build the request and send it. **The only place either happens.**
 
     `reject_truncation` because a truncated array would parse into fewer
-    corrections and a silent hole; `WRITING_MAX_TOKENS` is a starting value the
-    §3 rule 2 call reports against, not a tuned one.
+    corrections and a silent hole; the budget is per kind (`rules.max_tokens`,
+    finding (d)) and a starting value the §3 rule 2 call reports against, not a
+    tuned one.
     """
     raw = chat(
         [{"role": "user", "content": correction.wrap_user_text(text)}],
         system=build_system_prompt(user, kind, task),
         json_mode=True,
-        max_tokens=rules.WRITING_MAX_TOKENS,
+        max_tokens=rules.max_tokens(kind),
         reject_truncation=True,
         usage_out=usage_out,
     )
@@ -328,7 +334,12 @@ def correct_submission(
 
     Order, and why:
 
-    1. **Refuse a kind W16a does not build** (`paragraph` is W16b's).
+    1. **Refuse a kind that does not exist**, then **a kind this day does not
+       serve** (finding (c)): the client names the kind it was shown, and until
+       review any client could post `paragraph` on any day for eight corrections.
+       Refused before the ceiling read, so it spends nothing and writes nothing.
+       *(Step 1 read "Refuse a kind W16a does not build (`paragraph` is W16b's)."
+       — quoted, #82.)*
     2. **The ceiling, BEFORE the call.** A refused submission spends nothing and
        writes nothing. Two submissions racing the fifth place can both pass
        this read; the ceiling is a spend bound, not a security boundary, and one
@@ -345,6 +356,8 @@ def correct_submission(
     with connection() as conn:
         tz = _timezone(conn, user.id) or "Europe/Vilnius"
         local_date = local_today(tz, now)
+        if not rules.accepts_day_kind(day_kind, now.astimezone(ZoneInfo(tz))):
+            raise WrongDayKind("this day does not serve that kind")
         if submissions_on(conn, user.id, local_date) >= cfg.writing_max_submissions_per_day:
             raise CeilingReached("today's writing is done")
         linked = _own_session_today(conn, user.id, session_id, local_date)
@@ -433,12 +446,18 @@ def correct_submission(
 def keep_phrase(user_id: int, phrase: str, sentence: str, *, now: datetime) -> str:
     """`POST /write/keep`: one offered phrase into the deck. ``"saved"`` or ``"already"``.
 
-    **THE OFFER RULE IS RE-APPLIED ON WRITE, SO A STRING THAT WOULD NOT HAVE BEEN
-    OFFERED CANNOT BE SAVED** — the gap `/talk`'s `save-word` leaves open (#408)
-    is closed on this surface. **Stated limit:** the change condition cannot be
-    re-applied, because it needs the learner's original and the original is never
-    stored (CLAUDE.md §5); every other condition is — every word resolves, every
-    content word lemmatises to a word of `sentence`. Provenance is not proven.
+    **THE OFFER RULE IS RE-APPLIED ON WRITE, AND IT NARROWS #408 ON THIS SURFACE;
+    IT DOES NOT CLOSE IT (#419).** Every word must resolve and every content word
+    must lemmatise to a word of `sentence`, so a non-word or a phrase absent from
+    its sentence is refused. **But the client sends BOTH halves**, so a consistent
+    invented pair is saved — `weed`/`weed`, or `the person` from *it depends on
+    the person*, neither of which Q-E would have offered (the change condition
+    needs the learner's original, which is never stored, CLAUDE.md §5).
+    `test_stated_limit_keep_cannot_prove_a_phrase_was_offered` pins it.
+    *(This paragraph read "SO A STRING THAT WOULD NOT HAVE BEEN OFFERED CANNOT BE
+    SAVED — the gap … is closed on this surface" — quoted, #82; finding (a).)*
+    The fix that would close it without storing text is a server-signed offer
+    token on the wire, which is a contract change and is #419's, not this slice's.
 
     **The card:** `recognition`, `register='neutral'`, `register_source=
     'import_default'` — `/talk`'s precedent, and an imperfect name for a phrase

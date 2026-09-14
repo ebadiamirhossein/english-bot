@@ -200,6 +200,20 @@ describe("the notices", () => {
     expect(api.requestCorrection).toHaveBeenLastCalledWith(ENTRY, expect.anything());
     expect(api.requestCorrection).toHaveBeenCalledTimes(2);
   });
+
+  // **Finding (c).** The server now refuses a paragraph posted outside its day
+  // (`422 wrong_day_kind`) — a Thursday tab left open into Friday. The screen asks
+  // for today's task again and keeps the text; it shows no error copy. Red
+  // demonstration: without the 422 branch the trouble notice rendered and today
+  // was fetched once.
+  it("a refused day kind fetches today's task again and keeps the text", async () => {
+    await open();
+    await submit(new api.ApiError("/correct returned 422", 422));
+    await waitFor(() => expect(api.getWriteToday).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId("write-screen").dataset.phase).toBe("composing"));
+    expect((screen.getByTestId("write-field") as HTMLTextAreaElement).value).toBe(ENTRY);
+    expect(screen.queryByTestId("write-notice")).toBeNull();
+  });
 });
 
 describe("the ceiling (1q unavailable)", () => {

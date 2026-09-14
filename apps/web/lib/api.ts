@@ -138,8 +138,10 @@ export type StructureParagraph = { segments: StructureSegment[] };
 export type WordOffer = { phrase: string; sentence: string; in_deck: boolean };
 
 /**
- * `POST /write/keep` (W16b). The server re-applies the offer rule, so a phrase
- * that was never offered is a `422`, never a card.
+ * `POST /write/keep` (W16b). The server re-applies the offer rule: a non-word, or
+ * a phrase whose words are not in the sentence sent with it, is a `422`, never a
+ * card. **It cannot prove the phrase was offered** — this call sends both halves
+ * (#419). *(Read "a phrase that was never offered is a `422`" — quoted, #82.)*
  */
 export function keepPhrase(
   phrase: string,
@@ -153,9 +155,10 @@ export function keepPhrase(
 }
 
 /**
- * `POST /correct`. A `409` is the day's ceiling (Ruling 3) and a `503` is the
- * model failing; both arrive as `ApiError` with the status, and neither carries
- * a message the screen shows.
+ * `POST /correct`. A `409` is the day's ceiling (Ruling 3), a `503` is the
+ * model failing, and a `422` is a kind this day does not serve (finding (c) —
+ * a Thursday tab left open); all arrive as `ApiError` with the status, and none
+ * carries a message the screen shows.
  */
 export function requestCorrection(
   text: string,

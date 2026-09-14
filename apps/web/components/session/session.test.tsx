@@ -350,6 +350,21 @@ describe("the remaining blocks", () => {
     ).toBe("/write");
   });
 
+  // **W16b finding (b), from the session that stood down.** The card promised
+  // "I'll go through all of it afterwards" while Q-D caps the paragraph at eight
+  // corrections — `WRITE.paragraph.subline` had already dropped "all of it" and the
+  // card had not. Red demonstration: the shipped string turned this red.
+  it("promises no correction of all of it on the Thursday card (Q-D caps at eight)", () => {
+    render(
+      <OutputBlock
+        block={block({ n: 4, kind: "output", payload: { day_kind: "paragraph" } })}
+      />,
+    );
+    const subline = screen.getByTestId("output-subline").textContent ?? "";
+    expect(subline).toBe("A bit longer than usual. I’ll go through it afterwards.");
+    expect(subline).not.toMatch(/all of it/i);
+  });
+
   // **W16b moved this from `paragraph` to a kind that does not exist**, because
   // the paragraph now has a card. Red demonstration: keying the copy on nothing.
   it("draws no card for a day kind this build has no copy for", () => {

@@ -138,11 +138,17 @@ export const BLOCKS = {
      * tasks, not questions (*"Write six sentences about yesterday…"*). A title
      * that says what the prompt is not is the design asking for something the
      * data cannot support (§1a).
+     *
+     * **`body` read *"A bit longer than usual. I’ll go through all of it
+     * afterwards."*** (quoted, #82's shape) — the design's string, kept by the
+     * first W16b pass while `WRITE.paragraph.subline` below dropped *all of it*
+     * for Q-D's cap of eight. One surface promised what the other had already
+     * ruled false; found by the session that stood down (finding (b)).
      */
     paragraph: {
       eyebrow: "Today · this week’s paragraph",
       title: "One paragraph, on this week’s task.",
-      body: "A bit longer than usual. I’ll go through all of it afterwards.",
+      body: "A bit longer than usual. I’ll go through it afterwards.",
     },
     action: "Start writing",
   },

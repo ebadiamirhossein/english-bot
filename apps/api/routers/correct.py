@@ -52,6 +52,15 @@ router = APIRouter(tags=["correct"])
 JSON_CONTENT_TYPE = "application/json"
 
 
+def _now() -> datetime:
+    """The route's clock, in one place so a test can pin it (CLAUDE.md §3 rule 6).
+
+    Added with finding (c): once the service refuses a paragraph outside its day,
+    a route test that read the wall clock would pass on Thursdays only.
+    """
+    return datetime.now(timezone.utc)
+
+
 def require_json(request: Request) -> None:
     """Refuse anything that is not JSON, explicitly.
 
@@ -108,7 +117,7 @@ def write_today(
     **Reads only.** It never creates a session — `/write` reached from home
     before the session was opened gets `session_id: null`.
     """
-    today = writing.today(session.id, now=datetime.now(timezone.utc))
+    today = writing.today(session.id, now=_now())
     if today is None:
         raise HTTPException(status_code=404, detail="not_found")
     return WriteTodayOut(
@@ -155,8 +164,16 @@ def correct(
             body.text.strip(),
             day_kind=body.day_kind,
             session_id=body.session_id,
-            now=datetime.now(timezone.utc),
+            now=_now(),
         )
+    except writing.WrongDayKind:
+        # Finding (c). A paragraph posted outside its day — usually a Thursday tab
+        # left open into Friday. The client asks `GET /write/today` again and
+        # keeps the text; nothing was spent and nothing was written.
+        logger.info("Writing day kind refused user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="wrong_day_kind"
+        ) from None
     except writing.CeilingReached:
         # Ruling 3. The same status and detail `/talk` uses, and no number: the
         # client shows the day's-writing-is-done state and nothing else.
@@ -194,14 +211,16 @@ def keep(
 ) -> KeepOut:
     """W16b — keep one offered phrase in the deck (`1o`).
 
-    **The offer rule is re-applied in the service**, so a phrase that would not
-    have been offered is a 422, never a card. Plain `def`: it holds a pool
+    **The offer rule is re-applied in the service**: a non-word, or a phrase whose
+    words are not in the sentence sent with it, is a 422, never a card. **It cannot
+    prove the phrase was OFFERED** — the client sends both halves, so a consistent
+    invented pair is saved (#419; #408 is narrowed on this surface, not closed).
+    *(This docstring read "a phrase that would not have been offered is a 422,
+    never a card" — quoted, #82; finding (a).)* Plain `def`: it holds a pool
     checkout and a transaction lock.
     """
     try:
-        status_ = writing.keep_phrase(
-            session.id, body.phrase, body.sentence, now=datetime.now(timezone.utc)
-        )
+        status_ = writing.keep_phrase(session.id, body.phrase, body.sentence, now=_now())
     except writing.NotOfferable:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="not_offerable"

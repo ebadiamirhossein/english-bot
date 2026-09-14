@@ -23,7 +23,7 @@ then, not guessed at now.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from core.services.correction import MIN_CHARS as _CORRECTION_MIN_CHARS
@@ -67,6 +67,25 @@ PARAGRAPH_MAX_CORRECTIONS = 8
 #: fewer corrections and a silent hole.
 WRITING_MAX_TOKENS = 2000
 
+#: **W16b finding (d).** The paragraph shared the journal's 2,000 until review.
+#: It asks for up to four times the corrections plus the structure prose, and
+#: **adaptive thinking counts against `max_tokens`** (`core.llm._describe_truncation`)
+#: — the item generator reserves `THINKING_HEADROOM_TOKENS = 2000` for thinking
+#: alone. The journal's measured run used 650 output tokens for two corrections
+#: and one line (#411, unexplained), so 2,000 left a long paragraph one bad
+#: sitting from a truncation 503. **4,000 is 2,000 of headroom plus the journal's
+#: budget, not a tuned number**: the paragraph probe's usage line is the
+#: measurement it is REPORTED against, and a higher cap bills nothing unused.
+PARAGRAPH_MAX_TOKENS = 4000
+
+#: **W16b finding (c).** A Thursday sitting sent after local midnight is still the
+#: paragraph until 03:00 on Friday. W16a let the CLIENT name the kind because *a
+#: server re-derivation across local midnight would correct one kind as the
+#: other*; the grace is that concern, kept, with the abuse (a paragraph's eight
+#: journal rows on any day) closed. The learners' evening reminder is 21:00, so a
+#: sitting that crosses midnight ends well inside three hours.
+PARAGRAPH_GRACE_UNTIL_HOUR = 3
+
 
 #: **F5 (operator).** The prompt read *"whose first language is fa"* — the raw
 #: column value. The model is told a language's NAME. `apps/bot/texts.py` holds
@@ -87,6 +106,32 @@ def language_name(code: str) -> str:
 def day_kind(local_date: date) -> DayKind:
     """The writing task for the learner's LOCAL date: Thursday is the paragraph."""
     return "paragraph" if local_date.weekday() == PARAGRAPH_WEEKDAY else "journal"
+
+
+def accepts_day_kind(kind: str, local: datetime) -> bool:
+    """Whether the server corrects ``kind`` at the learner's LOCAL wall time.
+
+    **The journal, always**: it is the lighter kind — two corrections, a shorter
+    budget — so a journal sent on a Thursday protects nothing by being refused.
+    **The paragraph, on its day** (PRD §4.2) or in the small hours after it
+    (`PARAGRAPH_GRACE_UNTIL_HOUR`). Anything else is refused before any spend.
+    """
+    if kind == "journal":
+        return True
+    if kind != "paragraph":
+        return False
+    if local.weekday() == PARAGRAPH_WEEKDAY:
+        return True
+    return local.weekday() == (PARAGRAPH_WEEKDAY + 1) % 7 and local.hour < PARAGRAPH_GRACE_UNTIL_HOUR
+
+
+def max_tokens(kind: DayKind) -> int:
+    """The output budget for one call of this kind (finding (d))."""
+    if kind == "journal":
+        return WRITING_MAX_TOKENS
+    if kind == "paragraph":
+        return PARAGRAPH_MAX_TOKENS
+    raise ValueError(f"no output budget is built for day kind {kind!r}")
 
 
 def max_corrections(kind: DayKind) -> int:

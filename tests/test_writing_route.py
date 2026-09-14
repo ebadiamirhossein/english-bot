@@ -502,7 +502,69 @@ def post_paragraph(app, learner, text=PARAGRAPH):
     return post(app, learner, text=text, day_kind="paragraph")
 
 
-def test_the_paragraph_returns_structure_offers_and_no_opening_line(app, db, learner, monkeypatch) -> None:
+def at(monkeypatch, instant: datetime) -> None:
+    """Pin the route's clock (§3 rule 6). **Added with finding (c)**: once the
+    server validates `day_kind`, a paragraph test posted on the wall clock would
+    pass on Thursdays and fail on every other day — a calendar test, not a code one."""
+    monkeypatch.setattr("apps.api.routers.correct._now", lambda: instant)
+
+
+#: The learner is in Europe/Vilnius, UTC+3 in September. Every instant below is
+#: written in UTC with its local reading beside it, computed by hand (rule 5).
+THURSDAY = datetime(2026, 9, 17, 9, 0, tzinfo=timezone.utc)  # Thu 12:00 local
+WEDNESDAY = datetime(2026, 9, 16, 9, 0, tzinfo=timezone.utc)  # Wed 12:00 local
+FRIDAY_SMALL_HOURS = datetime(2026, 9, 17, 23, 30, tzinfo=timezone.utc)  # Fri 02:30 local
+FRIDAY_MORNING = datetime(2026, 9, 18, 7, 0, tzinfo=timezone.utc)  # Fri 10:00 local
+
+
+@pytest.fixture
+def thursday(monkeypatch):
+    at(monkeypatch, THURSDAY)
+
+
+def test_a_paragraph_posted_on_a_journal_day_is_refused_before_any_spend(app, db, learner, monkeypatch) -> None:
+    """**Finding (c).** The client picked `day_kind`, so any client could post
+    `paragraph` on any day and get eight corrections — eight permanent journal rows
+    where the day allows two (#412's sampling). The ceiling bounds spend, not this.
+    **Red demonstration:** before the server validated the kind, this returned 200
+    with one model call and one row."""
+    at(monkeypatch, WEDNESDAY)
+    seen = stub_model(monkeypatch, PARA)
+    response = post_paragraph(app, learner)
+    assert response.status_code == 422
+    assert response.json()["detail"] == "wrong_day_kind"
+    assert seen == []
+    assert count(db, "SELECT count(*) FROM writing_submissions WHERE user_id = %s", learner.user_id) == 0
+    assert count(db, "SELECT count(*) FROM errors WHERE user_id = %s", learner.user_id) == 0
+
+
+def test_friday_morning_refuses_the_paragraph_too(app, learner, monkeypatch) -> None:
+    at(monkeypatch, FRIDAY_MORNING)
+    seen = stub_model(monkeypatch, PARA)
+    assert post_paragraph(app, learner).status_code == 422
+    assert seen == []
+
+
+def test_a_thursday_paragraph_finished_after_midnight_is_still_accepted(app, learner, monkeypatch) -> None:
+    """The grace W16a's docstring worried about: *a server re-derivation across local
+    midnight would correct one kind as the other.* A Thursday sitting sent at 02:30
+    on Friday is still the paragraph."""
+    at(monkeypatch, FRIDAY_SMALL_HOURS)
+    seen = stub_model(monkeypatch, PARA)
+    assert post_paragraph(app, learner).status_code == 200
+    assert len(seen) == 1
+
+
+def test_the_journal_is_accepted_on_a_thursday(app, learner, monkeypatch) -> None:
+    """The lighter kind is never refused: a journal on the paragraph day spends less
+    and writes at most two rows, so there is nothing to protect."""
+    at(monkeypatch, THURSDAY)
+    seen = stub_model(monkeypatch, THREE)
+    assert post(app, learner).status_code == 200
+    assert len(seen) == 1
+
+
+def test_the_paragraph_returns_structure_offers_and_no_opening_line(app, db, learner, monkeypatch, thursday) -> None:
     """**The W16 row's second criterion: structure feedback, and errors written to
     the journal** — counted by this test's own query."""
     seen = stub_model(monkeypatch, PARA)
@@ -521,7 +583,7 @@ def test_the_paragraph_returns_structure_offers_and_no_opening_line(app, db, lea
     ) == 1
 
 
-def test_the_paragraph_caps_at_eight(app, db, learner, monkeypatch) -> None:
+def test_the_paragraph_caps_at_eight(app, db, learner, monkeypatch, thursday) -> None:
     names = ["Anna", "Ben", "Carl", "Dora", "Emil", "Fay", "Gus", "Hana", "Ivo", "Jan"]
     text = " ".join(f"{n} go home." for n in names)
     stub_model(monkeypatch, {
@@ -533,7 +595,7 @@ def test_the_paragraph_caps_at_eight(app, db, learner, monkeypatch) -> None:
     assert count(db, "SELECT count(*) FROM errors WHERE user_id = %s", learner.user_id) == 8
 
 
-def test_an_invented_quote_makes_structure_absent_and_keeps_the_corrections(app, learner, monkeypatch) -> None:
+def test_an_invented_quote_makes_structure_absent_and_keeps_the_corrections(app, learner, monkeypatch, thursday) -> None:
     bad = {**PARA, "structure": [{"segments": [{"text": "But she said", "quote": True}]}]}
     stub_model(monkeypatch, bad)
     body = post_paragraph(app, learner).json()
@@ -548,7 +610,7 @@ def test_the_journal_carries_no_structure_and_no_offers(app, learner, monkeypatc
     assert body["word_offers"] == []
 
 
-def test_a_kept_phrase_shows_as_in_deck_next_time(app, db, learner, monkeypatch) -> None:
+def test_a_kept_phrase_shows_as_in_deck_next_time(app, db, learner, monkeypatch, thursday) -> None:
     stub_model(monkeypatch, PARA)
     keep = request(app, "POST", "/write/keep", json_body={"phrase": "to depend on", "sentence": "it depends on the person"}, cookies=jar(learner))
     assert keep.json() == {"status": "saved"}
@@ -589,9 +651,27 @@ def test_keep_saves_one_card_with_its_sentence_and_then_says_already(app, db, le
     ],
 )
 def test_keep_refuses_a_phrase_that_would_not_have_been_offered(app, db, learner, phrase, sentence) -> None:
-    """**Closes on this surface the gap #408 records for `/talk`.**"""
+    """**NARROWS on this surface the gap #408 records for `/talk`; it does not
+    close it** (#419). *(This docstring read "Closes on this surface the gap #408
+    records for `/talk`." — corrected on finding (a), #82's shape.)* It refuses
+    non-words and phrases absent from the sentence sent with them."""
     assert keep(app, learner, phrase, sentence).status_code == 422
     assert count(db, "SELECT count(*) FROM cards WHERE user_id = %s", learner.user_id) == 0
+
+
+def test_stated_limit_keep_cannot_prove_a_phrase_was_offered(app, db, learner) -> None:
+    """**#419, PINNED AS A LIMIT, NOT AS A FEATURE.** The client sends both the
+    phrase and the sentence, so a client that invents a consistent pair gets a
+    card: `weed` with the sentence `weed`, or `the person` from *it depends on the
+    person* — neither of which Q-E would have offered (the first is the learner's
+    slip, the second changes no word). Found by the session that stood down;
+    verified here. **If this test goes red, the gap closed — update #419 and the
+    record, do not restore the gap.**"""
+    assert keep(app, learner, "weed", "weed").json() == {"status": "saved"}
+    assert keep(app, learner, "the person", "it depends on the person").json() == {"status": "saved"}
+    assert count(db, "SELECT count(*) FROM cards WHERE user_id = %s", learner.user_id) == 2
+    db.execute("DELETE FROM cards WHERE user_id = %s", (learner.user_id,))
+    db.commit()
 
 
 def test_keep_requires_a_session(app) -> None:

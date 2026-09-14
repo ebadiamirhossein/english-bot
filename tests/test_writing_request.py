@@ -150,7 +150,9 @@ def test_the_paragraph_request_as_sent(mock_cls, _sleep) -> None:
     writing.call_model(_learner(), TEXT, "paragraph", usage_out={}, task=task)
     kwargs = client.messages.create.call_args.kwargs
     system = kwargs["system"][0]["text"]
-    assert kwargs["max_tokens"] == 2000
+    # Finding (d): the paragraph's own budget, asserted where it leaves the process.
+    # Red demonstration: `max_tokens=rules.WRITING_MAX_TOKENS` left in `call_model`.
+    assert kwargs["max_tokens"] == 4000
     assert f"exactly as they were given it:\n{task}\n" in system
     assert "At most 8 corrections" in system
     assert "keep is OPTIONAL" in system

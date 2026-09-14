@@ -56,9 +56,9 @@ def test_the_dry_run_sends_nothing_and_prints_the_count(monkeypatch, capsys) -> 
     out = capsys.readouterr().out
     # Hardcoded: two journal fixtures and, from W16b, one paragraph (§3 rule 5).
     assert "calls --live will make: 3" in out
-    assert "request (paragraph): json_mode=True max_tokens=2000 reject_truncation=True max_corrections=8" in out
+    assert "request (paragraph): json_mode=True max_tokens=4000 reject_truncation=True max_corrections=8" in out
+    assert "request (journal): json_mode=True max_tokens=2000 reject_truncation=True max_corrections=2" in out
     assert "DRY RUN. Nothing was sent." in out
-    assert "max_tokens=2000 reject_truncation=True" in out
 
 
 def test_the_probes_paragraph_task_is_unit_ones_verbatim() -> None:
