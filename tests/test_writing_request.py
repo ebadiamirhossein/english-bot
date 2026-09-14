@@ -157,6 +157,10 @@ def test_the_paragraph_request_as_sent(mock_cls, _sleep) -> None:
     assert "At most 8 corrections" in system
     assert "keep is OPTIONAL" in system
     assert "Rules for structure" in system
+    # The live defect: the prose praised a stretch its own correction fixed. The
+    # model is told; the gate refuses it when told is not enough. Red demonstration:
+    # this line absent from `writing_paragraph.txt`.
+    assert "Never quote a stretch you are correcting. Quote the parts that work." in system
     assert "Each correction fixes exactly ONE error" in system
     assert "whose first language is Lithuanian" in system
     for spoken in ("pronunciation_vowel", "pronunciation_stress", "filler_overuse"):

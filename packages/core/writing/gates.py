@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from core.copy_rules import BANNED, content_offenders
@@ -232,8 +232,60 @@ _RUBRIC = re.compile(r"\bout\s+of\b|\b(?:opening|order|linking)\s*:", re.IGNOREC
 MAX_STRUCTURE_PARAGRAPHS = 2
 
 
-def structure_of(raw: object, submitted: str) -> tuple[dict, ...] | None:
+def _word_run(text: str) -> list[str]:
+    """Whole words, casefolded, quotes straightened — punctuation and spacing gone."""
+    return _WORD.findall(_normal(text))
+
+
+def _contains_run(outer: list[str], inner: list[str]) -> bool:
+    n = len(inner)
+    return n > 0 and any(outer[i : i + n] == inner for i in range(len(outer) - n + 1))
+
+
+def overlaps_a_correction(quote: str, you_said: str) -> bool:
+    """**Either stretch contains the other, on whole words** (live defect, 2026-09-14).
+
+    Whole words and not characters, so `an` does not match `any`; punctuation and
+    spacing are ignored, so `more.` matches `more`. **Stated limit, pinned:** a
+    correction that shares only PART of the quote — neither containing the other —
+    does not match.
+    """
+    q, s = _word_run(quote), _word_run(you_said)
+    return _contains_run(q, s) or _contains_run(s, q)
+
+
+def structure_of(
+    raw: object,
+    submitted: str,
+    *,
+    corrected: Iterable[str] = (),
+    overlapped: list[int] | None = None,
+) -> tuple[dict, ...] | None:
     """The structure prose if it survives, else ``None``. **All or nothing.**
+
+    **LIVE DEFECT, 2026-09-14, the first real paragraph call:** the prose quoted
+    *"we can't depend of the old plan any more"* as the paragraph's strongest
+    moment, and a correction below fixed that exact stretch — the learner's error
+    praised in the app's voice, then corrected. **So a paragraph with a `quote: true`
+    segment that overlaps any `corrected` stretch is DROPPED, and the other paragraphs
+    are kept** (`overlaps_a_correction`). Zero paragraphs left → absent. Each dropped
+    paragraph's 1-based number is appended to ``overlapped`` (an out-parameter, as
+    `core.llm.chat`'s `usage_out`), so `shape` can name it in `dropped`.
+
+    **OPERATOR REVERSAL, 2026-09-14: PER-PARAGRAPH, NOT BLOCK-LEVEL.** This read
+    *"a `quote: true` segment that overlaps any `corrected` stretch refuses the whole
+    block"*, on the operator's ruling *"Absent beats wrong — the whole structure block
+    drops, per the existing rule."* Reversed because the check fired on the first real
+    response, 1 for 1, and so will fire often: all-or-nothing would leave Thursday with
+    no structure feedback at all, and paragraph 1 of that response was good teaching.
+    *Absent beats wrong; absent does not beat right.*
+
+    **EVERY OTHER RULE IS STILL BLOCK-LEVEL, AND IT RUNS FIRST, OVER EVERY PARAGRAPH
+    THE MODEL SENT:** the paragraph count (so dropping one of three cannot rescue an
+    over-long block), a banned term, a digit or mark word, a rubric shape, an invented
+    quote, a malformed segment. Those say the model broke the contract, so nothing in
+    the block is trusted. The overlap says one paragraph praised one error. The prompt is told as well
+    (`writing_paragraph.txt`); this is what holds when being told is not enough.
 
     **W16b. EXTENDS W16a's GATES RATHER THAN DUPLICATING THEM:** `BANNED` (the
     app addressing the learner), `_SCORE` (a digit or a mark word) and `_normal`
@@ -271,7 +323,22 @@ def structure_of(raw: object, submitted: str) -> tuple[dict, ...] | None:
                 return None
             clean.append({"text": text, "quote": quote})
         paragraphs.append({"segments": clean})
-    return tuple(paragraphs)
+
+    # Per-paragraph, and only now: every block-level rule above has passed for every
+    # paragraph the model sent.
+    stretches = tuple(corrected)
+    kept: list[dict] = []
+    for number, paragraph in enumerate(paragraphs, start=1):
+        praises_an_error = any(
+            segment["quote"] and any(overlaps_a_correction(segment["text"], s) for s in stretches)
+            for segment in paragraph["segments"]
+        )
+        if praises_an_error:
+            if overlapped is not None:
+                overlapped.append(number)
+            continue
+        kept.append(paragraph)
+    return tuple(kept) or None
 
 
 # ---------------------------------------------------------------------------
@@ -368,12 +435,29 @@ def shape(
         )
 
     if kind == "paragraph":
+        # EVERY stretch the model called an error, kept or not: a quote is not
+        # praiseworthy because its correction failed a gate (over-refusal is the
+        # recoverable direction).
+        corrected = [
+            str(item.get("you_said") or "")
+            for item in raw.get("corrections") or []
+            if isinstance(item, Mapping)
+        ]
+        raw_structure = raw.get("structure")
+        overlapped: list[int] = []
+        structure = structure_of(raw_structure, submitted, corrected=corrected, overlapped=overlapped)
+        # Counted so the probe's `dropped by gate` and the service log can SHOW each
+        # refusal — codes and paragraph numbers, never text (CLAUDE.md §5).
+        for number in overlapped:
+            dropped[f"structure_paragraph_{number}"] += 1
+        if structure is None and not overlapped and isinstance(raw_structure, list) and raw_structure:
+            dropped["structure"] += 1  # a block-level rule refused the whole block
         return Shaped(
             is_english=True,
             did_well=None,
             corrections=tuple(kept),
             dropped=dict(dropped),
-            structure=structure_of(raw.get("structure"), submitted),
+            structure=structure,
         )
     return Shaped(
         is_english=True,

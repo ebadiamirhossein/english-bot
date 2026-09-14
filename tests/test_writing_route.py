@@ -603,6 +603,58 @@ def test_an_invented_quote_makes_structure_absent_and_keeps_the_corrections(app,
     assert len(body["corrections"]) == 3
 
 
+def test_structure_that_praises_a_corrected_stretch_never_reaches_the_screen(app, db, learner, monkeypatch, thursday) -> None:
+    """**The live paragraph defect, through the real route, on the REAL response.**
+    The prose quoted *"we can't depend of the old plan any more"* as the strongest
+    moment, and correction 3 fixed *"depend of the old plan"* inside it. **Since the
+    operator's reversal, only that paragraph is absent on the wire; paragraph 1 is
+    shown** *(read "The block is absent on the wire" until then — #82)*, while all four
+    corrections, their journal rows and the live run's two offers are untouched. The text is `probe.FIXTURE_PARAGRAPH`, the one the
+    live call sent. The corrections' `you_said`/`correct_form`/`error_type`/`keep` and
+    the quotes are the operator's transcription; explanations and the prose around
+    the quotes are written here, and the gate reads none of them. **Red demonstration:**
+    with the overlap check removed (M12) the body carried `structure` with that quote
+    in it. *(This test first used a reconstruction with three guessed corrections;
+    replaced on the transcription, #82.)*"""
+    from core.writing.probe import FIXTURE_PARAGRAPH
+
+    quote = "we can't depend of the old plan any more"
+    stub_model(monkeypatch, {
+        "is_english": True,
+        "structure": [
+            {"segments": [
+                {"text": "You walk through the day in the order it happened, and ", "quote": False},
+                {"text": "First", "quote": True},
+                {"text": ", ", "quote": False},
+                {"text": "After lunch", "quote": True},
+                {"text": " and ", "quote": False},
+                {"text": "Finally", "quote": True},
+                {"text": " keep it easy to follow.", "quote": False},
+            ]},
+            {"segments": [
+                {"text": "The strongest moment is ", "quote": False},
+                {"text": quote, "quote": True},
+                {"text": ", where the day turns.", "quote": False},
+            ]},
+        ],
+        "corrections": [
+            para_correction("I wake up late", "I woke up late", "verb_tense_past"),
+            para_correction("I go to the office", "I went to the office", "verb_tense_past"),
+            para_correction("depend of the old plan", "depend on the old plan", "preposition", "to depend on"),
+            para_correction("I was waiting my friend", "I was waiting for my friend", "preposition", "to wait for someone"),
+        ],
+    })
+    body = post_paragraph(app, learner, text=FIXTURE_PARAGRAPH).json()
+    # Operator's reversal: per-paragraph. Paragraph 1 reaches the screen; paragraph 2
+    # does not. *(Asserted `"structure" not in body` until the reversal — quoted, #82.)*
+    assert [s["text"] for s in body["structure"][0]["segments"] if s["quote"]] == ["First", "After lunch", "Finally"]
+    assert len(body["structure"]) == 1
+    assert quote not in json.dumps(body)
+    assert len(body["corrections"]) == 4
+    assert [o["phrase"] for o in body["word_offers"]] == ["to depend on", "to wait for someone"]
+    assert count(db, "SELECT count(*) FROM errors WHERE user_id = %s", learner.user_id) == 4
+
+
 def test_the_journal_carries_no_structure_and_no_offers(app, learner, monkeypatch) -> None:
     stub_model(monkeypatch, PARA)
     body = post(app, learner, text=PARAGRAPH).json()

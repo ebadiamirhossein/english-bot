@@ -44,6 +44,7 @@ Rules for corrections:
 Rules for structure:
 - One or two short paragraphs, in plain, warm, everyday English, about how THIS paragraph is put together: the order of its points, how one idea leads to the next, where it is strongest, what could go.
 - Talk about this paragraph, not about paragraphs in general. When you point at part of it, quote the learner's exact words in their own segment with "quote": true — copied exactly from the text, never changed. Every other segment has "quote": false.
+- Never quote a stretch you are correcting. Quote the parts that work.
 - No headings, no labels like "Opening:" or "Order:", no list of dimensions, no rating, no score, no numbers, no "out of". No grammar terminology.
 - Describe what the paragraph does. Never judge the learner or their ability.
 - If the text is not in English, return "is_english": false, an empty corrections list and an empty structure list.

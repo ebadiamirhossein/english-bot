@@ -162,7 +162,7 @@ def test_the_paragraph_baseline_keeps_structure_and_an_offer(learner, monkeypatc
 def test_the_structure_gate_is_on_the_path(learner, monkeypatch) -> None:
     """**Red demonstration:** `structure=structure_of(...)` replaced by the raw
     value in `shape` turned this red."""
-    monkeypatch.setattr(gates, "structure_of", lambda raw, submitted: None)
+    monkeypatch.setattr(gates, "structure_of", lambda raw, submitted, **kw: None)
     assert _paragraph(learner, monkeypatch).structure is None
 
 

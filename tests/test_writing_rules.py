@@ -411,6 +411,223 @@ def test_a_refused_structure_is_absent_as_a_whole(raw, why) -> None:
     assert gates.structure_of(raw, PARA) is None, why
 
 
+# ── The live defect: structure praised a stretch a correction then fixed ─────
+#
+# **FOUND BY THE OPERATOR ON THE FIRST LIVE PARAGRAPH CALL (2026-09-14).** The
+# structure prose quoted *"we can't depend of the old plan any more"* as the
+# paragraph's strongest moment, and correction 3 fixed *"depend of the old plan"*
+# inside it — the learner's own error, quoted approvingly in the app's voice, then
+# corrected below. **THE QUOTE CONTAINS THE CORRECTION: that is the direction that
+# shipped.**
+#
+# **THE FIXTURE IS THE REAL RESPONSE, AS THE OPERATOR TRANSCRIBED IT FROM THE
+# `--live` PRINT:** the text sent (`probe.FIXTURE_PARAGRAPH`); all four corrections'
+# `you_said`, `correct_form`, `error_type` and `keep`; and every `quote: true`
+# segment. **Not transcribed, and so written here:** the four explanations and the
+# prose around the quotes. **The overlap gate reads none of those.** *(This block
+# first held a RECONSTRUCTION that guessed correction 3 as a longer stretch and
+# invented corrections 1–2; replaced on the operator's transcription, #82's shape.)*
+#
+# **Red demonstrations (decisions log), against THIS fixture:** the overlap check
+# removed from `structure_of` (M12); only the correction-contains-quote direction
+# kept (M13, the shipped case goes red); only the quote-contains-correction
+# direction kept (M14, the other direction goes red).
+
+LIVE_QUOTE = "we can't depend of the old plan any more"
+
+#: The first structure paragraph of the live response. **PINNED AS THE SURVIVOR:**
+#: it quotes `First`, `After lunch` and `Finally`, and no correction touches them.
+SURVIVOR = {"segments": [
+    {"text": "You walk through the day in the order it happened, and ", "quote": False},
+    {"text": "First", "quote": True},
+    {"text": ", ", "quote": False},
+    {"text": "After lunch", "quote": True},
+    {"text": " and ", "quote": False},
+    {"text": "Finally", "quote": True},
+    {"text": " keep it easy to follow.", "quote": False},
+]}
+
+#: The second paragraph: the one that praised the corrected stretch.
+REFUSED = {"segments": [
+    {"text": "The strongest moment is ", "quote": False},
+    {"text": LIVE_QUOTE, "quote": True},
+    {"text": ", where the day turns.", "quote": False},
+]}
+
+
+def _correction(you_said: str, correct_form: str, code: str, keep: str | None, explanation: str) -> dict:
+    return {"you_said": you_said, "correct_form": correct_form, "error_type": code,
+            "explanation": explanation, "keep": keep}
+
+
+LIVE_CORRECTIONS = (
+    _correction("I wake up late", "I woke up late", "verb_tense_past", None,
+                "It happened yesterday, so the verb is in the past: woke."),
+    _correction("I go to the office", "I went to the office", "verb_tense_past", None,
+                "Same day, same past: went."),
+    _correction("depend of the old plan", "depend on the old plan", "preposition", "to depend on",
+                "Depend always takes on in English."),
+    _correction("I was waiting my friend", "I was waiting for my friend", "preposition", "to wait for someone",
+                "You wait for someone, so it needs for."),
+)
+
+
+def _live(corrections=LIVE_CORRECTIONS, structure=(SURVIVOR, REFUSED)) -> dict:
+    return {"is_english": True, "structure": [dict(p) for p in structure],
+            "corrections": [dict(c) for c in corrections]}
+
+
+def _with_correction_three(**changes) -> tuple[dict, ...]:
+    return tuple({**c, **changes} if i == 2 else c for i, c in enumerate(LIVE_CORRECTIONS))
+
+
+LIVE_LABELS = {"verb_tense_past": "Past tense", "preposition": "Prepositions"}
+
+
+def _shape_live(raw: dict) -> gates.Shaped:
+    from core.writing.probe import FIXTURE_PARAGRAPH
+
+    return gates.shape(raw, FIXTURE_PARAGRAPH, limit=8, labels=LIVE_LABELS, kind="paragraph")
+
+
+def test_the_shipped_response_keeps_paragraph_one_and_drops_paragraph_two() -> None:
+    """**The case that shipped, under the operator's REVERSAL (per-paragraph overlap).**
+    Paragraph 1 (*First* / *After lunch* / *Finally*) is kept and shown; paragraph 2,
+    which praised the corrected stretch, is dropped and named in `dropped`. All four
+    corrections survive, and Q-E still offers exactly what the live run printed.
+    *(Until the reversal this test asserted `structure is None` and
+    `dropped == {"structure": 1}` — quoted, #82.)* **Red demonstration:** overlap made
+    block-level again (M15) turned this red."""
+    from core.writing import offers
+
+    shaped = _shape_live(_live())
+    assert shaped.structure == (SURVIVOR,), "the good paragraph stays; the one praising an error goes"
+    assert [c["you_said"] for c in shaped.corrections] == [
+        "I wake up late", "I go to the office", "depend of the old plan", "I was waiting my friend",
+    ]
+    assert shaped.dropped == {"structure_paragraph_2": 1}
+    assert [o.phrase for o in offers.select(shaped.corrections)] == ["to depend on", "to wait for someone"]
+
+
+def test_both_paragraphs_overlapping_leaves_structure_absent() -> None:
+    """Per-paragraph dropping that leaves zero paragraphs is an absent block, never an
+    empty one. Both drops are named."""
+    finally_fixed = _correction("Finally I went to bed at midnight", "Finally, I went to bed at midnight",
+                                "verb_tense_past", None, "A short pause after Finally reads more naturally.")
+    shaped = _shape_live(_live(corrections=LIVE_CORRECTIONS + (finally_fixed,)))
+    assert shaped.structure is None
+    assert shaped.dropped == {"structure_paragraph_1": 1, "structure_paragraph_2": 1}
+
+
+INVENTED = {"segments": [
+    {"text": "The strongest moment is ", "quote": False},
+    {"text": "we can't depend on the new plan", "quote": True},  # not in the text
+    {"text": ", where the day turns.", "quote": False},
+]}
+DIGIT = {"segments": [{"text": "The 2 turns in the middle carry it.", "quote": False}]}
+
+
+@pytest.mark.parametrize(("second", "why"), [(INVENTED, "an invented quote"), (DIGIT, "a digit")])
+def test_a_block_level_fault_in_paragraph_two_still_drops_the_whole_block(second, why) -> None:
+    """**THE DISTINCTION THAT WILL GET BLURRED LATER, PINNED.** Only the OVERLAP rule is
+    per-paragraph. An invented quote, a banned term, a digit, a rubric word, or the wrong
+    number of paragraphs says the MODEL did not follow the contract, so nothing it wrote
+    in that block is trusted — the clean paragraph 1 goes with it. **Red
+    demonstration:** the invented-quote rule made per-paragraph (M17) turned the
+    invented-quote case red."""
+    shaped = _shape_live(_live(structure=(SURVIVOR, second)))
+    assert shaped.structure is None, why
+    assert shaped.dropped == {"structure": 1}, why
+
+
+def test_the_paragraph_count_is_judged_on_what_the_model_sent() -> None:
+    """Three paragraphs is over the limit of two even if overlap would drop one of them:
+    dropping cannot rescue an over-long block. **Red demonstration:** the count checked
+    after overlap dropping (M16) turned this red."""
+    shaped = _shape_live(_live(structure=(SURVIVOR, REFUSED, SURVIVOR)))
+    assert shaped.structure is None
+    assert shaped.dropped == {"structure": 1}
+
+
+def test_the_first_structure_paragraph_survives_the_gate_on_its_own() -> None:
+    """**PINNED AS THE SURVIVOR.** Checked alone against all four corrections, the
+    paragraph quoting `First`, `After lunch` and `Finally` passes, and the paragraph
+    quoting the corrected stretch does not. Since the operator's reversal the survivor is
+    also SHOWN on the shipped response (the test above). *(This docstring said the
+    survivor was not shown "because the block is all or nothing" — quoted, #82.)*"""
+    from core.writing.probe import FIXTURE_PARAGRAPH
+
+    corrected = [c["you_said"] for c in LIVE_CORRECTIONS]
+    assert gates.structure_of([SURVIVOR], FIXTURE_PARAGRAPH, corrected=corrected) == (SURVIVOR,)
+    assert gates.structure_of([REFUSED], FIXTURE_PARAGRAPH, corrected=corrected) is None
+
+
+def test_without_correction_three_the_same_structure_survives() -> None:
+    """The baseline: remove the correction on the quoted stretch and both paragraphs
+    pass every other gate — so the refusal above is the overlap and nothing else."""
+    shaped = _shape_live(_live(corrections=LIVE_CORRECTIONS[:2] + LIVE_CORRECTIONS[3:]))
+    assert shaped.structure == (SURVIVOR, REFUSED)
+    assert "structure" not in shaped.dropped
+
+
+@pytest.mark.parametrize(
+    "you_said",
+    [
+        "depend of the old plan",  # AS SHIPPED: the quote contains the correction
+        LIVE_QUOTE,  # the same stretch
+        "my manager said that we can't depend of the old plan any more",  # the correction contains the quote
+        "we can't  depend of the old plan any more.",  # doubled space, full stop
+    ],
+)
+def test_the_paragraph_quoting_a_corrected_stretch_is_dropped_in_either_direction(you_said) -> None:
+    shaped = _shape_live(_live(corrections=_with_correction_three(you_said=you_said, keep=None)))
+    assert shaped.structure == (SURVIVOR,)
+    assert len(shaped.corrections) == 4, "the corrections are unaffected"
+    assert shaped.dropped == {"structure_paragraph_2": 1}, "the dropped paragraph is named, so the probe can show it"
+
+
+def test_a_correction_the_gates_dropped_still_refuses_the_quote() -> None:
+    """A stretch the model itself called an error is not praised just because its
+    correction failed a gate (here: an unknown code). Over-refusal is the recoverable
+    direction."""
+    shaped = _shape_live(_live(corrections=_with_correction_three(error_type="not_a_code")))
+    assert shaped.structure == (SURVIVOR,)
+    assert len(shaped.corrections) == 3
+
+
+def test_overlap_ignores_the_apostrophe_a_phone_types() -> None:
+    """iOS types `’`. The overlap is matched after `_normal`, so a curly `can’t` in
+    the correction still matches a straight `can't` in the quote. *(Tested on the pure
+    gate, not through `shape`: through `shape` the curly correction is dropped by G2
+    first — #421, below.)*"""
+    assert gates.overlaps_a_correction(LIVE_QUOTE, "we can’t  depend of the old plan any more.")
+
+
+def test_stated_defect_421_g2_drops_a_correction_whose_apostrophe_is_curly() -> None:
+    """**#421, FOUND WHILE DEMONSTRATING THIS FIX, PINNED AND NOT FIXED.**
+    `changed_learner_tokens` tokenises `you_said` BEFORE straightening its quotes, so
+    `can’t` splits into `can` + `t`; `t` does not resolve, and G2 calls a genuine
+    error a typo whenever `you_said` carries `’` and `correct_form` carries `'`.
+    **Not fixed here: the W16b prompt holds G1 and G2 exactly as W16a built them.**
+    It errs toward a MISSING journal row (recoverable). **When #421 is fixed this
+    test goes red — invert it; do not restore the defect.**"""
+    assert gates.is_typo("we can’t depend of the old plan", "we can't depend on the old plan") is True
+    assert gates.is_typo("we can't depend of the old plan", "we can't depend on the old plan") is False
+
+
+def test_overlap_is_matched_on_whole_words() -> None:
+    """`an` is not `any`: a character-level substring would refuse on a letter pair."""
+    assert gates.structure_of([REFUSED], LIVE_QUOTE + ".", corrected=("an",)) is not None
+    assert gates.structure_of([REFUSED], LIVE_QUOTE + ".", corrected=("old plan",)) is None
+
+
+def test_stated_limit_a_partial_overlap_passes() -> None:
+    """**STATED LIMIT, PINNED.** The rule is containment in either direction. A
+    correction that shares only PART of a quoted stretch — neither contains the
+    other — does not refuse it, although the shared part may be the error. Widening
+    to any shared word would refuse nearly every quote. HP2 is the check for this."""
+    raw = _live(corrections=_with_correction_three(you_said="the old plan any more. After", keep=None))
+    assert _shape_live(raw).structure == (SURVIVOR, REFUSED)
 def test_the_paragraph_shape_has_no_opening_line_and_carries_keep() -> None:
     """Design `1n` draws no opening line for the paragraph, so the field is absent
     whatever the model sends; the nominated phrase travels to the offer rule."""
