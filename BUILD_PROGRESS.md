@@ -5304,7 +5304,7 @@ git diff --stat efcde07 HEAD
 git rev-parse --short HEAD
 ```
 
-**Expect** an empty status; at the top of the log **this record commit (*"W22 record: …"*) directly above `efcde07`** — or your W13d-A1 commit above it; **the diff lists `BUILD_PROGRESS.md` only** (plus `data/lexeme_images.tsv` if you committed pictures) — **no code after `efcde07`**. **Write the last line down: the host's `git pull` must end on it.** *(Why no sha is printed here: this line is inside the commit whose sha it would name. The code tip, `efcde07`, and the diff that proves nothing else rides with it, are the check. The sha at the time of writing is in the session's report.)* *Rehearsed 2026-09-25: `git status`, `git log` and the diff run on the Mac on `main`.*
+**Expect** an empty status; at the top of the log **only commits whose subjects begin *"W22 record:"* above `efcde07`** (three at the time of writing: the record, and two wording corrections to it) — or your W13d-A1 commit above them; **the diff lists `BUILD_PROGRESS.md` only** (plus `data/lexeme_images.tsv` if you committed pictures) — **no code after `efcde07`**. **Write the last line down: the host's `git pull` must end on it.** *(Why no sha is printed here: this line is inside the commit whose sha it would name. The code tip, `efcde07`, and the diff that proves nothing else rides with it, are the check. The sha at the time of writing is in the session's report.)* *Rehearsed 2026-09-25: `git status`, `git log` and the diff run on the Mac on `main`.*
 
 **Not in this sitting, listed so they are not lost:** the W17 host drill run (≤66, §6) · **H3** (#299) · **#352's 33 calls** · **T1** (`core.video.explain --apply`).
 
@@ -5536,7 +5536,7 @@ git push origin main
 git rev-parse --short HEAD
 ```
 
-**Expect:** the branch's top two are *"W22: every retired Telegram path answers with the pointer, never silence (#86)"* and *"W22: bot reduction — …"* directly above the W22 record commit; **the merge fast-forwards**; pytest **0 failed** (2,848 passed, 6 skipped on 2026-09-25 — more if `main` has gained tests since); **write the last line down.** **If `--ff-only` refuses**, `main` has moved past the branch's base: **stop — nothing is merged**; a Claude Code session rebases `w22-bot-reduction` onto `main`, reruns the four suites and pushes it; then this block again. *Rehearsed 2026-09-25: the fetch, the log and `git diff main origin/w22-bot-reduction --stat` (W22's files only) ran on the Mac; the merge and push were not run (R-A).*
+**Expect:** the branch's top two are *"W22: every retired Telegram path answers with the pointer, never silence (#86)"* and *"W22: bot reduction — …"* directly above the newest *"W22 record:"* commit on `main`; **the merge fast-forwards**; pytest **0 failed** (2,848 passed, 6 skipped on 2026-09-25 — more if `main` has gained tests since); **write the last line down.** **If `--ff-only` refuses**, `main` has moved past the branch's base: **stop — nothing is merged**; a Claude Code session rebases `w22-bot-reduction` onto `main`, reruns the four suites and pushes it; then this block again. *Rehearsed 2026-09-25: the fetch, the log and `git diff main origin/w22-bot-reduction --stat` (W22's files only) ran on the Mac; the merge and push were not run (R-A).*
 
 **Host, as root: switch to `bot` — this line alone:**
 
