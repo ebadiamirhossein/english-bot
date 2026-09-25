@@ -81,6 +81,10 @@ export type Correction = {
   you_said: string;
   correct_form: string;
   explanation: string;
+  /** W15: `error_types.learner_label`, the card's eyebrow. Absent or null →
+   * no eyebrow. This closes the close-out's *grammar-category chip* item from
+   * "no data" (item 2 in the header above) — the field now exists. */
+  label?: string | null;
 };
 
 /** The triangle from the design's icon set. **Not a cross and never red** —
@@ -106,6 +110,10 @@ export function CloseOut({
   capped,
   busy,
   onKeep,
+  kind = "talk",
+  covered = [],
+  also = [],
+  isEnglish = true,
 }: {
   topic: string | null;
   summary: string;
@@ -116,6 +124,14 @@ export function CloseOut({
   capped: boolean;
   busy: boolean;
   onKeep: (word: string) => void;
+  /** W15. Which exchange ended: names the eyebrow and the line under the heading. */
+  kind?: "talk" | "answer" | "retell";
+  /** W15, retell. The video's points the retelling got across. **Never a count.** */
+  covered?: string[];
+  /** W15, retell. The video's other points, as content — never a shortfall. */
+  also?: string[];
+  /** W15. False when a rung was answered in another language. */
+  isEnglish?: boolean;
 }) {
   // **WHITESPACE IS ABSENCE, AND THE RULE LIVES HERE AND NOWHERE ELSE.**
   // `did_well` is `str` and not `str | None` on the wire, so an empty note
@@ -130,7 +146,9 @@ export function CloseOut({
   // **The empty close-out says so, rather than rendering three empty
   // headings.** A surface with a heading and nothing under it reads as a thing
   // that failed to load (`BLOCK_UNAVAILABLE`'s whole distinction).
-  const bare = !well && !summary.trim() && !hasCorrections && !hasWords;
+  const hasPoints = covered.length > 0 || also.length > 0;
+  const bare =
+    isEnglish && !well && !summary.trim() && !hasCorrections && !hasWords && !hasPoints;
 
   return (
     <div
@@ -139,7 +157,11 @@ export function CloseOut({
     >
       <div>
         <p className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
-          {CONVERSATION.closeEyebrow}
+          {kind === "answer"
+            ? CONVERSATION.answerCloseEyebrow
+            : kind === "retell"
+              ? CONVERSATION.retellCloseEyebrow
+              : CONVERSATION.closeEyebrow}
         </p>
         {topic ? (
           <h2
@@ -150,9 +172,21 @@ export function CloseOut({
           </h2>
         ) : null}
         <p className="mt-2 text-base">
-          {capped ? CONVERSATION.capReached : CONVERSATION.closing}
+          {capped
+            ? CONVERSATION.capReached
+            : kind === "talk"
+              ? CONVERSATION.closing
+              : CONVERSATION.rungClosing}
         </p>
       </div>
+
+      {/* W15: a rung answered in another language. It says so, corrects
+          nothing, and passes no verdict. */}
+      {!isEnglish ? (
+        <p className="text-base" data-testid="close-not-english">
+          {CONVERSATION.notEnglish}
+        </p>
+      ) : null}
 
       {/* **THE RECAP. ON THE WIRE SINCE 2026-09-08, AND IT IS THE DESIGN'S
           OPENING LINE** — `1i` leads the close-out with what was talked about,
@@ -185,7 +219,55 @@ export function CloseOut({
         </p>
       ) : null}
 
-      {bare ? <p className="text-base">{CONVERSATION.closeNothing}</p> : null}
+      {/* **W15 — A RETELL'S POINTS, AFTER THE RAISE AND BEFORE ANY FIX.**
+          What the retelling got across is the payoff, so it follows *did well*;
+          the video's other points are CONTENT, so they follow that and precede
+          the corrections. **No count and no percentage anywhere** — each list
+          is the video's own sentences, and the headings name the video, never
+          the learner's shortfall. Both are absent, never empty. */}
+      {covered.length > 0 ? (
+        <section data-testid="close-covered">
+          <p className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
+            {CONVERSATION.coveredHeading}
+          </p>
+          <ul className="mt-2 flex flex-col gap-2">
+            {covered.map((point) => (
+              <li
+                key={point}
+                className="border-l-2 border-brand pl-3 font-heading text-base leading-snug"
+                data-speaker="app"
+              >
+                {point}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {also.length > 0 ? (
+        <section data-testid="close-also">
+          <p className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
+            {CONVERSATION.alsoHeading}
+          </p>
+          <ul className="mt-2 flex flex-col gap-2">
+            {also.map((point) => (
+              <li
+                key={point}
+                className="border-l-2 border-border pl-3 font-heading text-base leading-snug text-muted-foreground"
+                data-speaker="app"
+              >
+                {point}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {bare ? (
+        <p className="text-base">
+          {kind === "talk" ? CONVERSATION.closeNothing : CONVERSATION.rungNothing}
+        </p>
+      ) : null}
 
       {hasCorrections ? (
         <section>
@@ -199,9 +281,21 @@ export function CloseOut({
                 className="rounded-2xl border border-caution-border bg-caution p-4"
                 data-testid="conversation-correction"
               >
-                <span className="text-caution-foreground" aria-hidden="true">
-                  <Look />
-                </span>
+                {/* W15: the learner label as the eyebrow, `/write`'s `1k`
+                    anatomy. With no label, the bare triangle as before. */}
+                {c.label ? (
+                  <p
+                    className="flex items-center gap-2 font-mono text-[0.625rem] uppercase tracking-[0.11em] text-caution-foreground"
+                    data-testid="correction-label"
+                  >
+                    <Look />
+                    {c.label}
+                  </p>
+                ) : (
+                  <span className="text-caution-foreground" aria-hidden="true">
+                    <Look />
+                  </span>
+                )}
                 {/* What the learner said, and what the app would say. The pair
                     is the whole card, so the two voices are marked here the
                     same way they are in the chat log. */}

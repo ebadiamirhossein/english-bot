@@ -455,7 +455,7 @@ function KeepRow({ offer }: { offer: WordOffer }) {
   async function keep() {
     setBusy(true);
     try {
-      await keepPhrase(offer.phrase, offer.sentence);
+      await keepPhrase(offer);
       setKept(true);
     } catch {
       // No toast and no error copy (`1o`): the row simply stays offerable.

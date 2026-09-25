@@ -358,7 +358,12 @@ describe("what /talk actually mounts", () => {
     for (const unit of ["100dvh", "100vh", "h-screen", "min-h-screen"]) {
       expect(code).not.toContain(unit);
     }
-    expect(code).toContain("h-full");
+    // **W15 (#413): the wrapper is `[contain:size]`, `/write`'s measured fix.**
+    // This asserted `h-full` until then — quoted, #82's shape. `h-full` kept the
+    // composer on screen only while the thread was short; the shell's height
+    // follows its content, and only size containment holds it (measured on
+    // `/write`, W16a). `e2e/talk.spec.ts` asserts the geometry in a browser.
+    expect(code).toContain("[contain:size]");
   });
 });
 
@@ -509,16 +514,25 @@ describe("/talk, brought to the design", () => {
     // uses. **Operator ruling 2026-09-07: the direct open is declined.**
     //
     // RED against a `useEffect(() => void suggest(), [])`.
+    //
+    // **W15: the page now makes ONE call on load — `GET /conversation/rungs`,
+    // a database read that bills nothing.** This asserted zero calls of any kind
+    // until then (quoted, #82's shape); the rule it protected was never *no
+    // request*, it was *no PROVIDER call*, and `/topics` is the one that bills.
     render(<Conversation voice={false} />);
-    const calls = () =>
-      (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    expect(calls().length).toBe(0);
+    const urls = () =>
+      (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(
+        (c) => String(c[0]),
+      );
+    await waitFor(() => expect(urls().some((u) => u.endsWith("/conversation/rungs"))).toBe(true));
+    expect(urls().filter((u) => u.endsWith("/topics"))).toHaveLength(0);
+    expect(urls()).toHaveLength(1);
 
     await userEvent.setup().click(
       screen.getByRole("button", { name: CONVERSATION.start }),
     );
     await screen.findByTestId("conversation-topics");
-    expect(calls().length).toBe(1);
+    expect(urls().filter((u) => u.endsWith("/topics"))).toHaveLength(1);
   });
 
   it("names the screen, which it never did", async () => {

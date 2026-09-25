@@ -40,50 +40,37 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { CloseOut, type Correction } from "./close-out";
+import {
+  ApiError,
+  closeConversation,
+  getConversationRungs,
+  openConversation,
+  saveConversationWord,
+  sendConversationTurn,
+  sendConversationVoice,
+  suggestConversationTopics,
+  type ConversationCorrection,
+  type ConversationKind,
+  type ConversationRungs,
+  type ConversationTurn,
+} from "@/lib/api";
+import { CloseOut } from "./close-out";
 import { CONVERSATION } from "./copy";
+import { useKeyboardInset } from "./use-keyboard-inset";
 import { useRecorder } from "./use-recorder";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 type Line = { who: "you" | "app"; text: string };
 
-/**
- * `POST /conversation/close`'s response. **W13b/4.**
- *
- * **THIS TYPE IS HERE AND NOT IN `lib/api.ts` BECAUSE `lib/api.ts` HAS NO
- * CONVERSATION LAYER AT ALL** — the conversation surface is the one surface in
- * this app that calls `fetch` directly and reads `await res.json()` untyped,
- * which is exactly how a field can be returned for a week and never noticed.
- * Every other surface goes through a named function and a named type there.
- *
- * **Typing it locally is the small half of the fix and it is deliberately not
- * the whole one.** Migrating the six conversation endpoints into `lib/api.ts`
- * is a refactor of a shipped surface, not a line in a slice about the close-out
- * page, so it is FILED rather than improvised here.
- *
- * `conversation_id` is carried on the wire and read by nothing. That is not the
- * same finding as `did_well`: an id costs no generated tokens and says nothing
- * to a learner, so it is recorded and left alone.
+/*
+ * **#398, CLOSED BY W15: THIS FILE NO LONGER CALLS `fetch`.** It held the only
+ * untyped network code in the app — a local `CloseResult` type and six raw
+ * `fetch` calls reading `await res.json()` — which is how `did_well` was
+ * returned for a month and rendered by nothing. Every call now goes through a
+ * named function in `lib/api.ts` with a named type (`ConversationClose`,
+ * `ConversationTurn`, …), so the compiler notices an unread field. *(The
+ * `CloseResult` docstring that stood here recorded the half-fix and filed the
+ * rest; the rest is this.)*
  */
-type CloseResult = {
-  conversation_id: number;
-  corrections: Correction[];
-  /**
-   * **The model's note on what the learner did well — generated on every close,
-   * billed on every close, and rendered by nothing until W13b/4.**
-   *
-   * CLAUDE.md §4: *raises announced, drops silent*. The app was paying for the
-   * raise and then swallowing it. `/write` has rendered the same field from
-   * `POST /correct` since W9 (`app/(app)/write/page.tsx`), so this is the
-   * shipped shape rather than a new idea.
-   */
-  did_well: string;
-  /** §C3's recap. On the wire since 2026-09-08 — see `CloseOut`'s schema
-   * docstring for the refusal it reverses and the evidence that settled it. */
-  summary: string;
-  unknown_words: string[];
-};
 
 export function Conversation({
   voice,
@@ -101,14 +88,26 @@ export function Conversation({
   const [done, setDone] = useState(false);
   const [capped, setCapped] = useState(false);
   const [trouble, setTrouble] = useState(false);
-  const [corrections, setCorrections] = useState<Correction[] | null>(null);
+  const [corrections, setCorrections] = useState<ConversationCorrection[] | null>(null);
   const [didWell, setDidWell] = useState<string>("");
   const [summary, setSummary] = useState<string>("");
   const [words, setWords] = useState<string[]>([]);
   const [kept, setKept] = useState<Record<string, boolean>>({});
+  // W15. Which exchange is open, what the page can offer besides a talk, and
+  // what a rung's close-out carries.
+  const [kind, setKind] = useState<ConversationKind>("talk");
+  const [rungs, setRungs] = useState<ConversationRungs | null>(null);
+  const [covered, setCovered] = useState<string[]>([]);
+  const [also, setAlso] = useState<string[]>([]);
+  const [isEnglish, setIsEnglish] = useState(true);
+  // #408: each offered word's token, held here and never rendered.
+  const tokens = useRef<Record<string, string>>({});
 
   const listEnd = useRef<HTMLDivElement | null>(null);
   const composer = useRef<HTMLTextAreaElement | null>(null);
+  const root = useRef<HTMLDivElement | null>(null);
+  // #409: the keyboard's overlap with this column's foot, on a full-height page.
+  const keyboard = useKeyboardInset(root);
 
   // New messages scroll into view. `block: "end"` rather than centring, so a
   // long reply lands with its first line readable.
@@ -116,29 +115,37 @@ export function Conversation({
     listEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [lines.length, busy]);
 
-  const call = useCallback(async (path: string, body?: unknown) => {
+  // **W15: THE RUNGS ARE A FREE READ ON LOAD.** `POST /conversation/topics` is
+  // billed and stays behind the *Start talking* press (#399); what else the page
+  // offers is a database read, so it is fetched once, here. A failure costs the
+  // two cards and nothing else — the talk still works.
+  useEffect(() => {
+    let live = true;
+    getConversationRungs()
+      .then((out) => {
+        if (!live) return;
+        setRungs(out);
+        if (typeof out?.voice === "boolean") setMicAllowed(out.voice);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /**
+   * One network call, with the page's three outcomes: a value, the day's cap
+   * (`409` — **a stated condition, not an error, and it reports no number**),
+   * or trouble. `busy` brackets it either way.
+   */
+  const call = useCallback(async <T,>(run: () => Promise<T>): Promise<T | null> => {
     setTrouble(false);
     setBusy(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/conversation/${path}`, {
-        method: "POST",
-        credentials: "include",
-        headers: body ? { "Content-Type": "application/json" } : undefined,
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      if (res.status === 409) {
-        // The cap, or the spent alternative. **Stated conditions, not errors,
-        // and neither reports a number.**
-        setCapped(true);
-        return null;
-      }
-      if (!res.ok) {
-        setTrouble(true);
-        return null;
-      }
-      return await res.json();
-    } catch {
-      setTrouble(true);
+      return await run();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) setCapped(true);
+      else setTrouble(true);
       return null;
     } finally {
       setBusy(false);
@@ -146,7 +153,7 @@ export function Conversation({
   }, []);
 
   async function suggest() {
-    const out = await call("topics");
+    const out = await call(suggestConversationTopics);
     if (!out) return;
     setTopics(out.topics ?? []);
     // **THE GATE COMES FROM THE SERVER, NOT FROM A PROP** (#364). `/talk` has
@@ -154,15 +161,16 @@ export function Conversation({
     if (typeof out.voice === "boolean") setMicAllowed(out.voice);
   }
 
-  async function start(chosen?: string) {
-    const out = await call("open", chosen ? { topic_label: chosen } : undefined);
+  async function start(opening: ConversationKind, chosen?: string) {
+    const out = await call(() => openConversation(opening, chosen));
     if (!out) return;
+    setKind(opening);
     setTopic(out.topic_label);
     setLines([{ who: "app", text: out.reply }]);
   }
 
   const end = useCallback(async () => {
-    const out = (await call("close")) as CloseResult | null;
+    const out = await call(closeConversation);
     setDone(true);
     if (out) {
       setCorrections(out.corrections ?? []);
@@ -172,56 +180,49 @@ export function Conversation({
       // path and render an empty paragraph.
       setDidWell(out.did_well ?? "");
       setSummary(out.summary ?? "");
-      setWords(out.unknown_words ?? []);
+      const offers = out.word_offers ?? [];
+      tokens.current = Object.fromEntries(offers.map((o) => [o.word, o.token]));
+      setWords(offers.map((o) => o.word));
+      setCovered(out.covered ?? []);
+      setAlso(out.also ?? []);
+      setIsEnglish(out.is_english !== false);
     }
   }, [call]);
+
+  /** A turn came back: what was heard (voice), the reply (a talk), and `closing`. */
+  const landed = useCallback(
+    async (out: ConversationTurn) => {
+      // #427: a voice turn shows what Whisper heard as the learner's own line —
+      // G3's bound on #381 assumed this and nothing did it.
+      if (out.heard) setLines((l) => [...l, { who: "you", text: out.heard! }]);
+      // A rung answers with an EMPTY reply: nothing to show until the close.
+      if (out.reply) setLines((l) => [...l, { who: "app", text: out.reply }]);
+      // `closing` is the cap arriving after this turn, or a rung's one turn.
+      if (out.state === "closing") await end();
+    },
+    [end],
+  );
 
   async function send() {
     const text = draft.trim();
     if (!text || busy) return;
     setDraft("");
     setLines((l) => [...l, { who: "you", text }]);
-    const out = await call("turn", { text });
-    if (!out) return;
-    setLines((l) => [...l, { who: "app", text: out.reply }]);
-    // `closing` is the cap arriving **after** this turn was answered.
-    if (out.state === "closing") await end();
+    const out = await call(() => sendConversationTurn(text));
+    if (out) await landed(out);
   }
 
   // §C — the microphone. **One recorder, shared with the shadow surface**
   // (`use-recorder.ts`, #190): MediaRecorder, a level meter on the real signal,
   // an elapsed counter, and teardown on every exit path including unmount.
+  // 404 is the consent gate or an absent conversation, deliberately
+  // indistinguishable (#364); 422 is *heard nothing*.
   const onRecorded = useCallback(
     async (blob: Blob) => {
-      setBusy(true);
-      setTrouble(false);
-      try {
-        const res = await fetch(`${API_BASE_URL}/conversation/turn/voice`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": blob.type || "audio/webm" },
-          body: blob,
-        });
-        if (res.status === 409) {
-          setCapped(true);
-          return;
-        }
-        if (!res.ok) {
-          // 404 is the consent gate or an absent conversation, and they are
-          // deliberately indistinguishable (#364). 422 is *heard nothing*.
-          setTrouble(true);
-          return;
-        }
-        const out = await res.json();
-        setLines((l) => [...l, { who: "app", text: out.reply }]);
-        if (out.state === "closing") await end();
-      } catch {
-        setTrouble(true);
-      } finally {
-        setBusy(false);
-      }
+      const out = await call(() => sendConversationVoice(blob));
+      if (out) await landed(out);
     },
-    [end],
+    [call, landed],
   );
   const rec = useRecorder(onRecorded);
 
@@ -254,29 +255,92 @@ export function Conversation({
     }
   }
 
+  // **W15: `flex-1` ON THE FULL-HEIGHT COLUMN, MEASURED IN THE FIRST BROWSER
+  // RUN `/talk` EVER HAD (#401).** `h-full` alone did not resolve under the
+  // `[contain:size]` wrapper, so the column was CONTENT-sized: the composer
+  // floated under a short thread instead of sitting at the foot, and #409's
+  // keyboard padding GREW the column rather than lifting the composer.
+  // Measured at 390×768 (WebKit): wrapper 576 tall, column 486. `flex-1` makes
+  // it the wrapper's height, so the padding shrinks the log and nothing else.
   const shell = fullHeight
-    ? "flex h-full min-h-0 flex-col"
+    ? "flex h-full min-h-0 flex-1 flex-col"
     : "flex min-h-0 flex-col";
 
   // ── before the conversation starts ────────────────────────────────────────
   if (lines.length === 0 && !done) {
     return (
-      <div className={`${shell} gap-4 px-5 py-6`} data-testid="conversation-idle">
+      <div
+        className={`${shell} gap-4 overflow-y-auto px-5 py-6`}
+        data-testid="conversation-idle"
+      >
         {topics === null ? (
-          /* **THE PRESS STAYS AND IS NOW A REAL PRIMARY BUTTON (#399).** The
-             design opens straight onto three cards; `suggest_topics` is a
-             PROVIDER CALL, so that would spend money on every page load —
-             including loads nobody uses. **Operator ruling 2026-09-07: the
-             direct open is declined and the gate is kept.** What changes is
-             that the gate stops looking incidental. */
-          <Button
-            size="lg"
-            className="h-14 w-full rounded-2xl text-base font-semibold"
-            onClick={suggest}
-            disabled={busy}
-          >
-            {CONVERSATION.start}
-          </Button>
+          <>
+            {/* **THE PRESS STAYS AND IS NOW A REAL PRIMARY BUTTON (#399).** The
+                design opens straight onto three cards; `suggest_topics` is a
+                PROVIDER CALL, so that would spend money on every page load —
+                including loads nobody uses. **Operator ruling 2026-09-07: the
+                direct open is declined and the gate is kept.** What changes is
+                that the gate stops looking incidental. */}
+            <Button
+              size="lg"
+              className="h-14 w-full rounded-2xl text-base font-semibold"
+              onClick={suggest}
+              disabled={busy}
+            >
+              {CONVERSATION.start}
+            </Button>
+            {/* **W15 — THE TWO RUNGS, UNDER THE PRESS AND NEVER ABOVE IT.** The
+                conversation stays this page's first action (W13b/3 §A); a rung
+                is an offer beside it. **§1a is suspended for this run (ruling
+                0.3)**, so these take `/talk`'s own conventions: the mono
+                eyebrow, the serif card for the app's words, the bordered card.
+                **A rung not on offer today is ABSENT, never greyed** — and
+                there is no count, no *done today* and no dot (#160). */}
+            {rungs?.answer || rungs?.retell ? (
+              <section className="mt-2 flex flex-col gap-2.5" data-testid="conversation-rungs">
+                <p className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
+                  {CONVERSATION.rungsHeading}
+                </p>
+                {rungs.answer ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => start("answer")}
+                    data-testid="rung-answer"
+                    className="w-full rounded-2xl border border-border bg-card px-5 py-4 text-left shadow-sm transition-colors hover:border-primary disabled:opacity-60"
+                  >
+                    <span className="block font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
+                      {CONVERSATION.answerEyebrow}
+                    </span>
+                    <span className="mt-2 block font-heading text-lg leading-snug">
+                      {rungs.answer.prompt}
+                    </span>
+                  </button>
+                ) : null}
+                {rungs.retell ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => start("retell")}
+                    data-testid="rung-retell"
+                    className="w-full rounded-2xl border border-border bg-card px-5 py-4 text-left shadow-sm transition-colors hover:border-primary disabled:opacity-60"
+                  >
+                    <span className="block font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
+                      {CONVERSATION.retellEyebrow}
+                    </span>
+                    <span className="mt-2 block font-heading text-lg leading-snug">
+                      {CONVERSATION.retellCard}
+                    </span>
+                    {/* The title is the VIDEO's words, so it is set in the
+                        body sans and muted — never the app's serif voice. */}
+                    <span className="mt-1 block text-sm leading-snug text-muted-foreground">
+                      {rungs.retell.label}
+                    </span>
+                  </button>
+                ) : null}
+              </section>
+            ) : null}
+          </>
         ) : (
           <div data-testid="conversation-topics">
             <h2 className="font-heading text-2xl leading-tight">
@@ -292,7 +356,7 @@ export function Conversation({
                   key={t}
                   type="button"
                   disabled={busy}
-                  onClick={() => start(t)}
+                  onClick={() => start("talk", t)}
                   data-testid="topic-card"
                   className="w-full rounded-2xl border border-border bg-card px-5 py-4 text-left font-heading text-lg leading-snug shadow-sm transition-colors hover:border-primary disabled:opacity-60"
                 >
@@ -335,8 +399,14 @@ export function Conversation({
         kept={kept}
         capped={capped}
         busy={busy}
+        kind={kind}
+        covered={covered}
+        also={also}
+        isEnglish={isEnglish}
         onKeep={async (w) => {
-          const out = await call("save-word", { word: w });
+          // #408: the word goes back with the token its offer was signed with.
+          const token = tokens.current[w] ?? "";
+          const out = await call(() => saveConversationWord({ word: w, token }));
           if (out) setKept((k) => ({ ...k, [w]: true }));
         }}
       />
@@ -344,8 +414,18 @@ export function Conversation({
   }
 
   // ── the conversation ──────────────────────────────────────────────────────
+  const rung = kind !== "talk";
   return (
-    <div className={`${shell} h-full`} data-testid="conversation">
+    <div
+      ref={root}
+      className={`${shell} h-full`}
+      // #409: on a full-height page the column pads its own foot by the
+      // keyboard's overlap, so the composer rises onto the keyboard and the
+      // log above it shrinks. `0` when no keyboard is up.
+      style={fullHeight && keyboard > 0 ? { paddingBottom: keyboard } : undefined}
+      data-testid="conversation"
+      data-kind={kind}
+    >
       {/* **W13b/5 — THE SCREEN TITLE THE APP NEVER HAD, AND THE END CONTROL
           MOVED INTO IT.** The design puts a mono eyebrow at the top of every
           `/talk` state and the end control as a bordered pill at its right.
@@ -366,7 +446,11 @@ export function Conversation({
       <header className="shrink-0 border-b bg-background px-5 pb-3 pt-4">
         <div className="flex items-center justify-between gap-3">
           <span className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
-            {CONVERSATION.eyebrow}
+            {kind === "answer"
+              ? CONVERSATION.answerTitle
+              : kind === "retell"
+                ? CONVERSATION.retellTitle
+                : CONVERSATION.eyebrow}
           </span>
           <button
             type="button"
@@ -380,7 +464,11 @@ export function Conversation({
         </div>
         {topic ? (
           <p
-            className="mt-2 text-sm text-muted-foreground"
+            // W15: ONE line, truncated. A rung's label is the unit's whole
+            // can-do sentence, and at the height a keyboard leaves (477) three
+            // wrapped lines pushed Send under the nav — measured, not guessed.
+            className="mt-2 truncate text-sm text-muted-foreground"
+            title={topic}
             data-testid="conversation-topic"
           >
             {topic}
@@ -430,7 +518,7 @@ export function Conversation({
         {busy ? (
           <div className="pr-6" data-speaker="app" data-testid="conversation-working">
             <span className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
-              {CONVERSATION.working}
+              {rung ? CONVERSATION.reading : CONVERSATION.working}
             </span>
             {/* **Three dots, and they are NOT a spinner or a bar.** *The wait
                 is the product*: nothing here implies it could be faster, claims
@@ -497,9 +585,18 @@ export function Conversation({
               onKeyDown={onKeyDown}
               rows={4}
               aria-label={CONVERSATION.composerLabel}
-              placeholder={CONVERSATION.placeholder}
+              placeholder={
+                kind === "answer"
+                  ? CONVERSATION.answerPlaceholder
+                  : kind === "retell"
+                    ? CONVERSATION.retellPlaceholder
+                    : CONVERSATION.placeholder
+              }
               data-testid="conversation-composer"
-              className="block max-h-44 min-h-24 w-full resize-none overflow-y-auto rounded-2xl border bg-background px-4 py-3 text-base"
+              // W15: on a SHORT screen (the height a keyboard leaves) the box
+              // opens at two lines, not four, so Send stays above the nav. It
+              // still scrolls internally, so nothing typed is lost.
+              className="block max-h-44 min-h-24 w-full resize-none overflow-y-auto rounded-2xl border bg-background px-4 py-3 text-base [@media(max-height:560px)]:max-h-20 [@media(max-height:560px)]:min-h-0"
             />
             {/* **ICON AND WORD, NEVER ICON ALONE AND NEVER A BARE WORD.** The
                 design's own note is that Speak and Send became a microphone and

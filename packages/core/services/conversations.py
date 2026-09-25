@@ -39,7 +39,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Any
 
@@ -86,6 +86,16 @@ class CapReached(ConversationError):
 
 class AlternativeSpent(ConversationError):
     """The one topic swap has been used. §2c: one alternative, then it stands."""
+
+
+class NoRung(ConversationError):
+    """W15. The rung asked for is not on offer today — no seeded unit for an
+    answer, no video with a transcript for a retell. **404 at the route**: a
+    rung that is not offered is absent, never refused with a reason."""
+
+
+class NotOffered(ConversationError):
+    """#408. A word whose offer token does not verify. **422 at the route.**"""
 
 
 #: **A REAL SENTENCE A PERSON WROTE, not a generated fallback.** Shown when a
@@ -462,7 +472,8 @@ def _topic_sources(conn: Any, user_id: int) -> dict[str, Any]:
 def _open_row(conn: Any, user_id: int) -> dict | None:
     row = conn.execute(
         """
-        SELECT id, topic_label, turns_learner, turns_app, alternatives_used
+        SELECT id, topic_label, turns_learner, turns_app, alternatives_used,
+               kind, video_id
           FROM conversations
          WHERE user_id = %s AND closed_at IS NULL
         """,
@@ -607,6 +618,155 @@ def _local_date(learner: dict, now: datetime) -> date:
     return local_today(learner["timezone"], now)
 
 
+# ── W15: the two rungs ──────────────────────────────────────────────────────
+#
+# **WHAT W15 IS, FROM THE TASKS ROW AS W14r CORRECTED IT: two rungs ON TOP OF
+# W13b's loop — retell and answer. Converse is struck: already shipped.** A rung
+# is an exchange on the same tables, the same cap, the same voice gate and the
+# same one-shot close; what differs is the opener (not generated) and the close
+# prompt (gated by `core.writing.gates`, not by the conversation's guards).
+#
+# **ONE LEARNER TURN, THEN THE CLOSE.** PRD §8's rungs are a response, not a
+# dialogue: *"Retell — ... say it in your own words. LLM scores content
+# coverage + flags errors"*; *"Answer — respond to a prompt"*. So `add_turn`
+# on a rung records the turn, generates NO reply, and answers `closing`, and the
+# client closes. A follow-up turn from the app would be a billed call that
+# turns a rung back into a talk.
+
+KINDS: tuple[str, ...] = ("talk", "answer", "retell")
+RUNG_KINDS: frozenset[str] = frozenset({"answer", "retell"})
+
+#: The retell's opener. **A sentence a person wrote, not a generated one** --
+#: `GUILT_FALLBACK_TURN`'s reason. Covered by the backend banned-phrase test.
+RETELL_OPENER = (
+    "Tell me what happened in today’s video — in your own words, the way "
+    "you’d tell a friend."
+)
+#: The goal line a retell's fallback prompt carries (see `_close_rung`).
+RETELL_GOAL = "Tell a short story you've just watched, in your own words."
+#: What the retell is labelled when the video's title was purged with its
+#: metadata (019) but its transcript survived. Never the youtube id.
+RETELL_LABEL_FALLBACK = "Today’s video"
+
+#: `/write`'s journal cap, not v2's three: **two**, so every correcting surface
+#: in the web app says the same thing about how much is too much.
+RUNG_MAX_CORRECTIONS = 2
+#: The retell's points. Enough for a short video's shape; few enough that the
+#: list reads as a summary and not a checklist.
+RUNG_MAX_POINTS = 5
+#: `/write`'s journal budget (`rules.max_tokens("journal")`) is 2000 for the same
+#: output shape; a retell adds at most five short points.
+RUNG_MAX_TOKENS = 2000
+#: A transcript longer than this is cut, and the prompt says it may be. ~2,000
+#: words: comfortably over a five-minute video (`length_fit` prefers short ones)
+#: and a bounded input on a learner-triggered call.
+RETELL_TRANSCRIPT_MAX_CHARS = 12_000
+
+#: The fence the transcript crosses the wire in. `core.video.explain`'s
+#: `<<<TRANSCRIPT_LINE>>>` precedent (#292 part 1), one level up: the whole
+#: transcript rather than one line. Constants so a test can assert the text
+#: appears in the request ONLY between them.
+TRANSCRIPT_OPEN = "<<<VIDEO_TRANSCRIPT>>>"
+TRANSCRIPT_CLOSE = "<<<END_VIDEO_TRANSCRIPT>>>"
+
+
+@dataclass(frozen=True)
+class RungMaterial:
+    """What a rung opens on. **Nothing here is generated.**"""
+
+    kind: str
+    label: str
+    opener: str
+    video_id: int | None = None
+
+
+@dataclass(frozen=True)
+class Rungs:
+    """`GET /conversation/rungs`. **What is on offer today, and nothing that counts.**"""
+
+    answer: RungMaterial | None
+    retell: RungMaterial | None
+    voice: bool
+
+
+def _rung_material(conn: Any, user_id: int, today: date, kind: str) -> RungMaterial | None:
+    """Today's answer or retell for this learner, or None if it is not on offer.
+
+    **ANSWER: the current unit's `output_task_spoken`, VERBATIM, labelled with
+    the unit's can-do** — the TASKS row's *"answer tied to the week's can-do"*.
+    W14's block-4 docstring left the 24 strings unserved *"and W15 owns them"*.
+    #406's four unfit written tasks are the WRITTEN column; the spoken strings
+    are served as authored.
+
+    **RETELL: today's assigned video, only while its transcript exists.** The
+    30-day purge nulls a transcript while the assignment survives (#335), and a
+    retell cannot be judged against a transcript that is gone — so the rung is
+    absent that day rather than offered and then unable to answer.
+
+    **Best-effort, like `_topic_sources`: a thin syllabus or an empty pool makes
+    the rung ABSENT, never a 500** (§A's lesson).
+    """
+    if kind == "answer":
+        from core.services import syllabus as syllabus_service
+
+        try:
+            unit = syllabus_service.unit_for_session(
+                conn, syllabus_service.current_unit(conn, user_id)
+            )
+        except Exception:  # noqa: BLE001 -- absent, never a 500
+            logger.warning("answer rung unavailable user_id=%s", user_id)
+            return None
+        if unit is None or not (unit.output_task_spoken or "").strip():
+            return None
+        return RungMaterial(
+            kind="answer",
+            label=unit.can_do,
+            opener=unit.output_task_spoken.strip(),
+        )
+    if kind == "retell":
+        from core.services import video as video_service
+
+        try:
+            video = video_service.today_for(conn, user_id, on=today)
+        except Exception:  # noqa: BLE001 -- absent, never a 500
+            logger.warning("retell rung unavailable user_id=%s", user_id)
+            return None
+        if video is None or not (video.transcript or "").strip():
+            return None
+        return RungMaterial(
+            kind="retell",
+            label=(video.title or "").strip() or RETELL_LABEL_FALLBACK,
+            opener=RETELL_OPENER,
+            video_id=video.video_id,
+        )
+    return None
+
+
+def rungs_today(user_id: int, now: datetime) -> Rungs:
+    """What `/talk` can offer besides the conversation. **No provider call.**
+
+    **A READ OF ITS OWN, AND #399 IS WHY.** The page's only other first call is
+    `POST /conversation/topics`, which is billed — the direct open onto topic
+    cards was declined for exactly that reason. Showing the two rungs must cost
+    nothing, so it is a database read the page makes on load. **It carries the
+    voice gate too** (the same `voice_allowed_for`, #364), so a learner who goes
+    straight to a rung without asking for topics still gets the microphone the
+    gate allows and no other.
+
+    **No count, no *done today* flag, no history** (#160): a rung that was
+    answered this morning is offered again this afternoon, exactly like a talk.
+    """
+    cfg = load_settings()
+    with connection() as conn:
+        _entry(conn, now, cfg)
+        learner = _learner(conn, user_id)
+        today = _local_date(learner, now)
+        answer = _rung_material(conn, user_id, today, "answer")
+        retell = _rung_material(conn, user_id, today, "retell")
+        conn.commit()
+    return Rungs(answer=answer, retell=retell, voice=voice_allowed_for(user_id, cfg))
+
+
 #: §C1, operator ruling 2026-09-05. **THREE, OFFERED ONCE.**
 TOPIC_SUGGESTIONS = 3
 
@@ -694,18 +854,31 @@ def open_conversation(
     *,
     session_id: int | None = None,
     topic_label: str | None = None,
+    kind: str = "talk",
 ) -> TurnResult:
-    """Open today's conversation. **The opener IS the topic (§2c).**
+    """Open today's conversation — or, W15, one of its two rungs.
 
-    One call, not two: the app says something and the learner answers it, and
-    the stored `topic_label` is derived from that opener. A separate
-    topic-generation call would have doubled the per-conversation cost against
-    §0's first accepted cost for no product gain.
+    **`talk`: the opener IS the topic (§2c).** One call, not two: the app says
+    something and the learner answers it, and the stored `topic_label` is
+    derived from that opener. A separate topic-generation call would have
+    doubled the per-conversation cost against §0's first accepted cost for no
+    product gain.
 
-    Re-opening while one is already open **returns it** rather than creating a
-    second -- `conversations_one_open_per_user` would refuse the insert anyway,
-    and a 500 on a double-tap is not a design.
+    **`answer` and `retell` (W15) are opened WITHOUT A PROVIDER CALL.** The
+    opener is not generated: an answer's is the unit's `output_task_spoken`,
+    verbatim (the TASKS row and the run prompt both say *verbatim*), and a
+    retell's is `RETELL_OPENER`, a sentence a person wrote. Opening one costs a
+    database read. `NoRung` when it is not on offer today.
+
+    Re-opening while one of the SAME kind is open **returns it** rather than
+    creating a second -- `conversations_one_open_per_user` would refuse the
+    insert anyway, and a 500 on a double-tap is not a design. **Opening a
+    DIFFERENT kind abandons the open one** (`_abandon`): the index holds one
+    open exchange of any kind, and a learner who walked away from a talk and
+    taps *Answer* has chosen the answer.
     """
+    if kind not in KINDS:
+        raise ValueError(f"unknown conversation kind {kind!r}")
     cfg = load_settings()
     with connection() as conn:
         _entry(conn, now, cfg)
@@ -713,21 +886,52 @@ def open_conversation(
         today = _local_date(learner, now)
 
         existing = _open_row(conn, user_id)
-        if existing is not None:
+        if existing is not None and existing["kind"] == kind:
             history = _history(conn, existing["id"])
-            reply = history[-1].content if history else ""
+            reply = history[-1].content if history and not history[-1].is_learner else ""
             return TurnResult(
                 conversation_id=existing["id"],
                 topic_label=existing["topic_label"],
                 learner_text=None,
-                reply=reply,
+                reply=reply or (history[0].content if history else ""),
                 turns_learner=existing["turns_learner"],
                 state="open",
             )
+        if existing is not None:
+            _abandon(conn, existing["id"], now)
 
         used = usage_today(conn, user_id, today)
         if cap_exceeded(used.turns_learner, cfg.conversation_max_turns_per_day):
             raise CapReached("the day's conversation is done")
+
+        if kind in RUNG_KINDS:
+            rung = _rung_material(conn, user_id, today, kind)
+            if rung is None:
+                raise NoRung(f"no {kind} today")
+            row = conn.execute(
+                """
+                INSERT INTO conversations
+                    (user_id, session_id, topic_label, kind, video_id,
+                     turns_app, last_activity_at)
+                VALUES (%s, %s, %s, %s, %s, 1, %s) RETURNING id
+                """,
+                (user_id, session_id, rung.label, kind, rung.video_id, now),
+            ).fetchone()
+            conversation_id = int(row["id"])
+            # The opener is an APP turn and carries no coverage band: the band
+            # measures what the app GENERATED, and nothing here was generated.
+            _append(conn, conversation_id, 0, "app", rung.opener)
+            _bump_usage(conn, user_id, today, turns_app=1)
+            conn.commit()
+            logger.info("conversation rung opened user_id=%s kind=%s", user_id, kind)
+            return TurnResult(
+                conversation_id=conversation_id,
+                topic_label=rung.label,
+                learner_text=None,
+                reply=rung.opener,
+                turns_learner=0,
+                state="open",
+            )
 
         sources = _topic_sources(conn, user_id)
         row = conn.execute(
@@ -767,6 +971,25 @@ def open_conversation(
             turns_learner=0,
             state="open",
         )
+
+
+def _abandon(conn: Any, conversation_id: int, now: datetime) -> None:
+    """Close an open exchange with no close-out, the way a cold one is closed.
+
+    **No close-out call and no journal write**, for `_close_stale_conversations`'
+    reason: the learner has moved on and is not there to read corrections, and
+    writing rows nobody was shown would be journaling in the dark. At most two
+    corrections are lost — the recoverable direction (CLAUDE.md §5). The turns
+    go at once, by the sweep's own rule (a closed conversation's turns are
+    deleted), rather than waiting for the next entry point.
+    """
+    conn.execute(
+        "UPDATE conversations SET closed_at = %s WHERE id = %s AND closed_at IS NULL",
+        (now, conversation_id),
+    )
+    conn.execute(
+        "DELETE FROM conversation_turns WHERE conversation_id = %s", (conversation_id,)
+    )
 
 
 def _label_from(opener: str) -> str:
@@ -864,6 +1087,30 @@ def add_turn(
         seq = (history[-1].seq + 1) if history else 0
         _append(conn, row["id"], seq, "learner", text, input_mode=input_mode)
 
+        if row["kind"] in RUNG_KINDS:
+            # **W15: A RUNG TAKES ONE TURN AND GENERATES NO REPLY.** `closing`
+            # tells the client to close, which is where the rung's one billed
+            # call is made. The turn still counts against the day's cap — it is
+            # the learner's own English reaching a model at close.
+            conn.execute(
+                """
+                UPDATE conversations
+                   SET turns_learner = turns_learner + 1, last_activity_at = %s
+                 WHERE id = %s
+                """,
+                (now, row["id"]),
+            )
+            _bump_usage(conn, user_id, today, turns_learner=1)
+            conn.commit()
+            return TurnResult(
+                conversation_id=row["id"],
+                topic_label=row["topic_label"],
+                learner_text=text,
+                reply="",
+                turns_learner=used.turns_learner + 1,
+                state="closing",
+            )
+
         sources = _topic_sources(conn, user_id)
         reply, band, usage_out = _generate_reply(
             conn, user_id, learner, row["topic_label"], sources, history, text
@@ -940,6 +1187,39 @@ class CloseResult:
     #: How many of `corrections` reached `errors`. **A count for the record and
     #: the tests, never rendered** -- a tally shown to a learner is a score.
     journaled: int = 0
+    #: #408. `unknown_words`, each with the token that proves it was offered.
+    word_offers: tuple["WordOffer", ...] = ()
+    #: W15. False when a rung's response was not English: nothing is corrected
+    #: and nothing is written, and the screen says so without a verdict.
+    is_english: bool = True
+    #: W15, retell only. **What the retelling got across, as the video's own
+    #: points — never a fraction of them** (the run prompt: *shown as what was
+    #: covered, never as a percentage*). Neither list is stored.
+    covered: tuple[str, ...] = ()
+    #: W15, retell only. The video's other points, offered as content.
+    also: tuple[str, ...] = ()
+    #: `talk`, `answer` or `retell`, so the screen can name what just ended.
+    kind: str = "talk"
+
+
+@dataclass(frozen=True)
+class WordOffer:
+    """One word offered to the deck, and the proof it was offered (#408)."""
+
+    word: str
+    token: str
+
+
+def _word_offers(user_id: int, words: tuple[str, ...]) -> tuple[WordOffer, ...]:
+    from core import offer_tokens
+
+    return tuple(
+        WordOffer(word=w, token=offer_tokens.mint(OFFER_SURFACE, user_id, w)) for w in words
+    )
+
+
+#: The offer-token surface name. A `/write` token never verifies here.
+OFFER_SURFACE = "talk"
 
 
 def unknown_words_from(conn: Any, user_id: int, turns: list[Turn]) -> tuple[str, ...]:
@@ -1033,7 +1313,9 @@ def capturable(lemmas: Iterable[str]) -> tuple[str, ...]:
     return tuple(kept)
 
 
-def save_conversation_word(user_id: int, word: str, now: datetime) -> str:
+def save_conversation_word(
+    user_id: int, word: str, now: datetime, *, token: str | None = None
+) -> str:
     """Save one word from a conversation to the deck. **No model call.**
 
     **THE SLICE PROMPT NAMED `cards.save_captured_word` AND IT CANNOT BE
@@ -1083,6 +1365,15 @@ def save_conversation_word(user_id: int, word: str, now: datetime) -> str:
     lemma = (word or "").strip().lower()
     if not lemma:
         raise ConversationError("empty word")
+    # **#408, CLOSED W15: THE WORD MUST CARRY THE TOKEN ITS OFFER WAS SIGNED
+    # WITH.** This accepted any 1–80 character string, so a client could write
+    # anything into `cards` as vocabulary. The close-out now signs each word it
+    # offers (`_word_offers`) and this refuses a word it did not sign — for this
+    # learner, on this surface. Checked BEFORE any read or write.
+    from core import offer_tokens
+
+    if not offer_tokens.verify(OFFER_SURFACE, user_id, token, lemma):
+        raise NotOffered("that word was not offered")
     with connection() as conn:
         row = _open_row(conn, user_id)
         ref = f"conversation:{row['id']}" if row else "conversation"
@@ -1139,6 +1430,16 @@ def _valid_error_types(conn: Any) -> frozenset[str]:
     return frozenset(r["code"] for r in rows)
 
 
+def _learner_labels(conn: Any) -> dict[str, str | None]:
+    """`error_types.code → learner_label` for EVERY code, spoken ones as None.
+
+    W15 puts the label on the close-out's correction card (`/write`'s `1k`
+    anatomy), which W13b/4's close-out reported unmet for want of a field.
+    """
+    rows = conn.execute("SELECT code, learner_label FROM error_types").fetchall()
+    return {str(r["code"]): r["learner_label"] for r in rows}
+
+
 def close_conversation(user_id: int, now: datetime) -> CloseResult:
     """End the conversation: guards, then the journal, then the delete.
 
@@ -1165,6 +1466,8 @@ def close_conversation(user_id: int, now: datetime) -> CloseResult:
         row = _open_row(conn, user_id)
         if row is None:
             raise NoConversation("no open conversation")
+        if row["kind"] in RUNG_KINDS:
+            return _close_rung(conn, user_id, learner, today, row, now)
         conversation_id = int(row["id"])
         turns = _history(conn, conversation_id)
 
@@ -1208,6 +1511,10 @@ def close_conversation(user_id: int, now: datetime) -> CloseResult:
                     turns,
                     _valid_error_types(conn),
                 )
+                labels = _learner_labels(conn)
+                corrections = [
+                    replace(c, label=labels.get(c.error_type)) for c in corrections
+                ]
 
         # **G3's write half. `journalable` is filtered HERE and nowhere in the
         # render path** -- that asymmetry is S1's ruling in one line.
@@ -1253,4 +1560,281 @@ def close_conversation(user_id: int, now: datetime) -> CloseResult:
         unknown_words=unknown,
         summary=summary,
         journaled=journaled,
+        word_offers=_word_offers(user_id, unknown),
     )
+
+
+# ── W15: the rung close ─────────────────────────────────────────────────────
+
+
+def _rung_template(kind: str) -> str:
+    return (PROMPTS_DIR / f"rung_{kind}.txt").read_text(encoding="utf-8")
+
+
+def build_rung_system_prompt(
+    user: Any, kind: str, *, task: str, can_do: str, type_list: str
+) -> str:
+    """The rung's close prompt for this learner. **Read fresh each call.**
+
+    The learner's language goes in by NAME and an unmapped code raises (F5,
+    W16a's `rules.language_name`); the explanation-language clause is the one
+    `/write` and the bot share (`correction.explanation_language_rule`), formatted
+    from a copy of the user carrying the name. `type_list` is F6's one list
+    (`writing.written_type_list`): the codes offered are the codes the gates
+    accept. **No learner text and no transcript reaches `str.format`** — both
+    travel in the user message.
+    """
+    import dataclasses
+
+    from core.services import correction
+    from core.writing import rules
+
+    named = dataclasses.replace(user, native_language=rules.language_name(user.native_language))
+    fields: dict[str, Any] = {
+        "cefr_level": user.cefr_level,
+        "native_language": named.native_language,
+        "error_type_list": type_list,
+        "explanation_language_rule": correction.explanation_language_rule(named),
+        "max_corrections": RUNG_MAX_CORRECTIONS,
+    }
+    if kind == "answer":
+        fields.update(task=task, can_do=can_do)
+    else:
+        fields.update(
+            max_points=RUNG_MAX_POINTS,
+            transcript_open=TRANSCRIPT_OPEN,
+            transcript_close=TRANSCRIPT_CLOSE,
+        )
+    return build_system_prompt(_rung_template(kind), **fields)
+
+
+def rung_request(
+    user: Any, kind: str, *, task: str, can_do: str, type_list: str,
+    learner_text: str, transcript: str | None,
+) -> dict[str, Any]:
+    """**The whole request a rung's close sends, in one place** — the service and
+    `core.rung_probe` both call this, so the probe prints what production sends.
+    """
+    return {
+        "messages": [
+            {"role": "user", "content": build_rung_user_message(kind, learner_text, transcript)}
+        ],
+        "system": build_rung_system_prompt(
+            user, kind, task=task, can_do=can_do, type_list=type_list
+        ),
+        "json_mode": True,
+        "max_tokens": RUNG_MAX_TOKENS,
+        "reject_truncation": True,
+    }
+
+
+def rung_type_list() -> str:
+    """F6's code list on a connection of its own, for `core.rung_probe` (which
+    may hold no SQL, CLAUDE.md §2)."""
+    from core.services import writing as writing_service
+
+    with connection() as conn:
+        return writing_service.written_type_list(conn)
+
+
+def shape_rung(raw: Any, kind: str, submitted: str) -> tuple[Any, tuple[str, ...], tuple[str, ...]]:
+    """The gates over one response: `/write`'s `shape`, then the points on a retell.
+
+    Shared by `_close_rung` and the probe for the reason `rung_request` is.
+    """
+    from core.services import writing as writing_service
+    from core.writing import gates
+
+    shaped = gates.shape(raw, submitted, limit=RUNG_MAX_CORRECTIONS, labels=writing_service.labels())
+    covered: tuple[str, ...] = ()
+    also: tuple[str, ...] = ()
+    if kind == "retell" and shaped.is_english:
+        covered, also = _points(raw.get("points"))
+    return shaped, covered, also
+
+
+def build_rung_user_message(kind: str, learner_text: str, transcript: str | None) -> str:
+    """The one user message. **Two fenced blocks for a retell, one for an answer.**
+
+    The learner's text in `<user_text>` (`correction.wrap_user_text`, the fence
+    every correcting prompt uses). The transcript between `TRANSCRIPT_OPEN` and
+    `TRANSCRIPT_CLOSE`, cut at `RETELL_TRANSCRIPT_MAX_CHARS`: scraped text is
+    DATA (CLAUDE.md §6, #292 part 1) and enters as one delimited block, never as
+    a system-prompt field.
+    """
+    from core.services.correction import wrap_user_text
+
+    fenced = wrap_user_text(learner_text)
+    if kind != "retell" or not transcript:
+        return fenced
+    cut = transcript.strip()[:RETELL_TRANSCRIPT_MAX_CHARS]
+    return f"{TRANSCRIPT_OPEN}\n{cut}\n{TRANSCRIPT_CLOSE}\n\n{fenced}"
+
+
+def _points(raw: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The retell's points, gated. **Covered first, then the rest; never a count.**
+
+    Each point is English a learner reads, so it takes `content_offenders` (the
+    content rule, not the copy rule — a video may be about something that
+    *failed*). A point that is not a non-empty string, runs past 200 characters,
+    or trips the scan is DROPPED, not repaired. At most `RUNG_MAX_POINTS` survive.
+    """
+    covered: list[str] = []
+    also: list[str] = []
+    for item in raw if isinstance(raw, list) else []:
+        if len(covered) + len(also) >= RUNG_MAX_POINTS:
+            break
+        if not isinstance(item, dict):
+            continue
+        point = str(item.get("point") or "").strip()
+        if not point or len(point) > 200 or content_offenders(point):
+            continue
+        (covered if item.get("covered") is True else also).append(point)
+    return tuple(covered), tuple(also)
+
+
+def _close_rung(
+    conn: Any, user_id: int, learner: dict, today: date, row: dict, now: datetime
+) -> CloseResult:
+    """Close an answer or a retell: one call, the gates, the journal, the delete.
+
+    **THE GATES ARE `/write`'s, NOT THE CONVERSATION'S, AND THAT IS THE RUN
+    PROMPT'S *G1 AND G2 APPLY*.** `core.writing.gates.shape` runs G1 (the
+    original is a substring of what the learner said — self-produced), G2 (a
+    changed token that is not an English word is a typo, never journaled), the
+    code check against F6's one list, the explanation's content scan, the
+    opening-line gate and the two-correction cap, in that order and in one place.
+
+    **AND THE CONVERSATION'S G3 IS KEPT ON TOP: a voice turn is SHOWN, never
+    JOURNALED.** `answer` and `retell` sit in `HARVESTED_SOURCES` as
+    *keyboard-authored* (012's classification), so journaling a Whisper
+    transcript under either would promote a mishearing into the ledger through
+    a value the tree calls typed. A correction is written only if its original
+    appears in a TYPED turn.
+
+    **The order is W13b's and for its reason:** the turns are read, the call is
+    made, the gates run, the journal is written, and only then are the turns
+    deleted. A provider failure releases the learner (S26a): the turns still go.
+    """
+    from core.services import writing as writing_service
+    from core.writing import gates
+
+    kind = str(row["kind"])
+    conversation_id = int(row["id"])
+    turns = _history(conn, conversation_id)
+    said = [t for t in turns if t.is_learner]
+    submitted = "\n\n".join(t.content for t in said)
+    typed = "\n\n".join(t.content for t in said if not t.is_voice)
+
+    corrections: list[Correction] = []
+    did_well = ""
+    is_english = True
+    covered: tuple[str, ...] = ()
+    also: tuple[str, ...] = ()
+    journaled = 0
+    unknown = unknown_words_from(conn, user_id, turns)
+
+    if said:
+        # The opener IS the task: reading it back from the app's first turn keeps
+        # the prompt on what the learner was shown, even if the unit moved on
+        # between opening and closing.
+        opener = turns[0].content if turns and not turns[0].is_learner else ""
+        transcript = _transcript_of(conn, row.get("video_id")) if kind == "retell" else None
+        # A retell whose transcript was purged between opening and closing
+        # (#335) is still the learner's English: it is corrected as an answer to
+        # its opener, and no points are drawn from a transcript that is gone.
+        prompt_kind = "retell" if transcript else "answer"
+        from core.services.users import get_user
+
+        user = get_user(user_id)
+        if user is None:
+            raise NoConversation("no such learner")
+        request = rung_request(
+            user, prompt_kind, task=opener,
+            can_do=str(row["topic_label"]) if kind == "answer" else RETELL_GOAL,
+            type_list=writing_service.written_type_list(conn),
+            learner_text=submitted, transcript=transcript,
+        )
+        usage_out: dict = {}
+        raw: Any = {}
+        try:
+            raw = llm.chat(request.pop("messages"), **request, usage_out=usage_out)
+        except Exception:  # noqa: BLE001 -- release the learner (S26a)
+            logger.warning("conversation rung close failed user_id=%s kind=%s", user_id, kind)
+            raw = {}
+        finally:
+            _record_llm(conn, user_id, today, usage_out)
+
+        if isinstance(raw, dict) and raw:
+            shaped, covered, also = shape_rung(raw, prompt_kind, submitted)
+            is_english = shaped.is_english
+            did_well = shaped.did_well or ""
+            for c in shaped.corrections:
+                spoken_only = not gates.is_self_produced(c["you_said"], typed)
+                corrections.append(Correction(
+                    you_said=c["you_said"],
+                    correct_form=c["correct_form"],
+                    error_type=c["error_type"],
+                    explanation=c["explanation"],
+                    journalable=not spoken_only,
+                    withheld_reason="voice_turn" if spoken_only else None,
+                    label=c.get("label"),
+                ))
+            if shaped.dropped:
+                logger.info(
+                    "conversation rung gates dropped user_id=%s kind=%s reasons=%s",
+                    user_id, kind,
+                    ",".join(f"{k}:{v}" for k, v in sorted(shaped.dropped.items())),
+                )
+
+    writable = [c for c in corrections if c.journalable]
+    if writable:
+        journaled = record_errors(
+            user_id,
+            kind,  # 'answer' | 'retell' -- 012's CHECK has admitted both since W5
+            [
+                {
+                    "you_said": c.you_said,
+                    "correct_form": c.correct_form,
+                    "error_type": c.error_type,
+                    "explanation": c.explanation,
+                }
+                for c in writable
+            ],
+        )
+
+    conn.execute(
+        "DELETE FROM conversation_turns WHERE conversation_id = %s", (conversation_id,)
+    )
+    conn.execute(
+        "UPDATE conversations SET closed_at = %s WHERE id = %s", (now, conversation_id)
+    )
+    conn.commit()
+    logger.info(
+        "conversation rung closed user_id=%s kind=%s shown=%s journaled=%s points=%s",
+        user_id, kind, len(corrections), journaled, len(covered) + len(also),
+    )
+    return CloseResult(
+        conversation_id=conversation_id,
+        corrections=corrections,
+        did_well=did_well,
+        unknown_words=unknown,
+        summary="",
+        journaled=journaled,
+        word_offers=_word_offers(user_id, unknown),
+        is_english=is_english,
+        covered=covered,
+        also=also,
+        kind=kind,
+    )
+
+
+def _transcript_of(conn: Any, video_id: int | None) -> str | None:
+    """The retell's transcript, read at close. None if purged or never there."""
+    if video_id is None:
+        return None
+    found = conn.execute(
+        "SELECT transcript FROM videos WHERE id = %s", (video_id,)
+    ).fetchone()
+    text = (found or {}).get("transcript") if found else None
+    return str(text) if text and str(text).strip() else None

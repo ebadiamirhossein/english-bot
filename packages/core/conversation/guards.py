@@ -105,6 +105,9 @@ class Correction:
     journalable: bool = False
     #: Why it is not journalable, for the record and for the test. Never shown.
     withheld_reason: str | None = None
+    #: W15. `error_types.learner_label`, the card's eyebrow — `/write`'s `1k`
+    #: anatomy. ``None`` when the code has no written label (the spoken three).
+    label: str | None = None
 
 
 def learner_sources(turns: Sequence[Turn]) -> list[Turn]:

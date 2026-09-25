@@ -181,6 +181,9 @@ def test_a_top_up_crash_costs_the_top_up_and_nothing_else(tmp_path, monkeypatch,
 
     monkeypatch.setattr(module, "_top_up", _explode)
     monkeypatch.setattr("builtins.input", lambda _: "44")
+    # User 3 is production's learner and has no row on the development
+    # database; since #424 a run for a learner with no row raises.
+    monkeypatch.setattr(module, "learner_l1", lambda _uid: "fa")
 
     journal_path = tmp_path / "j.jsonl"
     code = run(3, (1,), apply=False, skip_control=True, journal_path=journal_path)
@@ -199,6 +202,7 @@ def test_the_run_prints_where_its_journal_is(tmp_path, monkeypatch, capsys):
     import core.items.generate as module
 
     monkeypatch.setattr("builtins.input", lambda _: "no")
+    monkeypatch.setattr(module, "learner_l1", lambda _uid: "fa")  # see above (#424)
     run(3, (1,), apply=False, skip_control=True, journal_path=tmp_path / "j.jsonl")
     out = capsys.readouterr().out
     assert str(tmp_path / "j.jsonl") in out

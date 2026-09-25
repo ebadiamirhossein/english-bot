@@ -576,7 +576,9 @@ def _assert_indices_addressable(slots: tuple[Slot, ...]) -> None:
         )
 
 
-def build_payload(unit_number: int, can_do: str, slots: tuple[Slot, ...]) -> dict:
+def build_payload(
+    unit_number: int, can_do: str, slots: tuple[Slot, ...], *, l1: str
+) -> dict:
     """The user message for one unit's generation call. **No citation reaches it.**
 
     `can_do` and the target TEXT and nothing else. The targets arrive through
@@ -585,12 +587,24 @@ def build_payload(unit_number: int, can_do: str, slots: tuple[Slot, ...]) -> dic
     function is handed. **This matters more here than on any screen**: a rendered
     citation is visible and removable, and an assumption embedded in a generated
     sentence is neither.
+
+    **#424, fixed W15: `l1` IS REQUIRED AND GOES OUT AS A NAME.** The payload
+    carried no language, so `l1_gloss` and every `l1_to_l2_production` prompt were
+    written for whichever language the model guessed -- Farsi, in practice, the
+    schema's default -- and the Lithuanian-speaking learner's first unit would
+    have been built for someone else. `l1` is `users.native_language`; it is
+    mapped through W16a's `rules.language_name` (F5: the model is told a NAME,
+    and an unmapped code raises rather than being sent raw). Keyword-only and
+    without a default, so a call site that forgets it fails at once.
     """
+    from core.writing.rules import language_name
+
     _assert_indices_addressable(tuple(slots))
     return {
         "unit_number": unit_number,
         "can_do": can_do,
         "track": track_for(unit_number),
+        "learner_l1": language_name(l1),
         # **`n` was REMOVED after attempt 3.** It was the runner's own slot
         # number, sent as a per-item key -- and a model that mirrors the input
         # shape echoed it back, where `BaseItem`'s `extra="forbid"` rejected
@@ -602,6 +616,36 @@ def build_payload(unit_number: int, can_do: str, slots: tuple[Slot, ...]) -> dic
             for slot in slots
         ],
     }
+
+
+def bind_l1(drafts: list[dict], slots: tuple[Slot, ...], l1: str | None) -> None:
+    """A production item's `l1` is the learner's code, never the model's choice.
+
+    `L1ToL2ProductionItem.l1` is `fa | lt` and defaults to `fa`, so a draft that
+    omits it -- or names a language the payload did not -- would be written as
+    Farsi. Bound here, before parsing, the way `_draft_to_item` binds `track` and
+    `unit_number`. **Shared by the unit run and W17's drills** (moved here from
+    `drills._bind_l1` by W15, #424), so the two generators cannot drift.
+    """
+    for slot in slots:
+        if slot.item_type == "l1_to_l2_production" and slot.index < len(drafts) and l1:
+            if isinstance(drafts[slot.index], dict):
+                drafts[slot.index]["l1"] = l1
+
+
+def learner_l1(user_id: int) -> str:
+    """`users.native_language` for the learner a unit run writes for. **#424.**
+
+    Reads through `core.services.users` (this module holds no SQL). A learner
+    with no row is an error: a run for nobody is a mistake to stop on, not a
+    payload to send with a guessed language.
+    """
+    from core.services.users import get_user
+
+    user = get_user(user_id)
+    if user is None:
+        raise ValueError(f"no learner with users.id = {user_id}")
+    return user.native_language
 
 
 # ── one item's fate ─────────────────────────────────────────────────────────
@@ -1991,6 +2035,7 @@ def dry_run(
     settings = load_settings()
     plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types,
                      held=held, focus_held=focus_held)
+    l1 = learner_l1(user_id)
 
     print("=== model ===")
     print(settings.llm_model)
@@ -2063,7 +2108,7 @@ def dry_run(
         entry = plan[number]
         print(f"=== user payload — unit {number} ===")
         print(json.dumps(
-            build_payload(number, entry["unit"].can_do, entry["slots"]),
+            build_payload(number, entry["unit"].can_do, entry["slots"], l1=l1),
             ensure_ascii=False, indent=2,
         ))
         print(f"\n--- probe_target candidates for unit {number} "
@@ -2251,6 +2296,7 @@ def run(
     settings = settings or load_settings()
     plan = unit_plan(numbers, checkpoint=checkpoint, missed=missed, types=types,
                      held=held, focus_held=focus_held)
+    l1 = learner_l1(user_id)
     spent: Counter = Counter()
     reference = coverage_reference()
     journal = Journal(journal_path)
@@ -2356,9 +2402,10 @@ def run(
                 if entry["held"] is not None
                 else ()
             )
-            payload = build_payload(number, entry["unit"].can_do, entry["slots"])
+            payload = build_payload(number, entry["unit"].can_do, entry["slots"], l1=l1)
             drafts = generate_drafts(payload, settings=settings, avoid=avoid)
             spent["generate"] += 1
+            bind_l1(drafts, entry["slots"], l1)
             outcomes = verify_cohort(
                 entry["slots"], drafts, unit_number=number,
                 candidates=entry["candidates"], settings=settings, calls=spent,
@@ -2378,7 +2425,8 @@ def run(
                       "with the failures fed back.")
                 try:
                     outcomes = _top_up(
-                        outcomes, short, entry, number, settings=settings, calls=spent
+                        outcomes, short, entry, number, settings=settings, calls=spent,
+                        l1=l1,
                     )
                 except Exception:  # noqa: BLE001 — a top-up is an EXTRA, not the run
                     # **A top-up failing must cost the top-up and nothing else.** It
@@ -2437,6 +2485,7 @@ def _top_up(
     *,
     settings: Settings | None,
     calls: Counter,
+    l1: str,
 ) -> list[Outcome]:
     """One more round for the failed slots, with their failures fed back.
 
@@ -2464,7 +2513,7 @@ def _top_up(
     # `merged[original.slot.index]` maps the replacements back through, and
     # re-indexing those would write the results to the wrong positions.
     sent = _reindexed_for_verifier(tuple(o.slot for o in short))
-    payload = build_payload(unit_number, entry["unit"].can_do, sent)
+    payload = build_payload(unit_number, entry["unit"].can_do, sent, l1=l1)
     payload["retry"] = [
         {
             # The position IN THIS REQUEST, not in the original plan. The model
@@ -2482,6 +2531,7 @@ def _top_up(
     )
     drafts = generate_drafts(payload, settings=settings)
     calls["generate"] += 1
+    bind_l1(drafts, sent, l1)
     replacements = verify_cohort(
         sent,
         drafts,

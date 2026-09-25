@@ -110,3 +110,44 @@ export const LONG = Array.from({ length: 6 }, () =>
 /** W16b — design `1n`'s paragraph, as a learner would type it. */
 export const PARAGRAPH =
   "I think is a good idea to move in another country for work, but it depends of the person. My cousin moved to Norway three years ago and now he earn much more money than before. But he told me that he miss his family very much, and in the winter he is alone.";
+
+/**
+ * W15 — `/talk` and its two rungs, from `components/session/talk.fixture.json`
+ * (`scripts/export_talk_fixture.py`, held to the wire by `tests/test_talk_fixture.py`).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const talkFixture: Record<string, any> = JSON.parse(
+  readFileSync(path.join(__dirname, "../../components/session/talk.fixture.json"), "utf-8"),
+);
+
+/**
+ * Answers every `/conversation/*` call from the talk fixture. Call AFTER
+ * `mockApi` (a later `page.route` wins). `kind` picks the rung the open, turn
+ * and close answer as; `talk` answers as a conversation.
+ */
+export async function mockTalk(
+  page: Page,
+  {
+    rungs = talkFixture.rungs_both,
+    kind = "answer" as "talk" | "answer" | "retell",
+    close = undefined as unknown,
+  } = {},
+) {
+  const bodies: Record<string, unknown> = {
+    "/conversation/rungs": rungs,
+    "/conversation/topics": talkFixture.topics,
+    "/conversation/open":
+      kind === "talk" ? talkFixture.open_talk : kind === "answer" ? talkFixture.open_answer : talkFixture.open_retell,
+    "/conversation/turn": kind === "talk" ? talkFixture.turn_talk : talkFixture.turn_rung,
+    "/conversation/close":
+      close ?? (kind === "retell" ? talkFixture.close_retell : talkFixture.close_answer),
+    "/conversation/save-word": { state: "saved" },
+  };
+  for (const [route, body] of Object.entries(bodies)) {
+    await page.route(`${API}${route}`, (r) =>
+      r.request().method() === "OPTIONS"
+        ? r.fulfill({ status: 204, headers: cors(r) })
+        : json(r, 200, body),
+    );
+  }
+}

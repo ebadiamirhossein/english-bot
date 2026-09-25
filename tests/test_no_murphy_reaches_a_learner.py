@@ -211,7 +211,7 @@ def murphy_offenders() -> list[str]:
     plan = unit_plan((1,))
     entry = plan[1]
     payload = json.dumps(
-        build_payload(1, entry["unit"].can_do, entry["slots"]), ensure_ascii=False
+        build_payload(1, entry["unit"].can_do, entry["slots"], l1="lt"), ensure_ascii=False
     )
     if "murphy" in payload.lower():
         found.append("core.items.generate.build_payload: sends a Murphy citation")

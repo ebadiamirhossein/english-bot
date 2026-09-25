@@ -157,13 +157,17 @@ class WordOffer(BaseModel):
     phrase: str
     sentence: str
     in_deck: bool
+    #: #419 (W15). The signature `POST /write/keep` requires back.
+    token: str
 
 
 class KeepRequest(BaseModel):
-    """`POST /write/keep` (W16b). Re-filtered server-side; never trusted as offered."""
+    """`POST /write/keep` (W16b). **Verified as offered (#419, W15), then re-filtered.**"""
 
     phrase: str = Field(min_length=1, max_length=80)
     sentence: str = Field(min_length=1, max_length=WRITING_MAX_CHARS)
+    #: The offer's signature, from `word_offers`. Required.
+    token: str = Field(min_length=1, max_length=64)
 
 
 class KeepOut(BaseModel):

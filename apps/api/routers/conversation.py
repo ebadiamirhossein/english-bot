@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Literal
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -55,13 +55,21 @@ MAX_AUDIO_BYTES = 2_000_000
 
 
 class OpenIn(BaseModel):
-    """§C1. The topic the learner picked, or none to let the app choose."""
+    """§C1. The topic the learner picked, or none to let the app choose.
+
+    **W15: `kind`.** `talk` (the default, so W13b's shape is unchanged),
+    `answer` or `retell`. A rung ignores `topic_label` — its opener is the
+    unit's task or the video, never a choice.
+    """
 
     topic_label: str | None = Field(default=None, max_length=200)
+    kind: Literal["talk", "answer", "retell"] = "talk"
 
 
 class SaveWordIn(BaseModel):
     word: str = Field(min_length=1, max_length=80)
+    #: #408. The token the close-out signed this word with. Required.
+    token: str = Field(min_length=1, max_length=64)
 
 
 class TurnIn(BaseModel):
@@ -80,14 +88,49 @@ class CorrectionOut(BaseModel):
     you_said: str
     correct_form: str
     explanation: str
+    #: W15. `error_types.learner_label`, the card's eyebrow — `/write`'s `1k`
+    #: anatomy. **Null when the code has none** (the three spoken codes), and
+    #: the card then carries no eyebrow rather than an invented one.
+    label: str | None = None
 
 
 class TurnOut(BaseModel):
     conversation_id: int
     topic_label: str
+    #: The app's reply. **Empty on a rung** (W15): a rung takes one turn and
+    #: generates nothing until the close.
     reply: str
     #: `open` or `closing`. **Never a count.**
     state: str
+    #: **W15 — what Whisper heard, on a VOICE turn only; null otherwise.** G3's
+    #: whole bound on #381 is that *the transcript is shown to the learner as
+    #: their turn*, and until now it was not: the voice route returned the app's
+    #: reply and nothing else, so the screen never showed what was heard.
+    heard: str | None = None
+
+
+class WordOfferOut(BaseModel):
+    """#408. A word offered to the deck, and the proof it was offered."""
+
+    word: str
+    token: str
+
+
+class RungOut(BaseModel):
+    """W15. One rung on offer today. **No count and no done-today flag** (#160)."""
+
+    #: The unit's can-do (answer) or the video's title (retell).
+    label: str
+    #: The answer's task, verbatim — the rung's opener. Null on a retell, whose
+    #: opener is fixed and needs nothing from the wire until it is opened.
+    prompt: str | None = None
+
+
+class RungsOut(BaseModel):
+    answer: RungOut | None
+    retell: RungOut | None
+    #: The same voice gate `/topics` carries (#364).
+    voice: bool
 
 
 class CloseOut(BaseModel):
@@ -134,22 +177,56 @@ class CloseOut(BaseModel):
     did_well: str
     #: §C3. What was talked about. **A recap, never a score** — the prompt is
     #: what holds that, and #391's option (a) is closed by this field existing.
+    #: Empty on a rung.
     summary: str
     #: §C2. Offered to the deck. **Nothing is saved without a tap**, and since
     #: #402 nothing reaches this list that is not real, CEFR-levelled English.
-    unknown_words: list[str]
+    #: **#408 (W15): each word travels with the token `save-word` requires.**
+    #: Was `unknown_words: list[str]` — quoted, #82's shape.
+    word_offers: list[WordOfferOut]
+    #: W15. False when a rung's response was not English. Always true on a talk.
+    is_english: bool = True
+    #: W15, retell. **What the retelling got across, as the video's own points —
+    #: never a count or a percentage of them.** Empty on a talk and an answer.
+    covered: list[str] = []
+    #: W15, retell. The video's other points, as content — never as a shortfall.
+    also: list[str] = []
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _as_turn(result: svc.TurnResult) -> TurnOut:
+def _as_turn(result: svc.TurnResult, *, heard: bool = False) -> TurnOut:
     return TurnOut(
         conversation_id=result.conversation_id,
         topic_label=result.topic_label,
         reply=result.reply,
         state=result.state,
+        heard=result.learner_text if heard else None,
+    )
+
+
+def _rung(material: svc.RungMaterial | None, *, prompt: bool) -> RungOut | None:
+    if material is None:
+        return None
+    return RungOut(label=material.label, prompt=material.opener if prompt else None)
+
+
+@router.get("/rungs", response_model=RungsOut)
+def rungs(
+    session: AuthenticatedUser = Depends(require_current_user),
+) -> RungsOut:
+    """W15. What `/talk` offers besides the conversation. **A read — no model call.**
+
+    #399 declined a page that bills on load, so the two rungs are shown from a
+    database read and cost nothing until the learner opens one.
+    """
+    out = svc.rungs_today(session.id, _now())
+    return RungsOut(
+        answer=_rung(out.answer, prompt=True),
+        retell=_rung(out.retell, prompt=False),
+        voice=out.voice,
     )
 
 
@@ -179,10 +256,15 @@ def open_conversation(
                 _now(),
                 session_id=session_id,
                 topic_label=body.topic_label if body else None,
+                kind=body.kind if body else "talk",
             )
         )
     except svc.CapReached:
         raise HTTPException(status.HTTP_409_CONFLICT, "cap_reached")
+    except svc.NoRung:
+        # Absent, never refused with a reason: a rung not on offer today is
+        # simply not there (and the page never offered it).
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no_rung")
 
 
 @router.post(
@@ -285,7 +367,7 @@ async def voice_turn(
         # An empty transcript: the provider heard nothing usable. **Not a turn**
         # -- storing one would put an empty sentence in the learner's history.
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "not_recognised")
-    return _as_turn(result)
+    return _as_turn(result, heard=True)
 
 
 @router.post(
@@ -316,12 +398,16 @@ def close(
                 you_said=c.you_said,
                 correct_form=c.correct_form,
                 explanation=c.explanation,
+                label=c.label,
             )
             for c in result.corrections
         ],
         did_well=result.did_well,
         summary=result.summary,
-        unknown_words=list(result.unknown_words),
+        word_offers=[WordOfferOut(word=o.word, token=o.token) for o in result.word_offers],
+        is_english=result.is_english,
+        covered=list(result.covered),
+        also=list(result.also),
     )
 
 
@@ -371,6 +457,13 @@ def save_word(
     (#178): a learner who taps a word twice has done nothing wrong.
     """
     try:
-        return {"state": svc.save_conversation_word(session.id, body.word, _now())}
+        return {
+            "state": svc.save_conversation_word(
+                session.id, body.word, _now(), token=body.token
+            )
+        }
+    except svc.NotOffered:
+        # #408: a word this surface did not offer this learner. Nothing written.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "not_offered")
     except svc.ConversationError:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "empty_word")

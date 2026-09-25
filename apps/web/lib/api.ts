@@ -134,23 +134,24 @@ export type CorrectionResult = {
 export type StructureSegment = { text: string; quote: boolean };
 export type StructureParagraph = { segments: StructureSegment[] };
 
-/** `1o`'s KeepRow: the phrase, the app's sentence it came from, and whether it is kept. */
-export type WordOffer = { phrase: string; sentence: string; in_deck: boolean };
+/**
+ * `1o`'s KeepRow: the phrase, the app's sentence it came from, and whether it is
+ * kept. `token` (#419, W15) is the server's signature on this offer; it is sent
+ * back unread and never shown.
+ */
+export type WordOffer = { phrase: string; sentence: string; in_deck: boolean; token: string };
 
 /**
- * `POST /write/keep` (W16b). The server re-applies the offer rule: a non-word, or
- * a phrase whose words are not in the sentence sent with it, is a `422`, never a
- * card. **It cannot prove the phrase was offered** — this call sends both halves
- * (#419). *(Read "a phrase that was never offered is a `422`" — quoted, #82.)*
+ * `POST /write/keep` (W16b). **#419, closed W15:** the offer's `token` is sent
+ * back and the server refuses a pair it did not sign for this learner (`422`),
+ * then re-applies the offer rule. *(Read "**It cannot prove the phrase was
+ * offered** — this call sends both halves (#419)" — quoted, #82.)*
  */
-export function keepPhrase(
-  phrase: string,
-  sentence: string,
-): Promise<{ status: "saved" | "already" }> {
+export function keepPhrase(offer: WordOffer): Promise<{ status: "saved" | "already" }> {
   return request<{ status: "saved" | "already" }>("/write/keep", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phrase, sentence }),
+    body: JSON.stringify({ phrase: offer.phrase, sentence: offer.sentence, token: offer.token }),
   });
 }
 
@@ -733,5 +734,148 @@ export function saveWord(
   return request<SaveWordResult>(`/video/${videoId}/save-word`, {
     method: "POST",
     body: JSON.stringify({ word }),
+  });
+}
+
+// ── the conversation surface: `/talk` (W13b) and its two rungs (W15) ─────────
+//
+// **#398, CLOSED BY W15: THE CONVERSATION HAD NO LAYER HERE.** It was the one
+// surface that called `fetch` directly and read `await res.json()` untyped — how
+// `did_well` was returned for a month and rendered by nothing. Every endpoint it
+// calls now has a named function and a named type, so an unread field is a
+// compile-time fact rather than a sweep's finding. A `409` (the day's cap, or
+// the spent alternative) and a `404` (no conversation, the voice gate, or a rung
+// not on offer) arrive as `ApiError` with the status; **neither carries a
+// number**.
+
+/** Which exchange is open. `talk` is W13b's; `answer` and `retell` are W15's. */
+export type ConversationKind = "talk" | "answer" | "retell";
+
+/**
+ * One turn's result. `reply` is **empty on a rung** — a rung takes one turn and
+ * generates nothing until the close. `state` is `open` or `closing`, **never a
+ * count**. `heard` is what Whisper heard on a VOICE turn (#427) and `null`
+ * otherwise; the screen shows it as the learner's own line.
+ */
+export type ConversationTurn = {
+  conversation_id: number;
+  topic_label: string;
+  reply: string;
+  state: "open" | "closing";
+  heard: string | null;
+};
+
+/**
+ * One correction on the close-out. `label` is `error_types.learner_label`, the
+ * card's eyebrow (`/write`'s `1k`); `null` for a code with none, and the card
+ * then carries no eyebrow.
+ */
+export type ConversationCorrection = {
+  you_said: string;
+  correct_form: string;
+  explanation: string;
+  label: string | null;
+};
+
+/** A word offered to the deck and the token that proves it was offered (#408). */
+export type ConversationWordOffer = { word: string; token: string };
+
+/**
+ * `POST /conversation/close`. **Shown ≠ written**: a correction on a voice turn
+ * is shown and never journaled, and nothing here says which. `covered` and
+ * `also` are a retell's points — **the video's own sentences, never a count or
+ * a percentage of them** — and are empty on a talk and an answer. `summary` is
+ * empty on a rung. `is_english` is false only for a rung answered in another
+ * language.
+ */
+export type ConversationClose = {
+  conversation_id: number;
+  corrections: ConversationCorrection[];
+  did_well: string;
+  summary: string;
+  word_offers: ConversationWordOffer[];
+  is_english: boolean;
+  covered: string[];
+  also: string[];
+};
+
+/** One rung on offer today. `prompt` is the answer's task, verbatim; `null` on a retell. */
+export type ConversationRung = { label: string; prompt: string | null };
+
+/**
+ * `GET /conversation/rungs` (W15). **A read, no model call** (#399 declined a
+ * page that bills on load). A rung not on offer today is `null` — absent, never
+ * greyed out. `voice` is the same gate `/topics` carries (#364).
+ */
+export type ConversationRungs = {
+  answer: ConversationRung | null;
+  retell: ConversationRung | null;
+  voice: boolean;
+};
+
+export function getConversationRungs(): Promise<ConversationRungs> {
+  return request<ConversationRungs>("/conversation/rungs");
+}
+
+/** `POST /conversation/topics`: three suggestions, and the voice gate. **Billed.** */
+export function suggestConversationTopics(): Promise<{ topics: string[]; voice: boolean }> {
+  return request<{ topics: string[]; voice: boolean }>("/conversation/topics", {
+    method: "POST",
+  });
+}
+
+/** `POST /conversation/open`. A rung ignores `topic_label`; a talk ignores nothing. */
+export function openConversation(
+  kind: ConversationKind,
+  topicLabel?: string,
+): Promise<ConversationTurn> {
+  return request<ConversationTurn>("/conversation/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(
+      topicLabel ? { kind, topic_label: topicLabel } : { kind },
+    ),
+  });
+}
+
+/** `POST /conversation/turn`: one typed turn. */
+export function sendConversationTurn(text: string): Promise<ConversationTurn> {
+  return request<ConversationTurn>("/conversation/turn", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+}
+
+/**
+ * `POST /conversation/turn/voice`: one spoken turn, the recording as the body.
+ * **The audio is transcribed and discarded server-side**; `422` means it heard
+ * nothing, `413` that the recording ran too long.
+ */
+export function sendConversationVoice(recording: Blob): Promise<ConversationTurn> {
+  return request<ConversationTurn>("/conversation/turn/voice", {
+    method: "POST",
+    headers: { "Content-Type": recording.type || "audio/webm" },
+    body: recording,
+  });
+}
+
+/** `POST /conversation/close`. One-shot: a second call is a `404`. */
+export function closeConversation(): Promise<ConversationClose> {
+  return request<ConversationClose>("/conversation/close", { method: "POST" });
+}
+
+/**
+ * `POST /conversation/save-word`. **The offer's token goes back with the word**
+ * and the server refuses a word it did not sign for this learner (`422`, #408).
+ * `already` is a state, not an error (#178).
+ */
+export function saveConversationWord(
+  offer: ConversationWordOffer,
+): Promise<{ state: "saved" | "already" }> {
+  return request<{ state: "saved" | "already" }>("/conversation/save-word", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(offer),
   });
 }

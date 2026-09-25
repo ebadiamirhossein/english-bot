@@ -379,7 +379,7 @@ def test_the_plan_buys_only_for_evidenced_patterns(db, learner) -> None:
     plan = gen.plan_for(learner.user_id, now=NOW, codes=["word_order", "article_missing"])
     assert [e.code for e in plan] == ["article_missing"]
     assert len(plan[0].slots) == items_svc.DRILL_BANK_TARGET
-    assert plan[0].payload["learner_l1"] == "fa"
+    assert plan[0].payload["learner_l1"] == "Farsi"
 
 
 def test_the_payload_names_the_pattern_and_carries_no_journal_text(db, learner) -> None:
@@ -404,7 +404,7 @@ def test_the_dry_run_sends_nothing_and_says_so(db, learner, capsys, tmp_path) ->
     out = capsys.readouterr().out
     assert "dry run — nothing was sent and nothing was written." in out
     assert "calls --live will make, at most: " in out
-    assert '"learner_l1": "fa"' in out
+    assert '"learner_l1": "Farsi"' in out
     assert not (tmp_path / "j.jsonl").exists()
 
 
@@ -452,7 +452,7 @@ def test_the_generation_request_as_sent(mock_cls, _sleep) -> None:
             {"item_type": "error_spot",
              "grammar_target": "Prepositions of time and place, and after common verbs"},
         ],
-        "learner_l1": "lt",
+        "learner_l1": "Lithuanian",
     }
     assert kwargs["max_tokens"] == generate.GENERATE_MAX_TOKENS
     assert "x [y]" in kwargs["system"][0]["text"]
@@ -508,7 +508,7 @@ def test_the_drill_probe_is_dry_by_default_and_names_its_calls(capsys, monkeypat
     assert drill_probe.main([]) == 0
     out = capsys.readouterr().out
     assert "calls --live will make: 2" in out
-    assert '"learner_l1": "lt"' in out and '"learner_l1": "fa"' in out
+    assert '"learner_l1": "Lithuanian"' in out and '"learner_l1": "Farsi"' in out
     assert "DRY RUN. Nothing was sent and nothing was written." in out
 
 

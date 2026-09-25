@@ -70,6 +70,10 @@ material, held in reserve, and shown only if the item turns out to be ambiguous.
 `l1_gloss` must be written in the learner's own script — never Latin
 transliteration.
 
+The request names the learner's first language in `learner_l1`. Write every
+`l1_gloss`, and the `prompt_text` of every `l1_to_l2_production` item, in THAT
+language and its own script. Never in another language.
+
 Echo `grammar_target` back on every item, copied VERBATIM from the target you
 were given.
 

@@ -1,0 +1,154 @@
+{
+  "rungs_both": {
+    "answer": {
+      "label": "I can tell a friend what I did yesterday, in order, without stopping to think.",
+      "prompt": "Tell me about your yesterday, from waking up to going to bed. Two minutes, no notes."
+    },
+    "retell": {
+      "label": "Why Londoners queue for everything",
+      "prompt": null
+    },
+    "voice": false
+  },
+  "rungs_both_voice": {
+    "answer": {
+      "label": "I can tell a friend what I did yesterday, in order, without stopping to think.",
+      "prompt": "Tell me about your yesterday, from waking up to going to bed. Two minutes, no notes."
+    },
+    "retell": {
+      "label": "Why Londoners queue for everything",
+      "prompt": null
+    },
+    "voice": true
+  },
+  "rungs_answer_only": {
+    "answer": {
+      "label": "I can tell a friend what I did yesterday, in order, without stopping to think.",
+      "prompt": "Tell me about your yesterday, from waking up to going to bed. Two minutes, no notes."
+    },
+    "retell": null,
+    "voice": false
+  },
+  "topics": {
+    "topics": [
+      "A wedding you went to recently",
+      "Your favourite café in town",
+      "Something you cooked this week"
+    ],
+    "voice": false
+  },
+  "open_talk": {
+    "conversation_id": 41,
+    "topic_label": "A wedding you went to recently",
+    "reply": "Oh, a wedding! Whose was it, and where?",
+    "state": "open",
+    "heard": null
+  },
+  "turn_talk": {
+    "conversation_id": 41,
+    "topic_label": "A wedding you went to recently",
+    "reply": "Trakai is beautiful. Was it by the lake?",
+    "state": "open",
+    "heard": null
+  },
+  "turn_talk_voice": {
+    "conversation_id": 41,
+    "topic_label": "A wedding you went to recently",
+    "reply": "Trakai is beautiful. Was it by the lake?",
+    "state": "open",
+    "heard": "It was my girlfriend's cousin, in Trakai."
+  },
+  "open_answer": {
+    "conversation_id": 41,
+    "topic_label": "I can tell a friend what I did yesterday, in order, without stopping to think.",
+    "reply": "Tell me about your yesterday, from waking up to going to bed. Two minutes, no notes.",
+    "state": "open",
+    "heard": null
+  },
+  "open_retell": {
+    "conversation_id": 41,
+    "topic_label": "Why Londoners queue for everything",
+    "reply": "Tell me what happened in today’s video — in your own words, the way you’d tell a friend.",
+    "state": "open",
+    "heard": null
+  },
+  "turn_rung": {
+    "conversation_id": 41,
+    "topic_label": "I can tell a friend what I did yesterday, in order, without stopping to think.",
+    "reply": "",
+    "state": "closing",
+    "heard": null
+  },
+  "turn_rung_voice": {
+    "conversation_id": 41,
+    "topic_label": "I can tell a friend what I did yesterday, in order, without stopping to think.",
+    "reply": "",
+    "state": "closing",
+    "heard": "Yesterday I wake up at seven and I go to work by bus."
+  },
+  "close_answer": {
+    "conversation_id": 41,
+    "corrections": [
+      {
+        "you_said": "I wake up at seven",
+        "correct_form": "I woke up at seven",
+        "explanation": "It was yesterday, so the verb moves into the past: woke.",
+        "label": "Past tense"
+      },
+      {
+        "you_said": "I go to work by bus",
+        "correct_form": "I went to work by bus",
+        "explanation": "Same reason: it's finished, so it's went.",
+        "label": "Past tense"
+      }
+    ],
+    "did_well": "You kept the day in order, from the alarm to the film.",
+    "summary": "",
+    "word_offers": [
+      {
+        "word": "pasta",
+        "token": "fixture-talk-0"
+      },
+      {
+        "word": "alarm",
+        "token": "fixture-talk-1"
+      }
+    ],
+    "is_english": true,
+    "covered": [],
+    "also": []
+  },
+  "close_retell": {
+    "conversation_id": 42,
+    "corrections": [
+      {
+        "you_said": "people waits in a line",
+        "correct_form": "people wait in a line",
+        "explanation": "People is plural, so the verb has no s: wait.",
+        "label": "Subject and verb"
+      }
+    ],
+    "did_well": "You started with the bus stop, which puts the listener right there.",
+    "summary": "",
+    "word_offers": [],
+    "is_english": true,
+    "covered": [
+      "Londoners queue even when nobody tells them to.",
+      "Jumping the queue is seen as very rude."
+    ],
+    "also": [
+      "The habit grew during the Second World War, when food was rationed.",
+      "Visitors are often surprised by how quiet a queue is."
+    ]
+  },
+  "close_not_english": {
+    "conversation_id": 43,
+    "corrections": [],
+    "did_well": "",
+    "summary": "",
+    "word_offers": [],
+    "is_english": false,
+    "covered": [],
+    "also": []
+  }
+}

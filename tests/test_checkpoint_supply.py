@@ -444,7 +444,7 @@ def test_a_plan_that_cannot_address_its_own_drafts_is_refused_before_billing() -
         Slot(index=5, item_type="error_spot", target="b", cohort="checkpoint"),
     )
     with pytest.raises(ValueError, match="cannot address its own drafts"):
-        build_payload(1, "can-do", broken)
+        build_payload(1, "can-do", broken, l1="fa")
 
 
 def test_the_full_sitting_and_block_three_still_address_their_drafts() -> None:
@@ -453,7 +453,7 @@ def test_the_full_sitting_and_block_three_still_address_their_drafts() -> None:
 
     for kwargs in ({"checkpoint": True, "types": NARROW}, {}):
         slots = unit_plan((1,), **kwargs)[1]["slots"]
-        build_payload(1, "can-do", slots)  # must not raise
+        build_payload(1, "can-do", slots, l1="fa")  # must not raise
         assert [one.index for one in slots] == list(range(len(slots)))
 
 
@@ -517,9 +517,9 @@ def test_a_top_up_on_a_fill_plan_re_indexes_before_it_asks(monkeypatch) -> None:
     asked: list[tuple[int, ...]] = []
     real_payload = gen.build_payload
 
-    def spy(unit_number, can_do, sent):
+    def spy(unit_number, can_do, sent, *, l1):
         asked.append(tuple(one.index for one in sent))
-        return real_payload(unit_number, can_do, sent)
+        return real_payload(unit_number, can_do, sent, l1=l1)
 
     monkeypatch.setattr(gen, "build_payload", spy)
     monkeypatch.setattr(gen, "generate_drafts", lambda payload, settings: [])
@@ -531,7 +531,7 @@ def test_a_top_up_on_a_fill_plan_re_indexes_before_it_asks(monkeypatch) -> None:
     )
 
     gen._top_up(outcomes, short, {"unit": _FakeUnit(), "candidates": ()},
-                1, settings=None, calls=Counter())
+                1, settings=None, calls=Counter(), l1="fa")
 
     assert asked == [(0,)], (
         "a top-up must renumber the slots it asks for; sending index 1 in a "

@@ -211,16 +211,17 @@ def keep(
 ) -> KeepOut:
     """W16b — keep one offered phrase in the deck (`1o`).
 
-    **The offer rule is re-applied in the service**: a non-word, or a phrase whose
-    words are not in the sentence sent with it, is a 422, never a card. **It cannot
+    **#419, closed W15: the pair must carry the token its offer was signed with**,
+    so a pair the server did not offer this learner is a 422, never a card; the
+    offer rule is then re-applied as before. *(This docstring read "**It cannot
     prove the phrase was OFFERED** — the client sends both halves, so a consistent
-    invented pair is saved (#419; #408 is narrowed on this surface, not closed).
-    *(This docstring read "a phrase that would not have been offered is a 422,
-    never a card" — quoted, #82; finding (a).)* Plain `def`: it holds a pool
+    invented pair is saved" — quoted, #82's shape.)* Plain `def`: it holds a pool
     checkout and a transaction lock.
     """
     try:
-        status_ = writing.keep_phrase(session.id, body.phrase, body.sentence, now=_now())
+        status_ = writing.keep_phrase(
+            session.id, body.phrase, body.sentence, now=_now(), token=body.token
+        )
     except writing.NotOfferable:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="not_offerable"

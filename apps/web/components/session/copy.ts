@@ -498,6 +498,46 @@ export const CONVERSATION = {
    * still a close-out** -- an empty one says so plainly rather than rendering
    * three empty headings. No apology and no blame. */
   closeNothing: "Nothing to add this time. That was a good conversation.",
+
+  // ── W15, the two rungs on the loop: answer and retell ────────────────────
+  //
+  // **Same scans as every string above** (numeral, banned phrase), because they
+  // live in this block. **No count, no *done today*, no *not yet*** (#160): a
+  // rung answered this morning is offered again this afternoon, like a talk.
+
+  /** Over the two rung cards on the opening screen. An offer, not a task. */
+  rungsHeading: "Or try one of these",
+  /** The answer card's eyebrow. The unit's task follows it, verbatim. */
+  answerEyebrow: "This week’s question",
+  /** The retell card's eyebrow. The video's title follows it. */
+  retellEyebrow: "Today’s video",
+  /** The retell card's own line. */
+  retellCard: "Tell it back in your own words",
+  /** The screen eyebrow while a rung is open, where `/talk` says *Talk*. */
+  answerTitle: "Answer",
+  retellTitle: "Retell",
+  /** The composer's placeholder on a rung. */
+  answerPlaceholder: "Say it your way…",
+  retellPlaceholder: "What happened?",
+  /** A rung's single wait is the close-out call: it is READING, not typing. */
+  reading: "Reading it…",
+  /** The close-out's eyebrow for each rung, where a talk says *The conversation*. */
+  answerCloseEyebrow: "Your answer",
+  retellCloseEyebrow: "Your retelling",
+  /** A rung's close-out line under the heading (a talk's is `closing`). */
+  rungClosing: "Here’s what I noticed.",
+  /** A rung with nothing to show. `closeNothing` says *conversation*; a rung
+   * was not one. No apology and no blame, like it. */
+  rungNothing: "Nothing to add this time. That came across well.",
+  /** **What the retelling got across — the video's own points, never a count
+   * or a percentage of them** (the run prompt: *shown as what was covered*). */
+  coveredHeading: "What you got across",
+  /** The video's other points. **Content, not a shortfall**: the heading names
+   * the video, never the learner, and nothing says *missed*. */
+  alsoHeading: "Also in the video",
+  /** A rung answered in another language. The screen says so and corrects
+   * nothing. No verdict, no *wrong language*. */
+  notEnglish: "That looks like it’s in another language. Try it in English next time and I’ll go through it.",
 } as const;
 
 /**

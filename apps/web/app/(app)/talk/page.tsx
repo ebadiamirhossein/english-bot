@@ -50,8 +50,20 @@ export default function TalkPage() {
   // scrolls. That is a worse layout and a working surface, which is the right
   // way round for a fallback; `100dvh` failed to a surface with no input.
   // ────────────────────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────────────────
+  // **W15 — `[contain:size]`, AND #413 IS WHY.** `/write` measured it (W16a):
+  // the shell is a `min-h-dvh` column whose height FOLLOWS ITS CONTENT, so a
+  // long conversation grew the shell, scrolled the document and could push the
+  // composer back past the fold — `h-full` alone held only while the log was
+  // short. Size containment stops the content counting toward this wrapper's
+  // size, so it takes exactly what the column gives it. `e2e/talk.spec.ts`
+  // asserts the document does not scroll with a long thread on every project.
+  // *(The wrapper was `flex h-full min-h-0 flex-col overflow-hidden` — quoted,
+  // #82's shape; the paragraph above about `h-full` stays true of WHY the
+  // viewport unit was refused.)*
+  // ────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden [contain:size]">
       <Conversation voice fullHeight />
     </div>
   );

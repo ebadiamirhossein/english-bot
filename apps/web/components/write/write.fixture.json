@@ -215,12 +215,14 @@
       {
         "phrase": "to depend on",
         "sentence": "it depends on the person",
-        "in_deck": false
+        "in_deck": false,
+        "token": "fixture-offer-0"
       },
       {
         "phrase": "to miss someone",
         "sentence": "he misses his family",
-        "in_deck": true
+        "in_deck": true,
+        "token": "fixture-offer-1"
       }
     ]
   },
@@ -294,7 +296,8 @@
       {
         "phrase": "to depend on",
         "sentence": "it depends on the person",
-        "in_deck": false
+        "in_deck": false,
+        "token": "fixture-offer-0"
       }
     ]
   }

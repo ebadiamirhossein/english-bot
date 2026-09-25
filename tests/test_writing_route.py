@@ -663,16 +663,30 @@ def test_the_journal_carries_no_structure_and_no_offers(app, learner, monkeypatc
 
 
 def test_a_kept_phrase_shows_as_in_deck_next_time(app, db, learner, monkeypatch, thursday) -> None:
+    """The token comes from a REAL offer on the wire, not from the signer (#419)."""
     stub_model(monkeypatch, PARA)
-    keep = request(app, "POST", "/write/keep", json_body={"phrase": "to depend on", "sentence": "it depends on the person"}, cookies=jar(learner))
+    first = post_paragraph(app, learner).json()["word_offers"][0]
+    keep = request(app, "POST", "/write/keep", json_body={
+        "phrase": first["phrase"], "sentence": first["sentence"], "token": first["token"],
+    }, cookies=jar(learner))
     assert keep.json() == {"status": "saved"}
     offers = post_paragraph(app, learner).json()["word_offers"]
-    assert offers[0] == {"phrase": "to depend on", "sentence": "it depends on the person", "in_deck": True}
+    assert {k: v for k, v in offers[0].items() if k != "token"} == {
+        "phrase": "to depend on", "sentence": "it depends on the person", "in_deck": True}
     assert offers[1]["in_deck"] is False
 
 
-def keep(app, learner, phrase, sentence):
-    return request(app, "POST", "/write/keep", json_body={"phrase": phrase, "sentence": sentence}, cookies=jar(learner))
+def signed(learner, phrase, sentence):
+    """A token as `/write`'s offer would have signed it: the INPUT a keep carries,
+    not an expected value (§3 rule 5). The real-offer path is asserted above."""
+    from core import offer_tokens
+
+    return offer_tokens.mint("write", learner.user_id, phrase, sentence)
+
+
+def keep(app, learner, phrase, sentence, token=None):
+    token = signed(learner, phrase, sentence) if token is None else token
+    return request(app, "POST", "/write/keep", json_body={"phrase": phrase, "sentence": sentence, "token": token}, cookies=jar(learner))
 
 
 def test_keep_saves_one_card_with_its_sentence_and_then_says_already(app, db, learner) -> None:
@@ -711,23 +725,31 @@ def test_keep_refuses_a_phrase_that_would_not_have_been_offered(app, db, learner
     assert count(db, "SELECT count(*) FROM cards WHERE user_id = %s", learner.user_id) == 0
 
 
-def test_stated_limit_keep_cannot_prove_a_phrase_was_offered(app, db, learner) -> None:
-    """**#419, PINNED AS A LIMIT, NOT AS A FEATURE.** The client sends both the
-    phrase and the sentence, so a client that invents a consistent pair gets a
-    card: `weed` with the sentence `weed`, or `the person` from *it depends on the
-    person* — neither of which Q-E would have offered (the first is the learner's
-    slip, the second changes no word). Found by the session that stood down;
-    verified here. **If this test goes red, the gap closed — update #419 and the
-    record, do not restore the gap.**"""
-    assert keep(app, learner, "weed", "weed").json() == {"status": "saved"}
-    assert keep(app, learner, "the person", "it depends on the person").json() == {"status": "saved"}
-    assert count(db, "SELECT count(*) FROM cards WHERE user_id = %s", learner.user_id) == 2
-    db.execute("DELETE FROM cards WHERE user_id = %s", (learner.user_id,))
-    db.commit()
+def test_419_keep_refuses_a_pair_the_server_did_not_offer(app, db, learner, other) -> None:
+    """**#419, CLOSED W15.** This test replaces `test_stated_limit_keep_cannot_
+    prove_a_phrase_was_offered`, which pinned the gap and said *"If this test goes
+    red, the gap closed — update #419 and the record, do not restore the gap."* It
+    went red on the token and is inverted here.
+
+    A consistent invented pair (`weed`/`weed`, the pinned case) with a forged
+    token, a token signed for ANOTHER learner, and a token signed for the `/talk`
+    surface are each a 422 and write nothing.
+
+    **Red method:** make `keep_phrase` skip `offer_tokens.verify` — `weed` is
+    saved and the first assertion fails (demonstrated 2026-09-25)."""
+    from core import offer_tokens
+
+    assert keep(app, learner, "weed", "weed", token="0" * 32).status_code == 422
+    theirs = offer_tokens.mint("write", other.user_id, "weed", "weed")
+    assert keep(app, learner, "weed", "weed", token=theirs).status_code == 422
+    talk = offer_tokens.mint("talk", learner.user_id, "weed", "weed")
+    assert keep(app, learner, "weed", "weed", token=talk).status_code == 422
+    assert keep(app, learner, "weed", "weed", token="0" * 32).json() == {"detail": "not_offerable"}
+    assert count(db, "SELECT count(*) FROM cards WHERE user_id = %s", learner.user_id) == 0
 
 
 def test_keep_requires_a_session(app) -> None:
-    response = request(app, "POST", "/write/keep", json_body={"phrase": "to depend on", "sentence": "it depends on the person"})
+    response = request(app, "POST", "/write/keep", json_body={"phrase": "to depend on", "sentence": "it depends on the person", "token": "x"})
     assert response.status_code == 401
 
 

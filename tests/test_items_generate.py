@@ -224,8 +224,13 @@ def test_the_floor_itself_is_not_lowered():
     assert COVERAGE_FLOOR == 0.90
 
 
-def test_the_dry_run_states_the_floor_is_measured_and_not_enforced(capsys):
-    """A printed absence with no number behind it is what this replaced."""
+def test_the_dry_run_states_the_floor_is_measured_and_not_enforced(capsys, monkeypatch):
+    """A printed absence with no number behind it is what this replaced.
+
+    `learner_l1` is stubbed: user 3 is production's learner and has no row on
+    the development database, and since #424 a run for a learner with no row
+    raises rather than guessing a language."""
+    monkeypatch.setattr("core.items.generate.learner_l1", lambda _uid: "fa")
     dry_run(3, (1,))
     out = capsys.readouterr().out
     assert "MEASURED, NOT ENFORCED" in out
@@ -247,7 +252,7 @@ def test_the_generator_is_never_given_a_murphy_citation():
     plan = unit_plan((1, 2, 3))
     for number, entry in plan.items():
         wire = json.dumps(
-            build_payload(number, entry["unit"].can_do, entry["slots"]),
+            build_payload(number, entry["unit"].can_do, entry["slots"], l1="fa"),
             ensure_ascii=False,
         )
         assert "murphy" not in wire.lower()
@@ -257,7 +262,7 @@ def test_the_generator_is_never_given_a_murphy_citation():
 
 
 def test_the_payload_carries_the_target_text_and_the_type_per_slot():
-    payload = build_payload(1, "I can tell a friend what I did yesterday.", slot_plan(1, UNIT_1))
+    payload = build_payload(1, "I can tell a friend what I did yesterday.", slot_plan(1, UNIT_1), l1="fa")
     assert [i["item_type"] for i in payload["items"]] == list(SLOT_TYPES)
     assert all(i["grammar_target"] in UNIT_1 for i in payload["items"])
     assert payload["track"] == "life"
@@ -502,7 +507,7 @@ def test_the_payload_no_longer_sends_a_slot_number_to_be_echoed():
     mirroring the input shape echoed it back, and `extra="forbid"` rejected every
     item. **Order carries the same information and cannot be echoed.**
     """
-    payload = build_payload(1, "can-do", slot_plan(1, UNIT_1))
+    payload = build_payload(1, "can-do", slot_plan(1, UNIT_1), l1="fa")
     assert all("n" not in item for item in payload["items"])
     assert [i["item_type"] for i in payload["items"]] == list(SLOT_TYPES)
 
@@ -713,10 +718,11 @@ def test_two_of_three_is_acceptable_and_says_so_in_those_words(monkeypatch, caps
 # ── the dry run ─────────────────────────────────────────────────────────────
 
 
-def test_the_dry_run_sends_nothing_and_prints_the_call_ceiling(capsys):
+def test_the_dry_run_sends_nothing_and_prints_the_call_ceiling(capsys, monkeypatch):
     """Structurally, not by promise: `netguard` is armed session-wide, so a call
     would raise. What this adds is that the operator can read the exact prompt
-    and the exact cost before deciding."""
+    and the exact cost before deciding. (`learner_l1` stubbed: see above.)"""
+    monkeypatch.setattr("core.items.generate.learner_l1", lambda _uid: "fa")
     assert dry_run(3, (1, 2, 3)) == 0
     out = capsys.readouterr().out
     assert "nothing was sent and nothing was written" in out

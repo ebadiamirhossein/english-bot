@@ -303,7 +303,10 @@ describe("the paragraph (W16b)", () => {
     await submit(PARAGRAPH, PARA_TEXT);
     const offer = PARAGRAPH.word_offers.find((o) => !o.in_deck)!;
     await userEvent.click(screen.getByTestId("write-keep-button"));
-    expect(api.keepPhrase).toHaveBeenCalledWith(offer.phrase, offer.sentence);
+    // #419 (W15): the whole offer goes back, token included — the server
+    // refuses a pair it did not sign.
+    expect(api.keepPhrase).toHaveBeenCalledWith(offer);
+    expect(offer.token).toBeTruthy();
     await waitFor(() => expect(screen.queryAllByTestId("write-keep-button")).toHaveLength(0));
     expect(screen.getAllByTestId("write-keep-in-deck")).toHaveLength(2);
   });

@@ -135,7 +135,11 @@ def _paragraph(raw: dict, *, in_deck: tuple[bool, ...] = ()) -> dict:
         written=len(shaped.corrections),
         structure=shaped.structure,
         word_offers=tuple(
-            {"phrase": o.phrase, "sentence": o.sentence, "in_deck": in_deck[i] if i < len(in_deck) else False}
+            # `token` (#419, W15): a fixed placeholder, because a real one is an
+            # HMAC under the host's secret and the fixture must not depend on
+            # which `.env` exported it. The client echoes it back unread.
+            {"phrase": o.phrase, "sentence": o.sentence, "in_deck": in_deck[i] if i < len(in_deck) else False,
+             "token": f"fixture-offer-{i}"}
             for i, o in enumerate(chosen)
         ),
     )

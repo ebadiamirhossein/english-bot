@@ -200,6 +200,15 @@ def _type_list(conn: Any) -> str:
     return "\n".join(f"- {r['code']}: {r['label']}" for r in _written_types(conn))
 
 
+def written_type_list(conn: Any) -> str:
+    """F6's one list, for W15's rungs: the codes offered ARE the codes accepted.
+
+    A second query in `conversations.py` would be a second copy of the rule that
+    a spoken code is never offered; this is the same query, not a new one.
+    """
+    return _type_list(conn)
+
+
 def _current_task(conn: Any, user_id: int) -> str | None:
     """The learner's current unit's `output_task_written`, verbatim. **Nothing generated.**
 
@@ -423,8 +432,16 @@ def correct_submission(
         if selected:
             with connection() as conn:
                 held = _in_deck(conn, user.id, [o.phrase for o in selected])
+            # #419 (W15): each offer is signed, and `keep_phrase` requires it back.
+            from core import offer_tokens
+
             word_offers = tuple(
-                {"phrase": o.phrase, "sentence": o.sentence, "in_deck": o.phrase in held}
+                {
+                    "phrase": o.phrase,
+                    "sentence": o.sentence,
+                    "in_deck": o.phrase in held,
+                    "token": offer_tokens.mint(OFFER_SURFACE, user.id, o.phrase, o.sentence),
+                }
                 for o in selected
             )
 
@@ -443,8 +460,20 @@ def correct_submission(
 # ---------------------------------------------------------------------------
 
 
-def keep_phrase(user_id: int, phrase: str, sentence: str, *, now: datetime) -> str:
+#: The offer-token surface name (#419). A `/talk` token never verifies here.
+OFFER_SURFACE = "write"
+
+
+def keep_phrase(
+    user_id: int, phrase: str, sentence: str, *, now: datetime, token: str | None = None
+) -> str:
     """`POST /write/keep`: one offered phrase into the deck. ``"saved"`` or ``"already"``.
+
+    **#419, CLOSED W15: THE PAIR MUST CARRY THE TOKEN ITS OFFER WAS SIGNED
+    WITH** (`core.offer_tokens`). The paragraph below records the limit this
+    closes and is kept as written (#82's shape): an invented but consistent pair
+    no longer verifies, because the server signed only what it offered. The
+    offer rule's re-check still runs after it and still normalises the phrase.
 
     **THE OFFER RULE IS RE-APPLIED ON WRITE, AND IT NARROWS #408 ON THIS SURFACE;
     IT DOES NOT CLOSE IT (#419).** Every word must resolve and every content word
@@ -468,6 +497,10 @@ def keep_phrase(user_id: int, phrase: str, sentence: str, *, now: datetime) -> s
     from core.services.cards import CardState, create_card
     from core.services.lexicon import lexeme_ids
 
+    from core import offer_tokens
+
+    if not offer_tokens.verify(OFFER_SURFACE, user_id, token, phrase, sentence):
+        raise NotOfferable("that pair was not offered")
     normal = offers.normal_phrase(phrase)
     sentence = " ".join((sentence or "").split())
     if normal is None or not sentence or not offers.is_offerable(normal, sentence):

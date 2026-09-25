@@ -141,7 +141,13 @@ def drill_payload(code: str, learner_label: str, l1: str | None,
         ],
     }
     if l1:
-        payload["learner_l1"] = l1
+        # **A NAME, NOT THE CODE (W15, #424's sweep).** W17 sent `"fa"`/`"lt"`
+        # raw, which is F5's defect: the model is told a language's name, and an
+        # unmapped code raises rather than being sent as-is. The unit generator
+        # and this one now say the learner's language the same way.
+        from core.writing.rules import language_name
+
+        payload["learner_l1"] = language_name(l1)
     return payload
 
 
@@ -235,11 +241,9 @@ def dry_print(user_id: int, plan: list[DrillPlan], *, settings: Settings,
     return total
 
 
-def _bind_l1(drafts: list[dict], slots: tuple[Slot, ...], l1: str | None) -> None:
-    """The production item's `l1` is the learner's, never the model's choice."""
-    for slot in slots:
-        if slot.item_type == "l1_to_l2_production" and slot.index < len(drafts) and l1:
-            drafts[slot.index]["l1"] = l1
+#: Moved to `generate.bind_l1` by W15 (#424) so both generators share one
+#: binding; the name stays for the probe and the tests that import it.
+_bind_l1 = generate.bind_l1
 
 
 def run(user_id: int, plan: list[DrillPlan], *, apply: bool, settings: Settings,
