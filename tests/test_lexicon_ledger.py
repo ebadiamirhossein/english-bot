@@ -311,13 +311,19 @@ def test_ensure_lexeme_is_idempotent_and_keeps_the_id(conn) -> None:
 
 
 def test_a_grown_lexeme_is_never_assumed_known(conn, user) -> None:
-    """NULL rank means rarer than the seed list's tail. It must not be assumed."""
+    """NULL rank means rarer than the seed list's tail. It must not be assumed.
+
+    W13c: the floor is computed, so the assertion is on the covered set rather
+    than on rows — and on the table staying EMPTY, since nothing is written.
+    """
     svc.ensure_lexeme(conn, "zqxupsilon")
-    svc.assume_top_frequency_known(conn, user, 5)
-    assert state_of(conn, user, "zqxupsilon") is None
+    svc.set_known_word_floor(conn, user, 5)
+    covered = svc.known_lemmas(conn, user)
+    assert "zqxupsilon" not in covered
+    assert len(covered) == 5
     assert conn.execute(
         "SELECT COUNT(*) FROM user_lexemes WHERE user_id = %s", (user,)
-    ).fetchone()[0] == 5
+    ).fetchone()[0] == 0
 
 
 def test_a_reseed_enriches_a_grown_row_and_never_disturbs_its_ledger(conn, user) -> None:
@@ -423,6 +429,9 @@ def test_re_running_the_harvest_writes_nothing(conn, user) -> None:
 
 
 def test_learning_does_not_count_towards_coverage(conn, user) -> None:
+    # Floor 0, so the covered set is the evidence alone (W13c: the default floor
+    # is computed and would otherwise add the top 2,000 to it).
+    svc.set_known_word_floor(conn, user, 0)
     add_lexeme(conn, "w4known")
     add_lexeme(conn, "w4learning")
     svc.record(
@@ -455,7 +464,7 @@ def test_words_you_know_counts_evidence_and_not_the_assumption(conn, user) -> No
 
 
 def test_coverage_for_a_user_reads_the_ledger(conn, user) -> None:
-    svc.assume_top_frequency_known(conn, user, 2000)
+    # The default floor, 2000, with nothing written (W13c).
     report = svc.coverage_for(conn, user, "The cat sat on the mat and I saw it.")
     assert report.counted_tokens == 10
     assert report.coverage > 0.8

@@ -75,7 +75,10 @@ def test_no_exposure_or_inference_source_may_lower() -> None:
 @pytest.mark.parametrize(
     "source,state", [("v2_encountered", "seen"), ("v2_studied", "learning")]
 )
-def test_exposure_cannot_demote_an_assumed_known_word(conn, user, source, state) -> None:
+@pytest.mark.parametrize("floor_kind", ["computed", "kept_w4_row"])
+def test_exposure_cannot_demote_an_assumed_known_word(
+    conn, user, source, state, floor_kind
+) -> None:
     """The W4 fault, in one assertion.
 
     A word appearing in a reading the bot sent is evidence the learner has *met*
@@ -83,13 +86,28 @@ def test_exposure_cannot_demote_an_assumed_known_word(conn, user, source, state)
     `v2_encountered` at rank 1 outranked the rank-0 floor and pulled `known`
     down to `seen`, so the more a learner had used the app the lower their
     coverage read.
+
+    W13c: rank 17 is inside the default floor. `kept_w4_row` is a stored
+    `assumption` row (production's shape, kept); `computed` is no row at all,
+    the shape of every learner from now on. The effective state is read through
+    `svc.ledger`, which is what every selection reads. **Red, 2026-09-25:** with
+    `record`'s virtual-floor filter replaced by `if True`, both `computed` cases
+    failed and both `kept_w4_row` cases stayed green.
     """
     lemma = f"w4a{source}"
     add_lexeme(conn, lemma, freq_rank=17)
-    svc.record(conn, user, [LedgerEntry(lemma, "known", "assumption")])
+    if floor_kind == "kept_w4_row":
+        conn.execute(
+            """
+            INSERT INTO user_lexemes (user_id, lexeme_id, state, source, source_rank)
+            SELECT %s, id, 'known', 'assumption', 0 FROM lexemes WHERE lemma = %s
+            """,
+            (user, lemma),
+        )
     before = snapshot(conn, user)
     counts = svc.record(conn, user, [LedgerEntry(lemma, state, source)])
-    assert state_of(conn, user, lemma) == "known"
+    assert svc.ledger(conn, user)[lemma] == "known"
+    assert lemma in svc.known_lemmas(conn, user)
     assert counts.changed == 0
     assert snapshot(conn, user) == before
 
@@ -174,6 +192,21 @@ def test_the_python_rule_agrees_with_the_sql_under_the_new_gate(conn, user) -> N
 # ── the repair ──────────────────────────────────────────────────────────────
 
 
+def _w4_era_floor_rows(conn, user_id: int, top_n: int) -> None:
+    """The rows W4's `assume_top_frequency_known` wrote, which production still
+    holds: W13c stopped writing them and KEPT them (the ruling). The repair
+    operates on exactly these, so its tests need them — written here in SQL
+    because nothing in `packages/core` may write them any more."""
+    conn.execute(
+        """
+        INSERT INTO user_lexemes (user_id, lexeme_id, state, source, source_rank)
+        SELECT %s, id, 'known', 'assumption', 0
+          FROM lexemes WHERE freq_rank IS NOT NULL AND freq_rank <= %s
+        """,
+        (user_id, top_n),
+    )
+
+
 def _demote_a_floor_row(conn, user_id: int, lemma: str) -> None:
     """Reproduce what W4's rule did, by writing the row the old rule allowed."""
     lexeme_id = conn.execute(
@@ -190,7 +223,7 @@ def _demote_a_floor_row(conn, user_id: int, lemma: str) -> None:
 
 
 def test_the_repair_restores_demoted_floor_rows(conn, user) -> None:
-    svc.assume_top_frequency_known(conn, user, 5)
+    _w4_era_floor_rows(conn, user, 5)
     target = conn.execute(
         "SELECT lemma FROM lexemes WHERE freq_rank = 1"
     ).fetchone()[0]
@@ -212,7 +245,7 @@ def test_the_repair_restores_demoted_floor_rows(conn, user) -> None:
 
 
 def test_the_repair_does_not_move_first_seen_at(conn, user) -> None:
-    svc.assume_top_frequency_known(conn, user, 5)
+    _w4_era_floor_rows(conn, user, 5)
     target = conn.execute("SELECT lemma FROM lexemes WHERE freq_rank = 2").fetchone()[0]
     before = snapshot(conn, user)
     _demote_a_floor_row(conn, user, target)
@@ -221,7 +254,7 @@ def test_the_repair_does_not_move_first_seen_at(conn, user) -> None:
 
 
 def test_the_repair_is_idempotent(conn, user) -> None:
-    svc.assume_top_frequency_known(conn, user, 5)
+    _w4_era_floor_rows(conn, user, 5)
     target = conn.execute("SELECT lemma FROM lexemes WHERE freq_rank = 3").fetchone()[0]
     _demote_a_floor_row(conn, user, target)
     svc.restore_demoted_floor_rows(conn, 5)
@@ -234,7 +267,7 @@ def test_the_repair_is_idempotent(conn, user) -> None:
 def test_the_repair_leaves_self_produced_rows_alone(conn, user) -> None:
     """Self-produced English outranks the floor's hypothesis. Raising those
     would be a second bug, not a repair."""
-    svc.assume_top_frequency_known(conn, user, 5)
+    _w4_era_floor_rows(conn, user, 5)
     target = conn.execute("SELECT lemma FROM lexemes WHERE freq_rank = 4").fetchone()[0]
     svc.record(conn, user, [LedgerEntry(target, "known", "v2_produced")])
     assert svc.count_demoted_floor_rows(conn, 5) == []
@@ -250,7 +283,7 @@ def test_the_repair_leaves_self_produced_rows_alone(conn, user) -> None:
 
 
 def test_the_repair_ignores_lemmas_outside_the_floor(conn, user) -> None:
-    svc.assume_top_frequency_known(conn, user, 5)
+    _w4_era_floor_rows(conn, user, 5)
     add_lexeme(conn, "w4aoutside", freq_rank=99_000)
     svc.record(conn, user, [LedgerEntry("w4aoutside", "seen", "v2_encountered")])
     assert svc.count_demoted_floor_rows(conn, 5) == []
@@ -259,15 +292,26 @@ def test_the_repair_ignores_lemmas_outside_the_floor(conn, user) -> None:
 # ── the regression test for the whole slice ─────────────────────────────────
 
 
-def test_a_harvest_on_a_fresh_floor_demotes_nothing(conn, user) -> None:
+@pytest.mark.parametrize("floor_kind", ["computed", "kept_w4_rows"])
+def test_a_harvest_on_a_fresh_floor_demotes_nothing(conn, user, floor_kind) -> None:
     """The shape of the production failure, end to end.
 
     Seed the floor, run the harvest over v2 content that mentions floor words,
     and coverage must not fall. Under W4's rule this dropped below the floor
     size; that is the number that reached production.
+
+    **W13c runs it twice.** `kept_w4_rows` is the shape production holds today
+    (materialised rows, kept). `computed` is every learner from now on — no
+    rows at all, so the exposure lands on EMPTY and only `record`'s virtual
+    floor row stops it inserting `seen` beneath the floor. **Red, 2026-09-25:**
+    with the `virtual` filter in `record` replaced by `if True`, `computed`
+    failed — *the harvest demoted 60 floor lemmas* — and `kept_w4_rows` stayed
+    green.
     """
     floor_size = 200
-    svc.assume_top_frequency_known(conn, user, floor_size)
+    svc.set_known_word_floor(conn, user, floor_size)
+    if floor_kind == "kept_w4_rows":
+        _w4_era_floor_rows(conn, user, floor_size)
     floor_lemmas = [
         row[0]
         for row in conn.execute(

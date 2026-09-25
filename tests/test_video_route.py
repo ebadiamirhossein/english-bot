@@ -14,7 +14,8 @@ THE THREE QUESTIONS:
    with a transcript, written through `svc.upsert_video`, `svc.record_transcript`
    and `svc.assign_video` -- the same three functions `refresh` and `assign`
    call, so no test asserts against a row those paths could not produce. And a
-   ledger: `assume_top_frequency_known` is what a real learner has.
+   ledger: since W13c that is `users.known_word_floor`, default 2000, which
+   every learner row carries without a write -- what a real learner has.
 2. **Does the production caller supply it?** Yes -- these rows are what a
    Monday looks like after `python -m core.video.refresh --live --apply` and
    `python -m core.video.assign --apply`.
@@ -38,7 +39,6 @@ from fastapi import FastAPI
 from apps.api.deps import SESSION_COOKIE_SECURE
 from apps.api.main import create_app
 from core.config import load_settings
-from core.services import lexicon as lexicon_svc
 from core.services import video as svc
 from core.services.sessions import local_today
 
@@ -352,9 +352,8 @@ def test_block_two_carries_the_transcript_the_unknown_words_and_a_band(
     app, learner, db
 ) -> None:
     _assign_today(db, learner, transcript=LONG_TRANSCRIPT, youtube_id="rt13g00001")
-    with psycopg.connect(load_settings().database_url) as conn:
-        lexicon_svc.assume_top_frequency_known(conn, learner.user_id, 2000)
-        conn.commit()
+    # The learner's floor is `users.known_word_floor`, default 2000 (W13c):
+    # a real learner's ledger with nothing written.
 
     block = _block_two(app, learner)
     assert block["state"] == "ready"
@@ -383,9 +382,8 @@ def test_no_coverage_percentage_reaches_the_client_anywhere(
     defect this guards against is a field somebody adds later.
     """
     _assign_today(db, learner, transcript=LONG_TRANSCRIPT, youtube_id="rt13h00001")
-    with psycopg.connect(load_settings().database_url) as conn:
-        lexicon_svc.assume_top_frequency_known(conn, learner.user_id, 2000)
-        conn.commit()
+    # The learner's floor is `users.known_word_floor`, default 2000 (W13c):
+    # a real learner's ledger with nothing written.
 
     body = request(app, "GET", "/session/today", cookies=_as(learner)).text
     for banned in ("coverage_pct", "coverage_percent", '"coverage"', "percent"):
@@ -423,9 +421,8 @@ def test_a_short_transcript_gets_no_band(app, learner, db) -> None:
     _assign_today(
         db, learner, transcript="we were talking about it", youtube_id="rt13j00001"
     )
-    with psycopg.connect(load_settings().database_url) as conn:
-        lexicon_svc.assume_top_frequency_known(conn, learner.user_id, 2000)
-        conn.commit()
+    # The learner's floor is `users.known_word_floor`, default 2000 (W13c):
+    # a real learner's ledger with nothing written.
 
     block = _block_two(app, learner)
     assert block["state"] == "ready"
@@ -451,9 +448,8 @@ def test_a_transcript_with_no_cues_is_served_and_says_nothing_about_it(
     and `transcript_cues` is null — no error, no flag, nothing for a client to
     apologise for."""
     _assign_today(db, learner, transcript=LONG_TRANSCRIPT, youtube_id="rt13k00001")
-    with psycopg.connect(load_settings().database_url) as conn:
-        lexicon_svc.assume_top_frequency_known(conn, learner.user_id, 2000)
-        conn.commit()
+    # The learner's floor is `users.known_word_floor`, default 2000 (W13c):
+    # a real learner's ledger with nothing written.
 
     before = _block_two(app, learner)["payload"]
     assert before["transcript_available"] is True

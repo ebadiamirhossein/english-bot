@@ -103,6 +103,12 @@ class Settings:
     # under-assumption selects material that is slightly too hard, which the
     # learner can see and say so about, while an over-assumption selects
     # material they drown in silently.
+    #
+    # **W13c: NO LONGER THE FLOOR.** The floor is `users.known_word_floor`
+    # (migration 030, default 2000), per learner and computed at read time.
+    # This value is now read only by `core.lexicon.repair`, W4a's one-off repair
+    # of rows the W4 harvest demoted — it names the floor size those W4-era rows
+    # were WRITTEN at, which is history and not a per-learner setting.
     lexicon_assumed_known_top_n: int = 2000
     # W12b — the video pipeline. Both keys live on production only; neither is
     # required at load, because apps/api and every pure test must boot without

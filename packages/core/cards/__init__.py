@@ -187,8 +187,9 @@ MASTERED_STATE = "mastered"
 # slice that otherwise needs none.
 #
 # PRODUCT-PRINCIPLES §3 flag, recorded at the moment of the choice: these are
-# global configuration that would need to be per-user, exactly like
-# `LEXICON_ASSUMED_KNOWN_TOP_N` (#94). They become columns at multi-tenancy.
+# global configuration that would need to be per-user, as
+# `LEXICON_ASSUMED_KNOWN_TOP_N` was until W13c made the floor a `users` column
+# (#94). They become columns at multi-tenancy.
 DAILY_NEW_CARD_CAP = 12
 DAILY_REVIEW_CAP = 80
 

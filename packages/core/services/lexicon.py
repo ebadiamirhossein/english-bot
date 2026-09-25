@@ -288,6 +288,17 @@ def record(conn, user_id: int, entries: Iterable[LedgerEntry]) -> WriteCounts:
         return WriteCounts()
     ids = lexeme_ids(conn, [e.lemma for e in reduced])
     payload = [(ids[e.lemma], e) for e in reduced if e.lemma in ids]
+    # W13c: the floor is not materialised, so a lemma inside it with no row is
+    # a VIRTUAL `known`/`assumption` row, and a write has to beat that row
+    # exactly as it would have beaten the materialised one. Without this an
+    # exposure (`v2_encountered` → `seen`) would insert a row onto empty and
+    # the row would outrank the floor at read time — W4a's defect, reborn.
+    virtual = _rowless_floor_ids(conn, user_id, [lexeme_id for lexeme_id, _ in payload])
+    payload = [
+        (lexeme_id, e)
+        for lexeme_id, e in payload
+        if lexeme_id not in virtual or wins(e, _floor_entry(e.lemma))
+    ]
     if not payload:
         return WriteCounts(unchanged=len(reduced))
     with conn.cursor(row_factory=tuple_row) as cur:
@@ -320,21 +331,35 @@ def record(conn, user_id: int, entries: Iterable[LedgerEntry]) -> WriteCounts:
 
 
 def known_lemmas(conn, user_id: int) -> frozenset[str]:
-    """The covered set — `known` and `mastered` only (PRD §2.1)."""
-    with conn.cursor(row_factory=tuple_row) as cur:
-        cur.execute(
-            """
-            SELECT l.lemma
-              FROM user_lexemes ul JOIN lexemes l ON l.id = ul.lexeme_id
-             WHERE ul.user_id = %s AND ul.state = ANY(%s)
-            """,
-            (user_id, sorted(COVERED_STATES)),
-        )
-        return frozenset(row[0] for row in cur.fetchall())
+    """The covered set — `known` and `mastered` only (PRD §2.1), floor included."""
+    return frozenset(l for l, s in ledger(conn, user_id).items() if s in COVERED_STATES)
 
 
 def ledger(conn, user_id: int) -> dict[str, str]:
-    """Every lemma this learner has evidence for, mapped to its state."""
+    """Every lemma this learner has evidence for or is assumed to know → state.
+
+    W13c: the effective ledger, not the table. Evidence rows as stored, plus a
+    `known` for every lemma inside this learner's floor that has no evidence
+    row. Stored `assumption` rows are not read (see `EFFECTIVE_LEDGER`).
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            f"""
+            SELECT l.lemma, e.state
+              FROM ({EFFECTIVE_LEDGER}) e JOIN lexemes l ON l.id = e.lexeme_id
+            """,
+            {"user_id": user_id},
+        )
+        return {row[0]: row[1] for row in cur.fetchall()}
+
+
+def materialised_ledger(conn, user_id: int) -> dict[str, str]:
+    """The ledger as every reader read it before W13c: the whole table.
+
+    **Only `core.lexicon.floor`'s before/after table reads this.** It is the
+    "before" column, and it can still be computed because the `assumption`
+    rows were kept. Nothing that selects material may call it.
+    """
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
             """
@@ -377,42 +402,135 @@ def coverage_for(conn, user_id: int, text: str) -> CoverageReport:
     )
 
 
-# ── seeding the ledger before a placement test exists ───────────────────────
+# ── the known-word floor (W13c) ─────────────────────────────────────────────
+#
+# W4 assumed the commonest N lemmas known by WRITING ~2,000 `known`/`assumption`
+# rows per learner, from one global N. W13c stores N per learner
+# (`users.known_word_floor`, migration 030) and computes the same set at read
+# time — PRODUCT-PRINCIPLES §3: those were rows that could be computed.
+#
+# **The floor behaves as a virtual row, `known`/`assumption`/rank 0, in BOTH
+# directions**, which is what makes the switch a no-op for every learner the
+# old rows described:
+#
+#   * read — a lemma inside the floor with no evidence row is `known`;
+#     an evidence row, whatever it says, decides (`EFFECTIVE_LEDGER`);
+#   * write — `record` sends a write for a rowless floor lemma through `wins`
+#     against the virtual row, so an exposure cannot "insert" below the floor
+#     where it could never have lowered the materialised row.
+#
+# **Stored `assumption` rows are KEPT and NOT READ** (the ruling). Inside the
+# floor they are redundant with the virtual row; outside it — after the floor is
+# lowered — ignoring them is the correction. `freq_rank IS NOT NULL` keeps grown
+# lexemes out: a word rare enough to be outside the seed list is never assumed.
+#
+# Named parameter `%(user_id)s`. The covered-state literal is generated from
+# `COVERED_STATES`, never retyped.
+EFFECTIVE_LEDGER = """
+SELECT ul.lexeme_id, ul.state
+  FROM user_lexemes ul
+ WHERE ul.user_id = %(user_id)s AND ul.source <> 'assumption'
+UNION ALL
+SELECT fl.id, 'known'
+  FROM lexemes fl JOIN users fu ON fu.id = %(user_id)s
+ WHERE fl.freq_rank IS NOT NULL
+   AND fl.freq_rank <= fu.known_word_floor
+   AND NOT EXISTS (SELECT 1 FROM user_lexemes ev
+                    WHERE ev.user_id = fu.id AND ev.lexeme_id = fl.id
+                      AND ev.source <> 'assumption')
+"""
+
+#: The lexeme ids this learner is covered on. A subquery, for callers whose
+#: own SQL asks "is this lexeme known" — `services/syllabus.py`.
+COVERED_LEXEME_IDS = (
+    f"SELECT cov.lexeme_id FROM ({EFFECTIVE_LEDGER}) cov "
+    f"WHERE cov.state IN ({_in_list(COVERED_STATES)})"
+)
 
 
-def assume_top_frequency_known(conn, user_id: int, top_n: int) -> WriteCounts:
-    """Assume the commonest `top_n` lemmas known, at the weakest source rank.
+def _floor_entry(lemma: str) -> LedgerEntry:
+    return LedgerEntry(lemma, "known", "assumption")
 
-    Without this every ledger is empty on day one, coverage reads 0% for
-    everything, and W12's comprehensible-input band cannot be satisfied by any
-    material at all — while W18's placement test, which PRD §9 says seeds the
-    ledger, is fourteen slices away.
 
-    Written as `assumption`, rank 0, so any later signal overrides it in either
-    direction and the placement test can correct it down to `seen`.
+def _rowless_floor_ids(conn, user_id: int, lexeme_ids_: Sequence[int]) -> frozenset[int]:
+    """Of these lexemes, the ones inside the floor with NO row at all.
 
-    `freq_rank IS NOT NULL` keeps grown lexemes out: a word rare enough to be
-    outside the seed list must never be assumed. Proper nouns do occupy some of
-    the floor — the frequency list is lowercased, so `john` sits at rank 548 —
-    which means the learner is assumed to know slightly fewer real words than
-    `top_n` suggests. That biases the floor conservative, toward material that
-    is harder rather than easier, which is the safe direction.
+    Any row — an evidence row or a kept `assumption` row — means the stored
+    conflict rule already has something to compare against, so only a rowless
+    floor lemma needs the virtual one.
     """
+    if not lexeme_ids_:
+        return frozenset()
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
             """
-            INSERT INTO user_lexemes
-                   (user_id, lexeme_id, state, source, source_rank)
-            SELECT %s, id, 'known', 'assumption', 0
-              FROM lexemes
-             WHERE freq_rank IS NOT NULL AND freq_rank <= %s
-            """
-            + _CONFLICT,
-            (user_id, top_n),
+            SELECT l.id
+              FROM lexemes l JOIN users u ON u.id = %s
+             WHERE l.id = ANY(%s)
+               AND l.freq_rank IS NOT NULL
+               AND l.freq_rank <= u.known_word_floor
+               AND NOT EXISTS (SELECT 1 FROM user_lexemes ul
+                                WHERE ul.user_id = u.id AND ul.lexeme_id = l.id)
+            """,
+            (user_id, list(lexeme_ids_)),
         )
-        touched = [row[0] for row in cur.fetchall()]
-    inserted = sum(1 for flag in touched if flag)
-    return WriteCounts(inserted=inserted, updated=len(touched) - inserted)
+        return frozenset(row[0] for row in cur.fetchall())
+
+
+def known_word_floor(conn, user_id: int) -> int:
+    """This learner's floor. Raises if the learner does not exist."""
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute("SELECT known_word_floor FROM users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
+    if row is None:
+        raise LookupError(f"no user {user_id}")
+    return int(row[0])
+
+
+#: Migration 030's `users_known_word_floor_in_range`, repeated so a caller can
+#: refuse before the database does — a CHECK violation's DETAIL prints the whole
+#: `users` row, goals text included, to whatever terminal ran the command.
+#: `tests/test_known_word_floor.py` asserts the two agree.
+FLOOR_RANGE = range(0, 20_001)
+
+
+def set_known_word_floor(conn, user_id: int, floor: int) -> None:
+    """The correction path's only writer."""
+    if floor not in FLOOR_RANGE:
+        raise ValueError(f"a floor is {FLOOR_RANGE.start}–{FLOOR_RANGE.stop - 1}, not {floor}")
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            "UPDATE users SET known_word_floor = %s WHERE id = %s RETURNING id",
+            (floor, user_id),
+        )
+        if cur.fetchone() is None:
+            raise LookupError(f"no user {user_id}")
+
+
+def kept_assumption_rows(conn, user_id: int) -> int:
+    """How many W4-era `assumption` rows this learner still holds (kept, unread)."""
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM user_lexemes WHERE user_id = %s AND source = 'assumption'",
+            (user_id,),
+        )
+        return int(cur.fetchone()[0])
+
+
+def stored_video_coverage(conn, user_id: int) -> list[tuple[int, float, str]]:
+    """`(video_id, stored coverage, transcript)` for every stored figure whose
+    transcript still exists — the before/after table's video rows."""
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT vc.video_id, vc.coverage, v.transcript
+              FROM video_coverage vc JOIN videos v ON v.id = vc.video_id
+             WHERE vc.user_id = %s AND v.transcript IS NOT NULL
+             ORDER BY vc.video_id
+            """,
+            (user_id,),
+        )
+        return [(int(r[0]), float(r[1]), r[2]) for r in cur.fetchall()]
 
 
 def onboarded_user_ids(conn) -> list[int]:
@@ -608,23 +726,28 @@ def seed_rows_from_file() -> list[tuple[str, str, int, int, str]]:
 
 __all__ = [
     "CoverageReport",
+    "FLOOR_RANGE",
     "LedgerEntry",
     "VERIFICATION_QUERY",
     "WriteCounts",
-    "assume_top_frequency_known",
     "count_demoted_floor_rows",
     "coverage_for",
     "coverage_totals",
     "ensure_lexeme",
     "evidenced_known_count",
     "harvest_v2",
+    "kept_assumption_rows",
+    "known_word_floor",
     "known_lemmas",
     "ledger",
+    "materialised_ledger",
     "onboarded_user_ids",
     "lemmatize",
     "record",
     "restore_demoted_floor_rows",
     "seed_rows_from_file",
+    "set_known_word_floor",
+    "stored_video_coverage",
     "upsert_lexemes",
     "wins",
 ]

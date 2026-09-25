@@ -41,10 +41,19 @@ def db():
 
 @pytest.fixture
 def learner(db):
-    """A learner with `native_language='fa'`, matching both fixtures."""
+    """A learner with `native_language='fa'`, matching both fixtures.
+
+    **Floor 0** (W13c). This learner never had W4's materialised floor rows, so
+    the mechanics below were written against an empty ledger; since W13c the
+    floor is computed for every learner (default 2000), and `proper` (rank
+    1833) would be skipped as known. Floor 0 keeps these tests about the
+    import's mechanics; what a real floor does to a file is
+    `test_a_word_inside_the_floor_is_skipped_as_known`.
+    """
     row = db.execute(
         "INSERT INTO users (name, native_language, cefr_level, auth_email, "
-        "onboarded) VALUES ('w8f-import', 'fa', 'B1', %s, TRUE) RETURNING id",
+        "onboarded, known_word_floor) "
+        "VALUES ('w8f-import', 'fa', 'B1', %s, TRUE, 0) RETURNING id",
         (f"w8f-{secrets.token_hex(6)}@example.invalid",),
     ).fetchone()
     user_id = int(row[0])
@@ -159,6 +168,28 @@ def test_the_import_writes_the_ledger_as_a_tap(db, learner, monkeypatch) -> None
         (learner,),
     ).fetchall()
     assert rows == [("seen", "tapped", 2)]
+
+
+def test_a_word_inside_the_floor_is_skipped_as_known(db, learner, monkeypatch) -> None:
+    """What a real learner's file does, and what production has always done:
+    `proper` is rank 1833, inside the default floor of 2000, so it is planned as
+    already known — **no card, and no tap written (#435)**. Under W4 this came
+    from a materialised `assumption` row; since W13c from the computed floor,
+    with the same result (parity). Red, 2026-09-25: with the learner's floor
+    left at 0, `apply` typed 8 against 9 planned and returned 1."""
+    db.execute("UPDATE users SET known_word_floor = 2000 WHERE id = %s", (learner,))
+    db.commit()
+    _typing(monkeypatch, 8)
+    assert import_vocab.apply(TRANCY, user_id=learner, now=NOW) == 0
+    rows = _cards(db, learner)
+    assert len(rows) == 16
+    assert db.execute(
+        """
+        SELECT COUNT(*) FROM cards c JOIN lexemes l ON l.id = c.lexeme_id
+         WHERE c.user_id = %s AND l.lemma = 'proper'
+        """,
+        (learner,),
+    ).fetchone()[0] == 0
 
 
 def test_a_native_language_mismatch_refuses_the_whole_file(db) -> None:

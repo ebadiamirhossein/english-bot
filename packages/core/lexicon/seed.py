@@ -3,7 +3,12 @@
 Two commands, both idempotent, both run by hand:
 
     python -m core.lexicon.seed             # the reference table
-    python -m core.lexicon.seed --ledger    # the frequency floor + the v2 harvest
+    python -m core.lexicon.seed --ledger    # the v2 harvest
+
+**W13c: `--ledger` no longer writes the frequency floor.** The floor is
+`users.known_word_floor` (migration 030), computed at read time, and it is
+corrected with `python -m core.lexicon.floor`. No `assumption` row is written by
+anything any more; the W4-era ones are kept and not read.
 
 **Where this sits relative to the deployment sequence, which does not change.**
 The sequence is still `backup → pull → pip install -e packages/core → migrate →
@@ -37,20 +42,13 @@ def seed_lexemes(conn) -> object:
     return counts
 
 
-def seed_ledger(conn, top_n: int) -> None:
-    """The frequency floor and the v2 harvest, for every onboarded learner."""
-    from core.services.lexicon import (
-        assume_top_frequency_known,
-        harvest_v2,
-        onboarded_user_ids,
-    )
+def seed_ledger(conn) -> None:
+    """The v2 harvest, for every onboarded learner. The floor is not written."""
+    from core.services.lexicon import harvest_v2, onboarded_user_ids
 
     for user_id in onboarded_user_ids(conn):
-        floor = assume_top_frequency_known(conn, user_id, top_n)
         harvested, barred = harvest_v2(conn, user_id)
-        logger.info(
-            "user %s: floor(top %d) %s | v2 harvest %s", user_id, top_n, floor, harvested
-        )
+        logger.info("user %s: v2 harvest %s", user_id, harvested)
         if barred:
             logger.warning(
                 "user %s: %d `errors` rows have source='capture'. Capture is "
@@ -63,25 +61,22 @@ def seed_ledger(conn, top_n: int) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from core.config import load_settings
     from core.db import connection
 
     parser = argparse.ArgumentParser(description="Seed the lexicon.")
     parser.add_argument(
         "--ledger",
         action="store_true",
-        help="also apply the frequency floor and the v2 harvest per learner",
+        help="also apply the v2 harvest per learner (the floor is not written)",
     )
-    parser.add_argument("--top-n", type=int, default=None)
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    top_n = args.top_n or load_settings().lexicon_assumed_known_top_n
 
     with connection() as conn:
         seed_lexemes(conn)
         if args.ledger:
-            seed_ledger(conn, top_n)
+            seed_ledger(conn)
         conn.commit()
     return 0
 

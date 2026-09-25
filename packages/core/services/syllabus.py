@@ -19,7 +19,7 @@ from datetime import timedelta
 from psycopg.rows import tuple_row
 
 from core.db import connection
-from core.lexicon.states import COVERED_STATES
+from core.services.lexicon import COVERED_LEXEME_IDS
 from core.syllabus import CHECKPOINT_RETAKE_DAYS, TARGET_LEXEME_FLOOR, UNIT_COUNT
 from core.syllabus.content import Unit
 
@@ -217,7 +217,10 @@ def unit_target_lexemes(conn, user_id: int, unit_number: int) -> list[str]:
     the same row, which is what PRD §3 means by "Personalisation, not deviation".
 
     "Known" is `known` + `mastered` -- `core.lexicon.states.COVERED_STATES`, the
-    same set `known_lemmas` and the coverage calculation use. `learning` does NOT
+    same set `known_lemmas` and the coverage calculation use, and since W13c it
+    includes this learner's own floor (`COVERED_LEXEME_IDS`), computed rather
+    than read from materialised rows -- so two learners with different floors
+    get different lists from this same query, with no branch. `learning` does NOT
     count, and that is deliberate: a word the learner is still acquiring is
     exactly the word a unit should keep drilling.
 
@@ -226,20 +229,15 @@ def unit_target_lexemes(conn, user_id: int, unit_number: int) -> list[str]:
     """
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
-            """
+            f"""
             SELECT l.lemma
               FROM syllabus_unit_lexemes s
               JOIN lexemes l ON l.id = s.lexeme_id
-             WHERE s.unit_number = %s
-               AND NOT EXISTS (
-                     SELECT 1 FROM user_lexemes ul
-                      WHERE ul.user_id = %s
-                        AND ul.lexeme_id = s.lexeme_id
-                        AND ul.state = ANY(%s)
-                   )
+             WHERE s.unit_number = %(unit_number)s
+               AND s.lexeme_id NOT IN ({COVERED_LEXEME_IDS})
              ORDER BY l.freq_rank NULLS LAST
             """,
-            (unit_number, user_id, sorted(COVERED_STATES)),
+            {"unit_number": unit_number, "user_id": user_id},
         )
         return [row[0] for row in cur.fetchall()]
 
@@ -254,21 +252,35 @@ def target_counts(conn, user_id: int) -> list[tuple[int, int]]:
     """
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
-            """
+            f"""
             SELECT s.unit_number, count(*)
               FROM syllabus_unit_lexemes s
-             WHERE NOT EXISTS (
-                     SELECT 1 FROM user_lexemes ul
-                      WHERE ul.user_id = %s
-                        AND ul.lexeme_id = s.lexeme_id
-                        AND ul.state = ANY(%s)
-                   )
+             WHERE s.lexeme_id NOT IN ({COVERED_LEXEME_IDS})
              GROUP BY s.unit_number
              ORDER BY s.unit_number
             """,
-            (user_id, sorted(COVERED_STATES)),
+            {"user_id": user_id},
         )
         return [(int(u), int(c)) for u, c in cur.fetchall()]
+
+
+def unit_candidates(conn) -> dict[int, frozenset[str]]:
+    """Every unit's candidate lemmas, before any learner's diff.
+
+    Read by `core.lexicon.floor`'s before/after table only, which subtracts two
+    covered sets from the same candidates to show the diff did not move.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT s.unit_number, l.lemma
+              FROM syllabus_unit_lexemes s JOIN lexemes l ON l.id = s.lexeme_id
+            """
+        )
+        out: dict[int, set[str]] = {}
+        for unit_number, lemma in cur.fetchall():
+            out.setdefault(int(unit_number), set()).add(lemma)
+    return {u: frozenset(ls) for u, ls in out.items()}
 
 
 def below_floor(conn, user_id: int) -> list[tuple[int, int]]:
