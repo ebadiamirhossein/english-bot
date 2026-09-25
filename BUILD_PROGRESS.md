@@ -195,7 +195,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 | 3 | **W19** — progress + gamification | **built 2026-09-25, not deployed** | the W19 commit | Migration **029**. Couple leaderboard dropped; radar, placement history, the target line and units mastered unmet. **#259 fixed in code** (one practised-day signal for the streak, active days and the nudge ladder); **#46 closed**; #431, #432, #433 filed. **No probe** (no billed call). Deploy note: **#433 — the bot process must restart for #259's half that it runs.** |
 | 4 | **W13c** — per-user known-word floor | **built 2026-09-25, not deployed** | the W13c commit | Migration **030** (W18 → 031). Floor stored per learner, covered set computed; **no `assumption` row written, the old ones kept and unread**. **#94 fixed in code** (closes on W13c-G1); #304 and #159's ordering on W13c discharged; **#434 and #435 filed**; **#433 ruled** (the deploy restarts `english-bot` too). **No probe.** Deploy note: **`python -m core.lexicon.floor` runs on the host after `migrate` and BEFORE the restart — it is the parity gate (W13c-G1).** |
 | 5 | **W20** — notifications | **built 2026-09-25, not deployed** | the W20 commit | Migration **031** (W18 → 032). **#69 resolved inside the slice** (worker = `push_poll` only; the unit installs at the launch pass); #95 fixed; #431 retargeted; **#435 fixed and #434 closed on the operator's rulings**; #436–#439 filed. Probe: `core.push_probe` (**0 billed calls; 1 real notification**, host-only, after the API deploy and before the worker install). |
-| 6 | **The launch pass** | ⬜ **next** | — | Written after W20 at the head of Next action: probes → deploy (one block per role, #422) → screenshot review → human checks by sitting → what stays open. |
+| 6 | **The launch pass** | **written 2026-09-25** | the launch-pass commit | At the head of Next action: probes (6 billed calls, Mac) → deploy (one block per role, #422; W13c-G1 the gate; `english-bot` restarted, #433) → Vercel → the push probe (host) → the worker install (#69) → screenshots → the checks by sitting → what stays open. **The run's queue is finished; nothing is deployed until the operator runs it.** |
 
 **BLOCKED — NOT IN THIS RUN. Each needs something only the operator can give:**
 
@@ -289,7 +289,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 - **W13c-Q1 [psql]** — as `bot`, `set +H`, before `migrate` and again after the restart: `psql english_bot -c "SELECT user_id, count(*) FROM user_lexemes WHERE source = 'assumption' GROUP BY 1 ORDER BY 1;"` — **identical both times** (kept: none deleted, none written). After: `psql english_bot -c "SELECT id, known_word_floor FROM users WHERE onboarded ORDER BY id;"` — every learner `2000`.
 - **W13c-R1 [reading] — the second learner's floor** — a ruling, not a measurement: is 2,000 right for her until W18 measures it? If not, `python -m core.lexicon.floor --user <id> --set <n>` (dry), read what moves, then `--apply`. **Nothing a learner sees as a count moves either way**; what moves is which words the app treats as new.
 - *W13c-G1 and Q1 were rehearsed on the Mac on 2026-09-25 against the development database: `.venv/bin/python -m core.lexicon.floor --user 1` printed the parity block quoted in the decisions log in 0.7 s; a dry `--set 2500` printed `floor 2000 → 2500`, `covered set 2000 → 2500 (+500 / −0)`, `unit targets Σ 1560 → 1246`, `words you know 0 → 0` and `DRY: rolled back`, and `users` still read 2000 afterwards; both Q1 statements parse and run (dev: user 1 holds 2,000 `assumption` rows, every learner 2000). **Not rehearsable:** the host's own figures, and the all-learner run's speed on production (the Mac's `approved_onboarded_users` holds thousands of test rows, so the bare command was rehearsed per learner).*
-- **W13c-R2 [reading] — decides #435** — should a word you looked up in Trancy or Language Reactor become a card even when it is one of the 2,000 commonest? And should the look-up at least be recorded as *not known*? A ruling, one line.
+- ~~**W13c-R2 [reading] — decides #435**~~ **DONE 2026-09-25 — the operator ruled it (*a deliberate look-up overrides the known-word floor*), and the W20 commit fixed it.** The question as it was asked: should a word you looked up in Trancy or Language Reactor become a card even when it is one of the 2,000 commonest? And should the look-up at least be recorded as *not known*? A ruling, one line.
 - **W13c-B1 [blocked on #423]** — two real learners with different floors seeing different material. The route test proves it on two seeded learners; production can show it only once the second learner has started.
 
 #### W20 — notifications (+ #69, #95, #435, #434)
@@ -426,6 +426,7 @@ Dry: read the evidenced patterns (the count is operator-only), the payloads and 
 
 Record every decision that deviates from or resolves ambiguity in the spec. Newest first.
 
+| 2026-09-25 | **THE LAUNCH PASS IS WRITTEN — AND ITS ORDER DIFFERS FROM THE RUN PROMPT'S IN TWO PLACES, EACH FOR A REASON.** | The prompt's order: probes → deploy (Mac, host `bot`, host root, then Mac `pnpm test:e2e` and the Vercel rebuild) → screenshots → checks → what stays open. **(1) Vercel moves up, before the push probe:** the reminder control that creates the subscription the probe needs is in the new frontend, so a probe before the rebuild has nothing to send to. **(2) Two steps are added after Vercel: the push probe on the host, then the worker install** — the first automatic reminder must not reach a learner before one real push has been seen to arrive (W20 reconciliation (5)). **Everything else is the prompt's:** one block per role with the switch as its own line (#422); the W13c floor gate after `migrate` and before any restart; `english-bot` restarted beside `english-api` (#433's ruling); one `curl` 401 per new route. **Rehearsed (§5c), output read:** every read-only `psql` line and `core.db status` against the Mac dev database; the VAPID check both ways; the four `curl` lines against production's public API (404 each — nothing deployed, `schema_version` 27) and the same four through the ASGI transport unauthenticated (401 each — what the host must see). **Named as not rehearsable, in the block:** `backup.sh`, `git pull`, the migrations on production's data, `stat -c` (GNU), `nano`, both restarts, and every worker-install line. **Two things found while writing it are stated in it rather than settled:** #47 (`high`) may be stale, since W15 found `answer`/`retell` already admitted by the CHECK; and #328 (`high`) reads *fixed and verified on production* but is not closed. Both closes are the operator's. |
 | 2026-09-25 | **W20 — RECONCILIATION: EIGHT DISAGREEMENTS BETWEEN THE RUN PROMPT, THE RECORD, THE DOCUMENTS AND THE TREE, EACH RESOLVED AND WHY.** | **(1) The TASKS row names a Telegram fallback with deep links.** Struck, quoted (#82's shape), per the run prompt and PRODUCT-PRINCIPLES §1 (*no new feature designed for Telegram, including fallbacks*). **(2) PRD §10 says *"Telegram stays — as a notification channel with deep links"*.** PRODUCT-PRINCIPLES §1 is the later standing decision and outranks it; PRD §10 is left as written and read through the TASKS strike. **(3) ARCHITECTURE §7 schedules `nudge_check` every 30 min.** Built as `push_poll` every **5** min — the reminder should land near the learner's own `morning_time`, and the bot's poll is five; the row is annotated. **(4) The acceptance line *"the 4th message of a day is never sent on either channel"*.** Met for the push path, atomically and under contention (`test_the_slot_reservation_never_hands_out_a_fourth_under_contention`: 12 concurrent reservations, 3 granted). **Not met for the bot's own Telegram sends**, which are check → send → increment in `apps/bot` (byte-identical until W22): a push reserved in the window between a bot check and its increment can make a fourth. **Reported, not lowered (CLAUDE.md §3 rule 7): #436**, which closes by construction at W22; the one-ladder-per-day rule below removes the one *systematic* collision. **(5) The run prompt runs every probe on the Mac BEFORE the deploy.** The push probe cannot: a subscription exists only after a phone subscribes against the deployed API with the production key. **Ordered instead: API deployed with the keys → the operator turns reminders on → the probe on the host (dry, then `--live`, one push) → only then the worker is installed**, so nothing reaches a learner unasked before the one real push has been seen to arrive. The pre-deploy evidence is RFC 8291's vector (byte-exact) and the VAPID signature verified. **(6) The queue lists *the launch pass* as a separate row; the run prompt §3 says *"After W20 … Write the launch pass (§5) and stop"*.** W20 is committed on its own first; the launch pass is written in the same session as a second commit, which is the prompt's reading. **(7) #259's condition — *"a learner who practised today is never nudged to practise today"*** — was fixed in code by W19; W20 reads the same signal (`practised_on`) before every step, reminder included, and does not re-derive it. **(8) #431 targets W20 (*define the web's missed day*).** Not defined here — decision below — and retargeted. |
 | 2026-09-25 | **W20 — #69 RESOLVED INSIDE THE SLICE: THE WORKER'S TABLE IS MADE DISJOINT FROM THE BOT'S FROM THE WORKER'S SIDE, AND THE UNIT IS INSTALLED AT THE LAUNCH PASS.** | The run prompt: *reconcile #69 first; if it can be resolved inside this slice, install the worker as a launch-pass deploy step; if not, stop and report.* **It can.** `apps/worker/jobs.py::JOBS` is now **`push_poll` alone**. The four overlapping jobs (`streak_rollover`, `monthly_freeze_reset`, `heartbeat`, `backup_freshness`) stay the bot's until W22 and sit in `HELD_JOBS` with their reason; `tests/test_backup_r2.py::test_bot_and_worker_job_tables_are_disjoint` replaces W1c's `…_still_overlap` (quoted), and was shown red by putting `streak_rollover` back. **Why from the worker's side:** the other side edits `apps/bot/scheduler.py`, which is byte-identical until W22. **Two more jobs are HELD, not switched on by the install:** `assign_daily` (would begin pre-creating tomorrow's session at night) and `monthly_reset` (would run the M13 fossil sweep for the first time) — **neither has ever run on production**, and a behaviour change on production that no slice asked for is not a side effect of installing a unit. **#437** carries them to an operator ruling. **The crontab alternative the run prompt costed** (a `bot` crontab entry calling a dry-by-default CLI) **was not needed**. |
 | 2026-09-25 | **W20 — THE COMBINED CEILING IS ONE ROW: PUSHES COUNT IN `bot_message_counts`, RESERVED ATOMICALLY BEFORE THE SEND.** | `core.services.sessions.reserve_message_slot`: one `INSERT … ON CONFLICT DO UPDATE SET count = count + 1 WHERE count < 3 RETURNING` — the row lock serialises reservations, so the push path can never take a fourth. **Pushes and the bot's Telegram sends share the row, so the bot's own `under_message_ceiling` sees every push without a line of `apps/bot` changing** (and without a restart: it is data). **A refused slot is dropped, not queued** — CLAUDE.md §4, *missed days shrink the task*. **A slot is not given back when a push fails**: a decrement races the same way the bot's check does, and erring toward one message fewer is the safe side of a ceiling. **The decision row (`push_deliveries`) and the reservation commit together, BEFORE the send** — a crash loses a push, never repeats one (`test_a_crash_after_the_claim_never_sends_twice`). **Found while building, and fixed before any test ran:** the pool's connection opens an implicit transaction on the first read, so `conn.transaction()` there is only a SAVEPOINT and would have committed the claim AFTER the send; explicit `conn.commit()` instead, commented at the site. |
@@ -4984,7 +4985,220 @@ Migration **019** (renumbered from 018, which W11 took) — `videos`,
 
 ## Next action
 
-**2026-09-25 — W20 IS BUILT, COMMITTED AND 🟡; THE QUEUE'S LAST SLICE IS DONE. THE LAUNCH PASS (`## Build run — queue`, row 6) IS NEXT, AND IT BECOMES THE HEAD OF THIS LIST.** W20's checks are in `## Launch pass — human checks` and its probe in `## Launch pass — probes`; **its probe runs on the host after the API deploy and before the worker install** (W20-G1).
+**THE HEAD OF THIS LIST IS THE LAUNCH PASS, DIRECTLY BELOW (written 2026-09-25 when W20 closed the build run's queue).** The earlier heads follow it under *Next action — earlier heads*, kept as written (#82's shape); every check still unrun from them is in `## Launch pass — human checks` and grouped in the launch pass's §7.
+
+## Launch pass
+
+**Written 2026-09-25, when W20 closed the build run's queue. This is the one deploy of everything the run built: W17, W15 (+ #424), W19, W13c, W20 (+ #435). Migrations 028, 029, 030, 031. Nothing from the run is on production yet:** read on 2026-09-25 from the Mac, `https://api.foundgrant.com/health` answered `{"ok":true,"schema_version":27}`, and `GET /conversation/rungs`, `GET /progress`, `GET /push/key` and `POST /push/subscribe` each answered **404**.
+
+**The order is fixed, and two steps differ from the run prompt's order, each for a reason:**
+1. **Probes** on the Mac (billed) → 2. **deploy the API and the bot** (host, `bot` then root) → 3. **Vercel** (after `pnpm test:e2e`) → 4. **the push probe** (host, `bot`) → 5. **install the worker** (host, root) → 6. the three sittings.
+- **Vercel moves before the push probe**, not to the end: the reminder control that creates the subscription the probe needs is part of the new frontend.
+- **The push probe runs after the deploy, not with the other probes** — a subscription exists only once a phone subscribes against the deployed API with the production key (W20 reconciliation (5)).
+- **The worker is installed last** — the first automatic reminder must not go out before one real push has been seen to arrive.
+
+**Every block below is for ONE role. Never paste two blocks as one (#422):** the switch between roles is its own line, stated between the blocks.
+
+### 1. Probes — on the Mac, repo root, BEFORE anything is deployed
+
+**Exactly 6 billed calls** (2 + 2 + 2; a JSON repair would add one to its probe — count the blocks each `--live` prints). Each dry command was rehearsed on the Mac on 2026-09-25 by the slice that built it, and its print is quoted under `## Launch pass — probes`. **Read each dry print before its `--live`.**
+
+```bash
+.venv/bin/python -m core.items.drill_probe
+.venv/bin/python -m core.items.drill_probe --live
+.venv/bin/python -m core.rung_probe
+.venv/bin/python -m core.rung_probe --live
+.venv/bin/python -m core.items.l1_probe
+.venv/bin/python -m core.items.l1_probe --live
+```
+
+**What to read in each live print** is written under its heading in `## Launch pass — probes` (W17, W15, #424). **A `SHAPE MISMATCH` stops the launch pass:** it is fixed, committed, re-probed, and only then deployed. `free stages refused:` is a gate working, not a mismatch.
+
+**Not in this sitting, listed so they are not lost:** the push probe (step 4, host); **the W17 host drill run** (after the deploy, billed, up to 66 calls, read before `--apply` — W17-R1); and the older billed runs **H3** (#299, journal aside first, #309), **#352's 33 calls**, **T1** (`core.video.explain --apply`).
+
+### 2. The deploy
+
+**Mac, repo root — confirm what the host will pull:**
+
+```bash
+git status --short
+git log --oneline -3
+```
+
+**Expect** an empty `git status` and, at the top of the log, the launch-pass record commit directly above **`c630da9`** (W20). **Write the top hash down: the host's `git pull` must end on it.** *(Rehearsed 2026-09-25: both run; the status was empty after the push.)*
+
+**Host, as root: switch to `bot` — this line alone:**
+
+```bash
+sudo -u bot -i
+```
+
+**Host, as `bot`** (backup, `git`, `pip`, `core.db`, `.env`, `psql` — the Environment table's privilege split). No `set -e`; read each line's output by eye. **`set +H` first**, so no `!` is ever rewritten inside a quoted `psql -c`.
+
+```bash
+set +H
+cd /home/bot/english-bot
+git rev-parse --short HEAD
+psql english_bot -c "SELECT user_id, count(*) FROM user_lexemes WHERE source = 'assumption' GROUP BY 1 ORDER BY 1;"
+scripts/backup.sh
+git pull
+git rev-parse --short HEAD
+.venv/bin/pip install -e packages/core
+.venv/bin/python -m core.db migrate
+.venv/bin/python -m core.db status
+psql english_bot -c 'SELECT max(version) AS schema_version FROM schema_version;'
+psql english_bot -c "SELECT column_name FROM information_schema.columns WHERE table_name = 'conversations' AND column_name IN ('kind', 'video_id') ORDER BY 1;"
+psql english_bot -c 'SELECT count(*) AS progress_snapshots FROM progress_snapshots;'
+psql english_bot -c 'SELECT id, known_word_floor FROM users WHERE onboarded ORDER BY id;'
+psql english_bot -c 'SELECT (SELECT count(*) FROM push_subscriptions) AS subscriptions, (SELECT count(*) FROM push_deliveries) AS decisions;'
+.venv/bin/python -m core.lexicon.floor
+```
+
+**Read, line by line:**
+- the first `rev-parse` — the before-commit (expected `b7b2d53`, W16's deploy); **write it down**;
+- the `assumption` counts — **write them down**: W13c-Q1 compares them after the restart;
+- `backup.sh` — a dump line and an R2 upload;
+- **the second `rev-parse` must print the hash written down on the Mac. Anything else: stop, nothing is migrated yet;**
+- `migrate` — `Applying migration 028`, `029`, `030`, `031`, in that order; `status` — `Applied: 001 … 031`, `Pending: (none)`; `schema_version` **31**;
+- `conversations` has `kind` and `video_id` (028); `progress_snapshots` is **0** (029); every onboarded learner's floor is **2000** (030); both push tables **0 / 0** (031);
+- **`core.lexicon.floor` is W13c-G1, THE DEPLOY'S GATE, and it runs before any restart:** every learner's block reads **`PARITY: yes`**, or every difference is named with its reason. **An unexplained difference stops the deploy here** — the running processes still read the old way until they restart, so nothing has switched.
+
+*Rehearsed 2026-09-25 against the Mac dev database, output read: `core.db status` (`Applied: 001 … 031`, `Pending: (none)`), `schema_version` 31, `kind`/`video_id`, `progress_snapshots` 0, floors 2000, `0 | 0`, and the `assumption` query (dev: user 1 holds 2,000). `core.lexicon.floor --user 1` was rehearsed by W13c (quoted under W13c-G1). **Not rehearsable:** `backup.sh` and `git pull` (they write the host), the migrations on production's data, and the all-learner `floor` run's speed on production.*
+
+**Host, as `bot` — the VAPID keys (W20).** Generate a pair, paste the three lines into `.env` with your address as the subject, then check the pair before any restart:
+
+```bash
+.venv/bin/python -m core.push keys
+nano /home/bot/english-bot/.env
+grep -c '^VAPID_' /home/bot/english-bot/.env
+stat -c '%a' /home/bot/english-bot/.env
+.venv/bin/python -c "from core.config import load_settings; from core.services.push import public_key; print('VAPID ok' if public_key(load_settings()) else 'VAPID REFUSED')"
+```
+
+**Expect** `3`, `600`, and **`VAPID ok`**. `VAPID REFUSED` means the public key is not the private key's half; a `ConfigError` naming all three means one is missing. **Fix it before the restart** — the API would otherwise serve no key and the control would not be drawn. **The private key is never committed and never pasted anywhere but this file.** *Rehearsed on the Mac 2026-09-25: `keys` printed a pair and the subject placeholder; the check printed `VAPID ok` for a generated pair and raised `ConfigError: VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY and VAPID_SUBJECT are set together or not at all` for a partial one. **Not rehearsable:** `stat -c` is GNU (the Mac's `stat` differs), and `nano` on the host's file.*
+
+**Back to root — this line alone:**
+
+```bash
+exit
+```
+
+**Host, as root** (`systemctl` only; the shared host's rules: restart these two units and nothing system-wide):
+
+```bash
+systemctl restart english-api
+systemctl restart english-bot
+sleep 5
+systemctl status english-bot --no-pager | head -5
+curl -s -o /dev/null -w '%{http_code}\n' https://api.foundgrant.com/conversation/rungs
+curl -s -o /dev/null -w '%{http_code}\n' https://api.foundgrant.com/progress
+curl -s -o /dev/null -w '%{http_code}\n' https://api.foundgrant.com/push/key
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' -d '{}' https://api.foundgrant.com/push/subscribe
+curl -s https://api.foundgrant.com/health
+ls -l /home/bot/english-bot-backups/ | tail -5
+```
+
+**Expect:**
+- **`english-bot` restarts too, on the operator's #433 ruling:** W19 changed core code the bot's scheduler runs (#259's rollover and nudge), and W20's pushes now count in the bot's ceiling row. Its `Active:` line must show a start time after the pull, which closes #433.
+- **`401` on all four new routes** (W15's rungs, W19's progress, W20's key and subscribe). **`404` means a router did not register.** W17 and W13c add no route.
+- `/health` → `{"ok":true,"schema_version":31}`.
+- **`english-worker` is not named and not started here.** It is step 5.
+
+**#422's clean-up is owed and is the operator's call, not a command written here blind:** the `ls` shows whether the root-owned `english_bot_2026-09-25_0906.dump` (594,609 bytes) is still there and owned by `root`. If it is, `chown bot:bot` it or remove it, so the bot's retention sweep is not blocked on it. *Rehearsed on the Mac 2026-09-25 against production's public API: the same four `curl` lines answered **404** (nothing deployed) and `/health` answered `schema_version` 27. **Not rehearsable:** both restarts and `systemctl status` (they act on the host).*
+
+### 3. Vercel — on the Mac, then the dashboard
+
+```bash
+cd apps/web
+pnpm test:e2e
+```
+
+**Expect `242 passed`, `4 skipped`** (the pre-existing `talk.spec.ts:176` skip; the count W20 recorded on 2026-09-25). **Then rebuild `main` on Vercel** (project `english-bot`, root `apps/web`; `NEXT_PUBLIC_API_URL` unchanged, and no new variable is needed — the VAPID public key is served by the API). **Only now does a phone see the rungs, the drills, Progress and the reminder control.** This is HW9 and closes it for this deploy. *Rehearsed: `pnpm test:e2e` ran on the Mac on 2026-09-25 with exactly that result.*
+
+### 4. The push probe — phone, then host as `bot` (W20-G1)
+
+On your phone, from the Home Screen app: **settings menu → *Daily reminder* → on**; allow notifications when iOS asks.
+
+**Host, as root: switch to `bot` — this line alone:**
+
+```bash
+sudo -u bot -i
+```
+
+**Host, as `bot`:**
+
+```bash
+cd /home/bot/english-bot
+.venv/bin/python -m core.push_probe --user 3
+.venv/bin/python -m core.push_probe --user 3 --live
+```
+
+The dry print must say `calls --live will make: 1` (or one per browser you turned on) and show only `https://<host>/…`, never a path. `--live` asks you to type `3`. **Expect `sent (HTTP 201)` for every host and the notification on your phone; tap it — it must open today's session.** Anything else is a SHAPE MISMATCH: fix, redeploy, re-probe, and **do not do step 5.** *(0 billed calls; one real notification, on your own phone.)*
+
+**Back to root — this line alone:**
+
+```bash
+exit
+```
+
+### 5. Install the worker — host, as root (closes #69 on the host)
+
+```bash
+cp /home/bot/english-bot/deploy/systemd/english-worker.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now english-worker
+sleep 5
+journalctl -u english-worker -n 50 --no-pager
+```
+
+**Expect `Scheduler built jobs=push_poll` — that one job and no other** (the four the bot runs stay the bot's; #437's two are held), then `push_poll ok decisions=…` within five minutes. **No endpoint URL anywhere in the journal**, only hosts (W20-J1). `daemon-reload` reloads systemd's unit files only; it restarts nothing. *Rehearsed: the unit's text is asserted by `tests/test_backup_r2.py::test_the_worker_unit_says_how_it_is_installed_and_why_it_is_safe`, and `build_scheduler()` registering only `push_poll` by `tests/test_worker.py`. **Not rehearsable:** every line here writes to or starts something on the host.*
+
+### 6. What to look at in the screenshots — before or during the reading sitting
+
+Every state each spec draws, in both themes, at phone, phone-with-keyboard and desktop width (ruling 0.3 — design-first was suspended for this run, so these folders are the design review):
+- **`apps/web/e2e/screenshots/W17/`** — the drill in block 3: does *From your own English* beside the label read as a place, not a reproach? Is the pill legible in dark? **No number beside a label anywhere.** (W17-R3)
+- **`apps/web/e2e/screenshots/W15/`** — nine states of `/talk` with the two rung cards: the rungs under *Start talking*, an open rung with the keyboard up, the answer and retell close-outs, the long thread. Does the composer stay reachable? Does *Also in the video* read as content, not as a list of misses? (W15-R4, #430, #428)
+- **`apps/web/e2e/screenshots/W19/`** — the 42 Progress states: each number something gained, never a verdict; the empty state's one line; *A day off doesn't break it*. (W19-R1)
+- **`apps/web/e2e/screenshots/W20/`** — the 10 states of the reminder control: off, working, on, turned off, blocked, Home-Screen-first, trouble, the prompt closed, not drawn. **Noted while reading two of them (2026-09-25): the switch's OFF state is low-contrast in dark** (`1-off--phone-keyboard-dark.png`). A fix or a keep is yours. (W20-R3)
+
+### 7. The human checks, grouped by sitting
+
+**Nothing here is dropped, and none is retired by a green test (CLAUDE.md §3a).** Each check's full wording is under `## Launch pass — human checks`; the ID is the key.
+
+**A. The phone sitting — everything that needs a device** (after step 5; some need a particular day):
+- **Today:** W20-P1 (the reminder toggle, both themes) · W19-P1 (Progress, no zero, nothing about a lost day) · W17-P1 (block 3's drills, after the W17 host drill run's `--apply`) · W15-P1 (the rung cards; a typed answer) · **W15-P2 — closes #409** (field and *Send* above the keyboard) · **W15-P3 — decides #430** · **W15-P4 — #413** (a ten-turn talk; only the messages scroll) · **W15-P5 — #427**, voice, operator only (#364) · **W15-P6 — #408/#419** (*Keep* in a talk close-out and a Thursday paragraph) · **W17-P2 — #421 on the device** (a contraction-bearing error; also a `psql` count) · HW2 (**closes or escalates #407**) · HW3 (a journal entry; also reading and `psql`) · HW4 · HW5 · HW7 · HW8 · W13-i's four phone checks.
+- **Over the next days:** **W20-P2 — the acceptance** (a reminder near your practice time that opens today's session; none on a day you practised first) · **W20-P3 — a ruling** (two morning notifications, Telegram and push, until W22?) · W19-P2 (Progress on two days) · HP5 (a non-Thursday and a Thursday `/write`) · HP1's phone half (Thursday's offers, before *Keep*) · **H4 — #388** (the measured conversation session, the four predictions, the Anthropic console figure; `high`, the oldest unmet acceptance criterion).
+
+**B. The reading sitting — everything that needs judgement about content:**
+- **Drills:** **W17-R1** (the host drill run's `--live` print, before `--apply` — each item tests its pattern, natural English, one answer, and **`target_rank` on every slot, #425**) · W17-R2 (the sixteen `DRILL_TARGETS` phrasings).
+- **Corrections and close-outs:** W15-R1 (the first answer close-out) · **W15-R2 — #428** (the first retell) · W15-R3 (`rung_answer.txt`, `rung_retell.txt`) · HP2 (Thursday's structure prose, and the pinned quote/correction overlap limit) · HW3's reading half.
+- **Numbers and labels:** W19-R1 (with the screenshots) · W19-R2 (`XP_WEIGHTS`: writing 12, video 4, a self-marked speak item as a tap) · W13c-R1 (is 2,000 right for the second learner until W18?).
+- **W20:** W20-R1 (the four push strings) · W20-R2 (no nudge after 21:00; one ladder a day — keep or change) · W20-R3 and every screenshot folder above (§6).
+- **#435-R1** — the next vocabulary import: a looked-up common word is now `imported` with two cards and a `tapped` row.
+- ~~**W13c-R2 — decides #435**~~ **DONE 2026-09-25 by the operator's ruling** (*a deliberate look-up overrides the known-word floor*); fixed in the W20 commit.
+
+**C. The `psql` sitting — every independent count** (as `bot`, `set +H` first; each query is written out under its ID):
+- **Right after the deploy:** **W13c-Q1** (the `assumption` counts identical to step 2's; every learner's floor 2000) · W20-Q2 (one subscription per browser turned on).
+- **The day after the worker is installed:** **W20-Q1** (one `reminder` row per learner for the day, no stale `sending`, **no `bot_message_counts` above 3**) · **W19-Q2 — #259 in the bot process** (the morning after a web-only day; now possible, because #433 restarts the bot) · W19-Q1 (Progress's number equals the evidenced count).
+- **After the practice they count:** W17-Q1 (drills bought only for evidenced patterns) · W17-P2's count · W15-Q1, W15-Q2 (**no `errors` row for a spoken rung**), W15-Q3 (**0** turns kept for a closed rung) · HP3 · HW3's two queries (**non-zero cache counts, F3's evidence**).
+
+**D. Not a sitting — the operator's conversations and rulings, carried by name:** **#364** (the second learner has not been asked whether her voice may leave her device; four questions owed against OpenAI) · **#431** (should a sent, untouched reminder ever make a missed day? — before W22) · **#437** (switch `assign_daily` and `monthly_reset` on, or keep them held) · **#422's dump** (step 2) · **#401** (the half a browser cannot see) · **#378's interim** · T2 (#333, free) and T4 (#332, free) · **Unit 2's generation** (held on #299/#249) · **the ✅ column** — every 🟡 row, W11c and W14 included, awaits your mark; only you mark ✅.
+
+**E. Blocked on the second learner starting the web session (#423):** W17-B1 · W19-B1 · W13c-B1 · W20-B1 · **W15-B1** (also #364: her first Lithuanian unit generation must print `"learner_l1": "Lithuanian"`).
+
+### 8. What stays open after launch
+
+**The blocked slices** (each needs something only the operator can give; `## Build run — queue`):
+- **W18 placement** — a calibrated bank (60 vocabulary, 25 grammar, 6 listening, 1 speaking) with its licence checked for commercial use, or a ruling that it is generated. Migration **032** is reserved for it.
+- **W13d image cards** — the licence gate, which can refuse the slice.
+- **W22 bot reduction** — both learners on the web session first (#423) and your explicit go. **W22 inherits:** the four jobs to move into the worker (#69), the heartbeat (#438), and the ceiling residual that closes by construction (#436).
+- **W23 observability** — Sentry and PostHog accounts and keys, and the data-processing question (#364's family). **#65 and #438 are waiting on it.**
+
+**Every open `high` issue, by number, as the known-issues table records it on 2026-09-25:**
+- **⬜ open:** #388 (W13b's measured session — H4) · #374 (shadow sentences all work-framed) · #329 (the channel pool teaches above the learners) · #326 (a billed run does not identify its own invocation) · #323 (the caption-kind adapter) · #321 (the cost floor under-reported ~4,900×) · #251 (the Lithuanian learner's not-ready Saturday, read with #159) · #207 (`substring_option`; its status cell is struck through — a ruling is owed on whether it is closed) · #102 (`l1_to_l2_production`'s meaning invariant has no gate) · #21 (the heartbeat cannot see total process death) · #29 (S8 unverifiable without a shared group) · #44 (evening reading skipped since the rebuild) · **#47** (the `errors.source` CHECK — **W15's reconciliation found `answer` and `retell` already admitted, so this row may be stale; a close is yours after reading it**) · #48 (the view-recreate rule) · #65 (no operator alert channel) · #70 (R2 upload paths never made a real call) · #83 (two bot instances can poll one token).
+- **🟡 fixed or partly fixed, not closed:** #377 (fixed, not deployed) · #328 (fixed and verified on production — a close is owed) · #311 (fixed in code, not deployed) · #276 · #268 · #260 (production row id 28 still mislabelled).
+
+## Next action — earlier heads, kept as history
 
 ### THE HEAD OF THIS LIST, 2026-09-25 — **A BUILD RUN IS IN PROGRESS. READ `## Build run — queue` FIRST. EVERY UNRUN HUMAN CHECK HAS MOVED TO `## Launch pass — human checks`, AND EVERY PROBE GOES TO `## Launch pass — probes`. NOTHING BUILT IN THIS RUN IS DEPLOYED UNTIL THE LAUNCH PASS.**
 
