@@ -3,7 +3,7 @@
 Handlers must import constants from here. Never write a user-visible message
 inline in a handler or service.
 
-**W22: 411 names became 17** (367 defined here, the rest re-exported). Everything else in this module belonged to a
+**W22: 411 names became 18** (367 defined here, the rest re-exported). Everything else in this module belonged to a
 handler that was deleted with the Telegram teaching path, and the re-exports
 from ``core.copy`` went with them — ``core.copy`` is walked by the no-guilt test
 directly (``tests/test_no_guilt_all_copy.py``), so nothing loses coverage.
@@ -28,6 +28,9 @@ HELP_AFTER_W22 = (
     "group chat you share, a question arrives there each evening and the "
     "week's points come on Sunday."
 )
+
+# --- W22: a tap on an inline button from before W22 (a toast, #86) ---
+RETIRED_BUTTON = "This has moved to the app."
 
 # --- S8: couple challenge ---
 COUPLE_QUESTION = "Tonight's challenge\n\n{question}"

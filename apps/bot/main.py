@@ -5,8 +5,9 @@ Every teaching handler — quiz, reading, diary, talk, shadow, voice, capture,
 prep, books, CSV import, settings, onboarding, the guide, the admin panel —
 was deleted with its dispatch tests; the web app is where practice lives
 (PRODUCT-PRINCIPLES §1). What is left: the access gate, `/start` and `/help`
-(one reply pointing at the app), `/ping`, the couple challenge, and the error
-handler that tells the operator when one of those raises.
+(one reply pointing at the app), `/ping`, the couple challenge, the same
+pointer for every retired path (#86), and the error handler that tells the
+operator when one of those raises.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from core.logging import configure_logging
 from core.config import ConfigError, load_settings
 from apps.bot.handlers.access import build_access_handler
 from apps.bot.handlers.couple import build_couple_handlers, init_couple_prompt
-from apps.bot.handlers.help import build_help_handlers
+from apps.bot.handlers.help import build_help_handlers, build_retired_path_handlers
 from core.instance_lock import InstanceLock, InstanceLockError
 from apps.bot.scheduler import start_scheduler, stop_scheduler
 from apps.bot.alerts import on_error
@@ -50,6 +51,10 @@ def register_handlers(app: Application) -> None:
     couple_here, couple_answers = build_couple_handlers()
     app.add_handler(couple_here)
     app.add_handler(couple_answers)  # group text
+    # #86: LAST. Anything private nothing above took — a retired command, a
+    # typed sentence, a voice note — and any old inline button get the pointer.
+    for handler in build_retired_path_handlers():
+        app.add_handler(handler)
 
 
 async def _post_init(application) -> None:

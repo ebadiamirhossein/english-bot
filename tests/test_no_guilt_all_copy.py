@@ -82,9 +82,9 @@ def _offending_names() -> set[str]:
 def test_every_copy_module_is_walked() -> None:
     """Positive control: the walk reaches the modules' real size, so a green
     result is not a walk over nothing."""
-    # W22: 411 names became 17 (was `> 400` strings). Every one left is
+    # W22: 411 names became 18 (was `> 400` strings). Every one left is
     # something the bot can still send; see `apps/bot/texts.py`.
-    assert len(_strings("apps.bot.texts")) >= 17
+    assert len(_strings("apps.bot.texts")) >= 18
     assert len(_strings("core.copy")) > 40
 
 
