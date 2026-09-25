@@ -104,7 +104,14 @@ def _imported_roots(tree: ast.AST) -> set[str]:
 # no exemption is the Azure SDK, and its non-WAV codecs need GStreamer
 # system-wide on a SHARED host (CLAUDE.md §5). An exemption that is visible is
 # worth more than a system package that is not.
-HTTP_WRAPPERS = frozenset({CORE / "video_api.py", CORE / "speech_api.py"})
+# W20 adds the THIRD door, by name, for the same reason as the second: the Web
+# Push services (Apple's, Google's, Mozilla's — whichever the learner's browser
+# chose) are a provider with no SDK worth taking (`pywebpush` pulls aiohttp,
+# requests and six). `core/push.py` holds the REQUEST — RFC 8291's encryption and
+# RFC 8292's VAPID signature, no network — and `core/push_api.py` posts it.
+HTTP_WRAPPERS = frozenset(
+    {CORE / "video_api.py", CORE / "speech_api.py", CORE / "push_api.py"}
+)
 
 
 def test_core_imports_no_web_framework() -> None:
@@ -119,8 +126,8 @@ def test_core_imports_no_web_framework() -> None:
             offenders.append(f"{rel}: {', '.join(sorted(hit))}")
     assert offenders == [], (
         "packages/core may not import a web framework, an HTTP client or "
-        "Telegram (CLAUDE.md §2); core/video_api.py and core/speech_api.py "
-        "are the named exemptions, one door per external provider: "
+        "Telegram (CLAUDE.md §2); core/video_api.py, core/speech_api.py and "
+        "core/push_api.py are the named exemptions, one door per external provider: "
         + "; ".join(offenders)
     )
 
@@ -151,7 +158,15 @@ def test_the_http_wrapper_exemption_is_one_door_per_provider_and_stays_pinned() 
     helper, or a second door to a provider that already has one. **The count is
     still pinned exactly**, so a third requires editing this assertion again.
     """
-    assert HTTP_WRAPPERS == {CORE / "video_api.py", CORE / "speech_api.py"}
+    # **W20 WIDENED IT TO THREE, and the two-file assertion is quoted (#82):**
+    # *"assert HTTP_WRAPPERS == {CORE / 'video_api.py', CORE / 'speech_api.py'}"*.
+    # `push_api.py` is a provider door — the browsers' push services — not a
+    # service or a helper, which is this docstring's test for a good widening.
+    assert HTTP_WRAPPERS == {
+        CORE / "video_api.py",
+        CORE / "speech_api.py",
+        CORE / "push_api.py",
+    }
     for door in HTTP_WRAPPERS:
         assert door.is_file(), door
 

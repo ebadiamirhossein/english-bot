@@ -43,6 +43,22 @@ LEVEL_RAISE = (
     "Your English is settling at {level} — I'll pitch things a step up from here."
 )
 
+# --- Web Push reminders (W20) — core.services.push ------------------------------
+#
+# **No number, no day count, nothing about yesterday** (CLAUDE.md §4). A push is
+# the one message the app sends a learner unasked, so it says the session is
+# there and nothing about whether it was done. The nudges are v2's
+# NUDGE_FIRST_* / NUDGE_SECOND_* shape carried to the web session: the first
+# says it is still there, the second makes it smaller.
+
+PUSH_TITLE = "Today’s session"
+
+PUSH_REMINDER = "It’s ready whenever you are."
+
+PUSH_NUDGE_FIRST = "Today’s session is still here whenever you have a few minutes."
+
+PUSH_NUDGE_SECOND = "Short on time? One part of today’s session still counts."
+
 # --- Nudges and Sunday report (S10 / M7) — core.services.motivation ------------
 
 NUDGE_FIRST_QUIZ = (

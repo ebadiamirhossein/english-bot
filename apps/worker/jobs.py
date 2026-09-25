@@ -10,6 +10,20 @@ Scope at W1b: the maintenance jobs whose bodies are already channel-neutral
 predicates in ``core``. The delivery jobs — morning, evening, nudge, Sunday
 report, Anki — stay in ``apps/bot`` until W20, because they send Telegram
 messages and moving them means moving the channel too.
+
+**W20 — #69 RESOLVED BY MAKING THE TWO TABLES DISJOINT FROM THIS SIDE.** The
+worker registers ONE job, ``push_poll``, and nothing the bot also runs. The
+four overlapping jobs (``streak_rollover``, ``monthly_freeze_reset``,
+``heartbeat``, ``backup_freshness``) stay the bot's until W22 deletes it; W22
+moves them here. Resolving it from the bot's side instead would edit
+``apps/bot/scheduler.py``, which stays byte-identical until W22.
+
+**TWO JOBS THAT HAVE NEVER RUN ON PRODUCTION ARE HELD, NOT SWITCHED ON AS A
+SIDE EFFECT OF INSTALLING THE UNIT** (``HELD_JOBS``): ``assign_daily`` would
+start pre-creating tomorrow's session at night, and ``monthly_reset`` would run
+the M13 fossil sweep for the first time. Each is a behaviour change on
+production that no slice has asked for, so each waits for its own ruling. Their
+bodies are kept and still tested.
 """
 
 from __future__ import annotations
@@ -21,6 +35,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from core.config import load_settings
+from core.services import push as push_service
 from core.scheduling import (
     list_candidate_users,
     run_monthly_freeze_reset,
@@ -39,6 +54,9 @@ logger = logging.getLogger(__name__)
 # different timezones.
 STREAK_POLL_SECONDS = 15 * 60
 MAINTENANCE_POLL_SECONDS = 60 * 60
+#: W20. The reminder fires within five minutes of a learner's `morning_time` —
+#: the bot's own poll interval (`apps/bot/scheduler.py::POLL_SECONDS`).
+PUSH_POLL_SECONDS = 5 * 60
 
 
 @dataclass(frozen=True)
@@ -202,14 +220,57 @@ def assign_daily() -> None:
     logger.info("assign_daily ok users=%s", created)
 
 
+def push_poll() -> None:
+    """W20: advance every learner's reminder ladder by at most one step.
+
+    The decisions are counted, never itemised with anything but ids: the log
+    carries user ids and outcomes (CLAUDE.md §5), never an endpoint or a body.
+    """
+    report = push_service.run_push_pass(load_settings(), datetime.now(timezone.utc))
+    outcomes: dict[str, int] = {}
+    for _user_id, _kind, outcome in report.decisions:
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+    logger.info(
+        "push_poll ok decisions=%s %s",
+        len(report.decisions),
+        " ".join(f"{k}={v}" for k, v in sorted(outcomes.items())),
+    )
+
+
+#: What the worker runs. **Disjoint from the bot's table by construction**
+#: (#69); `tests/test_backup_r2.py` asserts the intersection is empty.
 JOBS: tuple[Job, ...] = (
-    Job("streak_rollover", streak_rollover, STREAK_POLL_SECONDS, 20),
-    Job("monthly_freeze_reset", monthly_freeze_reset, STREAK_POLL_SECONDS, 30),
-    Job("monthly_reset", monthly_reset, STREAK_POLL_SECONDS, 40),
-    Job("heartbeat", heartbeat, MAINTENANCE_POLL_SECONDS, 60),
-    Job("backup_freshness", backup_freshness, MAINTENANCE_POLL_SECONDS, 90),
-    Job("assign_daily", assign_daily, MAINTENANCE_POLL_SECONDS, 120),
+    Job("push_poll", push_poll, PUSH_POLL_SECONDS, 45),
 )
+
+#: Built, kept, tested — and NOT registered. Each needs something before it runs
+#: on production; the reason is data so the test and the record say the same.
+HELD_JOBS: dict[str, tuple[Job, str]] = {
+    "streak_rollover": (
+        Job("streak_rollover", streak_rollover, STREAK_POLL_SECONDS, 20),
+        "the bot runs it until W22 (#69)",
+    ),
+    "monthly_freeze_reset": (
+        Job("monthly_freeze_reset", monthly_freeze_reset, STREAK_POLL_SECONDS, 30),
+        "the bot runs it until W22 (#69)",
+    ),
+    "heartbeat": (
+        Job("heartbeat", heartbeat, MAINTENANCE_POLL_SECONDS, 60),
+        "the bot runs it until W22 (#69)",
+    ),
+    "backup_freshness": (
+        Job("backup_freshness", backup_freshness, MAINTENANCE_POLL_SECONDS, 90),
+        "the bot runs it until W22 (#69)",
+    ),
+    "monthly_reset": (
+        Job("monthly_reset", monthly_reset, STREAK_POLL_SECONDS, 40),
+        "never run on production: the fossil sweep's first run is an operator ruling",
+    ),
+    "assign_daily": (
+        Job("assign_daily", assign_daily, MAINTENANCE_POLL_SECONDS, 120),
+        "never run on production: pre-creating tomorrow's session is an operator ruling",
+    ),
+}
 
 
 def run_job(job: Job) -> None:

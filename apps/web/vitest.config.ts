@@ -31,6 +31,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
-    include: ["{app,components,lib}/**/*.test.{ts,tsx}"],
+    // W20 adds `worker/`: the service worker's own handlers, against a stub scope.
+    include: ["{app,components,lib,worker}/**/*.test.{ts,tsx}"],
   },
 });

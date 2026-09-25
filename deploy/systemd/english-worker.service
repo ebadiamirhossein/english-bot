@@ -1,22 +1,20 @@
-# W1c — WRITTEN, NOT INSTALLED. Read this before enabling it.
-#
-# apps/worker/jobs.py and apps/bot/scheduler.py currently register the SAME
-# job names:
+# W20 — INSTALLED AT THE LAUNCH PASS. W1c wrote this unit and kept it off the
+# server because apps/worker/jobs.py and apps/bot/scheduler.py registered the
+# same four jobs:
 #
 #     streak_rollover   monthly_freeze_reset   heartbeat   backup_freshness
 #
-# Both would run against one database. Two processes doing streak_rollover is
-# a data-integrity problem, not an untidiness one, so this unit stays off the
-# server until one side gives those jobs up (W20 is where the bot's scheduler
-# retires). tests/test_backup_r2.py::test_bot_and_worker_job_tables_still_overlap
-# records the overlap and fails when it changes.
+# W20 made the tables disjoint from the worker's side (#69): the worker runs
+# ONLY push_poll, and those four stay the bot's until W22.
+# tests/test_backup_r2.py::test_bot_and_worker_job_tables_are_disjoint fails
+# the moment they overlap again.
 #
-# When it is disjoint:
+# Install (root half of the launch-pass deploy block, #422):
 #
-#   sudo cp deploy/systemd/english-worker.service /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now english-worker
-#   journalctl -u english-worker -n 50 --no-pager   # expect "Scheduler built jobs=…"
+#   cp /home/bot/english-bot/deploy/systemd/english-worker.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now english-worker
+#   journalctl -u english-worker -n 50 --no-pager   # expect "Scheduler built jobs=push_poll"
 
 [Unit]
 Description=English Learning scheduler (APScheduler)

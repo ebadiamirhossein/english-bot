@@ -916,3 +916,56 @@ export type Progress = {
 export function getProgress(): Promise<Progress> {
   return request<Progress>("/progress");
 }
+
+/**
+ * W20: daily reminders by Web Push. PRD §10.
+ *
+ * **`public_key: null` means reminders are not set up on this server**, and the
+ * menu draws no reminder control at all — not a disabled one, not an
+ * explanation. A control that can never work is noise.
+ */
+export type PushKey = { public_key: string | null };
+
+/** Whether THIS browser receives reminders. Nothing else: no count, no time. */
+export type PushState = { on: boolean };
+
+/** `PushSubscription.toJSON()`, as the browser hands it over. */
+export type PushSubscriptionBody = {
+  endpoint?: string;
+  expirationTime?: number | null;
+  keys?: Record<string, string>;
+};
+
+export function getPushKey(): Promise<PushKey> {
+  return request<PushKey>("/push/key");
+}
+
+/**
+ * **The endpoint is a capability URL** — whoever holds it with the keys can put
+ * a notification on the phone — so it only ever travels in a JSON body: never a
+ * path, never a query string (URLs are what access logs keep), and nothing in
+ * this client logs it. That is why `getPushState` is a POST.
+ */
+export function subscribePush(subscription: PushSubscriptionBody): Promise<PushState> {
+  return request<PushState>("/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(subscription),
+  });
+}
+
+export function unsubscribePush(endpoint: string): Promise<PushState> {
+  return request<PushState>("/push/unsubscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
+export function getPushState(endpoint: string): Promise<PushState> {
+  return request<PushState>("/push/state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+  });
+}

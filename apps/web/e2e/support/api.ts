@@ -176,3 +176,58 @@ export async function mockProgress(
       : json(route, status, status === 200 ? body : { detail: "x" }),
   );
 }
+
+/**
+ * W20 — `/push/*`, from `components/push/push.fixture.json`
+ * (`scripts/export_push_fixture.py`: the real `GET /push/key` route and the
+ * `PushStateOut` / `PushSubscriptionIn` schemas, #190).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const pushFixture: Record<string, any> = JSON.parse(
+  readFileSync(path.join(__dirname, "../../components/push/push.fixture.json"), "utf-8"),
+);
+
+/** What the page posted to `/push/*`, in order: the path and the parsed body. */
+export type PushCall = { url: string; body: unknown };
+
+/**
+ * Answers the four push routes. Call AFTER `mockApi` (a later `page.route`
+ * wins). `on` is what `/push/state` says; `subscribe` can be held (the working
+ * state) or failed (the trouble state). Returns the calls made, so a test can
+ * read what the endpoint travelled in.
+ */
+export async function mockPush(
+  page: Page,
+  {
+    key = pushFixture.key_set as unknown,
+    on = false,
+    subscribe = { body: pushFixture.on } as CorrectReply,
+  } = {},
+) {
+  const calls: PushCall[] = [];
+  const answer = (body: unknown) => async (route: Route) => {
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: cors(route) });
+      return;
+    }
+    calls.push({ url: route.request().url(), body: route.request().postDataJSON() });
+    await json(route, 200, body);
+  };
+  await page.route(`${API}/push/key`, (route) => json(route, 200, key));
+  await page.route(`${API}/push/state`, answer(on ? pushFixture.on : pushFixture.off));
+  await page.route(`${API}/push/unsubscribe`, answer(pushFixture.off));
+  await page.route(`${API}/push/subscribe`, async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: cors(route) });
+      return;
+    }
+    calls.push({ url: route.request().url(), body: route.request().postDataJSON() });
+    if ("status" in subscribe) {
+      await json(route, subscribe.status, { detail: "x" });
+      return;
+    }
+    if ("hold" in subscribe) await subscribe.hold;
+    await json(route, 200, subscribe.body);
+  });
+  return calls;
+}

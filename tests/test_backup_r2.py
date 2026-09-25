@@ -1113,22 +1113,36 @@ KNOWN_JOB_OVERLAP = {
 }
 
 
-def test_bot_and_worker_job_tables_still_overlap() -> None:
-    """W1c's Part 5 guard, recorded so it cannot be forgotten.
+def test_bot_and_worker_job_tables_are_disjoint() -> None:
+    """W20 closes #69 here — the change this test was written to force.
 
-    Two processes running ``streak_rollover`` against one database is a
-    data-integrity problem. While this set is non-empty, english-worker must
-    not be enabled on the server. When someone makes the tables disjoint this
-    test fails, which is the point: the fix and the install decision belong in
-    the same change.
+    W1c's guard, quoted rather than deleted (#82's shape): it was titled
+    `test_bot_and_worker_job_tables_still_overlap` and asserted
+    ``_bot_job_names() & worker_names == KNOWN_JOB_OVERLAP`` — *"When someone
+    makes the tables disjoint this test fails, which is the point: the fix and
+    the install decision belong in the same change."* They do: W20 empties the
+    overlap from the worker's side and installs the unit at the launch pass.
+
+    The overlap it recorded is still the reason the bot keeps those four jobs,
+    so the set is kept and asserted to be the bot's. Red, 2026-09-25: with
+    `streak_rollover` put back into `JOBS`, the intersection was
+    `{'streak_rollover'}`.
     """
     worker_names = {job.name for job in worker_jobs.JOBS}
-    assert _bot_job_names() & worker_names == KNOWN_JOB_OVERLAP
+    assert _bot_job_names() & worker_names == set()
+    assert KNOWN_JOB_OVERLAP <= _bot_job_names()
+    assert KNOWN_JOB_OVERLAP <= set(worker_jobs.HELD_JOBS)
 
 
-def test_the_worker_unit_says_it_must_not_be_installed_yet() -> None:
+def test_the_worker_unit_says_how_it_is_installed_and_why_it_is_safe() -> None:
+    """W1c's `test_the_worker_unit_says_it_must_not_be_installed_yet` asserted
+    `NOT INSTALLED` in the unit. W20 installs it; the unit names the four jobs
+    the bot keeps, and the install commands, so a reader of the file alone
+    knows why two processes are safe."""
     unit = (UNIT_DIR / "english-worker.service").read_text(encoding="utf-8")
-    assert "NOT INSTALLED" in unit
+    assert "NOT INSTALLED" not in unit
+    assert "systemctl enable --now english-worker" in unit
+    assert "Scheduler built jobs=push_poll" in unit
     for name in sorted(KNOWN_JOB_OVERLAP):
         assert name in unit
 

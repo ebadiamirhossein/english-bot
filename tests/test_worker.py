@@ -27,7 +27,20 @@ from core.config import load_settings
 from core.instance_lock import InstanceLock
 
 # name -> interval in seconds.
+#
+# **W20 (#69): the worker registers ONE job.** The table before, quoted rather
+# than deleted (#82's shape): `streak_rollover` 900, `monthly_freeze_reset` 900,
+# `monthly_reset` 900, `heartbeat` 3600, `backup_freshness` 3600, `assign_daily`
+# 3600. Four of those are the bot's until W22, two have never run on production;
+# all six are `HELD_JOBS` now, asserted below by hand.
 EXPECTED_JOBS = {
+    # The bot's own poll interval: the reminder lands within five minutes of a
+    # learner's `morning_time`.
+    "push_poll": 300,
+}
+
+# name -> interval in seconds, for the jobs kept and NOT registered.
+EXPECTED_HELD = {
     "streak_rollover": 900,
     "monthly_freeze_reset": 900,
     "monthly_reset": 900,
@@ -82,7 +95,20 @@ def test_worker_jobs_use_an_interval_trigger_with_the_right_period() -> None:
         )
 
 
-def test_assign_daily_is_registered_and_creates_no_content() -> None:
+def test_the_held_jobs_are_kept_with_their_periods_and_not_registered() -> None:
+    """W20: held, not deleted — W22 registers the bot's four here, and the two
+    never-run jobs wait for a ruling. Red, 2026-09-25: with `assign_daily` left
+    in `JOBS`, the registered set carried it and the first assertion failed."""
+    registered = {job.id for job in build_scheduler().get_jobs()}
+    assert registered & set(EXPECTED_HELD) == set()
+    assert {
+        name: job.interval_seconds for name, (job, _why) in worker_jobs.HELD_JOBS.items()
+    } == EXPECTED_HELD
+    for name, (job, why) in worker_jobs.HELD_JOBS.items():
+        assert job.name == name and why.strip(), name
+
+
+def test_assign_daily_is_held_and_creates_no_content() -> None:
     """W10's job, and the assertion is about what it does NOT do.
 
     ARCHITECTURE §7 gives `assign_daily` three jobs: build tomorrow's session,
@@ -129,7 +155,8 @@ def test_assign_daily_is_registered_and_creates_no_content() -> None:
 
 
 def test_worker_does_not_take_the_delivery_jobs() -> None:
-    """They stay in apps/bot until W20 — with the channel that sends them."""
+    """They stay in apps/bot until W22. W20's own delivery is `push_poll` — the
+    web's channel — and it is none of these."""
     registered = {job.id for job in build_scheduler().get_jobs()}
     assert registered & BOT_ONLY_JOBS == set()
 

@@ -170,26 +170,68 @@ def test_the_import_writes_the_ledger_as_a_tap(db, learner, monkeypatch) -> None
     assert rows == [("seen", "tapped", 2)]
 
 
-def test_a_word_inside_the_floor_is_skipped_as_known(db, learner, monkeypatch) -> None:
-    """What a real learner's file does, and what production has always done:
-    `proper` is rank 1833, inside the default floor of 2000, so it is planned as
-    already known — **no card, and no tap written (#435)**. Under W4 this came
-    from a materialised `assumption` row; since W13c from the computed floor,
-    with the same result (parity). Red, 2026-09-25: with the learner's floor
-    left at 0, `apply` typed 8 against 9 planned and returned 1."""
+def test_a_word_inside_the_floor_is_imported_and_its_look_up_recorded(
+    db, learner, monkeypatch
+) -> None:
+    """**#435, operator ruling 2026-09-25: a deliberate look-up overrides the
+    known-word floor** — it is evidence of not-knowing (W4a: `tapped` is in
+    `MAY_LOWER`). `proper` is rank 1833, inside the default floor of 2000; the
+    import makes its cards AND writes the tap, which lowers the floor's virtual
+    `known` to `seen` for this learner.
+
+    Red, 2026-09-25, against the pre-fix `_plan_file` (it planned against
+    `known_lemmas`, the floor included): `apply` printed 8 importable rows, the
+    typed 9 did not match, it returned 1 and wrote nothing — `assert 1 == 0`.
+    The test it replaces, `test_a_word_inside_the_floor_is_skipped_as_known`,
+    pinned the old behaviour and was written to fail once this landed."""
     db.execute("UPDATE users SET known_word_floor = 2000 WHERE id = %s", (learner,))
     db.commit()
-    _typing(monkeypatch, 8)
+    _typing(monkeypatch, 9)
     assert import_vocab.apply(TRANCY, user_id=learner, now=NOW) == 0
-    rows = _cards(db, learner)
-    assert len(rows) == 16
+    assert len(_cards(db, learner)) == 18
     assert db.execute(
         """
         SELECT COUNT(*) FROM cards c JOIN lexemes l ON l.id = c.lexeme_id
          WHERE c.user_id = %s AND l.lemma = 'proper'
         """,
         (learner,),
-    ).fetchone()[0] == 0
+    ).fetchone()[0] == 2
+    assert db.execute(
+        """
+        SELECT ul.state, ul.source FROM user_lexemes ul
+          JOIN lexemes l ON l.id = ul.lexeme_id
+         WHERE ul.user_id = %s AND l.lemma = 'proper'
+        """,
+        (learner,),
+    ).fetchall() == [("seen", "tapped")]
+
+
+def test_a_word_known_by_evidence_is_still_skipped(db, learner, monkeypatch) -> None:
+    """The ruling overrides the FLOOR, which is a hypothesis — not evidence.
+    A lemma this learner has an evidence row at `known` for (here a `review`
+    row — the learner graded it known) is still planned as already known:
+    no card, and the row is not touched. Red, 2026-09-25, against a `_plan_file`
+    that planned against no known set at all (the fix taken one step too far):
+    9 importable, the typed 8 did not match, `assert 1 == 0`."""
+    db.execute(
+        """
+        INSERT INTO user_lexemes (user_id, lexeme_id, state, source, source_rank)
+        SELECT %s, id, 'known', 'review', 5 FROM lexemes WHERE lemma = 'proper'
+        """,
+        (learner,),
+    )
+    db.commit()
+    _typing(monkeypatch, 8)
+    assert import_vocab.apply(TRANCY, user_id=learner, now=NOW) == 0
+    assert len(_cards(db, learner)) == 16
+    assert db.execute(
+        """
+        SELECT ul.state, ul.source FROM user_lexemes ul
+          JOIN lexemes l ON l.id = ul.lexeme_id
+         WHERE ul.user_id = %s AND l.lemma = 'proper'
+        """,
+        (learner,),
+    ).fetchall() == [("known", "review")]
 
 
 def test_a_native_language_mismatch_refuses_the_whole_file(db) -> None:

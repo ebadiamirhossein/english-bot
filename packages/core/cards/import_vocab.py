@@ -52,8 +52,11 @@ Three different collisions, and they are not one question:
 
 1. **already in `lexemes`** — not a collision at all; the dictionary is shared.
    `resolve_capture_lemma` handles it, and grows the row when it is absent.
-2. **already in the ledger** at `known`/`mastered` — skip. At `seen`/`learning`,
-   import: having met a word and not yet learned it is the case a card is for.
+2. **already in the ledger** at `known`/`mastered` BY EVIDENCE — skip. At
+   `seen`/`learning`, import: having met a word and not yet learned it is the
+   case a card is for. **Known only by the floor — import, and write the tap
+   (#435, operator ruling 2026-09-25):** a deliberate look-up overrides the
+   known-word floor, because it is the learner's own evidence against it.
 3. **already a card** — skip, **row-level**. Any existing card for the lemma
    skips the whole row, so a word with a production card does not quietly gain a
    recognition one. Filed as a cost against W13, which owns whether a
@@ -139,7 +142,9 @@ def _plan_file(conn, path: Path, *, user_id: int, now: datetime):
     source_format, records = parse_export(path.read_text(encoding="utf-8-sig"))
     _check_language(records, native_language=profile.native_language)
 
-    known = lexicon_service.known_lemmas(conn, user_id)
+    # #435: evidence only. A floor word the learner looked up is a card and a
+    # tap, never "already known" — see `evidenced_known_lemmas`.
+    known = lexicon_service.evidenced_known_lemmas(conn, user_id)
     carded = cards_service.lemmas_with_a_card(conn, user_id)
 
     planned = []

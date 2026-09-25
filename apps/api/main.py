@@ -35,6 +35,7 @@ from apps.api.routers import conversation as conversation_router
 # a test rather than rot unnoticed.
 from apps.api.routers import week as week_router
 from apps.api.routers import progress as progress_router
+from apps.api.routers import push as push_router
 from core.config import Settings, load_settings
 from core.logging import configure_console_logging
 from core.services.alerts import format_alert, should_send_alert
@@ -236,6 +237,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(week_router.router)
     # W19. Added to BOTH lists in the same commit (#255).
     app.include_router(progress_router.router)
+    # W20. Added to BOTH lists in the same commit (#255).
+    app.include_router(push_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -271,6 +274,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     conversation_router.router,
                     week_router.router,
                     progress_router.router,
+                    push_router.router,
                 )
                 for route in router.routes
             )

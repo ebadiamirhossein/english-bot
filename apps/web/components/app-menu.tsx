@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Check, Monitor, Moon, Plus, Sun } from "lucide-react";
 
+import { Reminders } from "@/components/push/reminders";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { THEMES, type Theme, readTheme, writeTheme } from "@/lib/theme";
@@ -22,7 +23,7 @@ const LABELS: Record<Theme, string> = {
 };
 
 /**
- * Theme, add-a-device, sign out.
+ * Theme, reminders, add-a-device, sign out.
  *
  * A header menu rather than a fifth item in the bottom nav: "four places" is a
  * product idea (PRD §4), not a layout accident, and
@@ -82,12 +83,18 @@ export function AppMenu() {
         })()}
       </Button>
 
+      {/* **`z-[60]`, above the bottom nav's `z-50` (W20).** At both `z-50` the
+          nav, later in the document, painted over the menu's lower rows on a
+          keyboard-height phone — found by `e2e/reminders.spec.ts` once the
+          reminders section made the menu tall enough to reach it. An open menu
+          is the thing being used; the nav can wait under it. */}
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-2 w-60 space-y-1 rounded-2xl border border-border bg-popover p-2 shadow-lg"
+          className="absolute right-0 z-[60] mt-2 w-60 space-y-1 rounded-2xl border border-border bg-popover p-2 shadow-lg"
         >
-          <p className="px-2 pt-1 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          {/* W20: the mono eyebrow, ruling 0.3's, so the two sections match. */}
+          <p className="px-2 pt-1 font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
             Appearance
           </p>
           {THEMES.map((option) => {
@@ -115,6 +122,10 @@ export function AppMenu() {
           })}
 
           <div className="my-1 h-px bg-border" />
+
+          {/* W20. Draws nothing — not even its divider — unless reminders are
+              set up on the server and this browser can have them. */}
+          <Reminders />
 
           <button
             role="menuitem"

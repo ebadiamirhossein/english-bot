@@ -705,4 +705,45 @@ class ShadowScoreOut(BaseModel):
     improved: bool | None = None
 
 
+# ── W20: Web Push ────────────────────────────────────────────────────────────
+#
+# **The endpoint travels in a BODY, never a path or a query string**: it is a
+# capability URL (anyone holding it and the keys can put a notification on the
+# phone), and a URL lands in access logs. The lengths are migration 031's
+# CHECKs, repeated so a malformed body is a 422 here rather than a CHECK
+# violation whose DETAIL would print the row (#434's lesson).
+
+_B64URL = r"^[A-Za-z0-9_-]+$"
+
+
+class PushKeyOut(BaseModel):
+    """The VAPID public key, or null when reminders are not set up here."""
+
+    public_key: str | None
+
+
+class PushKeysIn(BaseModel):
+    p256dh: str = Field(min_length=87, max_length=87, pattern=_B64URL)
+    auth: str = Field(min_length=22, max_length=22, pattern=_B64URL)
+
+
+class PushSubscriptionIn(BaseModel):
+    """`PushSubscription.toJSON()`, minus `expirationTime` (no browser sets it)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    endpoint: str = Field(min_length=12, max_length=2048, pattern=r"^https://")
+    keys: PushKeysIn
+
+
+class PushEndpointIn(BaseModel):
+    endpoint: str = Field(min_length=12, max_length=2048, pattern=r"^https://")
+
+
+class PushStateOut(BaseModel):
+    """Whether THIS browser receives reminders. Nothing else: no count, no time."""
+
+    on: bool
+
+
 CorrectionResult.model_rebuild()

@@ -655,3 +655,34 @@ export const PROGRESS = {
   trouble: "That didn’t load. Nothing’s lost.",
   retry: "Try again",
 } as const;
+
+/**
+ * W20 — the reminder control in the settings menu. PRD §10.
+ *
+ * **No numeral and no count, anywhere in it.** The server's ceiling, the nudge
+ * ladder's hours and the last-nudge hour are real numbers, and none of them is
+ * the learner's business in figures: what they need to know is that it is
+ * short, that it is at their practice time, that it stops once they've
+ * practised, and that it never arrives at night. `about` says exactly that and
+ * no more — every clause is a rule `core.services.push` enforces.
+ *
+ * **Nothing here asks, pleads or warns.** No "don't forget", no "stay on
+ * track": turning reminders off is as ordinary as turning them on.
+ */
+export const REMINDERS = {
+  eyebrow: "Reminders",
+  toggle: "Daily reminder",
+  about:
+    "A reminder at your usual practice time, and a gentle nudge later on — never late at night. Nothing once you’ve practised that day.",
+  /** iOS delivers web push only to an app opened from the Home Screen. */
+  install: "To get a daily reminder, add this app to your Home Screen, then open it from there.",
+  /** Permission refused in the browser. Where to change it, and no verdict. */
+  blocked:
+    "Notifications for this app are switched off in this browser’s settings. Switch them on there to get a daily reminder.",
+  /** The permission prompt was closed without an answer. (**Not `dismissed`**:
+   * it contains "missed", and `test_the_progress_screen_names_no_absence`
+   * scans this file from `PROGRESS` to the end, so it caught this key.) */
+  closed: "Nothing changed. Turn it on whenever you like.",
+  trouble: "That didn’t go through. Try again in a moment.",
+  working: "Working on it",
+} as const;

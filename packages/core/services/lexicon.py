@@ -372,6 +372,28 @@ def materialised_ledger(conn, user_id: int) -> dict[str, str]:
         return {row[0]: row[1] for row in cur.fetchall()}
 
 
+def evidenced_known_lemmas(conn, user_id: int) -> frozenset[str]:
+    """The lemmas this learner is `known`/`mastered` on BY EVIDENCE — the floor
+    and the kept `assumption` rows excluded.
+
+    **#435 (operator ruling, 2026-09-25): a deliberate look-up overrides the
+    known-word floor.** The floor is a hypothesis about a learner; a look-up is
+    that learner's own evidence against it. So the import plans against this
+    set, not `known_lemmas`: a floor word becomes a card and its tap is written
+    (a `tapped` write lowers the floor's virtual row — `MAY_LOWER`). A word
+    the learner has an evidence row at `known` for is still skipped.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT l.lemma FROM user_lexemes ul JOIN lexemes l ON l.id = ul.lexeme_id
+             WHERE ul.user_id = %s AND ul.state = ANY(%s) AND ul.source <> 'assumption'
+            """,
+            (user_id, sorted(COVERED_STATES)),
+        )
+        return frozenset(row[0] for row in cur.fetchall())
+
+
 def evidenced_known_count(conn, user_id: int) -> int:
     """"Words you know" — evidenced rows only, never the frequency floor.
 

@@ -863,6 +863,10 @@ _CONVERSATION_COPY: tuple[tuple[str, str], ...] = (
     # rule as the conversation's: no count, no remaining, no length target in
     # figures (design `1d`, `1u`). RED against `short: "At least 10 characters."`.
     ("apps/web/components/session/copy.ts", "WRITE"),
+    # **W20 adds `REMINDERS`.** The one surface about messages the app sends
+    # unasked; a count of them ("up to 3 a day") is the natural thing to type.
+    # RED against `about` edited to contain "3 a day".
+    ("apps/web/components/session/copy.ts", "REMINDERS"),
     # **W13b/5a ADDS `BLOCKS`, AND #400 IS WHY.** The closing block rendered
     # *"0 cards reviewed today."* to a learner who reviewed nothing — #348's
     # shape, live — and **neither scan could see it**: the numeral is

@@ -844,6 +844,37 @@ def increment_bot_messages(user_id: int, local_date: date) -> int:
     return int(row["count"])
 
 
+def reserve_message_slot(conn, user_id: int, local_date: date) -> bool:
+    """W20: take one of the day's `BOT_MESSAGE_CEILING` slots, or refuse — atomically.
+
+    **The push path's half of PRD §10's combined ceiling.** One statement: the
+    upsert only increments while the count is under the ceiling, and the row
+    lock `ON CONFLICT DO UPDATE` takes makes two reservations serialise, so the
+    push path can never itself take a fourth slot. Pushes and the bot's
+    Telegram sends count in the SAME row, so the bot's own
+    `under_message_ceiling` sees every push without a line of `apps/bot`
+    changing.
+
+    **What this cannot close, stated where it would be assumed:** the bot's
+    paths are check → send → `increment_bot_messages`, three steps, unchanged
+    until W22 deletes them. A push reserved between a bot check and its increment
+    can still make a fourth. `core.services.push` keeps the two ladders off the
+    same clock to make that window rare; it is not zero, and the record says so.
+    """
+    row = conn.execute(
+        """
+        INSERT INTO bot_message_counts (user_id, local_date, count)
+        VALUES (%s, %s, 1)
+        ON CONFLICT (user_id, local_date) DO UPDATE
+           SET count = bot_message_counts.count + 1
+         WHERE bot_message_counts.count < %s
+        RETURNING count
+        """,
+        (user_id, local_date, BOT_MESSAGE_CEILING),
+    ).fetchone()
+    return row is not None
+
+
 def under_message_ceiling(user_id: int, local_date: date) -> bool:
     return bot_initiated_count(user_id, local_date) < BOT_MESSAGE_CEILING
 

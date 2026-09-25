@@ -1,0 +1,21 @@
+{
+  "key_set": {
+    "public_key": "BATY6JBwcxeMJSd0D0aUweyzpOMwaX0ZIRfYnJQ3o9A8JNdKjjgHxLK3eznz_-LBUXQgqhO-X14DwCg5Gor_Z9g"
+  },
+  "key_unset": {
+    "public_key": null
+  },
+  "on": {
+    "on": true
+  },
+  "off": {
+    "on": false
+  },
+  "subscription": {
+    "endpoint": "https://push.example.invalid/w20-fixture-endpoint",
+    "keys": {
+      "p256dh": "BJtw63d4rYi7s0NOGYIOCeA7rx10-yZjZ4MaFnoodYDzgAI0uRuIaQQx723lE4X5OpQH8mUkqgoRVjFXdhhdsG8",
+      "auth": "AAECAwQFBgcICQoLDA0ODw"
+    }
+  }
+}

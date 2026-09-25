@@ -49,6 +49,9 @@ next-env.d.ts
 /public/workbox-*.js.map
 /public/fallback-*.js
 /public/swe-worker-*.js
+# W20 — `worker/index.ts`, built into the service worker's importScripts.
+/public/worker-*.js
+/public/worker-*.js.map
 
 # W16a — Playwright output, regenerated on every run.
 /test-results/
