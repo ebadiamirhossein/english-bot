@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -10,19 +9,8 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from telegram import User
 
-from apps.bot import texts
 from core.db import close_pool, connection, migrate
-from apps.bot.handlers import quiz as quiz_handler
-from apps.bot.handlers.book_test import handle_test_command
-from apps.bot.handlers.quiz import (
-    on_present_ack_callback,
-    on_present_orphan_callback,
-    open_quiz_awaits_gap_answer,
-    presentation_pending,
-    s25_present_button_labels,
-)
 from core.services.anki import fetch_unexported_chunks
 from core.services.chunks import (
     CHUNK_PRESENTED_AND_DUE_SQL,
@@ -34,11 +22,7 @@ from core.services.chunks import (
     unpresented_chunks,
 )
 from core.services.errors import record_errors
-from core.services.sessions import (
-    get_open_quiz_session,
-    insert_session,
-    update_session_payload,
-)
+from core.services.sessions import insert_session, update_session_payload
 from core.services.shared_content import record_and_fanout_chunks
 from core.services.stats import collect_stats
 from core.services.identity import save_onboarding
@@ -217,11 +201,6 @@ def test_chunk_due_predicate_sites_use_shared_sql() -> None:
         src = inspect.getsource(fn)
         assert "CHUNK_PRESENTED_AND_DUE_SQL" in src, name
     assert "presented_at IS NOT NULL" in CHUNK_PRESENTED_AND_DUE_SQL
-
-
-def test_s25_button_labels_max_20() -> None:
-    for label in s25_present_button_labels():
-        assert len(label) <= 20, label
 
 
 def test_due_chunks_excludes_unpresented(cleanup_user: int) -> None:
@@ -414,195 +393,6 @@ def test_mark_presented_idempotent(cleanup_user: int) -> None:
     assert second["next_review"] == first["next_review"]
 
 
-def test_presentations_only_no_quiz_sent(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
-    app = MagicMock()
-    app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
-    now = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
-    action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
-    assert action == "free_practice"
-    assert unpresented_chunks(user_id, limit=1)
-    assert _chunk_row(unpresented_chunks(user_id, limit=1)[0].id)["presented_at"] is None
-
-
-def test_morning_quiz_attaches_presentations(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_due_error(user_id)
-    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
-
-    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
-        return (
-            [
-                {
-                    "format": "choice",
-                    "prompt": "Q0",
-                    "accept": ["a"],
-                    "answer": "a",
-                    "options": ["a", "b", "c", "d"],
-                    "error_type": "quantifier_modifier",
-                    "explanation": "x",
-                    "error_id": errors[0].id,
-                }
-            ],
-            "scenario",
-        )
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
-    now = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
-    with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
-    assert action == "quiz"
-    session = get_open_quiz_session(user_id)
-    assert session is not None
-    payload = session.payload or {}
-    assert len(payload.get("presentations") or []) == 1
-    assert int(payload["presentations"][0]["chunk_id"]) == cid
-    send_kwargs = app.bot.send_message.await_args.kwargs
-    assert "New phrase" in send_kwargs["text"]
-    assert _chunk_row(cid)["presented_at"] is None
-
-
-def test_rescue_skips_presentations(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_due_error(user_id)
-    _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
-    with connection() as conn:
-        with conn.transaction():
-            conn.execute(
-                """
-                UPDATE streaks
-                   SET rescue_mode_until = %s
-                 WHERE user_id = %s
-                """,
-                (FIXED_TODAY + timedelta(days=3), user_id),
-            )
-
-    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
-        n = max(1, len(errors))
-        return (
-            [
-                {
-                    "format": "choice",
-                    "prompt": f"Q{i}",
-                    "accept": ["a"],
-                    "answer": "a",
-                    "options": ["a", "b", "c", "d"],
-                    "error_type": "quantifier_modifier",
-                    "explanation": "x",
-                    "error_id": errors[0].id if errors else None,
-                }
-                for i in range(n)
-            ],
-            "scenario",
-        )
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
-    now = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
-    with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
-    assert action == "quiz"
-    session = get_open_quiz_session(user_id)
-    assert session is not None
-    assert session.payload.get("presentations") == []
-
-
-def test_weekly_skips_presentations(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_due_error(user_id)
-    _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
-
-    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
-        assert list(chunks or []) == []
-        return (
-            [
-                {
-                    "format": "choice",
-                    "prompt": "Q0",
-                    "accept": ["a"],
-                    "answer": "a",
-                    "options": ["a", "b", "c", "d"],
-                    "error_type": "quantifier_modifier",
-                    "explanation": "x",
-                    "error_id": errors[0].id,
-                }
-            ],
-            "scenario",
-        )
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
-    now = datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc)
-    with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
-    assert action == "quiz"
-    session = get_open_quiz_session(user_id)
-    assert session is not None
-    assert session.payload.get("weekly_test") is True
-    assert session.payload.get("presentations") == []
-
-
-def test_unpresented_not_in_morning_graded_chunks(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_due_error(user_id)
-    hidden = _insert_chunk(
-        user_id,
-        chunk="delulu",
-        presented=False,
-        source="slang",
-        next_review=FIXED_TODAY,
-    )
-    captured: dict[str, Any] = {}
-
-    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
-        captured["chunks"] = list(chunks or [])
-        return (
-            [
-                {
-                    "format": "choice",
-                    "prompt": "Q0",
-                    "accept": ["a"],
-                    "answer": "a",
-                    "options": ["a", "b", "c", "d"],
-                    "error_type": "quantifier_modifier",
-                    "explanation": "x",
-                    "error_id": errors[0].id,
-                }
-            ],
-            "scenario",
-        )
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
-    now = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
-    with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
-    assert all(c.id != hidden for c in captured["chunks"])
-
-
-def test_book_test_has_no_presentations(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
-    update = MagicMock()
-    update.effective_user = User(id=tid, first_name="A", is_bot=False)
-    update.message = MagicMock()
-    update.message.reply_text = AsyncMock()
-    context = MagicMock()
-    context.args = ["unit", "12"]
-    asyncio.run(handle_test_command(update, context))
-    session = get_open_quiz_session(user_id)
-    if session is not None and session.payload:
-        assert not session.payload.get("presentations")
-
-
 def _open_quiz_with_presentations(
     tid: int, chunk_ids: list[int], *, message_id: int = 42
 ) -> int:
@@ -644,148 +434,6 @@ def _open_quiz_with_presentations(
     payload["session_id"] = sid
     update_session_payload(sid, payload)
     return sid
-
-
-def test_present_ack_sets_presented_and_advances(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
-    _open_quiz_with_presentations(user_id, [cid])
-    errors_before = _error_count(user_id)
-
-    context = MagicMock()
-    context.bot.edit_message_text = AsyncMock()
-    update = _callback_update(tid, f"present:ack:{cid}")
-    with patch(
-        "apps.bot.handlers.quiz.local_today", return_value=FIXED_TODAY
-    ):
-        asyncio.run(on_present_ack_callback(update, context))
-
-    row = _chunk_row(cid)
-    assert row["presented_at"] is not None
-    assert row["next_review"] == FIXED_TODAY + timedelta(days=1)
-    assert row["streak_right"] == 0
-    assert _error_count(user_id) == errors_before
-
-    session = get_open_quiz_session(user_id)
-    assert session is not None
-    assert int(session.payload["present_index"]) == 1
-    assert not presentation_pending(session.payload)
-
-
-def test_present_ack_repeated_is_noop(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
-    _open_quiz_with_presentations(user_id, [cid])
-    context = MagicMock()
-    context.bot.edit_message_text = AsyncMock()
-    update = _callback_update(tid, f"present:ack:{cid}")
-    with patch(
-        "apps.bot.handlers.quiz.local_today", return_value=FIXED_TODAY
-    ):
-        asyncio.run(on_present_ack_callback(update, context))
-        edits_after_first = context.bot.edit_message_text.await_count
-        asyncio.run(on_present_ack_callback(update, context))
-    assert context.bot.edit_message_text.await_count == edits_after_first
-    session = get_open_quiz_session(user_id)
-    assert session is not None
-    assert int(session.payload["present_index"]) == 1
-
-
-def test_present_ack_out_of_order_is_noop(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    a = _insert_chunk(
-        user_id,
-        chunk="alpha",
-        presented=False,
-        source="slang",
-        created_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
-    )
-    b = _insert_chunk(
-        user_id,
-        chunk="bravo",
-        presented=False,
-        source="slang",
-        created_at=datetime(2026, 8, 2, tzinfo=timezone.utc),
-    )
-    _open_quiz_with_presentations(user_id, [a, b])
-    context = MagicMock()
-    context.bot.edit_message_text = AsyncMock()
-    with patch(
-        "apps.bot.handlers.quiz.local_today", return_value=FIXED_TODAY
-    ):
-        asyncio.run(
-            on_present_ack_callback(
-                _callback_update(tid, f"present:ack:{b}"), context
-            )
-        )
-    assert context.bot.edit_message_text.await_count == 0
-    assert _chunk_row(a)["presented_at"] is None
-    assert _chunk_row(b)["presented_at"] is None
-    session = get_open_quiz_session(user_id)
-    assert session is not None
-    assert int(session.payload["present_index"]) == 0
-
-
-def test_present_ack_does_not_affect_score_or_early_limit(
-    cleanup_user: int,
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
-    sid = _open_quiz_with_presentations(user_id, [cid])
-    session = get_open_quiz_session(user_id)
-    assert session is not None
-    payload = dict(session.payload)
-    payload["early_limit"] = 2
-    update_session_payload(sid, payload)
-
-    context = MagicMock()
-    context.bot.edit_message_text = AsyncMock()
-    with patch(
-        "apps.bot.handlers.quiz.local_today", return_value=FIXED_TODAY
-    ):
-        asyncio.run(
-            on_present_ack_callback(
-                _callback_update(tid, f"present:ack:{cid}"), context
-            )
-        )
-    session = get_open_quiz_session(user_id)
-    assert session is not None
-    p = session.payload
-    assert int(p.get("answered", 0)) == 0
-    assert int(p.get("correct_count", 0)) == 0
-    assert int(p.get("calib_answered", 0)) == 0
-    assert int(p.get("early_limit")) == 2
-
-
-def test_present_orphan_warm_line(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _callback_update(tid, "present:ack:999")
-    context = MagicMock()
-    asyncio.run(on_present_orphan_callback(update, context))
-    update.callback_query.edit_message_text.assert_awaited()
-    assert texts.PRESENT_STALE in str(
-        update.callback_query.edit_message_text.await_args
-    )
-
-
-def test_open_quiz_awaits_gap_false_during_presentation(
-    cleanup_user: int,
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    cid = _insert_chunk(user_id, chunk="delulu", presented=False, source="slang")
-    _open_quiz_with_presentations(user_id, [cid])
-    session = get_open_quiz_session(user_id)
-    assert session is not None
-    payload = dict(session.payload)
-    payload["questions"][0]["format"] = "gap"
-    update_session_payload(session.id, payload)
-    assert open_quiz_awaits_gap_answer(user_id) is False
 
 
 def test_stats_due_matches_count_due_chunks(cleanup_user: int) -> None:

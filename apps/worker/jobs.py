@@ -8,15 +8,44 @@ against a worker that registered nothing (known issue #54).
 
 Scope at W1b: the maintenance jobs whose bodies are already channel-neutral
 predicates in ``core``. The delivery jobs — morning, evening, nudge, Sunday
-report, Anki — stay in ``apps/bot`` until W20, because they send Telegram
-messages and moving them means moving the channel too.
+report, Anki — stayed in ``apps/bot`` because they sent Telegram messages.
 
 **W20 — #69 RESOLVED BY MAKING THE TWO TABLES DISJOINT FROM THIS SIDE.** The
-worker registers ONE job, ``push_poll``, and nothing the bot also runs. The
-four overlapping jobs (``streak_rollover``, ``monthly_freeze_reset``,
-``heartbeat``, ``backup_freshness``) stay the bot's until W22 deletes it; W22
-moves them here. Resolving it from the bot's side instead would edit
-``apps/bot/scheduler.py``, which stays byte-identical until W22.
+worker registered ONE job, ``push_poll``, and held the four the bot also ran.
+
+**W22 — THE FOUR HELD JOBS ARE REGISTERED HERE (#69's remainder).** The bot's
+scheduler is down to ``couple_poll`` (``apps/bot/scheduler.py``), so
+``streak_rollover``, ``monthly_freeze_reset``, ``heartbeat`` and
+``backup_freshness`` run in this process and nowhere else. **The tables stay
+disjoint** — ``tests/test_backup_r2.py::test_bot_and_worker_job_tables_are_disjoint``
+fails the commit that registers a name in both. **The deploy restarts
+``english-bot`` BEFORE ``english-worker``**, so the old bot process (which
+still holds the four in memory) is gone before this one starts running them.
+
+**THE WORKER NOW WRITES THE HEARTBEAT FILE (#438).** It used to read it only,
+because the bot's deliveries were what the file meant; a worker that touched it
+would have kept it fresh while the bot lay dead. The deliveries are gone from
+the bot, so the file now means *this worker's jobs are succeeding*:
+``run_job`` touches it after every successful run of a job in
+``TOUCHES_HEARTBEAT`` — never after ``heartbeat`` or ``backup_freshness``
+themselves, which would make the alarm check its own pulse.
+
+**The two alarms reach the operator through Sentry, not Telegram.** The bot's
+copies sent a Telegram message to ``OPERATOR_TELEGRAM_ID``; these capture a
+typed exception (``HeartbeatStale``, ``BackupStale``) through ``core.monitoring``
+— the type is the alarm, because the scrubber drops every message (#65, W23).
+**Until ``SENTRY_DSN`` is set they reach the journal only**, which is why W22's
+deploy is gated on W23's DSN step having run (the launch pass).
+
+**TWO JOBS ARE STILL HELD** (``HELD_JOBS``). ``assign_daily`` has never run on
+production and would start pre-creating tomorrow's session at night (#437).
+``monthly_reset`` is freeze reset PLUS the M13 fossil sweep — **and W22 found
+that the bot's job NAMED ``monthly_freeze_reset`` called ``run_monthly_reset``,
+so production has been running the sweep on every local 1st all along**; #437's
+"for the first time" was wrong. The sweep queues retests that only the Telegram
+morning quiz ever delivered, and that quiz is deleted here, so the worker takes
+the freeze half (``monthly_freeze_reset``) and the sweep stays held with its
+consumer gone (#452). Bodies kept and still tested.
 
 **W24d ADDS `assign_video`** (a video every day, operator decision 2 of
 2026-09-27): registered rather than held, because the operator's ruling is the
@@ -37,13 +66,6 @@ and ≤40 a UTC day) explains today's assigned video ahead of the taps. Rulings
 Q5, Q6 and C2 of 2026-09-27: both are switched on only after the operator has
 read the first manual `explain --apply`, and the ceilings live in
 `core.services.words`, not here.
-
-**TWO JOBS THAT HAVE NEVER RUN ON PRODUCTION ARE HELD, NOT SWITCHED ON AS A
-SIDE EFFECT OF INSTALLING THE UNIT** (``HELD_JOBS``): ``assign_daily`` would
-start pre-creating tomorrow's session at night, and ``monthly_reset`` would run
-the M13 fossil sweep for the first time. Each is a behaviour change on
-production that no slice has asked for, so each waits for its own ruling. Their
-bodies are kept and still tested.
 """
 
 from __future__ import annotations
@@ -70,10 +92,10 @@ from core.services import heartbeat as heartbeat_service
 
 logger = logging.getLogger(__name__)
 
-# Same cadences the bot's scheduler uses (apps/bot/scheduler.py). Both
-# processes poll rather than schedule per-user cron entries, because every
-# one of these fires on the user's *local* date and two users can sit in
-# different timezones.
+# The cadences the bot's scheduler used for these jobs until W22 moved them
+# here. Poll rather than schedule per-user cron entries, because every one of
+# these fires on the user's *local* date and two users can sit in different
+# timezones.
 STREAK_POLL_SECONDS = 15 * 60
 MAINTENANCE_POLL_SECONDS = 60 * 60
 #: W20. The reminder fires within five minutes of a learner's `morning_time` —
@@ -129,17 +151,29 @@ def monthly_reset() -> None:
     run_monthly_reset()
 
 
+class HeartbeatStale(Exception):
+    """No job in ``TOUCHES_HEARTBEAT`` has succeeded for ``MAX_AGE_HOURS``.
+
+    Captured, never raised: the heartbeat job itself ran fine. The TYPE is the
+    alarm Sentry groups and emails on; it carries no message, and the scrubber
+    would drop one anyway (``core.monitoring.scrub_event``).
+    """
+
+
+class BackupStale(Exception):
+    """An off-site destination is stale, empty, or unset when required. Captured, never raised."""
+
+
 def heartbeat() -> None:
-    """Report whether *any* process has recorded a successful job lately.
+    """Alarm when no job has recorded a success lately. Reads; never writes.
 
-    Read-only at W1b: this worker deliberately does not touch the heartbeat
-    file. The bot still owns every delivery job, so the file means "deliveries
-    are alive"; a worker that touched it would keep the file fresh while the
-    bot lay dead, and the staleness alarm would never fire again. W20 moves
-    the deliveries here and the writing with them.
+    **W22: this process owns both halves now** — ``run_job`` writes the file and
+    this job reads it (#438). It is excluded from ``TOUCHES_HEARTBEAT``: a check
+    that refreshed the file it checks could never go stale.
 
-    No operator channel exists in this process, so a stale heartbeat is logged
-    at ERROR rather than sent (see ``apps/api/main.py::send_operator_alert``).
+    Stale → one line at ERROR and one ``HeartbeatStale`` to Sentry. The bot's
+    copy sent the operator a Telegram message instead; the worker has no
+    Telegram and must not grow one (PRODUCT-PRINCIPLES §1).
     """
     settings = load_settings()
     now = datetime.now(timezone.utc)
@@ -150,6 +184,9 @@ def heartbeat() -> None:
             "Heartbeat STALE: no successful scheduled job in %sh (last_fire=%s)",
             heartbeat_service.MAX_AGE_HOURS,
             last.isoformat() if last is not None else "never",
+        )
+        monitoring.capture_exception(
+            HeartbeatStale(), user_id=None, route="job:heartbeat"
         )
     else:
         logger.info("Heartbeat ok")
@@ -165,11 +202,12 @@ def backup_freshness() -> None:
     unconfigured backup and a healthy one produced the same output, which is
     the one case where saying nothing is a lie.
 
-    Delivery, honestly: this process has no operator channel, so both halves
-    land in the journal at ERROR and nowhere else (known issue #65, the same
-    limitation ``apps/api/main.py::send_operator_alert`` carries). The bot's
-    copy of this check does reach Telegram. Nobody sees the lines below
-    without ``journalctl -u english-worker``.
+    **Delivery (W22):** both halves log at ERROR, and a stale result also sends
+    one ``BackupStale`` to Sentry — #65's channel since W23, and off until
+    ``SENTRY_DSN`` is set. The bot's copy of this check sent the operator a
+    Telegram message, with a 24-hour cooldown; Sentry groups every
+    ``BackupStale`` into one issue and emails when it opens, which is the same
+    once-not-hourly shape.
     """
     settings = load_settings()
     now = datetime.now(timezone.utc)
@@ -189,6 +227,9 @@ def backup_freshness() -> None:
             age_hours = (now - newest.mtime).total_seconds() / 3600.0
             detail = f"newest={newest.path.name} age={age_hours:.1f}h"
         logger.error("Off-site backup STALE: %s", detail)
+        monitoring.capture_exception(
+            BackupStale(), user_id=None, route="job:backup_freshness"
+        )
     else:
         logger.info("Off-site backup fresh")
 
@@ -201,6 +242,9 @@ def backup_freshness() -> None:
     if health.should_alert:
         logger.error(
             "Off-site backup R2 %s: %s", health.status.upper(), health.detail
+        )
+        monitoring.capture_exception(
+            BackupStale(), user_id=None, route="job:backup_freshness"
         )
     else:
         logger.info("Off-site backup R2 %s: %s", health.status, health.detail)
@@ -367,9 +411,15 @@ def push_poll() -> None:
 
 
 #: What the worker runs. **Disjoint from the bot's table by construction**
-#: (#69); `tests/test_backup_r2.py` asserts the intersection is empty.
+#: (#69); `tests/test_backup_r2.py` asserts the intersection is empty. W22 moved
+#: the four middle rows here from `HELD_JOBS`, with the periods and start-up
+#: offsets they had there (and in the bot's scheduler before that).
 JOBS: tuple[Job, ...] = (
+    Job("streak_rollover", streak_rollover, STREAK_POLL_SECONDS, 20),
+    Job("monthly_freeze_reset", monthly_freeze_reset, STREAK_POLL_SECONDS, 30),
     Job("push_poll", push_poll, PUSH_POLL_SECONDS, 45),
+    Job("heartbeat", heartbeat, MAINTENANCE_POLL_SECONDS, 60),
+    Job("backup_freshness", backup_freshness, MAINTENANCE_POLL_SECONDS, 90),
     Job("assign_video", assign_video, MAINTENANCE_POLL_SECONDS, 150),
 )
 
@@ -406,29 +456,18 @@ def jobs_for(settings: Settings) -> tuple[Job, ...]:
     a billed job is never on by default."""
     return JOBS + tuple(job for flag, job in OPTIONAL_JOBS if getattr(settings, flag))
 
+#: The jobs whose success refreshes the heartbeat file (#438): the ones that
+#: do the product's work. Not `heartbeat` or `backup_freshness` — an alarm
+#: that refreshed its own pulse could never fire.
+TOUCHES_HEARTBEAT = frozenset({"streak_rollover", "monthly_freeze_reset", "push_poll"})
 
 #: Built, kept, tested — and NOT registered. Each needs something before it runs
 #: on production; the reason is data so the test and the record say the same.
 HELD_JOBS: dict[str, tuple[Job, str]] = {
-    "streak_rollover": (
-        Job("streak_rollover", streak_rollover, STREAK_POLL_SECONDS, 20),
-        "the bot runs it until W22 (#69)",
-    ),
-    "monthly_freeze_reset": (
-        Job("monthly_freeze_reset", monthly_freeze_reset, STREAK_POLL_SECONDS, 30),
-        "the bot runs it until W22 (#69)",
-    ),
-    "heartbeat": (
-        Job("heartbeat", heartbeat, MAINTENANCE_POLL_SECONDS, 60),
-        "the bot runs it until W22 (#69)",
-    ),
-    "backup_freshness": (
-        Job("backup_freshness", backup_freshness, MAINTENANCE_POLL_SECONDS, 90),
-        "the bot runs it until W22 (#69)",
-    ),
     "monthly_reset": (
         Job("monthly_reset", monthly_reset, STREAK_POLL_SECONDS, 40),
-        "never run on production: the fossil sweep's first run is an operator ruling",
+        "the fossil sweep's only consumer, the Telegram morning quiz, was deleted "
+        "at W22: it would queue retests nothing delivers (#452)",
     ),
     "assign_daily": (
         Job("assign_daily", assign_daily, MAINTENANCE_POLL_SECONDS, 120),
@@ -445,11 +484,25 @@ HELD_JOBS: dict[str, tuple[Job, str]] = {
 LIVENESS_JOB = "push_poll"
 
 
+def _touch_heartbeat(job_name: str) -> None:
+    """Record one successful run (#438). A failure to write is logged, not raised:
+    the job succeeded, and the heartbeat going stale is the alarm for this."""
+    try:
+        heartbeat_service.touch_job_fire(
+            load_settings().heartbeat_file, now=datetime.now(timezone.utc)
+        )
+    except Exception:
+        logger.exception("Heartbeat touch failed after name=%s", job_name)
+
+
 def run_job(job: Job) -> None:
     """Run one job, swallowing its exception so the scheduler survives it.
 
     APScheduler removes nothing on error, but an unlogged traceback in a
     process with no operator channel is an invisible failure.
+
+    **W22: a successful run of a job in ``TOUCHES_HEARTBEAT`` refreshes the
+    heartbeat file** — the write the bot's scheduler used to do (#438).
 
     **W23: the exception also goes to Sentry** (type, frames and the job's name
     as the ``route`` tag — never the message), and ``LIVENESS_JOB`` reports each
@@ -463,6 +516,8 @@ def run_job(job: Job) -> None:
         ok = False
         logger.exception("Scheduled job failed name=%s", job.name)
         monitoring.capture_exception(exc, user_id=None, route=f"job:{job.name}")
+    if ok and job.name in TOUCHES_HEARTBEAT:
+        _touch_heartbeat(job.name)
     if job.name == LIVENESS_JOB:
         monitoring.check_in(
             monitoring.WORKER_MONITOR_SLUG,

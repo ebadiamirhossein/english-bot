@@ -19,9 +19,13 @@ user is not a feature.
 **What this does NOT ban, and the distinction is load-bearing: a learner naming
 their own book.** `/book` asks which book is being scanned and offers *Murphy*
 as one answer. The learner is holding that copy — that is the one case where the
-word means something to the person reading it. `texts.BTN_BOOK_MURPHY` is
-allow-listed **by constant name**, with this reason, so nobody deletes it as an
-oversight and nobody widens the exemption by adding a second string beside it.
+word means something to the person reading it. `texts.BTN_BOOK_MURPHY` was
+allow-listed **by constant name**, with this reason, so nobody deleted it as an
+oversight and nobody widened the exemption by adding a second string beside it.
+**W22 deleted `/book` and that button with it, so the exemption is gone too**
+(`ALLOWED_TEXTS_CONSTANT = None`): a name allow-list that names nothing would
+excuse nothing and hide nothing, and keeping it would invite a new string under
+the old name.
 
 **The column stays.** `error_types.murphy_units` remains an operator reference
 and is still the code→units map `murphy_lookup()` doubles as the valid-error-code
@@ -60,10 +64,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 WEB = REPO_ROOT / "apps" / "web"
 TEXTS = REPO_ROOT / "apps" / "bot" / "texts.py"
 
-#: The one place the word may appear, allow-listed BY NAME rather than by value.
-#: A value allow-list ("the literal 'Murphy' is fine") would let a second
-#: hardcoded string in later; a name allow-list admits exactly one assignment.
-ALLOWED_TEXTS_CONSTANT = "BTN_BOOK_MURPHY"
+#: The one place the word could appear, allow-listed BY NAME rather than by
+#: value, until W22 deleted `/book` and `BTN_BOOK_MURPHY` with it. None: the
+#: word may now appear nowhere in `texts.py`.
+ALLOWED_TEXTS_CONSTANT: str | None = None
 
 _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 _LINE_COMMENT = re.compile(r"(?<!:)//[^\n]*")
@@ -312,18 +316,17 @@ def test_the_real_syllabus_content_still_carries_the_operator_note() -> None:
     assert len(with_citations) == 69
 
 
-def test_the_allow_listed_exemption_is_still_real() -> None:
-    """The exemption must not become vacuous.
-
-    If `BTN_BOOK_MURPHY` is renamed or its value changed, the allow-list stops
-    excusing anything and starts hiding nothing — and the rule above would then
-    pass for the wrong reason. Expected value is hardcoded here rather than read
-    from the module (CLAUDE.md §3 rule 5): #63 is the test that broke by
-    computing its fixture from the thing it was testing.
-    """
+def test_the_exemption_went_with_the_button() -> None:
+    """W22 deleted `/book`'s *Murphy* button, so nothing in `texts.py` may carry
+    the word at all. Hardcoded (CLAUDE.md §3 rule 5), and read off the module,
+    not the scan, so it cannot pass by the scan reading nothing."""
     import apps.bot.texts as texts
 
-    assert texts.BTN_BOOK_MURPHY == "Murphy"
+    assert ALLOWED_TEXTS_CONSTANT is None
+    assert not hasattr(texts, "BTN_BOOK_MURPHY")
+    assert not any(
+        isinstance(v, str) and "Murphy" in v for v in vars(texts).values()
+    )
 
 
 def test_the_scan_catches_a_real_violation(monkeypatch) -> None:

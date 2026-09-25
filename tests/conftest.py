@@ -89,3 +89,65 @@ def syllabus_units_exist():
         if isinstance(exc, psycopg.OperationalError):
             return  # database not reachable; the pure suite still runs
         raise
+
+
+# ── #448: no test may leave a `users` row behind ─────────────────────────────
+
+
+def _count_users(conn) -> int | None:
+    try:
+        return int(conn.execute("SELECT count(*) FROM users").fetchone()[0])
+    except Exception:  # noqa: BLE001 -- no table yet, or the database went away
+        return None
+
+
+@pytest.fixture(scope="session")
+def _users_guard_conn():
+    """A private autocommit connection for the guard below, or None.
+
+    Private so the guard neither opens nor closes ``core.db``'s pool — dozens of
+    modules close the pool after every test, and a guard that reopened it would
+    change what they test.
+    """
+    try:
+        import psycopg
+
+        from core.config import load_settings
+
+        conn = psycopg.connect(load_settings().database_url, autocommit=True)
+    except Exception:  # noqa: BLE001 -- no database: the pure suite still runs
+        yield None
+        return
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@pytest.fixture(autouse=True)
+def no_test_leaves_a_user_behind(request, _users_guard_conn):
+    """#448. Fails the test whose teardown left more `users` rows than it found.
+
+    The dev database had accumulated 8,125 users by 2026-09-25 — +27 per full
+    run — because two teardowns deleted by the wrong key and reported nothing:
+    ``DELETE FROM users WHERE id = %s`` given a Telegram id matches no row and
+    succeeds. Nothing noticed until a scheduler test took six minutes. This is
+    the detector that was missing: a count before the test, a count after every
+    fixture has torn down (this one is set up first, so it tears down last).
+
+    Module- and session-scoped fixtures set up before it and tear down after it,
+    so a user they hold for a whole file is not counted against one test.
+    """
+    if _users_guard_conn is None:
+        yield
+        return
+    before = _count_users(_users_guard_conn)
+    yield
+    after = _count_users(_users_guard_conn)
+    if before is not None and after is not None and after > before:
+        pytest.fail(
+            f"{request.node.nodeid} left {after - before} users row(s) behind "
+            f"({before} -> {after}); its teardown must delete what it created "
+            "(#448)",
+            pytrace=False,
+        )

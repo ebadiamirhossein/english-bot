@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
-from datetime import date, datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import date, timedelta
 
 import pytest
 
 from core.db import close_pool, connection
-from apps.bot.handlers import quiz as quiz_handler
 from core.services.errors import due_errors
-from core.services.streaks import get_streak
 from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_341_000_000
 
@@ -102,71 +98,6 @@ def _fake_questions(n: int) -> list[dict]:
         }
         for i in range(n)
     ]
-
-
-def test_rescue_quiz_is_three_questions(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_errors(user_id, 8)
-    day = date(2026, 7, 15)
-    _set_rescue(user_id, day + timedelta(days=3))
-    assert get_streak(user_id).rescue_mode_until is not None
-
-    due = due_errors(user_id, limit=3)
-    assert len(due) == 3
-    assert len(due_errors(user_id, limit=5)) == 5
-
-    app = MagicMock()
-    app.bot = AsyncMock()
-    app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
-    now = datetime(2026, 7, 15, 6, 0, tzinfo=timezone.utc)
-
-    with patch.object(
-        quiz_handler,
-        "_build_quiz_questions",
-        return_value=(_fake_questions(3), "at a cafe"),
-    ) as build:
-        with patch.object(
-            quiz_handler, "_user_timezone", return_value="Europe/Vilnius"
-        ):
-            with patch.object(quiz_handler, "local_today", return_value=day):
-                action = asyncio.run(
-                    quiz_handler.deliver_morning(app, user_id, now=now)
-                )
-
-    assert action == "quiz"
-    build.assert_called_once()
-    errors_arg = build.call_args[0][1]
-    assert len(errors_arg) == 3
-
-
-def test_non_rescue_quiz_is_five_questions(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_errors(user_id, 8)
-    day = date(2026, 7, 15)
-
-    app = MagicMock()
-    app.bot = AsyncMock()
-    app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
-    now = datetime(2026, 7, 15, 6, 0, tzinfo=timezone.utc)
-
-    with patch.object(
-        quiz_handler,
-        "_build_quiz_questions",
-        return_value=(_fake_questions(5), "at a cafe"),
-    ) as build:
-        with patch.object(
-            quiz_handler, "_user_timezone", return_value="Europe/Vilnius"
-        ):
-            with patch.object(quiz_handler, "local_today", return_value=day):
-                action = asyncio.run(
-                    quiz_handler.deliver_morning(app, user_id, now=now)
-                )
-
-    assert action == "quiz"
-    errors_arg = build.call_args[0][1]
-    assert len(errors_arg) == 5
 
 
 def test_rescue_never_returns_more_than_three_due_errors(cleanup_user: int) -> None:

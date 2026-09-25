@@ -79,19 +79,25 @@ def test_the_flag_is_read_from_the_env_file(tmp_path, no_flag_left_behind) -> No
 # ── registration ────────────────────────────────────────────────────────────
 
 
+#: What a worker registers without the flag. **W22 moved the bot's four jobs
+#: here** (this read `{"push_poll", "assign_video"}` on `main`, before W22).
+WITHOUT_FLAG = {"streak_rollover", "monthly_freeze_reset", "push_poll", "heartbeat",
+                "backup_freshness", "assign_video"}
+
+
 def _registered(settings) -> dict:
     return {job.id: job for job in build_scheduler(worker_jobs.jobs_for(settings)).get_jobs()}
 
 
 def test_the_job_is_not_registered_without_the_flag() -> None:
     settings = dataclasses.replace(load_settings(), video_auto_refresh=False)
-    assert set(_registered(settings)) == {"push_poll", "assign_video"}
+    assert set(_registered(settings)) == WITHOUT_FLAG
 
 
 def test_the_job_is_registered_weekly_monday_0400_vilnius_with_the_flag() -> None:
     settings = dataclasses.replace(load_settings(), video_auto_refresh=True)
     registered = _registered(settings)
-    assert set(registered) == {"push_poll", "assign_video", "refresh_videos"}
+    assert set(registered) == WITHOUT_FLAG | {"refresh_videos"}
     trigger = registered["refresh_videos"].trigger
     assert isinstance(trigger, CronTrigger)
     # From a Sunday noon (2026-09-27, summer time) the next fire is Monday
@@ -132,7 +138,7 @@ def test_the_worker_entrypoint_registers_it_from_the_environment(
     monkeypatch.setattr(worker_main, "configure_logging", lambda settings: None)
     monkeypatch.setattr(worker_main.monitoring, "init_monitoring", lambda *a, **k: None)
     assert worker_main.main() == 0
-    assert built == [{"push_poll", "assign_video", "refresh_videos"}]
+    assert built == [WITHOUT_FLAG | {"refresh_videos"}]
 
 
 # ── the run: the same code as `--live --apply`, stubbed at the network ──────

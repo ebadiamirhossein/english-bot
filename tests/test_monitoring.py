@@ -67,6 +67,14 @@ def no_client_left_behind():
 
 
 @pytest.fixture(autouse=True)
+def heartbeat_in_tmp(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """W22: `run_job` writes the heartbeat after a successful work job (#438),
+    so the check-in tests below would otherwise write the machine's real
+    `RUNTIME_DIR/last_job_fire`."""
+    monkeypatch.setenv("HEARTBEAT_FILE", str(tmp_path / "last_job_fire"))
+
+
+@pytest.fixture(autouse=True)
 def no_dsn_left_behind(monkeypatch: pytest.MonkeyPatch):
     """Whatever a test's `.env` puts in the process environment is taken out again.
 
@@ -394,6 +402,54 @@ def test_the_liveness_job_checks_in_error_when_it_fails(monkeypatch, capture) ->
     (checkin,) = _checkins(capture)
     assert checkin["status"] == "error"
     assert len(_errors(capture)) == 1
+
+
+# ── W22: the two alarms the bot used to send by Telegram ────────────────────
+#
+# RED DEMONSTRATIONS (2026-09-25, `python -B`, caches cleared): with the
+# `monitoring.capture_exception(HeartbeatStale(), …)` line removed from
+# `apps/worker/jobs.py::heartbeat`, `test_a_stale_heartbeat_reaches_sentry_by_type`
+# went red (no event); with the R2 half's `BackupStale` capture removed,
+# `test_a_stale_backup_reaches_sentry_by_type` went red. Both restored.
+
+
+def test_a_stale_heartbeat_reaches_sentry_by_type(monkeypatch, capture, tmp_path) -> None:
+    """The bot sent the operator "Heartbeat STALE…" by Telegram. The worker has no
+    Telegram (PRODUCT-PRINCIPLES §1), so the alarm is an exception TYPE on #65's
+    channel — the scrubber would drop any message, and there is none to drop."""
+    _worker_on(monkeypatch, capture)
+    worker_jobs.run_job(worker_jobs.Job("heartbeat", worker_jobs.heartbeat, 3600, 0))
+    (event,) = _errors(capture)
+    (exc,) = event["exception"]["values"]
+    assert exc["type"] == "HeartbeatStale"
+    assert "value" not in exc
+    assert event["tags"] == {"component": "worker", "route": "job:heartbeat"}
+    # The check ran fine, so it did not ALSO report itself as a failed job, and
+    # the alarm did not refresh its own pulse.
+    assert not (tmp_path / "last_job_fire").exists()
+
+
+def test_a_fresh_heartbeat_sends_nothing(monkeypatch, capture, tmp_path) -> None:
+    _worker_on(monkeypatch, capture)
+    worker_jobs.run_job(worker_jobs.Job("push_poll", lambda: None, 300, 0))
+    worker_jobs.run_job(worker_jobs.Job("heartbeat", worker_jobs.heartbeat, 3600, 0))
+    assert _errors(capture) == []
+
+
+def test_a_stale_backup_reaches_sentry_by_type(monkeypatch, capture) -> None:
+    """R2 unconfigured and required is the loud case (#31): it must page."""
+    _worker_on(monkeypatch, capture)
+    for key in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"):
+        monkeypatch.setenv(key, "")
+    monkeypatch.setenv("BACKUP_R2_REQUIRED", "1")
+    monkeypatch.setenv("BACKUP_OFFSITE_DIR", "")
+    worker_jobs.run_job(
+        worker_jobs.Job("backup_freshness", worker_jobs.backup_freshness, 3600, 0)
+    )
+    (event,) = _errors(capture)
+    (exc,) = event["exception"]["values"]
+    assert exc["type"] == "BackupStale"
+    assert event["tags"] == {"component": "worker", "route": "job:backup_freshness"}
 
 
 def test_the_registered_liveness_job_is_the_five_minute_push_poll() -> None:

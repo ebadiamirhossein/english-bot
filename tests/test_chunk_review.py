@@ -2,36 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from apps.bot import texts
 from core.db import close_pool, connection, migrate
-from apps.bot.handlers import quiz as quiz_handler
-from apps.bot.handlers.quiz import (
-    assign_formats,
-    build_chunk_question,
-    grade_chunk_answer,
-    plan_formats,
-    typed_gap_count,
-)
 from core.services import chunks as chunks_mod
 from core.services.books import MergedUnit, upsert_unit
 from core.services.calibration import _session_counts, compute_accuracy_window
-from core.services.chunks import (
-    count_due_chunks,
-    due_chunks,
-    insert_chunks,
-    mark_chunk_result,
-)
+from core.services.chunks import due_chunks, insert_chunks, mark_chunk_result
 from core.services.errors import SPACING_DAYS, due_errors, record_errors, spacing_step
 from core.services.sessions import complete_session, insert_session
 from core.services.stats import collect_stats, format_stats_message
@@ -339,103 +322,6 @@ def test_exported_chunk_still_due(cleanup_user: int) -> None:
     assert row["exported_to_anki"] is True
 
 
-def test_selection_cap_two_errors_three_chunks(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_due_errors(user_id, 2)
-    for phrase in ("cut costs", "by Friday", "run the numbers"):
-        _insert_chunk(user_id, chunk=phrase)
-    _insert_unit(
-        user_id, unit_number="1", items=["present continuous", "stative verbs"]
-    )
-
-    captured: dict[str, Any] = {}
-
-    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
-        captured["errors"] = errors
-        captured["chunks"] = list(chunks or [])
-        captured["book_items"] = list(book_items or [])
-        n = len(errors) + len(chunks or []) + len(book_items or [])
-        qs = [
-            {
-                "format": "choice",
-                "prompt": f"Q{i}",
-                "accept": ["a"],
-                "answer": "a",
-                "options": ["a", "b", "c", "d"],
-                "error_type": "quantifier_modifier",
-                "explanation": "x",
-                "error_id": errors[0].id if errors else None,
-            }
-            for i in range(n)
-        ]
-        return qs, "scenario"
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
-    now = datetime(2026, 8, 10, 10, 0, tzinfo=timezone.utc)
-    with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
-    assert action == "quiz"
-    assert len(captured["errors"]) == 2
-    assert len(captured["chunks"]) == 2
-    assert len(captured["book_items"]) == 1
-    assert count_due_chunks(user_id, now=FIXED_TODAY) == 3
-
-
-def test_zero_errors_zero_chunks_book_topup(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    for i in range(5):
-        _insert_unit(user_id, unit_number=str(i + 1), items=[f"teachable {i}"])
-
-    def fake_build(user_id, errors, *, chunks=None, book_items=None, chat_fn=None):
-        assert errors == []
-        assert list(chunks or []) == []
-        assert len(book_items or []) == 5
-        return (
-            [
-                {
-                    "source": "book",
-                    "format": "choice",
-                    "prompt": f"Q{i}",
-                    "accept": ["a"],
-                    "answer": "a",
-                    "options": ["a", "b", "c", "d"],
-                    "error_type": "quantifier_modifier",
-                    "explanation": "x",
-                }
-                for i in range(5)
-            ],
-            "scenario",
-        )
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
-    now = datetime(2026, 8, 10, 10, 0, tzinfo=timezone.utc)
-    with patch.object(quiz_handler, "_build_quiz_questions", side_effect=fake_build):
-        action = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
-    assert action == "quiz"
-
-
-def test_typed_mix_holds_with_chunks() -> None:
-    fmts = assign_formats(2, 2, 1)
-    assert len(fmts) == 5
-    assert fmts.count("gap") == 2
-    assert fmts[2] == "gap" and fmts[3] == "gap"
-    assert assign_formats(5, 0, 0) == plan_formats(5)
-    assert typed_gap_count(5) == 2
-
-
-def test_grade_chunk_answer_article_tolerant() -> None:
-    expect = ["the background of daily life"]
-    assert grade_chunk_answer("background of daily life", expect)
-    assert grade_chunk_answer("the background of daily life", expect)
-    assert grade_chunk_answer("a background of daily life", expect)
-    assert not grade_chunk_answer("background of life", expect)
-    assert not grade_chunk_answer("daily life background of", expect)
-
-
 def test_mark_chunk_result_ladder(cleanup_user: int) -> None:
     tid = cleanup_user
     user_id = _onboard(tid)
@@ -484,25 +370,6 @@ def test_spacing_step_shared() -> None:
     step2 = spacing_step(correct=False, streak_right=3, today=FIXED_TODAY)
     assert step2.streak_right == 0
     assert step2.next_review == FIXED_TODAY + timedelta(days=1)
-
-
-def test_build_chunk_question_gap(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    cid = _insert_chunk(
-        user_id,
-        chunk="cut costs",
-        full_sentence="We need to cut costs this quarter.",
-    )
-    chunk = due_chunks(user_id, 1, now=FIXED_TODAY)[0]
-    q = build_chunk_question(chunk)
-    assert q["source"] == "chunk"
-    assert q["chunk_id"] == cid
-    assert q["format"] == "gap"
-    assert "_____" in q["prompt"] or "___" in q["prompt"]
-    assert q["answer"] == "cut costs"
-    assert texts.QUIZ_CHUNK_LABEL == q["error_type_label"]
-    assert len(texts.QUIZ_CHUNK_LABEL) <= 20
 
 
 def test_insert_chunks_sets_tomorrow(cleanup_user: int) -> None:
@@ -592,66 +459,6 @@ def test_chunk_misses_do_not_drop_calibration(cleanup_user: int) -> None:
     after = compute_accuracy_window(user_id)
     assert after.accuracy is not None
     assert after.accuracy >= before.accuracy - 1e-9
-
-
-def test_advance_chunk_skips_calib_and_errors(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    cid = _insert_chunk(user_id, chunk="cut costs", next_review=FIXED_TODAY)
-    payload: dict[str, Any] = {
-        "index": 0,
-        "correct_count": 0,
-        "answered": 0,
-        "calib_correct": 0,
-        "calib_answered": 0,
-        "questions": [
-            {
-                "source": "chunk",
-                "chunk_id": cid,
-                "format": "gap",
-                "prompt": "We need to _____ this quarter.",
-                "answer": "cut costs",
-                "accept": ["cut costs"],
-                "explanation": "reduce",
-                "error_type_label": "Phrase",
-            }
-        ],
-        "chat_id": tid,
-        "message_id": 1,
-    }
-    sid = insert_session(user_id, "quiz", FIXED_TODAY, payload=payload, completed=False)
-    payload["session_id"] = sid
-    context = MagicMock()
-    context.bot.edit_message_text = AsyncMock()
-
-    asyncio.run(
-        quiz_handler._advance_after_answer(
-            context,
-            user_id,
-            sid,
-            payload,
-            correct=False,
-            question=payload["questions"][0],
-            user_answer="wrong",
-            now=FIXED_TODAY,
-        )
-    )
-    assert payload["answered"] == 1
-    assert payload["correct_count"] == 0
-    assert payload["calib_answered"] == 0
-    assert payload["calib_correct"] == 0
-    with connection() as conn:
-        n_err = conn.execute(
-            "SELECT COUNT(*)::int AS n FROM errors WHERE user_id = %s",
-            (user_id,),
-        ).fetchone()["n"]
-        row = conn.execute(
-            "SELECT times_wrong, next_review FROM chunks WHERE id = %s",
-            (cid,),
-        ).fetchone()
-    assert int(n_err) == 0
-    assert int(row["times_wrong"]) == 1
-    assert row["next_review"] == FIXED_TODAY + timedelta(days=1)
 
 
 def test_stats_shows_due_chunks(cleanup_user: int) -> None:

@@ -1,4 +1,13 @@
-"""Bot entrypoint: build the Telegram application and start polling."""
+"""Bot entrypoint: build the Telegram application and start polling.
+
+**W22: the bot is the couple challenge and nothing else a learner can use.**
+Every teaching handler — quiz, reading, diary, talk, shadow, voice, capture,
+prep, books, CSV import, settings, onboarding, the guide, the admin panel —
+was deleted with its dispatch tests; the web app is where practice lives
+(PRODUCT-PRINCIPLES §1). What is left: the access gate, `/start` and `/help`
+(one reply pointing at the app), `/ping`, the couple challenge, and the error
+handler that tells the operator when one of those raises.
+"""
 
 from __future__ import annotations
 
@@ -12,47 +21,11 @@ from apps.bot import texts
 from core.logging import configure_logging
 from core.config import ConfigError, load_settings
 from apps.bot.handlers.access import build_access_handler
-from apps.bot.handlers.access_request import build_access_request_handlers
-from apps.bot.handlers.admin import build_admin_handler, build_admin_orphan_handler
-from apps.bot.handlers.book import build_book_handler, init_book_prompt
-from apps.bot.handlers.book_test import (
-    build_book_test_handlers,
-    init_book_test_prompt,
-)
-from apps.bot.handlers.capture import build_capture_handlers, init_capture_prompt
-from apps.bot.handlers.prep import build_prep_handler, init_prep_prompt
-from apps.bot.handlers.conversation import (
-    build_conversation_handlers,
-    init_conversation_prompt,
-)
-from apps.bot.handlers.correction import build_correction_handler, init_correction_prompt
 from apps.bot.handlers.couple import build_couple_handlers, init_couple_prompt
-from apps.bot.handlers.diary import build_diary_handlers, init_diary_prompt
-from apps.bot.handlers.shadow import build_shadow_handlers
-from apps.bot.handlers.help import build_help_handler
-from core.services.vocab_import import init_vocab_prompt
-from apps.bot.handlers.guide import build_guide_handler, build_guide_orphan_handler
-from apps.bot.handlers.interests import build_interests_handler
-from apps.bot.handlers.nudge import build_nudge_handler
-from apps.bot.handlers.onboarding import build_onboarding_handler
-from apps.bot.handlers.quiz import (
-    build_present_handlers,
-    build_quiz_handlers,
-    init_quiz_prompt,
-)
-from apps.bot.handlers.reading import build_reading_handler, init_reading_prompt
-from apps.bot.handlers.settings import (
-    build_settings_editor_handler,
-    build_settings_handlers,
-    build_settings_orphan_handler,
-)
-from apps.bot.handlers.voice import build_voice_handler, init_voice_prompt
+from apps.bot.handlers.help import build_help_handlers
 from core.instance_lock import InstanceLock, InstanceLockError
 from apps.bot.scheduler import start_scheduler, stop_scheduler
 from apps.bot.alerts import on_error
-from apps.bot.anki_delivery import handle_anki_command
-from apps.bot.handlers.csv_import import build_csv_import_handlers
-from apps.bot.handlers.import_cmd import handle_import_command
 from apps.bot.commands import register_bot_commands
 
 logger = logging.getLogger(__name__)
@@ -71,63 +44,12 @@ def register_handlers(app: Application) -> None:
     app.add_error_handler(on_error)
     # S18d: real pre-handler gate — unapproved traffic never reaches group 0.
     app.add_handler(build_access_handler(), group=-1)
-    access_req, access_decide = build_access_request_handlers()
-    app.add_handler(access_req)
-    app.add_handler(access_decide)
-    app.add_handler(build_admin_handler())  # tapped-only; operator-only
-    app.add_handler(build_admin_orphan_handler())
-    app.add_handler(build_onboarding_handler())
-    app.add_handler(build_help_handler())
-    app.add_handler(build_guide_handler())  # tapped-only; no text filter
-    app.add_handler(build_guide_orphan_handler())  # stale guide: after restart
+    for handler in build_help_handlers():
+        app.add_handler(handler)
     app.add_handler(CommandHandler("ping", ping))
-    app.add_handler(CommandHandler("anki", handle_anki_command))
-    app.add_handler(CommandHandler("import", handle_import_command))
-    # S15b: private CSV documents; IMAGE excluded from non-CSV so /book keeps pages.
-    csv_doc, non_csv_doc, share_cb, share_orphan = build_csv_import_handlers()
-    app.add_handler(csv_doc)
-    app.add_handler(non_csv_doc)
-    app.add_handler(share_cb)
-    app.add_handler(share_orphan)
-    app.add_handler(build_prep_handler())
-    app.add_handler(build_diary_handlers())
-    shadow_cmd, shadow_cb = build_shadow_handlers()
-    app.add_handler(shadow_cmd)
-    app.add_handler(shadow_cb)  # shadow:again taps; no text filter
-    pause_cmd, stats_cmd, pause_cb = build_settings_handlers()
-    app.add_handler(pause_cmd)
-    app.add_handler(stats_cmd)
-    app.add_handler(pause_cb)
-    app.add_handler(build_settings_editor_handler())  # tapped-only; no text filter
-    app.add_handler(build_settings_orphan_handler())  # stale set: after restart
-    quiz_text, quiz_choice = build_quiz_handlers()
-    present_ack, present_orphan = build_present_handlers()
-    app.add_handler(quiz_choice)
-    app.add_handler(present_ack)
-    app.add_handler(present_orphan)
-    # S15: FORWARDED before gap quiz so a forward is never graded as an answer.
-    # Narrow filter — ordinary typed CH answers (book Other, interests) cannot match.
-    capture_fwd, capture_cmd = build_capture_handlers()
-    app.add_handler(capture_fwd)
-    app.add_handler(capture_cmd)
-    app.add_handler(quiz_text)  # before correction — open-quiz filter
-    talk_cmd, talk_text, talk_cb, talk_orphan = build_conversation_handlers()
-    app.add_handler(talk_cmd)
-    app.add_handler(talk_cb)
-    app.add_handler(talk_orphan)
-    app.add_handler(talk_text)  # after quiz gap; before correction — S26
-    app.add_handler(build_reading_handler())  # callbacks only; no text filter
-    app.add_handler(build_nudge_handler())  # nudge: taps only; no text filter
-    test_cmd, test_cb = build_book_test_handlers()
-    app.add_handler(test_cb)  # btest: callbacks; no text filter
-    app.add_handler(test_cmd)
-    app.add_handler(build_voice_handler())
-    app.add_handler(build_interests_handler())
-    app.add_handler(build_book_handler())
     couple_here, couple_answers = build_couple_handlers()
     app.add_handler(couple_here)
-    app.add_handler(couple_answers)  # group text; before correction
-    app.add_handler(build_correction_handler())
+    app.add_handler(couple_answers)  # group text
 
 
 async def _post_init(application) -> None:
@@ -170,18 +92,7 @@ def main() -> int:
 
     configure_logging(settings)
 
-    init_correction_prompt()
-    init_quiz_prompt()
-    init_voice_prompt()
-    init_diary_prompt()
-    init_conversation_prompt()
-    init_reading_prompt()
-    init_book_prompt()
-    init_book_test_prompt()
-    init_capture_prompt()
-    init_prep_prompt()
     init_couple_prompt()
-    init_vocab_prompt()
 
     app = (
         ApplicationBuilder()

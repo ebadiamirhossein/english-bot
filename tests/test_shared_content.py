@@ -2,32 +2,22 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from telegram import CallbackQuery, Chat, Message, Update, User
-from telegram.ext import ApplicationBuilder
 
-from apps.bot import texts
 from core.db import close_pool, connection
-from apps.bot.handlers.csv_import import (
-    on_share_orphan_callback,
-    on_share_slang_callback,
-    s24_share_button_labels,
-)
 from core.services.access_control import (
     approve_access,
     delivery_lister_ids,
     revoke_access,
 )
-from core.services.books import MergedUnit, upsert_unit
+from core.services.books import MergedUnit
 from core.services.chunks import due_chunks, insert_chunks
 from core.services.reading import normalize_for_match
 from core.services.shared_content import (
-    OUTCOME_DELIVERED,
     OUTCOME_SKIPPED_OWNED,
     backfill_shared_library,
     book_content_key,
@@ -247,44 +237,6 @@ def test_reimport_zero_new_rows(two_users: tuple[int, int]) -> None:
     assert _count_chunks(b_id, source="slang") == 2
 
 
-def test_sender_exactly_one_copy_on_share(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    items = _slang_items()
-    with patch(
-        "core.services.shared_content.list_recipients", return_value=[user_id]
-    ):
-        stats = record_and_fanout_chunks(
-            items, created_by=user_id, source="slang", rejected=1
-        )
-    assert _count_chunks(user_id, source="slang") == 2
-    with connection() as conn:
-        n = conn.execute(
-            """
-            SELECT COUNT(*) AS n FROM chunks
-             WHERE user_id = %s AND chunk = %s
-            """,
-            (user_id, "mid"),
-        ).fetchone()
-    assert int(n["n"]) == 1
-    # Reply fields: sender imported/duplicates, file-level rejected, users_reached.
-    assert stats.imported == 2
-    assert stats.duplicates == 0
-    assert stats.rejected == 1
-    assert stats.users_reached == 1
-    body = texts.IMPORT_SHARE_RESULT.format(
-        imported=stats.imported,
-        duplicates=stats.duplicates,
-        rejected=stats.rejected,
-        users_reached=stats.users_reached,
-        due=0,
-    )
-    assert "Your copies — imported: 2" in body
-    assert "already had: 0" in body
-    assert "skipped: 1" in body
-    assert "Users reached: 1" in body
-
-
 def test_per_user_dedupe_writes_skipped_owned(
     two_users: tuple[int, int],
 ) -> None:
@@ -378,7 +330,11 @@ def test_backfill_idempotent_redo_onboarding(cleanup_user: int) -> None:
     ):
         record_and_fanout_chunks(items, created_by=user_id, source="slang")
     before = _count_chunks(user_id, source="slang")
-    _onboard(user_id)  # redo
+    # #448: the redo is the SAME learner onboarding again, so it is keyed on the
+    # same Telegram id. This read `_onboard(user_id)` -- the internal id passed
+    # where a Telegram id belongs -- which registered a second `Shared Test`
+    # user that no fixture named and nothing deleted (300 of them by 2026-09-25).
+    assert _onboard(tid) == user_id  # redo
     assert backfill_shared_library(user_id) == 0
     assert _count_chunks(user_id, source="slang") == before
 
@@ -569,37 +525,6 @@ def test_try_backfill_soft_never_raises(cleanup_user: int) -> None:
     tid = cleanup_user
     # No users row — no-op success path.
     assert try_backfill_soft(tid) is True
-
-
-def test_s24_button_labels_max_20() -> None:
-    for label in s24_share_button_labels():
-        assert len(label) <= 20, label
-
-
-def test_share_orphan_warm_line(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    before = _count_chunks(user_id)
-    user = User(id=tid, first_name="A", is_bot=False)
-    chat = Chat(id=tid, type="private")
-    msg = MagicMock(spec=Message)
-    msg.reply_text = AsyncMock()
-    query = MagicMock(spec=CallbackQuery)
-    query.data = "share:slang:yes"
-    query.answer = AsyncMock()
-    query.edit_message_text = AsyncMock()
-    query.message = msg
-    update = Update(update_id=1, callback_query=query)
-    object.__setattr__(update, "_effective_user", user)
-    object.__setattr__(update, "_effective_chat", chat)
-    context = MagicMock()
-    context.user_data = {}  # no pending — restart cleared it
-    asyncio.run(on_share_orphan_callback(update, context))
-    query.edit_message_text.assert_awaited()
-    assert texts.IMPORT_SHARE_STALE in str(
-        query.edit_message_text.await_args
-    )
-    assert _count_chunks(user_id) == before  # no partial import
 
 
 def test_zero_errors_on_fanout(cleanup_user: int) -> None:

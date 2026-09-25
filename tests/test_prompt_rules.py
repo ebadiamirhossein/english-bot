@@ -1,4 +1,10 @@
-"""W3: the single-language / no-transliteration rule reaches all five prompts (six since W16a).
+"""W3: the single-language / no-transliteration rule reaches every explanation prompt.
+
+**W22: three paths, down from seven.** ``diary``, ``voice``, ``capture`` and
+``conversation_close`` were the Telegram handlers' own prompt builders and were
+deleted with them; what remains is the web's correction and writing prompts.
+The two pins on those handlers' wording (S26c's close-out, capture's word cap)
+went with the handlers they pinned.
 
 **Known issue #45.** S26c fixed this for the conversation close-out by writing
 the rule inline, and left the other four explanation paths without it — so the
@@ -30,7 +36,6 @@ PROMPT_BUILDERS = {}
 
 
 def _register() -> None:
-    from apps.bot.handlers import capture, conversation, diary, voice
     from core.services import correction, writing
 
     PROMPT_BUILDERS.update(
@@ -46,14 +51,6 @@ def _register() -> None:
             "writing_paragraph": lambda user: writing.build_system_prompt(
                 user, "paragraph", "Write six sentences about yesterday."
             ),
-            "diary": diary.build_diary_system_prompt,
-            # voice's builder also decides whether this is the closing turn;
-            # the explanation rule is the same either way.
-            "voice": lambda user: voice.build_voice_system_prompt(
-                user, final_turn=True
-            ),
-            "capture": capture.build_system_prompt,
-            "conversation_close": conversation.build_conversation_close_prompt,
         }
     )
 
@@ -84,22 +81,18 @@ def builders():
         _register()
 
 
-def test_all_seven_paths_are_covered() -> None:
+def test_all_three_paths_are_covered() -> None:
     """A guard for everything below: a shrinking dict passes every check."""
     assert set(PROMPT_BUILDERS) == {
         "correction",
         "writing_correction",
         "writing_paragraph",
-        "diary",
-        "voice",
-        "capture",
-        "conversation_close",
     }
 
 
 @pytest.mark.parametrize(
     "name",
-    ["correction", "writing_correction", "writing_paragraph", "diary", "voice", "capture", "conversation_close"],
+    ["correction", "writing_correction", "writing_paragraph"],
 )
 def test_the_rule_reaches_the_rendered_prompt_when_fallback_is_on(name) -> None:
     """The learner has asked for explanations in their own language.
@@ -120,7 +113,7 @@ def test_the_rule_reaches_the_rendered_prompt_when_fallback_is_on(name) -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["correction", "writing_correction", "writing_paragraph", "diary", "voice", "capture", "conversation_close"],
+    ["correction", "writing_correction", "writing_paragraph"],
 )
 def test_the_rule_reaches_the_rendered_prompt_when_fallback_is_off(name) -> None:
     """Explanations stay English. The remaining failure is drifting into the
@@ -131,7 +124,7 @@ def test_the_rule_reaches_the_rendered_prompt_when_fallback_is_off(name) -> None
 
 @pytest.mark.parametrize(
     "name",
-    ["correction", "writing_correction", "writing_paragraph", "diary", "voice", "capture", "conversation_close"],
+    ["correction", "writing_correction", "writing_paragraph"],
 )
 def test_the_native_language_placeholder_is_filled(name) -> None:
     """An unfilled `{native_language}` would ship a literal brace to the model.
@@ -181,44 +174,12 @@ def test_the_clause_is_defined_once() -> None:
     )
 
 
-def test_the_conversation_close_wording_did_not_change() -> None:
-    """S26c's text, pinned.
-
-    `conversation_close` already had the rule inline and was already correct.
-    W3 replaced that inline text with the shared constant, which must be a pure
-    refactor — a template that was correct and is now *differently* correct
-    would be an accidental behaviour change on a live feature.
-    """
-    from apps.bot.handlers import conversation
-
-    assert conversation._FALLBACK_RULE_TRUE.endswith(SINGLE_LANGUAGE_RULE)
-    assert conversation._FALLBACK_RULE_FALSE.endswith(ENGLISH_ONLY_RULE)
-    assert conversation._FALLBACK_RULE_TRUE.startswith(
-        "BUT when the error type is abstract grammar"
-    )
-
-
-def test_captures_own_wording_survived() -> None:
-    """capture's rule is bespoke — glosses and a 25-word cap, not error types.
-
-    W3 appended the shared clause rather than replacing capture's wording. If a
-    later change swaps the whole rule for the shared one, capture silently
-    loses its word cap, which is the kind of prompt regression that shows up as
-    "the app got chattier" and is never traced back.
-    """
-    from apps.bot.handlers import capture
-
-    assert "max 25 words" in capture._FALLBACK_RULE_TRUE
-    assert "gloss" in capture._FALLBACK_RULE_TRUE
-    assert capture._FALLBACK_RULE_TRUE.endswith(SINGLE_LANGUAGE_RULE)
-
-
 def test_the_no_inline_cue_rule_survived() -> None:
     """**The rule is the whole fix for P1's two rejections, so deleting it must
     fail rather than pass quietly.**
 
-    Same instrument and same reason as `test_the_conversation_close_wording_did
-    _not_change` and `test_captures_own_wording_survived`: a prompt rule with no
+    Same instrument and same reason as the S26c and capture wording pins (both
+    deleted at W22 with the handlers they pinned): a prompt rule with no
     check behind it is a convention, and this one was added because the prompt
     did **not** forbid the shape the judge rejected — the generator broke no rule
     it had.

@@ -3,23 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import uuid
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from telegram import Chat, Message, Update, User
 
-from apps.bot import texts
 from core.db import close_pool, connection
-from apps.bot.handlers import prep as prep_handler
-from core.llm import LLMError
 from core.services.anki import build_tsv, fetch_unexported_chunks
 from core.services.prep import (
     EXPECTED_CHUNKS,
     PrepValidationError,
-    format_prep_reply,
     persist_and_send,
     prep_source,
     slugify_topic,
@@ -174,25 +169,6 @@ def _make_update(tid: int, text: str) -> tuple[Update, MagicMock]:
 # --- Source / slug ------------------------------------------------------------
 
 
-def test_the_prep_prompt_forbids_slang_and_taboo() -> None:
-    """PRD §8.5.2: "`/prep` and any work-context generation filters out `slang`
-    and `taboo` entirely. A client-call prep sheet must never suggest *that's a
-    hard pass*."
-
-    Deterministic, in the shape W3's "all five templates contain the shared
-    rule" test takes. It asserts the instruction is present — **it does not
-    claim a model always complies**, which is why the deck-side refusal in
-    `core.services.cards.refuse_forbidden_prep_register` exists as well. That
-    half is the durable one: `/prep` dies at W22 and the deck does not.
-    """
-    from apps.bot.handlers.prep import _PROMPT_PATH
-
-    text = _PROMPT_PATH.read_text(encoding="utf-8").lower()
-    assert "slang" in text, "prep.txt does not mention slang at all"
-    assert "taboo" in text
-    assert "never include slang" in text
-
-
 def test_prep_source_marker_format() -> None:
     assert prep_source("marketing budget meeting") == (
         "prep_marketing_budget_meeting"
@@ -320,235 +296,3 @@ def test_prep_chunks_in_anki_tsv(cleanup_user: int) -> None:
 # --- Handler ------------------------------------------------------------------
 
 
-def test_handler_success_persists_and_no_topic_in_logs(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, f"/prep {COMPANY_TOPIC}")
-    context = MagicMock()
-    context.args = COMPANY_TOPIC.split()
-    context.bot.send_chat_action = AsyncMock()
-
-    async def _run() -> None:
-        with (
-            patch(
-                "apps.bot.handlers.prep.chat",
-                return_value=_good_llm(),
-            ),
-            caplog.at_level(logging.INFO),
-        ):
-            await prep_handler.on_prep_command(update, context)
-
-    asyncio.run(_run())
-    message.reply_text.assert_awaited_once()
-    reply = message.reply_text.await_args.args[0]
-    assert texts.PREP_SECTION_CHUNKS in reply
-    assert texts.PREP_SECTION_FRAMES in reply
-    assert "▸" in reply
-    rows = _chunk_rows(user_id)
-    assert len(rows) == 10
-    assert all(r["source"] == prep_source(COMPANY_TOPIC) for r in rows)
-    assert _error_count(user_id) == 0
-    assert _session_count(user_id) == 0
-    assert COMPANY_TOPIC not in caplog.text
-    assert "AcmeCorpZX9" not in caplog.text
-    assert f"user_id={user_id}" in caplog.text
-    assert "handler=prep" in caplog.text
-
-
-def test_handler_partial_chunks_sends_and_warns(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, f"/prep {TOPIC_OK}")
-    context = MagicMock()
-    context.args = TOPIC_OK.split()
-    context.bot.send_chat_action = AsyncMock()
-    # 9 good + 1 broken → 9 after validation
-    raw = _good_llm(n_chunks=10, break_index=5)
-
-    async def _run() -> None:
-        with (
-            patch("apps.bot.handlers.prep.chat", return_value=raw),
-            caplog.at_level(logging.WARNING),
-        ):
-            await prep_handler.on_prep_command(update, context)
-
-    asyncio.run(_run())
-    message.reply_text.assert_awaited_once()
-    assert len(_chunk_rows(user_id)) == 9
-    assert any(
-        "partial_chunks" in r.message and "count=9" in r.message
-        for r in caplog.records
-    )
-
-
-def test_handler_bare_prep_usage_no_llm(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, "/prep")
-    context = MagicMock()
-    context.args = []
-
-    with patch("apps.bot.handlers.prep.chat") as chat_mock:
-        asyncio.run(prep_handler.on_prep_command(update, context))
-    chat_mock.assert_not_called()
-    message.reply_text.assert_awaited_once_with(texts.PREP_USAGE)
-
-
-def test_handler_short_topic_usage_no_llm(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, "/prep ab")
-    context = MagicMock()
-    context.args = ["ab"]
-
-    with patch("apps.bot.handlers.prep.chat") as chat_mock:
-        asyncio.run(prep_handler.on_prep_command(update, context))
-    chat_mock.assert_not_called()
-    message.reply_text.assert_awaited_once_with(texts.PREP_USAGE)
-
-
-def test_handler_over_length_no_llm(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    long_topic = "x" * (prep_handler._MAX_TOPIC_CHARS + 1)
-    update, message = _make_update(tid, f"/prep {long_topic}")
-    context = MagicMock()
-    context.args = [long_topic]
-
-    with patch("apps.bot.handlers.prep.chat") as chat_mock:
-        asyncio.run(prep_handler.on_prep_command(update, context))
-    chat_mock.assert_not_called()
-    message.reply_text.assert_awaited_once_with(texts.PREP_TOO_LONG)
-
-
-def test_handler_malformed_json_warm_degrade(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, f"/prep {TOPIC_OK}")
-    context = MagicMock()
-    context.args = TOPIC_OK.split()
-    context.bot.send_chat_action = AsyncMock()
-
-    async def _run() -> None:
-        with (
-            patch("apps.bot.handlers.prep.chat", return_value="not-json-object"),
-            caplog.at_level(logging.WARNING),
-        ):
-            await prep_handler.on_prep_command(update, context)
-
-    asyncio.run(_run())
-    message.reply_text.assert_awaited_once_with(texts.PREP_FAILED)
-    assert _chunk_rows(user_id) == []
-    assert any("raw=" in r.message for r in caplog.records)
-    assert TOPIC_OK not in caplog.text
-
-
-def test_handler_llm_error_warm_degrade(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, f"/prep {TOPIC_OK}")
-    context = MagicMock()
-    context.args = TOPIC_OK.split()
-    context.bot.send_chat_action = AsyncMock()
-
-    async def _run() -> None:
-        with patch(
-            "apps.bot.handlers.prep.chat",
-            side_effect=LLMError("boom"),
-        ):
-            await prep_handler.on_prep_command(update, context)
-
-    asyncio.run(_run())
-    message.reply_text.assert_awaited_once_with(texts.LLM_FAILED)
-    assert _chunk_rows(user_id) == []
-
-
-def test_handler_send_failure_no_chunks(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, f"/prep {TOPIC_OK}")
-    message.reply_text = AsyncMock(
-        side_effect=[RuntimeError("send failed"), None]
-    )
-    context = MagicMock()
-    context.args = TOPIC_OK.split()
-    context.bot.send_chat_action = AsyncMock()
-
-    async def _run() -> None:
-        with patch(
-            "apps.bot.handlers.prep.chat",
-            return_value=_good_llm(),
-        ):
-            await prep_handler.on_prep_command(update, context)
-
-    asyncio.run(_run())
-    assert _chunk_rows(user_id) == []
-    assert message.reply_text.await_count == 2
-    assert message.reply_text.await_args.args[0] == texts.PREP_FAILED
-
-
-def test_cefr_and_work_domain_reach_prompt(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid, cefr="C1", domain="product design")
-    update, message = _make_update(tid, f"/prep {TOPIC_OK}")
-    context = MagicMock()
-    context.args = TOPIC_OK.split()
-    context.bot.send_chat_action = AsyncMock()
-    captured: dict[str, Any] = {}
-
-    def fake_chat(messages: Any, **kwargs: Any) -> dict[str, Any]:
-        captured["system"] = kwargs.get("system")
-        captured["messages"] = messages
-        return _good_llm()
-
-    async def _run() -> None:
-        with patch("apps.bot.handlers.prep.chat", side_effect=fake_chat):
-            await prep_handler.on_prep_command(update, context)
-
-    asyncio.run(_run())
-    system = captured["system"]
-    assert system is not None
-    assert "C1" in system
-    assert "product design" in system
-    assert TOPIC_OK in captured["messages"][0]["content"]
-
-
-def test_format_reply_separates_chunks_and_frames() -> None:
-    body = format_prep_reply(
-        topic=TOPIC_OK,
-        chunks=[
-            {
-                "chunk": "push back on",
-                "full_sentence": "I want to push back on that.",
-                "meaning": "politely disagree",
-            }
-        ],
-        frames=["I'd like to push back on ___ because ___"],
-    )
-    assert texts.PREP_TITLE.format(topic=TOPIC_OK) in body
-    assert texts.PREP_SECTION_CHUNKS in body
-    assert texts.PREP_SECTION_FRAMES in body
-    assert "1. push back on — politely disagree" in body
-    assert "▸ I'd like to push back on ___ because ___" in body
-    # Frames section after phrases
-    assert body.index(texts.PREP_SECTION_CHUNKS) < body.index(
-        texts.PREP_SECTION_FRAMES
-    )
-
-
-def test_s14_button_labels_max_20() -> None:
-    """S14 ships no buttons; keep the label loop for any future BTN_PREP_*."""
-    labels = [
-        getattr(texts, name)
-        for name in dir(texts)
-        if name.startswith("BTN_PREP")
-    ]
-    for label in labels:
-        assert isinstance(label, str)
-        assert len(label) <= 20, label

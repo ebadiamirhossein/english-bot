@@ -2,38 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
-import time as time_mod
 import uuid
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.db import close_pool, connection
-from apps.bot.handlers.reading import deliver_evening, init_reading_prompt
-from apps.bot.scheduler import (
-    EVENING_FIRST_SECONDS,
-    POLL_SECONDS,
-    EligibleUser,
-    is_user_due_for_evening,
-    is_user_due_for_morning,
-)
-from core.services.interests import list_interests, replace_interests, select_topic
+from core.db import connection
+from core.services.interests import replace_interests, select_topic
 from core.services.reading import (
     ReadingValidationError,
     normalize_for_match,
     validate_reading_payload,
-)
-from core.services.sessions import (
-    bot_initiated_count,
-    has_reading_session_on,
-    has_session_on,
-    increment_bot_messages,
-    insert_session,
-    local_today,
 )
 from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_460_000_000
@@ -48,13 +29,6 @@ _TUESDAY_EVENING_UTC = datetime(2026, 8, 4, 18, 5, tzinfo=timezone.utc)
 @pytest.fixture
 def fake_telegram_id() -> int:
     return FAKE_TELEGRAM_ID_BASE + (uuid.uuid4().int % 1_000_000_000)
-
-
-@pytest.fixture(autouse=True)
-def _close_pool_after_test() -> None:
-    init_reading_prompt()
-    yield
-    close_pool()
 
 
 def _delete_user(telegram_user_id: int) -> None:
@@ -125,26 +99,6 @@ def _set_interest_meta(
                 """,
                 (weight, last_used, tid, topic),
             )
-
-
-def _eligible(
-    user_id: int,
-    *,
-    tz: str = "Europe/Vilnius",
-    evening: str = "21:00",
-    morning: str = "07:00",
-) -> EligibleUser:
-    eh, em = map(int, evening.split(":"))
-    mh, mm = map(int, morning.split(":"))
-    return EligibleUser(
-        id=user_id,
-        # Deliberately not equal to `id`.
-        telegram_address=_TG_ADDRESS_BASE + user_id,
-        timezone=tz,
-        morning_time=time(mh, mm),
-        paused_until=None,
-        evening_time=time(eh, em),
-    )
 
 
 def _words(n: int, seed: str = "word") -> str:
@@ -240,40 +194,6 @@ def _mock_app(
 # --- Eligibility --------------------------------------------------------------
 
 
-def test_eligibility_only_mon_wed_fri(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    user = _eligible(user_id)
-    assert is_user_due_for_evening(user, _MONDAY_EVENING_UTC) is True
-    assert is_user_due_for_evening(user, _TUESDAY_EVENING_UTC) is False
-    wed = datetime(2026, 8, 5, 18, 5, tzinfo=timezone.utc)
-    assert is_user_due_for_evening(user, wed) is True
-    fri = datetime(2026, 8, 7, 18, 5, tzinfo=timezone.utc)
-    assert is_user_due_for_evening(user, fri) is True
-    sun = datetime(2026, 8, 9, 18, 5, tzinfo=timezone.utc)
-    assert is_user_due_for_evening(user, sun) is False
-
-
-def test_eligibility_only_at_or_after_evening_time(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid, evening="21:00")
-    user = _eligible(user_id, evening="21:00")
-    before = datetime(2026, 8, 3, 17, 59, tzinfo=timezone.utc)  # 20:59 Vilnius
-    assert is_user_due_for_evening(user, before) is False
-    assert is_user_due_for_evening(user, _MONDAY_EVENING_UTC) is True
-
-
-def test_eligibility_once_per_day(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    user = _eligible(user_id)
-    day = local_today("Europe/Vilnius", _MONDAY_EVENING_UTC)
-    assert is_user_due_for_evening(user, _MONDAY_EVENING_UTC) is True
-    insert_session(user_id, "reading", day, payload={"reading_id": 1}, completed=False)
-    assert has_reading_session_on(user_id, day) is True
-    assert is_user_due_for_evening(user, _MONDAY_EVENING_UTC) is False
-
-
 # --- Topic selection ----------------------------------------------------------
 
 
@@ -339,25 +259,6 @@ def test_topic_selection_alpha_tiebreak_stable(cleanup_user: int) -> None:
     assert first is not None and second is not None
     assert first.topic == "apple"
     assert second.topic == "apple"
-
-
-def test_last_used_set_on_successful_delivery(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interests(user_id, [("campaigns", "work"), ("travel", "life")])
-    app = _mock_app()
-    action = asyncio.run(
-        deliver_evening(
-            app,
-            user_id,
-            now=_MONDAY_EVENING_UTC,
-            chat_fn=lambda *a, **k: _valid_llm_payload(),
-        )
-    )
-    assert action == "reading"
-    day = local_today("Europe/Vilnius", _MONDAY_EVENING_UTC)
-    used = [r for r in list_interests(user_id) if r.last_used == day]
-    assert len(used) == 1
 
 
 # --- Validation ---------------------------------------------------------------
@@ -455,255 +356,3 @@ def test_validate_rejects_why_over_25_words() -> None:
 # --- Delivery paths -----------------------------------------------------------
 
 
-def test_ceiling_reached_nothing_written(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interests(user_id, [("campaigns", "work"), ("travel", "life")])
-    day = local_today("Europe/Vilnius", _MONDAY_EVENING_UTC)
-    for _ in range(3):
-        increment_bot_messages(user_id, day)
-    app = _mock_app()
-    chat_calls: list[int] = []
-
-    def chat_fn(*a: Any, **k: Any) -> dict:
-        chat_calls.append(1)
-        return _valid_llm_payload()
-
-    with caplog.at_level(logging.WARNING):
-        action = asyncio.run(
-            deliver_evening(app, user_id, now=_MONDAY_EVENING_UTC, chat_fn=chat_fn)
-        )
-    assert action == "skipped_ceiling"
-    assert chat_calls == []
-    assert _count_rows(user_id) == (0, 0, 0)
-    assert app.bot.send_message.await_count == 0
-    assert any("ceiling_reached" in r.message for r in caplog.records)
-
-
-def test_sending_increments_bot_message_counts(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interests(user_id, [("campaigns", "work"), ("travel", "life")])
-    day = local_today("Europe/Vilnius", _MONDAY_EVENING_UTC)
-    assert bot_initiated_count(user_id, day) == 0
-    app = _mock_app(telegram_id=tid)
-    action = asyncio.run(
-        deliver_evening(
-            app,
-            user_id,
-            now=_MONDAY_EVENING_UTC,
-            chat_fn=lambda *a, **k: _valid_llm_payload(),
-        )
-    )
-    assert action == "reading"
-    assert bot_initiated_count(user_id, day) == 1
-    assert app.bot.send_message.await_count == 1
-
-
-def test_reading_session_does_not_block_morning_quiz(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid, morning="07:00")
-    day = local_today("Europe/Vilnius", _MONDAY_EVENING_UTC)
-    insert_session(
-        user_id, "reading", day, payload={"reading_id": 99}, completed=False
-    )
-    assert has_session_on(user_id, day) is False
-    morning_now = datetime(2026, 8, 3, 4, 15, tzinfo=timezone.utc)  # 07:15 Vilnius
-    user = _eligible(user_id, morning="07:00")
-    assert is_user_due_for_morning(user, morning_now) is True
-
-
-def test_no_interests_skips_without_llm(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    app = _mock_app()
-    calls: list[int] = []
-
-    def chat_fn(*a: Any, **k: Any) -> dict:
-        calls.append(1)
-        return _valid_llm_payload()
-
-    with caplog.at_level(logging.WARNING):
-        action = asyncio.run(
-            deliver_evening(app, user_id, now=_MONDAY_EVENING_UTC, chat_fn=chat_fn)
-        )
-    assert action == "skipped_no_interests"
-    assert calls == []
-    assert _count_rows(user_id) == (0, 0, 0)
-    assert any("no_interests" in r.message for r in caplog.records)
-
-
-def test_validation_failure_writes_nothing(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interests(user_id, [("campaigns", "work"), ("travel", "life")])
-    app = _mock_app()
-    calls = {"n": 0}
-
-    def chat_fn(*a: Any, **k: Any) -> dict:
-        calls["n"] += 1
-        bad = _valid_llm_payload()
-        bad["chunks"] = bad["chunks"][:4]
-        return bad
-
-    with caplog.at_level(logging.WARNING):
-        action = asyncio.run(
-            deliver_evening(app, user_id, now=_MONDAY_EVENING_UTC, chat_fn=chat_fn)
-        )
-    assert action == "skipped_validation_failure"
-    assert calls["n"] == 2
-    assert _count_rows(user_id) == (0, 0, 0)
-    assert any("validation" in r.message for r in caplog.records)
-
-
-def test_chunk_not_in_body_and_body_too_short_write_nothing(
-    cleanup_user: int,
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interests(user_id, [("campaigns", "work"), ("travel", "life")])
-
-    bad_chunk = _valid_llm_payload()
-    bad_chunk["chunks"][0]["chunk"] = "this phrase is nowhere in the body at all"
-    action = asyncio.run(
-        deliver_evening(
-            _mock_app(),
-            user_id,
-            now=_MONDAY_EVENING_UTC,
-            chat_fn=lambda *a, **k: bad_chunk,
-        )
-    )
-    assert action == "skipped_validation_failure"
-    assert _count_rows(user_id) == (0, 0, 0)
-
-    short = _valid_llm_payload()
-    short["body"] = "Too short " + " ".join(c["chunk"] for c in short["chunks"])
-    action = asyncio.run(
-        deliver_evening(
-            _mock_app(),
-            user_id,
-            now=_MONDAY_EVENING_UTC,
-            chat_fn=lambda *a, **k: short,
-        )
-    )
-    assert action == "skipped_validation_failure"
-    assert _count_rows(user_id) == (0, 0, 0)
-
-
-def test_send_failure_rolls_back_and_stays_eligible(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interests(user_id, [("campaigns", "work"), ("travel", "life")])
-    app = _mock_app(send_side_effect=RuntimeError("telegram down"))
-    action = asyncio.run(
-        deliver_evening(
-            app,
-            user_id,
-            now=_MONDAY_EVENING_UTC,
-            chat_fn=lambda *a, **k: _valid_llm_payload(),
-        )
-    )
-    assert action == "skipped_send_failed"
-    assert _count_rows(user_id) == (0, 0, 0)
-    assert all(r.last_used is None for r in list_interests(user_id))
-    user = _eligible(user_id)
-    assert is_user_due_for_evening(user, _MONDAY_EVENING_UTC) is True
-
-
-def test_successful_run_writes_exact_rows(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interests(user_id, [("campaigns", "work"), ("travel", "life")])
-    app = _mock_app(telegram_id=tid, message_id=4242)
-    action = asyncio.run(
-        deliver_evening(
-            app,
-            user_id,
-            now=_MONDAY_EVENING_UTC,
-            chat_fn=lambda *a, **k: _valid_llm_payload(),
-        )
-    )
-    assert action == "reading"
-    readings, chunks, sessions = _count_rows(user_id)
-    assert readings == 1
-    assert chunks == 5
-    assert sessions == 1
-
-    with connection() as conn:
-        reading = conn.execute(
-            "SELECT title, completed, questions FROM readings WHERE user_id = %s",
-            (user_id,),
-        ).fetchone()
-        assert reading["completed"] is False
-        assert reading["title"] == "A week in marketing"
-        assert len(reading["questions"]) == 5
-        assert reading["questions"][0]["q"]
-        assert reading["questions"][0]["answer_index"] == 0
-
-        chunk_rows = conn.execute(
-            "SELECT source, track, exported_to_anki FROM chunks WHERE user_id = %s",
-            (user_id,),
-        ).fetchall()
-        assert all(r["exported_to_anki"] is False for r in chunk_rows)
-        assert all(str(r["source"]).startswith("reading_") for r in chunk_rows)
-
-        session = conn.execute(
-            """
-            SELECT payload, completed FROM sessions
-             WHERE user_id = %s AND task_type = 'reading'
-            """,
-            (user_id,),
-        ).fetchone()
-        assert session["completed"] is False
-        assert session["payload"]["reading_id"]
-        assert session["payload"]["chat_id"] == tid
-        assert session["payload"]["message_id"] == 4242
-
-
-def test_evening_job_offset_mid_interval() -> None:
-    """Evening must not share morning's 5s first-window (live miss 2026-08-06)."""
-    assert EVENING_FIRST_SECONDS == POLL_SECONDS // 2
-    assert EVENING_FIRST_SECONDS >= 60
-
-
-def test_reading_llm_does_not_block_event_loop(cleanup_user: int) -> None:
-    """asyncio.to_thread must let other coroutines run during chat()."""
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interests(user_id, [("campaigns", "work"), ("travel", "life")])
-    progress: list[str] = []
-
-    def slow_chat(*a: Any, **k: Any) -> dict[str, Any]:
-        progress.append("chat_start")
-        time_mod.sleep(0.25)
-        progress.append("chat_end")
-        return _valid_llm_payload()
-
-    async def watcher() -> None:
-        while "chat_start" not in progress:
-            await asyncio.sleep(0.01)
-        progress.append("watcher_ran")
-        while "chat_end" not in progress:
-            await asyncio.sleep(0.01)
-
-    async def main() -> str:
-        results = await asyncio.gather(
-            deliver_evening(
-                _mock_app(),
-                user_id,
-                now=_MONDAY_EVENING_UTC,
-                chat_fn=slow_chat,
-            ),
-            watcher(),
-        )
-        return results[0]
-
-    action = asyncio.run(main())
-    assert action == "reading"
-    assert progress.index("watcher_ran") < progress.index("chat_end")

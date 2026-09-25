@@ -2,32 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from psycopg.types.json import Jsonb
 from telegram import CallbackQuery, Chat, Message, Update, User
-from telegram.error import BadRequest
 
 from core.db import close_pool, connection
-from apps.bot.handlers.reading import (
-    _MAX_BUTTON_LABEL_CHARS,
-    _edit_or_resend,
-    all_s9c_button_labels,
-    grade_mcq,
-    on_reading_callback,
-    option_keyboard,
-    questions_keyboard,
-    rating_keyboard,
-    score_from_answers,
-)
-from core.services.interests import adjust_weight_for_rating, list_interests
-from core.services.reading import ReadingMcq, parse_stored_questions
+from core.services.interests import adjust_weight_for_rating
+from core.services.reading import parse_stored_questions
 from core.services.sessions import (
     get_reading_session_by_message,
     insert_session,
@@ -213,20 +200,6 @@ def _context_with_bot(
 # --- Grading ------------------------------------------------------------------
 
 
-def test_grade_right_and_wrong_index() -> None:
-    assert grade_mcq(2, 2) is True
-    assert grade_mcq(0, 2) is False
-
-
-def test_score_arithmetic_across_five() -> None:
-    questions = [
-        ReadingMcq(q="q", options=["a", "b", "c", "d"], answer_index=0, why="w")
-        for _ in range(5)
-    ]
-    answers = [0, 0, 1, 0, 2]
-    assert score_from_answers(answers, questions) == pytest.approx(0.6)
-
-
 # --- Parse / legacy -----------------------------------------------------------
 
 
@@ -250,15 +223,6 @@ def test_parse_stored_questions_rejects_legacy() -> None:
 
 
 # --- Button labels ------------------------------------------------------------
-
-
-def test_all_s9c_button_labels_within_20() -> None:
-    for label in all_s9c_button_labels():
-        assert len(label) <= _MAX_BUTTON_LABEL_CHARS, label
-    for markup in (questions_keyboard(), option_keyboard(0), rating_keyboard()):
-        for row in markup.inline_keyboard:
-            for btn in row:
-                assert len(btn.text) <= _MAX_BUTTON_LABEL_CHARS
 
 
 # --- Weight -------------------------------------------------------------------
@@ -327,220 +291,3 @@ def test_resolve_by_message_id_not_orphan(cleanup_user: int) -> None:
 # --- Handler flows ------------------------------------------------------------
 
 
-def test_progress_survives_restart_and_stale_is_noop(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interest(user_id, "apartments", "life", 1.0)
-    rid = _insert_reading(user_id)
-    sid = _insert_reading_session(
-        user_id,
-        rid,
-        chat_id=tid,
-        message_id=500,
-        payload_extra={
-            "phase": "questions",
-            "assessed": True,
-            "q_index": 2,
-            "answers": [0, 0],
-            "questions": _mcq_list(),
-        },
-    )
-    ctx = _context_with_bot(chat_id=tid)
-
-    async def _run() -> None:
-        with patch.object(CallbackQuery, "answer", new=AsyncMock()):
-            await on_reading_callback(
-                _callback_update(tid, "read:a:1:0", message_id=500), ctx
-            )
-            with connection() as conn:
-                row = conn.execute(
-                    "SELECT payload FROM sessions WHERE id = %s", (sid,)
-                ).fetchone()
-            assert row["payload"]["q_index"] == 2
-            assert row["payload"]["answers"] == [0, 0]
-            assert ctx.bot.edit_message_text.await_count == 0
-
-            await on_reading_callback(
-                _callback_update(tid, "read:a:2:0", message_id=500), ctx
-            )
-            with connection() as conn:
-                row = conn.execute(
-                    "SELECT payload FROM sessions WHERE id = %s", (sid,)
-                ).fetchone()
-            assert row["payload"]["q_index"] == 3
-            assert row["payload"]["answers"] == [0, 0, 0]
-            assert ctx.bot.edit_message_text.await_count == 1
-
-    asyncio.run(_run())
-
-
-def test_legacy_skip_to_rating_score_null(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interest(user_id, "apartments", "life", 1.0)
-    legacy = [
-        {
-            "question": "Q?",
-            "answer": "A",
-            "distractors": ["x", "y", "z"],
-        }
-        for _ in range(5)
-    ]
-    rid = _insert_reading(user_id, questions=legacy)
-    sid = _insert_reading_session(user_id, rid, chat_id=tid, message_id=500)
-    ctx = _context_with_bot(chat_id=tid)
-
-    async def _run() -> None:
-        with patch.object(CallbackQuery, "answer", new=AsyncMock()):
-            with caplog.at_level(logging.WARNING):
-                await on_reading_callback(
-                    _callback_update(tid, "read:start", message_id=500), ctx
-                )
-            assert any("not MCQ" in r.message for r in caplog.records)
-            with connection() as conn:
-                sess = conn.execute(
-                    "SELECT payload FROM sessions WHERE id = %s", (sid,)
-                ).fetchone()
-                assert sess["payload"]["phase"] == "rating"
-                assert sess["payload"]["assessed"] is False
-
-            await on_reading_callback(
-                _callback_update(tid, "read:r:4", message_id=500), ctx
-            )
-            with connection() as conn:
-                reading = conn.execute(
-                    "SELECT completed, score, rating FROM readings WHERE id = %s",
-                    (rid,),
-                ).fetchone()
-                sess = conn.execute(
-                    "SELECT completed, score FROM sessions WHERE id = %s", (sid,)
-                ).fetchone()
-            assert reading["completed"] is True
-            assert reading["rating"] == 4
-            assert reading["score"] is None
-            assert sess["completed"] is True
-            assert sess["score"] is None
-            assert list_interests(user_id)[0].weight == pytest.approx(1.15)
-
-    asyncio.run(_run())
-
-
-def test_full_qa_then_rating_writes_score(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_interest(user_id, "apartments", "life", 1.0)
-    rid = _insert_reading(user_id)
-    sid = _insert_reading_session(user_id, rid, chat_id=tid, message_id=500)
-    ctx = _context_with_bot(chat_id=tid)
-
-    async def _run() -> None:
-        with patch.object(CallbackQuery, "answer", new=AsyncMock()):
-            await on_reading_callback(
-                _callback_update(tid, "read:start", message_id=500), ctx
-            )
-            for i in range(5):
-                await on_reading_callback(
-                    _callback_update(
-                        tid, f"read:a:{i}:0", message_id=500, update_id=i + 2
-                    ),
-                    ctx,
-                )
-            with connection() as conn:
-                sess = conn.execute(
-                    "SELECT payload FROM sessions WHERE id = %s", (sid,)
-                ).fetchone()
-            assert sess["payload"]["phase"] == "rating"
-            assert sess["payload"]["score"] == pytest.approx(1.0)
-
-            await on_reading_callback(
-                _callback_update(tid, "read:r:5", message_id=500, update_id=20),
-                ctx,
-            )
-            with connection() as conn:
-                reading = conn.execute(
-                    "SELECT completed, score, rating FROM readings WHERE id = %s",
-                    (rid,),
-                ).fetchone()
-                sess = conn.execute(
-                    "SELECT completed, score FROM sessions WHERE id = %s", (sid,)
-                ).fetchone()
-            assert reading["completed"] is True
-            assert reading["rating"] == 5
-            assert reading["score"] == pytest.approx(1.0)
-            assert sess["score"] == pytest.approx(1.0)
-            assert list_interests(user_id)[0].weight == pytest.approx(1.30)
-
-    asyncio.run(_run())
-
-
-def test_edit_failure_resends_and_updates_message_id(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    rid = _insert_reading(user_id)
-    sid = _insert_reading_session(user_id, rid, chat_id=tid, message_id=500)
-    payload = {
-        "reading_id": rid,
-        "chat_id": tid,
-        "message_id": 500,
-        "phase": "questions",
-    }
-    ctx = _context_with_bot(
-        edit_side_effect=BadRequest("Message to edit not found"),
-        chat_id=tid,
-        send_message_id=888,
-    )
-
-    async def _run() -> None:
-        with caplog.at_level(logging.WARNING):
-            new_payload = await _edit_or_resend(
-                ctx,
-                user_id=user_id,
-                reading_id=rid,
-                session_id=sid,
-                payload=payload,
-                text="hello",
-                reply_markup=None,
-            )
-        assert new_payload["message_id"] == 888
-        assert ctx.bot.send_message.await_count == 1
-        assert any("edit failed" in r.message for r in caplog.records)
-        found = get_reading_session_by_message(user_id, tid, 888)
-        assert found is not None
-        assert found.id == sid
-
-    asyncio.run(_run())
-
-
-def test_message_not_modified_swallowed(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    rid = _insert_reading(user_id)
-    sid = _insert_reading_session(user_id, rid, chat_id=tid, message_id=500)
-    payload = {
-        "reading_id": rid,
-        "chat_id": tid,
-        "message_id": 500,
-    }
-    ctx = _context_with_bot(
-        edit_side_effect=BadRequest("Message is not modified"),
-        chat_id=tid,
-    )
-
-    async def _run() -> None:
-        out = await _edit_or_resend(
-            ctx,
-            user_id=user_id,
-            reading_id=rid,
-            session_id=sid,
-            payload=payload,
-            text="same",
-            reply_markup=None,
-        )
-        assert out["message_id"] == 500
-        assert ctx.bot.send_message.await_count == 0
-
-    asyncio.run(_run())

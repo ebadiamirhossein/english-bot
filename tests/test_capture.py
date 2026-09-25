@@ -3,24 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import uuid
 from datetime import date
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from telegram import Chat, Message, Update, User
 
-from apps.bot import texts
 from core.db import close_pool, connection
-from apps.bot.handlers import capture as capture_handler
-from core.llm import LLMError
 from core.services.anki import build_tsv, fetch_unexported_chunks
 from core.services.capture import (
     CAPTURE_SOURCE,
     CaptureValidationError,
-    format_capture_reply,
     persist_and_send,
     target_chunk_count,
     validate_capture_payload,
@@ -333,192 +328,3 @@ def test_captured_chunks_in_anki_tsv(cleanup_user: int) -> None:
 # --- Handler ------------------------------------------------------------------
 
 
-def test_handler_success_no_errors_no_body_in_logs(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, PRIVATE_PROSE)
-    context = MagicMock()
-    context.bot.send_chat_action = AsyncMock()
-
-    async def _run() -> None:
-        with (
-            patch(
-                "apps.bot.handlers.capture.chat",
-                return_value=_sanitized_pii_llm(),
-            ),
-            caplog.at_level(logging.INFO),
-        ):
-            await capture_handler._run_capture(update, context, PRIVATE_PROSE)
-
-    asyncio.run(_run())
-    message.reply_text.assert_awaited_once()
-    reply = message.reply_text.await_args.args[0]
-    assert "by Friday" in reply or "circle back" in reply
-    assert texts.CAPTURE_SELF_HINT in reply or len(reply) <= 400
-    assert _error_count(user_id) == 0
-    assert PII_NAME not in caplog.text
-    assert PII_FIGURE not in caplog.text
-    assert PRIVATE_PROSE not in caplog.text
-    assert f"user_id={user_id}" in caplog.text
-    assert "handler=capture" in caplog.text
-
-
-def test_handler_over_length_no_llm(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    long_text = "x" * (capture_handler._MAX_CHARS + 1)
-    update, message = _make_update(tid, long_text)
-    context = MagicMock()
-    context.args = []
-    # Use command path with args
-    context.args = [long_text]
-    update.message.text = f"/capture {long_text}"
-
-    with patch("apps.bot.handlers.capture.chat") as chat_mock:
-        asyncio.run(capture_handler.on_capture_command(update, context))
-    chat_mock.assert_not_called()
-    message.reply_text.assert_awaited_once_with(texts.CAPTURE_TOO_LONG)
-
-
-def test_handler_under_length_no_llm(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, "too short")
-    context = MagicMock()
-    context.bot.send_chat_action = AsyncMock()
-
-    with patch("apps.bot.handlers.capture.chat") as chat_mock:
-        asyncio.run(
-            capture_handler.on_forwarded_capture(update, context)
-        )
-    chat_mock.assert_not_called()
-    message.reply_text.assert_awaited_once_with(texts.CAPTURE_TOO_SHORT)
-
-
-def test_handler_bare_capture_usage_no_llm(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, "/capture")
-    context = MagicMock()
-    context.args = []
-
-    with patch("apps.bot.handlers.capture.chat") as chat_mock:
-        asyncio.run(capture_handler.on_capture_command(update, context))
-    chat_mock.assert_not_called()
-    message.reply_text.assert_awaited_once_with(texts.CAPTURE_USAGE)
-
-
-def test_handler_malformed_json_warm_degrade(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, PASSAGE_OK)
-    context = MagicMock()
-    context.bot.send_chat_action = AsyncMock()
-
-    async def _run() -> None:
-        with (
-            patch("apps.bot.handlers.capture.chat", return_value="not-json-object"),
-            caplog.at_level(logging.WARNING),
-        ):
-            await capture_handler._run_capture(update, context, PASSAGE_OK)
-
-    asyncio.run(_run())
-    message.reply_text.assert_awaited_once_with(texts.CAPTURE_FAILED)
-    assert _chunk_rows(user_id) == []
-    assert any("raw=" in r.message for r in caplog.records)
-    assert PASSAGE_OK not in caplog.text
-
-
-def test_handler_llm_error_warm_degrade(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, PASSAGE_OK)
-    context = MagicMock()
-    context.bot.send_chat_action = AsyncMock()
-
-    async def _run() -> None:
-        with patch(
-            "apps.bot.handlers.capture.chat",
-            side_effect=LLMError("boom"),
-        ):
-            await capture_handler._run_capture(update, context, PASSAGE_OK)
-
-    asyncio.run(_run())
-    message.reply_text.assert_awaited_once_with(texts.LLM_FAILED)
-    assert _chunk_rows(user_id) == []
-
-
-def test_handler_ok_false_warm_degrade(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, PASSAGE_OK)
-    context = MagicMock()
-    context.bot.send_chat_action = AsyncMock()
-
-    async def _run() -> None:
-        with patch(
-            "apps.bot.handlers.capture.chat",
-            return_value={"ok": False, "chunks": []},
-        ):
-            await capture_handler._run_capture(update, context, PASSAGE_OK)
-
-    asyncio.run(_run())
-    message.reply_text.assert_awaited_once_with(texts.CAPTURE_NOTHING_USEFUL)
-    assert _chunk_rows(user_id) == []
-    assert _error_count(user_id) == 0
-
-
-def test_handler_send_failure_no_chunks(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update, message = _make_update(tid, PASSAGE_OK)
-    # First reply (capture body) fails; soft CAPTURE_FAILED succeeds.
-    message.reply_text = AsyncMock(
-        side_effect=[RuntimeError("send failed"), None]
-    )
-    context = MagicMock()
-    context.bot.send_chat_action = AsyncMock()
-
-    async def _run() -> None:
-        with patch(
-            "apps.bot.handlers.capture.chat",
-            return_value=_good_llm(),
-        ):
-            await capture_handler._run_capture(update, context, PASSAGE_OK)
-
-    asyncio.run(_run())
-    assert _chunk_rows(user_id) == []
-    assert message.reply_text.await_count == 2
-    assert message.reply_text.await_args.args[0] == texts.CAPTURE_FAILED
-
-
-def test_format_reply_includes_hint_when_short() -> None:
-    body = format_capture_reply(
-        explanation="A short follow-up.",
-        chunks=[
-            {
-                "chunk": "circle back",
-                "full_sentence": "x",
-                "meaning": "return later",
-            }
-        ],
-        hint=texts.CAPTURE_SELF_HINT,
-    )
-    assert texts.CAPTURE_SELF_HINT in body
-    assert len(body) <= 400
-
-
-def test_s15_button_labels_max_20() -> None:
-    """S15 ships no buttons; keep the label loop for any future BTN_CAPTURE_*."""
-    labels = [
-        getattr(texts, name)
-        for name in dir(texts)
-        if name.startswith("BTN_CAPTURE")
-    ]
-    for label in labels:
-        assert isinstance(label, str)
-        assert len(label) <= 20, label

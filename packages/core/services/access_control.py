@@ -319,7 +319,9 @@ def delivery_lister_ids() -> dict[str, Callable[[], set[int]]]:
     Every bot-initiated eligible-user list must appear here. A new list that
     forgets the view will not be in this dict — add it when you add the list.
     """
-    from apps.bot.scheduler import list_candidate_users
+    # W22: from `core.scheduling`, where it has lived since W1 -- the bot's
+    # scheduler re-exported it and stopped doing so when its jobs moved out.
+    from core.scheduling import list_candidate_users
     from apps.bot.services import couple
     from core.services import (
         calibration,

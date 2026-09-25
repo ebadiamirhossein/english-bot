@@ -10,7 +10,8 @@ module, with the one pattern `core.copy_rules.BANNED`.
 (`tests/test_web_shell.py::test_no_guilt_copy_anywhere_in_the_frontend`, over
 `app/`, `components/`, `lib/`); W19 pins its own surface into that walk there.
 
-**THE BOT HAS FIFTEEN EXISTING HITS AND THEY ARE FROZEN, NOT FIXED.** Fixing
+**THE BOT HAD FIFTEEN EXISTING HITS AND THEY WERE FROZEN, NOT FIXED — W22 DELETED
+FOURTEEN WITH THEIR HANDLERS AND ONE REMAINS (see `BOT_BASELINE`).** Fixing
 them is an edit to `apps/bot/texts.py`, and the build run keeps the bot path
 byte-identical until W22 — which deletes the file. So they are a BASELINE:
 **a new offender fails this test, and so does a baseline entry that stops
@@ -35,24 +36,20 @@ from core.copy_rules import BANNED, offenders
 #: Every module whose constants are learner-facing copy.
 COPY_MODULES = ("apps.bot.texts", "core.copy")
 
-#: `apps/bot/texts.py`'s offenders on 2026-09-25, frozen until W22 deletes the
-#: file. Names only; `offenders()` reports the matched term beside each.
+#: `apps/bot/texts.py`'s offenders. Fifteen on 2026-09-25, frozen while the bot
+#: path stayed byte-identical; **W22 deleted fourteen with the handlers that
+#: sent them**, and the list shrank in the same commit, as the rule below
+#: requires. The fourteen, quoted (#82's shape): `ANKI_SEND_FAILED`,
+#: `BOOK_PROCESS_FAILED`, `CAPTURE_FAILED`, `GUIDE_SECTION_ANKI_WEEK`,
+#: `IMPORT_FAILED_HEADERS`, `INTERESTS_SAVE_FAILED`, `LLM_FAILED`,
+#: `ONBOARD_SAVE_FAILED`, `OPERATOR_CSV_VOCAB_LLM_FAILED`, `PREP_FAILED`,
+#: `QUIZ_HINT_SPOT`, `QUIZ_SPOT_PROMPT`, `QUIZ_YOU_SAID`, `READING_WRONG`.
+#: **What remains is the bot blaming itself** — the error handler's *"Something
+#: broke on my side"* — which the pattern cannot tell from blaming the learner.
+#: Kept as written: W22's brief was to shrink the baseline to what remains, not
+#: to reword what the bot still says.
 BOT_BASELINE = frozenset(
     {
-        "apps.bot.texts.ANKI_SEND_FAILED",
-        "apps.bot.texts.BOOK_PROCESS_FAILED",
-        "apps.bot.texts.CAPTURE_FAILED",
-        "apps.bot.texts.GUIDE_SECTION_ANKI_WEEK",
-        "apps.bot.texts.IMPORT_FAILED_HEADERS",
-        "apps.bot.texts.INTERESTS_SAVE_FAILED",
-        "apps.bot.texts.LLM_FAILED",
-        "apps.bot.texts.ONBOARD_SAVE_FAILED",
-        "apps.bot.texts.OPERATOR_CSV_VOCAB_LLM_FAILED",
-        "apps.bot.texts.PREP_FAILED",
-        "apps.bot.texts.QUIZ_HINT_SPOT",
-        "apps.bot.texts.QUIZ_SPOT_PROMPT",
-        "apps.bot.texts.QUIZ_YOU_SAID",
-        "apps.bot.texts.READING_WRONG",
         "apps.bot.texts.SOFT_UNHANDLED",
     }
 )
@@ -85,7 +82,9 @@ def _offending_names() -> set[str]:
 def test_every_copy_module_is_walked() -> None:
     """Positive control: the walk reaches the modules' real size, so a green
     result is not a walk over nothing."""
-    assert len(_strings("apps.bot.texts")) > 400
+    # W22: 411 names became 17 (was `> 400` strings). Every one left is
+    # something the bot can still send; see `apps/bot/texts.py`.
+    assert len(_strings("apps.bot.texts")) >= 17
     assert len(_strings("core.copy")) > 40
 
 

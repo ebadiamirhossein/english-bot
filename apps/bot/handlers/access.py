@@ -1,9 +1,13 @@
 """Shared access gate (S18d).
 
-Responds only to approved ``access_requests`` rows, plus ``/start``,
-``/ping``, and ``access:`` callbacks (request / approve / decline).
-The configured operator is always allowed (so Approve/Decline and
-``/admin`` work even before their own approval row exists).
+Responds only to approved ``access_requests`` rows, plus ``/start`` and
+``/ping``. The configured operator is always allowed.
+
+**W22:** the ``access:`` callbacks (request / approve / decline) were allowed
+through here for the access-request flow, which was deleted with the rest of
+the Telegram onboarding — a learner joins through the web app now
+(PRODUCT-PRINCIPLES §2), and approving a Telegram account would grant nothing
+but the couple challenge. The allowance went with the handler it served.
 
 Registered at handler group ``-1`` and raises ``ApplicationHandlerStop``
 so unapproved traffic never reaches group 0. This gate is load-bearing —
@@ -24,7 +28,6 @@ from core.services.access_control import is_approved_telegram
 logger = logging.getLogger(__name__)
 
 _ALLOWED_COMMANDS = frozenset({"/start", "/ping"})
-_ALLOWED_CALLBACK_PREFIX = "access:"
 
 
 def _command_name(text: str) -> str | None:
@@ -35,18 +38,12 @@ def _command_name(text: str) -> str | None:
 
 
 def is_allowed_without_approval(update: Update) -> bool:
-    """True for commands/callbacks strangers may use before approval."""
+    """True for the commands strangers may use before approval."""
     message = update.message
     if message is not None and message.text:
         cmd = _command_name(message.text.strip())
         if cmd in _ALLOWED_COMMANDS:
             return True
-
-    query = update.callback_query
-    if query is not None and query.data is not None:
-        if query.data.startswith(_ALLOWED_CALLBACK_PREFIX):
-            return True
-
     return False
 
 
@@ -54,9 +51,8 @@ def _is_operator(telegram_user_id: int) -> bool:
     """Compares a TELEGRAM id, deliberately.
 
     ``OPERATOR_TELEGRAM_ID`` names a Telegram account, not a learner. Feeding it
-    an internal user id after W4b would silently lock the operator out of
-    ``/admin`` -- the parameter is named for the type it takes so that cannot
-    happen by accident.
+    an internal user id after W4b would silently lock the operator out -- the
+    parameter is named for the type it takes so that cannot happen by accident.
     """
     settings = load_settings()
     return (
@@ -85,8 +81,7 @@ async def gate_unapproved(
         return
     if is_approved_telegram(user.id):
         # Resolve only for traffic we are letting through. Returns None for
-        # somebody approved but not yet onboarded -- the onboarding handlers are
-        # the ones that must work without a users row.
+        # somebody approved but not yet onboarded; `/help` then ignores them.
         bot_identity.stash_user_id(update, context)
         return
     if _is_operator(user.id):

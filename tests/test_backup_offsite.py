@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import stat
 import subprocess
 import textwrap
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
-from apps.bot.scheduler import run_backup_freshness_check
 from core.services.backup_freshness import (
     check_offsite_freshness,
     list_offsite_candidates,
@@ -485,92 +481,3 @@ def test_freshness_missing_dir_stale(tmp_path: Path) -> None:
     )
 
 
-def test_freshness_alert_throttled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("OPERATOR_TELEGRAM_ID", "999901")
-    monkeypatch.setenv("RUNTIME_DIR", str(tmp_path / "runtime"))
-    monkeypatch.setenv(
-        "ALERT_THROTTLE_FILE", str(tmp_path / "runtime" / "throttle.json")
-    )
-    monkeypatch.setenv("BACKUP_OFFSITE_DIR", str(tmp_path / "empty-offsite"))
-    (tmp_path / "empty-offsite").mkdir()
-    (tmp_path / "runtime").mkdir()
-
-    from core import config as config_mod
-
-    settings = config_mod.load_settings()
-    monkeypatch.setattr("apps.bot.scheduler.load_settings", lambda: settings)
-    monkeypatch.setattr("core.services.alerts.load_settings", lambda: settings)
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-    now = datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc)
-
-    status1 = asyncio.run(run_backup_freshness_check(app, now=now))
-    assert status1 == "stale"
-    assert app.bot.send_message.await_count == 1
-    sent = app.bot.send_message.await_args.kwargs["text"]
-    assert SECRET_PAYLOAD.decode().strip() not in sent
-    assert "STALE" in sent
-
-    status2 = asyncio.run(
-        run_backup_freshness_check(app, now=now + timedelta(minutes=5))
-    )
-    assert status2 == "stale"
-    assert app.bot.send_message.await_count == 1  # throttled
-
-
-def test_freshness_unset_no_alert(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("OPERATOR_TELEGRAM_ID", "999902")
-    monkeypatch.setenv("RUNTIME_DIR", str(tmp_path / "runtime"))
-    monkeypatch.setenv(
-        "ALERT_THROTTLE_FILE", str(tmp_path / "runtime" / "throttle.json")
-    )
-    monkeypatch.setenv("BACKUP_OFFSITE_DIR", "")
-    (tmp_path / "runtime").mkdir()
-
-    from core import config as config_mod
-
-    settings = config_mod.load_settings()
-    monkeypatch.setattr("apps.bot.scheduler.load_settings", lambda: settings)
-    monkeypatch.setattr("core.services.alerts.load_settings", lambda: settings)
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-    now = datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc)
-    status = asyncio.run(run_backup_freshness_check(app, now=now))
-    assert status == "skipped"
-    assert app.bot.send_message.await_count == 0
-
-
-def test_freshness_fresh_silent_no_alert(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    offsite = tmp_path / "offsite"
-    offsite.mkdir()
-    now = datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc)
-    dump = _write_fake_dump(offsite / "english_bot_2026-08-10_0400.dump")
-    os.utime(dump, (now.timestamp(), now.timestamp()))
-
-    monkeypatch.setenv("OPERATOR_TELEGRAM_ID", "999903")
-    monkeypatch.setenv("RUNTIME_DIR", str(tmp_path / "runtime"))
-    monkeypatch.setenv(
-        "ALERT_THROTTLE_FILE", str(tmp_path / "runtime" / "throttle.json")
-    )
-    monkeypatch.setenv("BACKUP_OFFSITE_DIR", str(offsite))
-    (tmp_path / "runtime").mkdir()
-
-    from core import config as config_mod
-
-    settings = config_mod.load_settings()
-    monkeypatch.setattr("apps.bot.scheduler.load_settings", lambda: settings)
-    monkeypatch.setattr("core.services.alerts.load_settings", lambda: settings)
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-    status = asyncio.run(run_backup_freshness_check(app, now=now))
-    assert status == "ok"
-    assert app.bot.send_message.await_count == 0

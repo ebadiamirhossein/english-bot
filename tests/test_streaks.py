@@ -9,7 +9,6 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from core.db import close_pool, connection
-from apps.bot.handlers.quiz import format_completion_message
 from core.services.sessions import (
     complete_open_free_practice,
     complete_session,
@@ -571,24 +570,6 @@ def test_completed_reading_plus_incomplete_quiz_is_active(cleanup_user: int) -> 
     assert streak.last_active_date == day
     assert streak.current_streak == 6
     assert streak.total_active_days == 6
-
-
-def test_completing_quiz_does_not_change_last_evaluated(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    day = date(2026, 7, 10)
-    _set_streak(user_id, current=5, last_eval=date(2026, 7, 9), last_active=date(2026, 7, 9))
-    sid = _quiz(user_id, day, completed=False)
-    before = get_streak(user_id).last_evaluated_date
-
-    complete_session(sid, 0.8)
-    # Optimistic display only — no roll_over_day on completion.
-    msg = format_completion_message(
-        correct_count=4, total=5, streak_days=get_streak(user_id).current_streak + 1
-    )
-    assert "🔥 6-day streak" in msg
-    assert get_streak(user_id).last_evaluated_date == before
-    assert get_streak(user_id).current_streak == 5
 
 
 def local_date(now: datetime, tz: str) -> date:

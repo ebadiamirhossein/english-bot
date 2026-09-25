@@ -2,46 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import re
 import uuid
 from datetime import date, datetime, timedelta, time, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from telegram import Chat, Message, Update, User
-from telegram.ext import ContextTypes
 
 from core.db import close_pool, connection
-from apps.bot.handlers.settings import (
-    on_pause_callback,
-    on_pause_command,
-    s18_button_labels,
-    s18_user_facing_strings,
-)
 from core.instance_lock import InstanceLock, InstanceLockError
-from apps.bot.scheduler import (
-    EligibleUser,
-    is_user_due_for_anki,
-    is_user_due_for_evening,
-    is_user_due_for_morning,
-    run_heartbeat_check,
-)
-from apps.bot.alerts import on_error, operator_send
-from core.services.alerts import (
-    ALERT_COOLDOWN,
-    format_alert,
-    notify_operator,
-    should_send_alert,
-)
+from core.services.alerts import ALERT_COOLDOWN, format_alert, should_send_alert
 from core.services.heartbeat import check_heartbeat, touch_job_fire
-from core.services.motivation import (
-    MotivationUser,
-    is_user_due_for_sunday_report,
-    sessions_due_for_nudge,
-)
+from core.services.motivation import MotivationUser
 from core.services.sessions import insert_session, local_today
 from core.services.stats import collect_stats, format_stats_message
 from core.services.streaks import get_streak, roll_over_day
@@ -50,7 +22,6 @@ from core.services.users import (
     get_paused_until,
     set_paused_until,
 )
-from core.services.errors import run_monthly_fossil_sweep
 from core.services.sessions import create_fossil_sweep_session
 
 FAKE_TELEGRAM_ID_BASE = 9_480_000_000
@@ -119,19 +90,6 @@ def _onboard(tid: int) -> int:
     return user_id
 
 
-def _eligible(user_id: int, *, paused_until: date | None = None) -> EligibleUser:
-    return EligibleUser(
-        id=user_id,
-        # Deliberately not equal to `id`: nothing may rely on the two
-        # being the same number again.
-        telegram_address=_TG_ADDRESS_BASE + user_id,
-        timezone="Europe/Vilnius",
-        morning_time=time(8, 0),
-        paused_until=paused_until,
-        evening_time=time(21, 0),
-    )
-
-
 def _mot(user_id: int, *, paused_until: date | None = None) -> MotivationUser:
     return MotivationUser(
         id=user_id,
@@ -188,67 +146,6 @@ def test_throttle_survives_restart(runtime_dir: Path) -> None:
     assert suppressed >= 1
 
 
-def test_notify_operator_unset_id_no_crash(
-    runtime_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("OPERATOR_TELEGRAM_ID", raising=False)
-    monkeypatch.setenv("OPERATOR_TELEGRAM_ID", "")
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-    sent = asyncio.run(
-        notify_operator(
-            operator_send(app.bot),
-            key="k",
-            text="hello",
-            now=datetime(2026, 8, 8, 12, 0, tzinfo=timezone.utc),
-            path=runtime_dir / "throttle.json",
-        )
-    )
-    assert sent is False
-    app.bot.send_message.assert_not_called()
-
-
-def test_on_error_soft_user_and_operator_alert(
-    runtime_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("OPERATOR_TELEGRAM_ID", "999001")
-    from core import config as config_mod
-
-    settings = config_mod.load_settings()
-    monkeypatch.setattr("core.services.alerts.load_settings", lambda: settings)
-
-    def fake_handler(*_a, **_k):
-        return None
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-    context = MagicMock(spec=ContextTypes.DEFAULT_TYPE)
-    context.error = RuntimeError("boom")
-    context.handler = MagicMock(callback=fake_handler)
-    context.bot = app.bot
-    context.application = app
-
-    user = User(id=42, first_name="A", is_bot=False)
-    chat = Chat(id=42, type="private")
-    msg = Message(
-        message_id=1,
-        date=datetime.now(timezone.utc),
-        chat=chat,
-        from_user=user,
-        text="private writing must not appear in alerts xyzzy-secret",
-    )
-    update = Update(update_id=1, message=msg)
-
-    asyncio.run(on_error(update, context))
-    assert app.bot.send_message.await_count == 2
-    texts_sent = [(c.kwargs.get("text") or "") for c in app.bot.send_message.await_args_list]
-    assert any("broke on my side" in t.lower() for t in texts_sent)
-    assert all("xyzzy-secret" not in t for t in texts_sent)
-    user_text = texts_sent[0]
-    assert "Traceback" not in user_text
-    assert "RuntimeError" not in user_text
-
-
 def test_format_alert_truncates() -> None:
     long_tb = "x" * 10000
     text = format_alert(
@@ -273,27 +170,6 @@ def test_heartbeat_stale_and_fresh(runtime_dir: Path) -> None:
     assert check_heartbeat(path, now=now) == "ok"
     touch_job_fire(path, now=now - timedelta(hours=27))
     assert check_heartbeat(path, now=now) == "stale"
-
-
-def test_heartbeat_check_alerts_when_stale(
-    runtime_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("OPERATOR_TELEGRAM_ID", "999002")
-    from core import config as config_mod
-
-    settings = config_mod.load_settings()
-    monkeypatch.setattr(
-        "apps.bot.scheduler.load_settings", lambda: settings
-    )
-    monkeypatch.setattr(
-        "core.services.alerts.load_settings", lambda: settings
-    )
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-    now = datetime(2026, 8, 8, 12, 0, tzinfo=timezone.utc)
-    status = asyncio.run(run_heartbeat_check(app, now=now))
-    assert status == "stale"
-    assert app.bot.send_message.await_count == 1
 
 
 def test_touch_only_on_success_path(runtime_dir: Path) -> None:
@@ -353,84 +229,6 @@ def test_pause_sets_and_resume_clears(cleanup_user: int) -> None:
     assert get_paused_until(user_id) == day + timedelta(days=2)
     set_paused_until(user_id, None)
     assert get_paused_until(user_id) is None
-
-
-def test_six_senders_skip_paused(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    day = local_today("Europe/Vilnius", _MON_MORNING)
-    paused = day + timedelta(days=14)
-    set_paused_until(user_id, paused)
-    user = _eligible(user_id, paused_until=paused)
-    mot = _mot(user_id, paused_until=paused)
-
-    assert is_user_due_for_morning(user, _MON_MORNING) is False
-    assert is_user_due_for_evening(user, _WED_EVENING) is False
-    assert is_user_due_for_anki(user, _SAT_EVENING) is False
-    assert sessions_due_for_nudge(mot, _MON_MORNING + timedelta(hours=4)) == []
-    assert is_user_due_for_sunday_report(mot, _SUN_EVENING) is False
-
-    # Monthly fossil sweep skips paused (existing helper).
-    n = run_monthly_fossil_sweep(
-        now=datetime(2026, 8, 1, 0, 10, tzinfo=timezone.utc)
-    )
-    # May be 0 for this user; assert no fossil session created while paused.
-    from core.services.sessions import open_fossil_sweep_for_user
-
-    assert open_fossil_sweep_for_user(user_id) is None
-    assert isinstance(n, int)
-
-
-def test_pause_while_paused_offers_resume_not_stack(
-    cleanup_user: int,
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    day = local_today("Europe/Vilnius", _MON_MORNING)
-    set_paused_until(user_id, day + timedelta(days=6))
-
-    msg = MagicMock()
-    msg.reply_text = AsyncMock()
-    update = MagicMock()
-    update.message = msg
-    update.effective_user = MagicMock(id=tid)
-
-    with patch(
-        "apps.bot.handlers.settings.datetime"
-    ) as mock_dt:
-        mock_dt.now = MagicMock(return_value=_MON_MORNING)
-        asyncio.run(on_pause_command(update, MagicMock()))
-
-    assert msg.reply_text.await_count == 1
-    args = msg.reply_text.await_args.args
-    kwargs = msg.reply_text.await_args.kwargs
-    body = kwargs.get("text") or (args[0] if args else "")
-    assert "paused until" in body.lower()
-    markup = kwargs["reply_markup"]
-    labels = [b.text for row in markup.inline_keyboard for b in row]
-    assert labels == ["Resume"]
-
-
-def test_pause_callback_sets_duration(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    day = local_today("Europe/Vilnius", _MON_MORNING)
-
-    msg = MagicMock()
-    msg.edit_text = AsyncMock()
-    cq = MagicMock()
-    cq.data = "pause:3"
-    cq.answer = AsyncMock()
-    cq.message = msg
-    update = MagicMock()
-    update.callback_query = cq
-    update.effective_user = MagicMock(id=tid)
-
-    with patch("apps.bot.handlers.settings.datetime") as mock_dt:
-        mock_dt.now = MagicMock(return_value=_MON_MORNING)
-        asyncio.run(on_pause_callback(update, MagicMock()))
-
-    assert get_paused_until(user_id) == day + timedelta(days=2)
 
 
 def test_pause_day_incomplete_quiz_still_missed(cleanup_user: int) -> None:
@@ -558,21 +356,3 @@ def test_stats_labels_not_codes(cleanup_user: int) -> None:
     assert "article_missing" not in body
 
 
-def test_no_guilt_in_s18_copy() -> None:
-    banned = re.compile(
-        r"\bmissed\b|\bfailed\b|\bbroke your\b|should have|"
-        r"😞|😢|😔|☹️|🙁|😟|😤|😠",
-        re.IGNORECASE,
-    )
-    for s in s18_user_facing_strings():
-        assert banned.search(s) is None, s
-    # Soft unhandled may say "broke on my side" — that's operator self-blame, OK.
-    # Explicitly allow SOFT_UNHANDLED separately:
-    from apps.bot import texts
-
-    assert "broke your" not in texts.SOFT_UNHANDLED.lower()
-
-
-def test_s18_button_labels_max_20() -> None:
-    for label in s18_button_labels():
-        assert len(label) <= 20, label

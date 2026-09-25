@@ -28,15 +28,19 @@ from core.instance_lock import InstanceLock
 
 # name -> interval in seconds.
 #
-# **W20 (#69): the worker registers ONE job.** The table before, quoted rather
-# than deleted (#82's shape): `streak_rollover` 900, `monthly_freeze_reset` 900,
-# `monthly_reset` 900, `heartbeat` 3600, `backup_freshness` 3600, `assign_daily`
-# 3600. Four of those are the bot's until W22, two have never run on production;
-# all six are `HELD_JOBS` now, asserted below by hand.
+# **W22 (#69's remainder): the bot's four jobs are registered here.** W20's
+# table, quoted rather than deleted (#82's shape): `push_poll` 300 alone, with
+# `streak_rollover` 900, `monthly_freeze_reset` 900, `heartbeat` 3600 and
+# `backup_freshness` 3600 held because the bot still ran them. The bot's
+# scheduler is `couple_poll` alone now (`tests/test_scheduler.py`).
 EXPECTED_JOBS = {
-    # The bot's own poll interval: the reminder lands within five minutes of a
+    "streak_rollover": 900,
+    "monthly_freeze_reset": 900,
+    # The bot's old poll interval: the reminder lands within five minutes of a
     # learner's `morning_time`.
     "push_poll": 300,
+    "heartbeat": 3600,
+    "backup_freshness": 3600,
     # W24d (operator decision 2, R3): a video every day, assigned for each
     # learner's LOCAL today. Hourly for `assign_daily`'s reason below. **Red
     # before W24d registered it** (the registered set lacked it).
@@ -45,11 +49,10 @@ EXPECTED_JOBS = {
 
 # name -> interval in seconds, for the jobs kept and NOT registered.
 EXPECTED_HELD = {
-    "streak_rollover": 900,
-    "monthly_freeze_reset": 900,
+    # Freeze reset PLUS the M13 fossil sweep. The bot's job NAMED
+    # `monthly_freeze_reset` ran this on production until W22; the sweep's only
+    # consumer (the Telegram morning quiz) was deleted with it (#452).
     "monthly_reset": 900,
-    "heartbeat": 3600,
-    "backup_freshness": 3600,
     # W10. ARCHITECTURE §7 schedules `assign_daily` at 03:30 local; it POLLS
     # hourly here for the reason every other job in this table does — each fires
     # on the USER's local date, and two learners can sit in different timezones,
@@ -57,9 +60,9 @@ EXPECTED_HELD = {
     "assign_daily": 3600,
 }
 
-# The delivery jobs still belong to apps/bot until W20: each one sends a
-# Telegram message, and moving the job without the channel means moving
-# Telegram into the worker.
+# Jobs the worker must never register: the bot's one job (two processes posting
+# the same group question), and the Telegram deliveries W22 deleted — putting
+# one back here would be putting Telegram into the worker.
 BOT_ONLY_JOBS = {
     "morning_poll",
     "evening_poll",
@@ -100,9 +103,9 @@ def test_worker_jobs_use_an_interval_trigger_with_the_right_period() -> None:
 
 
 def test_the_held_jobs_are_kept_with_their_periods_and_not_registered() -> None:
-    """W20: held, not deleted — W22 registers the bot's four here, and the two
-    never-run jobs wait for a ruling. Red, 2026-09-25: with `assign_daily` left
-    in `JOBS`, the registered set carried it and the first assertion failed."""
+    """Held, not deleted. W20 held six; W22 registered the bot's four and two
+    stay held (#437, #452). Red, 2026-09-25: with `assign_daily` left in `JOBS`,
+    the registered set carried it and the first assertion failed."""
     registered = {job.id for job in build_scheduler().get_jobs()}
     assert registered & set(EXPECTED_HELD) == set()
     assert {
@@ -159,8 +162,8 @@ def test_assign_daily_is_held_and_creates_no_content() -> None:
 
 
 def test_worker_does_not_take_the_delivery_jobs() -> None:
-    """They stay in apps/bot until W22. W20's own delivery is `push_poll` — the
-    web's channel — and it is none of these."""
+    """The Telegram deliveries were deleted at W22, not moved; `couple_poll` is
+    the bot's. The worker's own delivery is `push_poll` — the web's channel."""
     registered = {job.id for job in build_scheduler().get_jobs()}
     assert registered & BOT_ONLY_JOBS == set()
 
@@ -247,15 +250,74 @@ def test_monthly_jobs_call_their_core_functions(
 
 
 def test_heartbeat_job_reads_but_never_writes(runtime_dir: Path) -> None:
-    """The bot owns the heartbeat file until W20.
+    """The CHECK never writes — `run_job` does, after the work jobs (#438).
 
-    A worker that touched it would keep the file fresh while the bot was dead,
-    and the staleness alarm would never fire again.
+    Before W22 this read *"the bot owns the heartbeat file"*: a worker that
+    touched it would have kept it fresh while the bot lay dead. W22 moved the
+    writing here with the jobs; what must still hold is that the alarm cannot
+    refresh the pulse it checks.
     """
     heartbeat_file = runtime_dir / "last_job_fire"
     assert not heartbeat_file.exists()
     worker_jobs.heartbeat()
     assert not heartbeat_file.exists()
+
+
+# --- W22: the worker writes the heartbeat (#438) ------------------------------
+#
+# RED DEMONSTRATIONS (2026-09-25, `python -B`, caches cleared): with the
+# `_touch_heartbeat` call removed from `run_job`,
+# `test_a_successful_work_job_refreshes_the_heartbeat` went red (the file was
+# never written); with `TOUCHES_HEARTBEAT` widened to every job name,
+# `test_the_alarm_jobs_never_refresh_their_own_pulse` went red. Both restored.
+
+
+def test_the_heartbeat_is_refreshed_by_the_work_jobs_only() -> None:
+    """Hardcoded (§3 rule 5). Never `heartbeat` or `backup_freshness`."""
+    assert worker_jobs.TOUCHES_HEARTBEAT == {
+        "streak_rollover",
+        "monthly_freeze_reset",
+        "push_poll",
+    }
+    assert worker_jobs.TOUCHES_HEARTBEAT <= {job.name for job in worker_jobs.JOBS}
+
+
+@pytest.mark.parametrize("name", ["streak_rollover", "monthly_freeze_reset", "push_poll"])
+def test_a_successful_work_job_refreshes_the_heartbeat(runtime_dir: Path, name: str) -> None:
+    heartbeat_file = runtime_dir / "last_job_fire"
+    worker_jobs.run_job(worker_jobs.Job(name, lambda: None, 60, 0))
+    assert heartbeat_file.exists()
+    from core.services import heartbeat as heartbeat_service
+
+    assert heartbeat_service.read_last_fire(heartbeat_file) is not None
+
+
+def test_a_failing_work_job_leaves_the_heartbeat_alone(runtime_dir: Path) -> None:
+    def _boom() -> None:
+        raise RuntimeError("job exploded")
+
+    worker_jobs.run_job(worker_jobs.Job("push_poll", _boom, 300, 0))
+    assert not (runtime_dir / "last_job_fire").exists()
+
+
+@pytest.mark.parametrize("name", ["heartbeat", "backup_freshness"])
+def test_the_alarm_jobs_never_refresh_their_own_pulse(runtime_dir: Path, name: str) -> None:
+    worker_jobs.run_job(worker_jobs.Job(name, lambda: None, 3600, 0))
+    assert not (runtime_dir / "last_job_fire").exists()
+
+
+def test_the_heartbeat_goes_fresh_after_a_work_job_runs(runtime_dir: Path, caplog) -> None:
+    """The two halves together, the way the worker runs them: stale, then a
+    work job succeeds, then the check reads fresh."""
+    with caplog.at_level(logging.INFO, logger="apps.worker.jobs"):
+        worker_jobs.heartbeat()
+        assert any("STALE" in r.getMessage() for r in caplog.records)
+        caplog.clear()
+        worker_jobs.run_job(worker_jobs.Job("streak_rollover", lambda: None, 900, 0))
+        worker_jobs.heartbeat()
+    assert [r.getMessage() for r in caplog.records if "Heartbeat" in r.getMessage()] == [
+        "Heartbeat ok"
+    ]
 
 
 def test_heartbeat_job_logs_stale_when_nothing_has_fired(

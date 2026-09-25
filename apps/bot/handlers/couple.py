@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import string
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,7 +25,6 @@ from telegram.ext import (
 
 from apps.bot import texts
 from core.config import Settings, load_settings
-from apps.bot.handlers.quiz import grade_answer
 from core.llm import LLMError, chat
 from apps.bot.services.couple import (
     SCHEDULED_MAX_CHARS,
@@ -50,6 +51,31 @@ from core.services import identity
 logger = logging.getLogger(__name__)
 
 HANDLER_NAME = "couple"
+
+# ── grading, moved here from `apps/bot/handlers/quiz.py` at W22 ──────────────
+#
+# The quiz handler was deleted with the rest of the Telegram teaching path and
+# this was its only surviving caller. Copied verbatim, not re-derived: a
+# first-correct-answer race is decided by this function, and changing what
+# counts as correct would change who wins.
+
+_APOSTROPHES = ("'", "\u2019", "\u2018", "`", "\u00b4")
+
+
+def normalize_answer(text: str) -> str:
+    """Deterministic normalisation for gap / choice / order grading."""
+    s = text.strip().lower()
+    for a in _APOSTROPHES:
+        s = s.replace(a, "'")
+    s = s.strip(string.punctuation + string.whitespace)
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def grade_answer(raw: str, accept: list[str]) -> bool:
+    normalised = normalize_answer(raw)
+    accepted = {normalize_answer(a) for a in accept}
+    return normalised in accepted
 
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "couple.txt"
 _MAX_TOKENS = 400

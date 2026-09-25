@@ -5,17 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from telegram import Update
-from telegram.ext import ContextTypes
 
-from apps.bot import texts
 from core.db import close_pool, connection
-from apps.bot.scheduler import EligibleUser, is_user_due_for_anki
-from apps.bot.anki_delivery import deliver_weekly, handle_anki_command
 from core.services.anki import (
     build_tsv,
     export_and_send,
@@ -24,12 +19,7 @@ from core.services.anki import (
     row_fields,
     sanitize_tsv_field,
 )
-from core.services.sessions import (
-    bot_initiated_count,
-    has_anki_session_on,
-    increment_bot_messages,
-    local_today,
-)
+from core.services.sessions import local_today
 from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_470_000_000
 
@@ -97,20 +87,6 @@ def _onboard(
                 (tz, tid),
             )
     return user_id
-
-
-def _eligible(user_id: int, *, evening: str = "21:00") -> EligibleUser:
-    h, m = map(int, evening.split(":"))
-    return EligibleUser(
-        id=user_id,
-        # Deliberately not equal to `id`: nothing may rely on the two
-        # being the same number again.
-        telegram_address=_TG_ADDRESS_BASE + user_id,
-        timezone="Europe/Vilnius",
-        morning_time=time(7, 0),
-        paused_until=None,
-        evening_time=time(h, m),
-    )
 
 
 def _insert_chunk(
@@ -435,166 +411,6 @@ def test_failed_send_leaves_unexported_and_no_session(cleanup_user: int) -> None
     assert _session_count(user_id) == 0
 
 
-def test_second_export_only_new_chunks(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_chunk(
-        user_id,
-        chunk="old",
-        full_sentence="The old card.",
-    )
-    day = local_today("Europe/Vilnius", _SATURDAY_EVENING_UTC)
-    app = _mock_app()
-    action = asyncio.run(deliver_weekly(app, user_id, now=_SATURDAY_EVENING_UTC))
-    assert action == "anki_export"
-    assert app.bot.send_document.await_count == 1
-
-    _insert_chunk(
-        user_id,
-        chunk="new",
-        full_sentence="The new card.",
-    )
-    # Manual path — no session claim; only unexported
-    sent: list[bytes] = []
-
-    async def capture(data: bytes, _f: str, _c: str) -> None:
-        sent.append(data)
-
-    count = asyncio.run(
-        export_and_send(
-            user_id=user_id,
-            local_date=day,
-            send_document=capture,
-            claim_session=False,
-            caption="cap",
-        )
-    )
-    assert count == 1
-    parsed = _parse_tsv(sent[0].decode("utf-8"))
-    assert len(parsed) == 1
-    assert parsed[0][1] == "new"
-
-
 # --- Weekly / command / ceiling -----------------------------------------------
 
 
-def test_weekly_empty_sends_nothing(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    app = _mock_app()
-    with caplog.at_level(logging.INFO):
-        action = asyncio.run(deliver_weekly(app, user_id, now=_SATURDAY_EVENING_UTC))
-    assert action == "skipped_empty"
-    assert app.bot.send_document.await_count == 0
-    assert _session_count(user_id) == 0
-    assert any("nothing to export" in r.message for r in caplog.records)
-
-
-def test_anki_command_empty_replies_without_document(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = MagicMock(spec=Update)
-    update.message = MagicMock()
-    update.message.reply_text = AsyncMock()
-    update.effective_user = MagicMock()
-    update.effective_user.id = tid
-    context = MagicMock(spec=ContextTypes.DEFAULT_TYPE)
-    context.bot = MagicMock()
-    context.bot.send_document = AsyncMock()
-
-    asyncio.run(handle_anki_command(update, context))
-
-    update.message.reply_text.assert_awaited_once_with(texts.ANKI_EMPTY)
-    context.bot.send_document.assert_not_awaited()
-
-
-def test_ceiling_skips_weekly(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    cid = _insert_chunk(
-        user_id,
-        chunk="blocked",
-        full_sentence="This blocked card stays.",
-    )
-    day = local_today("Europe/Vilnius", _SATURDAY_EVENING_UTC)
-    for _ in range(3):
-        increment_bot_messages(user_id, day)
-    app = _mock_app()
-    with caplog.at_level(logging.WARNING):
-        action = asyncio.run(deliver_weekly(app, user_id, now=_SATURDAY_EVENING_UTC))
-    assert action == "skipped_ceiling"
-    assert app.bot.send_document.await_count == 0
-    assert _exported_flags(user_id)[cid] is False
-    assert _session_count(user_id) == 0
-    assert any("ceiling_reached" in r.message for r in caplog.records)
-
-
-def test_weekly_increments_ceiling_command_does_not(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_chunk(
-        user_id,
-        chunk="one",
-        full_sentence="The one card.",
-    )
-    day = local_today("Europe/Vilnius", _SATURDAY_EVENING_UTC)
-    assert bot_initiated_count(user_id, day) == 0
-    app = _mock_app()
-    assert asyncio.run(deliver_weekly(app, user_id, now=_SATURDAY_EVENING_UTC)) == "anki_export"
-    assert bot_initiated_count(user_id, day) == 1
-
-    _insert_chunk(
-        user_id,
-        chunk="two",
-        full_sentence="The two card.",
-    )
-    update = MagicMock(spec=Update)
-    update.message = MagicMock()
-    update.message.reply_text = AsyncMock()
-    update.effective_user = MagicMock()
-    update.effective_user.id = tid
-    context = MagicMock(spec=ContextTypes.DEFAULT_TYPE)
-    context.bot = MagicMock()
-    context.bot.send_document = AsyncMock()
-    asyncio.run(handle_anki_command(update, context))
-    assert bot_initiated_count(user_id, day) == 1
-    context.bot.send_document.assert_awaited()
-
-
-def test_weekly_poll_twice_one_document(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _insert_chunk(
-        user_id,
-        chunk="once",
-        full_sentence="Export once only.",
-    )
-    app = _mock_app()
-    user = _eligible(user_id)
-    assert is_user_due_for_anki(user, _SATURDAY_EVENING_UTC) is True
-
-    action1 = asyncio.run(deliver_weekly(app, user_id, now=_SATURDAY_EVENING_UTC))
-    assert action1 == "anki_export"
-    assert is_user_due_for_anki(user, _SATURDAY_EVENING_UTC) is False
-
-    action2 = asyncio.run(deliver_weekly(app, user_id, now=_SATURDAY_EVENING_UTC))
-    assert action2 == "skipped_existing"
-    assert app.bot.send_document.await_count == 1
-    assert _session_count(user_id) == 1
-    assert has_anki_session_on(
-        user_id, local_today("Europe/Vilnius", _SATURDAY_EVENING_UTC)
-    )
-
-
-def test_eligibility_saturday_evening_only(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    user = _eligible(user_id)
-    assert is_user_due_for_anki(user, _SATURDAY_EVENING_UTC) is True
-    assert is_user_due_for_anki(user, _SATURDAY_BEFORE_UTC) is False
-    assert is_user_due_for_anki(user, _SUNDAY_EVENING_UTC) is False
-    assert is_user_due_for_anki(user, _MONDAY_EVENING_UTC) is False

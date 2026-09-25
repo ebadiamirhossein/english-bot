@@ -509,22 +509,16 @@ def _module_reaches_the_model(path) -> list[str]:
     return hits
 
 
-def test_neither_front_end_builds_or_sends_a_prompt_itself() -> None:
-    bot = _repo() / "apps" / "bot" / "handlers" / "correction.py"
+def test_the_route_never_builds_or_sends_a_prompt_itself() -> None:
+    """W22: the Telegram half of this check went with `apps/bot/handlers/correction.py`."""
     route = _repo() / "apps" / "api" / "routers" / "correct.py"
-    for path in (bot, route):
-        hits = _module_reaches_the_model(path)
-        assert hits == [], (
-            f"{path.name} builds or sends a correction prompt itself: {hits}"
-        )
+    hits = _module_reaches_the_model(route)
+    assert hits == [], f"{route.name} builds or sends a correction prompt itself: {hits}"
 
 
-def test_each_front_end_goes_through_its_own_service() -> None:
+def test_the_route_goes_through_its_own_service() -> None:
     """Not merely "does not call chat", but "does call ours"."""
     import ast
-
-    bot = (_repo() / "apps" / "bot" / "handlers" / "correction.py").read_text()
-    assert "call_model(user, text)" in bot, "the bot no longer calls call_model"
 
     route_src = (_repo() / "apps" / "api" / "routers" / "correct.py").read_text()
     tree = ast.parse(route_src)
@@ -534,7 +528,7 @@ def test_each_front_end_goes_through_its_own_service() -> None:
         if isinstance(n, ast.Call)
     }
     assert "correct_submission" in calls, "the route no longer calls writing.correct_submission"
-    assert "correct" not in calls, "the route reaches the bot's correction path again"
+    assert "correct" not in calls, "the route reaches the v2 correction path again"
 
 
 @pytest.mark.parametrize("service", ["correction.py", "writing.py"])
@@ -552,91 +546,16 @@ def test_each_service_holds_exactly_one_chat_call(service) -> None:
     assert len(chat_calls) == 1, f"expected one chat() call in {service}, found {chat_calls}"
 
 
-# --- the bot's path, which W16a does not touch --------------------------------
-
-
-def test_the_bot_path_still_caps_corrections_at_three(db, learner, monkeypatch) -> None:
-    """**Moved here from a route test by W16a, and the reason is rule 4.**
-
-    This read `test_corrections_are_capped_at_three` and drove `POST /correct`.
-    The route no longer reaches `core.services.correction`, so a route test of
-    its cap would have been a green test over an unreachable path. **The cap
-    still exists and is still live** — the Telegram handler uses it — so it is
-    asserted on the service the bot calls.
-    """
-    from core.services import correction
-    from core.services.users import get_user
-
-    monkeypatch.setattr(
-        "core.services.correction.chat",
-        lambda messages, **kwargs: {
-            "is_english": True,
-            "has_errors": True,
-            "did_well": "Good word order.",
-            "corrections": [
-                {
-                    "you_said": f"wrong {n}",
-                    "correct_form": f"right {n}",
-                    "error_type": "quantifier_modifier",
-                    "explanation": "x",
-                }
-                for n in range(6)
-            ],
-        },
-    )
-    outcome = correction.correct(get_user(learner.user_id), "a" * 40)
-    assert len(outcome.corrections) == 3
-    assert outcome.did_well == "Good word order."
-    rows = db.execute(
-        "SELECT count(*) FROM errors WHERE user_id = %s", (learner.user_id,)
-    ).fetchone()
-    assert rows[0] == 3
-
-
-def test_the_bot_path_keeps_its_fallback(db, learner, monkeypatch) -> None:
-    """The `"Nice."` fallback Ruling 2 removes from the WEB survives on the bot,
-    whose `👍 {did_well}` would otherwise print a bare thumb. Pinned so nobody
-    "fixes" the bot to match the web without a ruling."""
-    from core.services import correction
-    from core.services.users import get_user
-
-    monkeypatch.setattr(
-        "core.services.correction.chat",
-        lambda messages, **kwargs: {"is_english": True, "has_errors": False,
-                                    "corrections": [], "did_well": ""},
-    )
-    outcome = correction.correct(get_user(learner.user_id), "I went to the shop.")
-    assert outcome.did_well == "Nice."
-
-
-def test_the_bot_retry_still_speaks_to_the_learner(monkeypatch) -> None:
-    """The retry stayed in the bot, and it must still say so."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from apps.bot import texts
-    from apps.bot.handlers import correction as handler
-    from core.llm import LLMError
-
-    calls = {"n": 0}
-
-    def _flaky(user, text):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise LLMError("first attempt fails")
-        return ACCEPTANCE_PAYLOAD
-
-    monkeypatch.setattr(handler, "call_model", _flaky)
-    message = MagicMock()
-    message.reply_text = AsyncMock()
-
-    result = asyncio.run(
-        handler._call_llm_with_handler_retry(
-            message, user=MagicMock(), text=ACCEPTANCE_TEXT
-        )
-    )
-    assert result == ACCEPTANCE_PAYLOAD
-    assert calls["n"] == 2, "the retry did not happen"
-    message.reply_text.assert_awaited_once_with(texts.LLM_RETRY)
+# --- the bot's path: GONE AT W22 -------------------------------------------------
+#
+# Three tests stood here — `test_the_bot_path_still_caps_corrections_at_three`,
+# `test_the_bot_path_keeps_its_fallback` and `test_the_bot_retry_still_speaks_to_
+# the_learner`. They asserted `core.services.correction.correct` for the Telegram
+# correction handler, "still live — the Telegram handler uses it". W22 deleted
+# that handler, so `correct()` has no caller and the tests would be green over an
+# unreachable path (CLAUDE.md §3 rule 4). Its body is kept: `writing.py` still
+# imports `correction.explanation_language_rule`, and removing dead core code is
+# its own slice (#453).
 
 
 def test_correction_is_rate_limited(app, learner, monkeypatch) -> None:

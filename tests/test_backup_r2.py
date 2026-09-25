@@ -23,23 +23,18 @@ provider contract (rule 2). The first real call is the human's server run.
 from __future__ import annotations
 
 import ast
-import asyncio
 import os
 import stat
 import subprocess
 import textwrap
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from apps.bot import scheduler as bot_scheduler
-from apps.bot.scheduler import run_r2_freshness_check
 from apps.worker import jobs as worker_jobs
 from core.services.backup_freshness import (
     R2Config,
-    R2Object,
     check_r2_freshness,
     newest_r2_object,
     parse_r2_listing,
@@ -888,162 +883,6 @@ def test_config_is_built_from_settings_field_names(
 # --- Python: the alarm, through its real callers -------------------------------
 
 
-def _settings_with(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **env: str):
-    """Settings for an R2 alarm test, read from a `.env` this test owns.
-
-    The `.env` is explicit rather than ambient so that "R2 is unconfigured"
-    means the same thing on every machine. Before this, the repo `.env` was
-    reloaded underneath the deletions and the answer depended on whose laptop
-    was running (#64).
-    """
-    runtime = tmp_path / "runtime"
-    runtime.mkdir(exist_ok=True)
-    monkeypatch.setenv("RUNTIME_DIR", str(runtime))
-    monkeypatch.setenv("ALERT_THROTTLE_FILE", str(runtime / "throttle.json"))
-    monkeypatch.setenv("BACKUP_OFFSITE_DIR", "")
-    forget_r2_env(monkeypatch)
-
-    from core import config as config_mod
-
-    settings = settings_from_dotenv(tmp_path, **env)
-    monkeypatch.setattr("apps.bot.scheduler.load_settings", lambda: settings)
-    monkeypatch.setattr("core.services.alerts.load_settings", lambda: settings)
-    return settings
-
-
-def test_unconfigured_r2_reaches_the_operator(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The #31 closure, exercised through the job's real caller."""
-    _settings_with(monkeypatch, tmp_path, OPERATOR_TELEGRAM_ID="999911")
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-
-    status = asyncio.run(run_r2_freshness_check(app, now=NOW))
-    assert status == "unconfigured"
-    assert app.bot.send_message.await_count == 1
-    sent = app.bot.send_message.await_args.kwargs["text"]
-    assert "UNCONFIGURED" in sent
-    assert "BACKUP_R2_REQUIRED=0" in sent
-
-
-def test_dev_machine_opt_out_sends_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _settings_with(
-        monkeypatch,
-        tmp_path,
-        OPERATOR_TELEGRAM_ID="999912",
-        BACKUP_R2_REQUIRED="0",
-    )
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-
-    status = asyncio.run(run_r2_freshness_check(app, now=NOW))
-    assert status == "unconfigured"
-    assert app.bot.send_message.await_count == 0
-
-
-def test_the_alarm_is_one_a_day_not_one_every_fifteen_minutes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A broken backup is a daily fact; four alerts an hour teach people to
-    ignore them. Every instant here is hardcoded."""
-    _settings_with(monkeypatch, tmp_path, OPERATOR_TELEGRAM_ID="999913")
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-
-    asyncio.run(run_r2_freshness_check(app, now=NOW))
-    assert app.bot.send_message.await_count == 1
-
-    # The next scheduler tick, an hour later, and six hours later: silent.
-    asyncio.run(run_r2_freshness_check(app, now=NOW + timedelta(hours=1)))
-    asyncio.run(run_r2_freshness_check(app, now=NOW + timedelta(hours=6)))
-    assert app.bot.send_message.await_count == 1
-
-    # A day later it says so again — the problem has not gone away.
-    asyncio.run(run_r2_freshness_check(app, now=NOW + timedelta(hours=25)))
-    assert app.bot.send_message.await_count == 2
-    assert "suppressed=2" in app.bot.send_message.await_args.kwargs["text"]
-
-
-def test_stale_r2_reaches_the_operator_and_names_the_object(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _settings_with(
-        monkeypatch,
-        tmp_path,
-        OPERATOR_TELEGRAM_ID="999914",
-        R2_ACCOUNT_ID="acct123",
-        R2_BUCKET=FAKE_BUCKET,
-        R2_ENDPOINT=FAKE_ENDPOINT,
-        R2_ACCESS_KEY_ID=FAKE_ACCESS_KEY,
-        R2_SECRET_ACCESS_KEY=FAKE_SECRET,
-    )
-    monkeypatch.setattr(
-        "core.services.backup_freshness._run_aws",
-        _stub_runner(0, _listing_at(NOW - timedelta(hours=40))),
-    )
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-
-    status = asyncio.run(run_r2_freshness_check(app, now=NOW))
-    assert status == "stale"
-    assert app.bot.send_message.await_count == 1
-    sent = app.bot.send_message.await_args.kwargs["text"]
-    assert "STALE" in sent
-    assert "english_bot_2026-08-23_0400.dump" in sent
-    assert FAKE_SECRET not in sent
-
-
-def test_a_healthy_r2_says_nothing_to_the_operator(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _settings_with(
-        monkeypatch,
-        tmp_path,
-        OPERATOR_TELEGRAM_ID="999915",
-        R2_ACCOUNT_ID="acct123",
-        R2_BUCKET=FAKE_BUCKET,
-        R2_ENDPOINT=FAKE_ENDPOINT,
-        R2_ACCESS_KEY_ID=FAKE_ACCESS_KEY,
-        R2_SECRET_ACCESS_KEY=FAKE_SECRET,
-    )
-    monkeypatch.setattr(
-        "core.services.backup_freshness._run_aws",
-        _stub_runner(0, _listing_at(NOW - timedelta(hours=8))),
-    )
-    app = MagicMock()
-    app.bot.send_message = AsyncMock()
-
-    assert asyncio.run(run_r2_freshness_check(app, now=NOW)) == "ok"
-    assert app.bot.send_message.await_count == 0
-
-
-def test_the_scheduled_job_runs_both_halves(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The folder check and the R2 check, from the job the scheduler registers.
-
-    Rule 4: the user action here is "the hourly backup_freshness tick fires".
-    """
-    called: list[str] = []
-
-    async def _folder(app, **kwargs):
-        called.append("folder")
-        return "skipped"
-
-    async def _r2(app, **kwargs):
-        called.append("r2")
-        return "unconfigured"
-
-    monkeypatch.setattr(bot_scheduler, "run_backup_freshness_check", _folder)
-    monkeypatch.setattr(bot_scheduler, "run_r2_freshness_check", _r2)
-    context = MagicMock()
-    asyncio.run(bot_scheduler._backup_freshness_job(context))
-    assert called == ["folder", "r2"]
-
-
 def test_worker_job_reports_unconfigured_r2_at_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1123,28 +962,36 @@ def test_bot_and_worker_job_tables_are_disjoint() -> None:
     the install decision belong in the same change."* They do: W20 empties the
     overlap from the worker's side and installs the unit at the launch pass.
 
-    The overlap it recorded is still the reason the bot keeps those four jobs,
-    so the set is kept and asserted to be the bot's. Red, 2026-09-25: with
-    `streak_rollover` put back into `JOBS`, the intersection was
-    `{'streak_rollover'}`.
+    **W22 moved the four from the bot to the worker** (#69's remainder). The
+    three lines W20 ended with, quoted: *"`assert _bot_job_names() &
+    worker_names == set()` / `assert KNOWN_JOB_OVERLAP <= _bot_job_names()` /
+    `assert KNOWN_JOB_OVERLAP <= set(worker_jobs.HELD_JOBS)`"* — the first
+    still holds; the other two now point the other way. Red, 2026-09-25 (W20):
+    with `streak_rollover` put back into `JOBS` while the bot held it, the
+    intersection was `{'streak_rollover'}`. Red, 2026-09-25 (W22): with a
+    `streak_rollover` registration put back into the bot's `start_scheduler`,
+    the first assertion failed (`{'couple_poll', 'streak_rollover'}`).
     """
     worker_names = {job.name for job in worker_jobs.JOBS}
+    assert _bot_job_names() == {"couple_poll"}
     assert _bot_job_names() & worker_names == set()
-    assert KNOWN_JOB_OVERLAP <= _bot_job_names()
-    assert KNOWN_JOB_OVERLAP <= set(worker_jobs.HELD_JOBS)
+    assert KNOWN_JOB_OVERLAP <= worker_names
+    assert KNOWN_JOB_OVERLAP & set(worker_jobs.HELD_JOBS) == set()
 
 
 def test_the_worker_unit_says_how_it_is_installed_and_why_it_is_safe() -> None:
     """W1c's `test_the_worker_unit_says_it_must_not_be_installed_yet` asserted
     `NOT INSTALLED` in the unit. W20 installs it; the unit names the four jobs
-    the bot keeps, and the install commands, so a reader of the file alone
-    knows why two processes are safe."""
+    (the bot's until W22, the worker's since), the install commands, and W22's
+    restart order, so a reader of the file alone knows why two processes are
+    safe."""
     unit = (UNIT_DIR / "english-worker.service").read_text(encoding="utf-8")
     assert "NOT INSTALLED" not in unit
     assert "systemctl enable --now english-worker" in unit
     assert "Scheduler built jobs=push_poll" in unit
     for name in sorted(KNOWN_JOB_OVERLAP):
         assert name in unit
+    assert "restart english-bot BEFORE this unit" in unit
 
 
 def test_the_api_unit_binds_to_loopback_only() -> None:

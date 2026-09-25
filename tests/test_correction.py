@@ -2,25 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import date, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from core.db import close_pool, connection
-from apps.bot.handlers import correction as correction_handler
-from apps.bot.handlers.correction import (
-    ABSTRACT_ERROR_TYPES,
-    build_system_prompt,
-    init_correction_prompt,
-    murphy_lookup,
-)
 from core.services.errors import record_errors
 from core.services.identity import save_onboarding
-from core.services.users import get_user
-from apps.bot import texts
 
 
 FAKE_TELEGRAM_ID_BASE = 9_100_000_000
@@ -122,11 +112,6 @@ def _make_context() -> MagicMock:
     return context
 
 
-@pytest.fixture(autouse=True)
-def _init_prompt() -> None:
-    init_correction_prompt()
-
-
 def test_record_two_corrections_writes_two_rows(cleanup_user: int) -> None:
     tid = cleanup_user
     user_id = _onboard(tid)
@@ -177,186 +162,3 @@ def test_invalid_error_type_dropped(cleanup_user: int) -> None:
     assert rows[0]["error_type"] == "verb_tense_past"
 
 
-def test_has_errors_false_writes_zero_rows(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _make_update(tid, "This sentence is perfectly fine.")
-    context = _make_context()
-    payload = {
-        "is_english": True,
-        "has_errors": False,
-        "corrections": [],
-        "did_well": "Natural word order.",
-    }
-    with patch("core.services.correction.chat", return_value=payload):
-        asyncio.run(correction_handler.correct_text(update, context))
-    assert _count_errors(user_id) == 0
-    update.message.reply_text.assert_awaited_with("👍 Natural word order.")
-
-
-def test_is_english_false_writes_zero_rows(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _make_update(tid, "این یک جمله فارسی است حتما")
-    context = _make_context()
-    payload = {
-        "is_english": False,
-        "has_errors": False,
-        "corrections": [],
-        "did_well": "",
-    }
-    with patch("core.services.correction.chat", return_value=payload):
-        asyncio.run(correction_handler.correct_text(update, context))
-    assert _count_errors(user_id) == 0
-    update.message.reply_text.assert_awaited_with(texts.NOT_ENGLISH)
-
-
-def test_rendered_message_matches_prd_shape(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _make_update(tid, "her english is not so much good today")
-    context = _make_context()
-    payload = {
-        "is_english": True,
-        "has_errors": True,
-        "corrections": [
-            {
-                "you_said": "her english is not so much good",
-                "correct_form": "her English isn't very good",
-                "error_type": "quantifier_modifier",
-                "explanation": (
-                    '"so much" doesn\'t go before adjectives. Use "very".'
-                ),
-            },
-            {
-                "you_said": "collocation fail",
-                "correct_form": "make a decision",
-                "error_type": "collocation",
-                "explanation": 'Say "make a decision", not "do a decision".',
-            },
-        ],
-        "did_well": "Clean word order in the whole sentence.",
-    }
-    with patch("core.services.correction.chat", return_value=payload):
-        asyncio.run(correction_handler.correct_text(update, context))
-
-    assert _count_errors(user_id) == 2
-    reply = update.message.reply_text.await_args.args[0]
-    expected_first = texts.format_correction_block(
-        you_said="her english is not so much good",
-        correct_form="her English isn't very good",
-        explanation='"so much" doesn\'t go before adjectives. Use "very".',
-    )
-    expected_second = texts.format_correction_block(
-        you_said="collocation fail",
-        correct_form="make a decision",
-        explanation='Say "make a decision", not "do a decision".',
-    )
-    # INVERTED 2026-08-26 by the #183 ruling, not deleted. These two lines read
-    # `assert "📗" in expected_first` / `not in expected_second` and were the
-    # proof that a block WITH a Murphy range and a block without looked
-    # different. Under the ruling there is no such distinction: no block carries
-    # the citation, whether or not the error type has one.
-    #
-    # `quantifier_modifier` still has a non-NULL `murphy_units` and `collocation`
-    # is still NULL -- the column is untouched -- so this asserts the ruling
-    # rather than the absence of data.
-    assert murphy_lookup()["quantifier_modifier"] is not None
-    assert murphy_lookup()["collocation"] is None
-    assert "📗" not in expected_first
-    assert "📗" not in expected_second
-    assert reply == (
-        expected_first
-        + "\n\n"
-        + expected_second
-        + "\n\n👍 Clean word order in the whole sentence."
-    )
-
-
-def test_system_prompt_fallback_true_includes_native_rule(
-    cleanup_user: int,
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _set_fallback(user_id, True)
-    user = get_user(user_id)
-    assert user is not None
-    assert user.explanation_language_fallback is True
-    prompt = build_system_prompt(user)
-    assert "write that explanation in their native language" in prompt
-    assert ", ".join(ABSTRACT_ERROR_TYPES) in prompt
-    assert user.native_language in prompt
-
-
-def test_system_prompt_fallback_false_omits_native_rule(
-    cleanup_user: int,
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _set_fallback(user_id, False)
-    user = get_user(user_id)
-    assert user is not None
-    assert user.explanation_language_fallback is False
-    prompt = build_system_prompt(user)
-    assert "write that explanation in their native language" not in prompt
-    assert ", ".join(ABSTRACT_ERROR_TYPES) not in prompt
-    assert "Write every explanation in English" in prompt
-
-
-def test_short_single_error_includes_nonempty_did_well(cleanup_user: int) -> None:
-    """Short inputs still get a present, non-empty did_well line (not filler about the error)."""
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    user = get_user(user_id)
-    assert user is not None
-    prompt = build_system_prompt(user)
-    assert "Never restate, paraphrase, or reference the error being corrected" in prompt
-    assert "Short and clear." in prompt
-
-    update = _make_update(tid, "I go yesterday")
-    context = _make_context()
-    payload = {
-        "is_english": True,
-        "has_errors": True,
-        "corrections": [
-            {
-                "you_said": "I go",
-                "correct_form": "I went",
-                "error_type": "verb_tense_past",
-                "explanation": 'Yesterday needs the past form "went".',
-            }
-        ],
-        "did_well": "Short and clear.",
-    }
-    with patch("core.services.correction.chat", return_value=payload):
-        asyncio.run(correction_handler.correct_text(update, context))
-
-    assert _count_errors(user_id) == 1
-    reply = update.message.reply_text.await_args.args[0]
-    assert "\n\n👍 " in reply
-    did_well = reply.split("\n\n👍 ", 1)[1].strip()
-    assert did_well
-    assert "went" not in did_well.lower()
-    assert "past participle" not in did_well.lower()
-
-
-def test_format_correction_block_never_carries_a_murphy_citation() -> None:
-    """RENAMED AND INVERTED 2026-08-26 (#183), not deleted.
-
-    It was `test_format_correction_block_no_murphy_when_null`, and it pinned the
-    conditional: no Murphy line when the error type has no range. The ruling
-    removed the line unconditionally, so the conditional it pinned no longer
-    exists and the name would have described a rule the code had stopped having.
-    """
-    block = texts.format_correction_block(
-        you_said="do a decision",
-        correct_form="make a decision",
-        explanation='Use "make" with decision.',
-    )
-    assert "📗" not in block
-    assert "Murphy" not in block
-    assert block == (
-        '✏️ "do a decision"\n'
-        "→ make a decision\n"
-        '💡 Use "make" with decision.'
-    )

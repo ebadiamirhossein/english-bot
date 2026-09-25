@@ -2,6 +2,12 @@
 
 Single source of truth for ``setMyCommands``. ``/ping`` stays registered
 as a handler but is deliberately omitted from the public menu.
+
+**W22: the menu is two entries.** ``setMyCommands`` runs at every start-up and
+REPLACES the menu, so the deploy that ships this is also what takes the deleted
+commands off both learners' phones — the old menu does not linger. ``/here``
+(the couple challenge's one-time group setup) is operator-only and was never on
+the menu; it stays off it.
 """
 
 from __future__ import annotations
@@ -11,53 +17,31 @@ import logging
 from telegram import BotCommand
 
 from apps.bot import texts
-from core.services.watch_import import watch_dir_configured
 
 logger = logging.getLogger(__name__)
 
-# (command, description) — order is menu order. ``import`` is appended
-# only when WATCH_DIR is set (same condition as /help).
+# (command, description) — order is menu order.
 _MENU_CORE: tuple[tuple[str, str], ...] = (
     ("start", texts.CMD_DESC_START),
     ("help", texts.CMD_DESC_HELP),
-    ("guide", texts.CMD_DESC_GUIDE),
-    ("stats", texts.CMD_DESC_STATS),
-    ("diary", texts.CMD_DESC_DIARY),
-    ("talk", texts.CMD_DESC_TALK),
-    ("shadow", texts.CMD_DESC_SHADOW),
-    ("capture", texts.CMD_DESC_CAPTURE),
-    ("prep", texts.CMD_DESC_PREP),
-    ("book", texts.CMD_DESC_BOOK),
-    ("test", texts.CMD_DESC_TEST),
-    ("anki", texts.CMD_DESC_ANKI),
-    ("settings", texts.CMD_DESC_SETTINGS),
-    ("interests", texts.CMD_DESC_INTERESTS),
-    ("pause", texts.CMD_DESC_PAUSE),
 )
 
 _HIDDEN_FROM_MENU: frozenset[str] = frozenset({"ping"})
 
 
-def menu_command_entries(*, include_import: bool | None = None) -> list[tuple[str, str]]:
+def menu_command_entries() -> list[tuple[str, str]]:
     """Return (command, description) pairs for the Telegram ``/`` menu."""
-    if include_import is None:
-        include_import = bool(watch_dir_configured())
-    entries = list(_MENU_CORE)
-    if include_import:
-        # After anki — vocabulary group in /help.
-        anki_idx = next(i for i, (c, _) in enumerate(entries) if c == "anki")
-        entries.insert(anki_idx + 1, ("import", texts.CMD_DESC_IMPORT))
-    return entries
+    return list(_MENU_CORE)
 
 
-def menu_command_names(*, include_import: bool | None = None) -> frozenset[str]:
-    return frozenset(c for c, _ in menu_command_entries(include_import=include_import))
+def menu_command_names() -> frozenset[str]:
+    return frozenset(c for c, _ in menu_command_entries())
 
 
-def build_bot_commands(*, include_import: bool | None = None) -> list[BotCommand]:
+def build_bot_commands() -> list[BotCommand]:
     return [
         BotCommand(command=name, description=desc)
-        for name, desc in menu_command_entries(include_import=include_import)
+        for name, desc in menu_command_entries()
     ]
 
 

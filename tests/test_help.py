@@ -1,4 +1,22 @@
-"""S18b: /help + setMyCommands — menu drift, conditional import, access."""
+"""W22: what the Telegram bot still answers — the whole surface, asserted literally.
+
+TASKS' W22 acceptance: *"No teaching path remains in Telegram; couple challenge
+still works."* The second half is ``tests/test_couple.py``. This file is the
+first half, asserted against the application the entrypoint builds
+(``apps.bot.main.register_handlers``) rather than against a list kept beside it:
+**every handler, in every group, by type and command** — so a teaching handler
+put back by any route (a command, a callback, a private-text filter) fails here.
+
+Before W22 this file was S18b's ``/help`` map (twelve tests over twenty
+commands); those tests were deleted with the commands they described.
+
+**RED DEMONSTRATIONS (2026-09-25, ``python -B``, caches cleared):** with a
+``CommandHandler("quiz", …)`` and a ``CallbackQueryHandler(pattern="^quiz:")``
+added to ``register_handlers``, ``test_the_bot_answers_exactly_these_commands``
+and ``test_no_callback_or_private_text_handler_remains`` went red (2 failed);
+with ``/start`` renamed in ``build_help_handlers``, three went red, including
+``test_start_and_help_give_the_same_reply``. Each restored and re-run green.
+"""
 
 from __future__ import annotations
 
@@ -6,21 +24,25 @@ import asyncio
 import logging
 import re
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from telegram import BotCommand, User
 from telegram.ext import (
     ApplicationBuilder,
+    CallbackQueryHandler,
     CommandHandler,
-    ConversationHandler,
+    MessageHandler,
+    TypeHandler,
 )
 
+from apps.bot import texts
 from core.db import close_pool, connection
 from apps.bot.handlers.help import (
+    build_help_handlers,
     format_help_message,
     on_help_command,
-    s18b_user_facing_strings,
+    user_facing_strings,
 )
 from apps.bot.main import register_handlers
 from apps.bot.commands import (
@@ -29,14 +51,10 @@ from apps.bot.commands import (
     menu_command_names,
     register_bot_commands,
 )
+from core.copy_rules import BANNED
 from core.services.identity import save_onboarding
-FAKE_TELEGRAM_ID_BASE = 9_500_000_000
 
-_GUILT = re.compile(
-    r"\b(fail(ed|ure)?|broke your|disappoint|guilt|lazy|should have|"
-    r"missed)\b|😞|😢|😔|☹️|🙁|😟|😤|😠",
-    re.IGNORECASE,
-)
+FAKE_TELEGRAM_ID_BASE = 9_500_000_000
 
 
 @pytest.fixture
@@ -50,23 +68,19 @@ def _close_pool_after_test() -> None:
     close_pool()
 
 
-def _delete_user(telegram_user_id: int) -> None:
+@pytest.fixture
+def cleanup_user(fake_telegram_id: int):
+    yield fake_telegram_id
     with connection() as conn:
         with conn.transaction():
             conn.execute(
                 "DELETE FROM users WHERE telegram_user_id = %s",
-                (telegram_user_id,),
+                (fake_telegram_id,),
             )
 
 
-@pytest.fixture
-def cleanup_user(fake_telegram_id: int):
-    yield fake_telegram_id
-    _delete_user(fake_telegram_id)
-
-
 def _onboard(tid: int) -> int:
-    user_id = save_onboarding(
+    return save_onboarding(
         tid,
         {
             "name": "Help Test",
@@ -80,81 +94,89 @@ def _onboard(tid: int) -> int:
             "evening_time": "21:00",
         },
     )
-    return user_id
 
 
-def _update(user_id: int, text: str = "/help") -> MagicMock:
-    user = User(id=user_id, first_name="A", is_bot=False)
+def _update(user_id: int, text: str) -> MagicMock:
     msg = MagicMock()
     msg.reply_text = AsyncMock()
     msg.text = text
     update = MagicMock()
     update.message = msg
-    update.effective_user = user
+    update.effective_user = User(id=user_id, first_name="A", is_bot=False)
     return update
-
-
-def _collect_registered_commands(app) -> set[str]:
-    """Walk Application handlers (incl. ConversationHandler) for command names."""
-    names: set[str] = set()
-
-    def walk(handlers: list) -> None:
-        for h in handlers:
-            if isinstance(h, CommandHandler):
-                names.update(h.commands)
-            elif isinstance(h, ConversationHandler):
-                walk(list(h.entry_points))
-                for state_handlers in h.states.values():
-                    walk(list(state_handlers))
-                walk(list(h.fallbacks))
-
-    for group_handlers in app.handlers.values():
-        walk(list(group_handlers))
-    return names
 
 
 @pytest.fixture
 def wired_app():
-    """Application with the same handlers as production (no network)."""
-    app = ApplicationBuilder().token("1:FAKE-S18B-TEST").build()
+    """The application the entrypoint builds, with no network."""
+    app = ApplicationBuilder().token("1:FAKE-W22-TEST").build()
     register_handlers(app)
-    me = User(id=1, first_name="Bot", is_bot=True, username="testbot")
-    object.__setattr__(app.bot, "_bot_user", me)
-    app._initialized = True
     return app
 
 
-# --- setMyCommands -----------------------------------------------------------
+def _handlers(app) -> list[tuple[int, object]]:
+    return [(group, h) for group, hs in app.handlers.items() for h in hs]
 
 
-def test_build_bot_commands_omits_ping_and_matches_core() -> None:
-    cmds = build_bot_commands(include_import=False)
-    names = [c.command for c in cmds]
-    assert "ping" not in names
-    assert "help" in names
-    assert "import" not in names
+# --- the whole surface -------------------------------------------------------
+
+
+def test_the_bot_answers_exactly_these_commands(wired_app) -> None:
+    """Literal on purpose: a command added back fails here, whatever it is."""
+    commands = {
+        name
+        for _group, h in _handlers(wired_app)
+        if isinstance(h, CommandHandler)
+        for name in h.commands
+    }
+    assert commands == {"start", "help", "ping", "here"}
+
+
+def test_no_callback_or_private_text_handler_remains(wired_app) -> None:
+    """Every Telegram teaching flow was a callback, a conversation or a private
+    text filter. What is left: the gate (group -1), four commands, and the
+    couple challenge's group-answer handler."""
+    kinds = sorted(
+        (group, type(h).__name__)
+        for group, h in _handlers(wired_app)
+        if not isinstance(h, CommandHandler)
+    )
+    assert kinds == [(-1, "TypeHandler"), (0, "MessageHandler")]
+    assert not any(isinstance(h, CallbackQueryHandler) for _g, h in _handlers(wired_app))
+    gate = [h for g, h in _handlers(wired_app) if g == -1]
+    assert len(gate) == 1 and isinstance(gate[0], TypeHandler)
+    answers = [h for _g, h in _handlers(wired_app) if isinstance(h, MessageHandler)]
+    assert answers[0].callback.__module__ == "apps.bot.handlers.couple"
+
+
+def test_the_menu_is_start_and_help() -> None:
+    """``setMyCommands`` REPLACES the menu at start-up, so this list is also what
+    takes the deleted commands off the learners' phones."""
+    cmds = build_bot_commands()
+    assert [c.command for c in cmds] == ["start", "help"]
     assert all(isinstance(c, BotCommand) for c in cmds)
     assert all(c.description and c.description[0].islower() for c in cmds)
+    assert "ping" in hidden_from_menu()
+    assert "ping" not in menu_command_names()
 
 
-def test_build_bot_commands_includes_import_when_asked() -> None:
-    names = [c.command for c in build_bot_commands(include_import=True)]
-    assert "import" in names
-    assert names.index("import") == names.index("anki") + 1
+def test_every_menu_command_has_a_handler(wired_app) -> None:
+    registered = {
+        name
+        for _g, h in _handlers(wired_app)
+        if isinstance(h, CommandHandler)
+        for name in h.commands
+    }
+    assert menu_command_names() <= registered
 
 
-def test_register_bot_commands_calls_set_my_commands_once() -> None:
+def test_register_bot_commands_sends_the_menu_once() -> None:
     bot = MagicMock()
     bot.set_my_commands = AsyncMock()
-    with patch(
-        "apps.bot.commands.watch_dir_configured", return_value=""
-    ):
-        asyncio.run(register_bot_commands(bot))
+    asyncio.run(register_bot_commands(bot))
     bot.set_my_commands.assert_awaited_once()
     (arg,), _kwargs = bot.set_my_commands.await_args
-    assert [c.command for c in arg] == [
-        c.command for c in build_bot_commands(include_import=False)
-    ]
+    assert [c.command for c in arg] == ["start", "help"]
 
 
 def test_register_bot_commands_failure_logs_warning_not_raise(
@@ -165,78 +187,43 @@ def test_register_bot_commands_failure_logs_warning_not_raise(
     with caplog.at_level(logging.WARNING, logger="apps.bot.commands"):
         asyncio.run(register_bot_commands(bot))
     assert any("setMyCommands" in r.message for r in caplog.records)
-    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
-# --- /help content -----------------------------------------------------------
+# --- the reply ---------------------------------------------------------------
 
 
-def test_help_lists_menu_commands_except_hidden() -> None:
-    # /start and /help live in the Telegram menu but not the intent body
-    # (already completed onboarding; /help is the message itself).
-    skip_in_body = frozenset({"start", "help"})
-    body = format_help_message(include_import=True)
-    for name in menu_command_names(include_import=True):
-        if name in skip_in_body:
-            continue
-        assert f"/{name}" in body, name
-    for name in hidden_from_menu():
-        assert f"/{name}" not in body
+def test_start_and_help_give_the_same_reply() -> None:
+    start, help_ = build_help_handlers()
+    assert start.commands == frozenset({"start"})
+    assert help_.commands == frozenset({"help"})
+    assert start.callback is on_help_command is help_.callback
 
 
-def test_help_omits_import_when_watch_unset() -> None:
-    body = format_help_message(include_import=False)
-    assert "/import" not in body
-    assert "/anki" in body
-
-
-def test_help_includes_import_when_watch_set() -> None:
-    body = format_help_message(include_import=True)
-    assert "/import" in body
-
-
-def test_help_mentions_no_command_behaviours() -> None:
-    body = format_help_message(include_import=False)
-    lower = body.lower()
-    assert "type any english" in lower
-    assert "forward any english" in lower
-    assert "journal" in lower or "correct" in lower
-    assert "chunk" in lower or "explain" in lower
-    assert "csv" in lower
-    assert "trancy" in lower or "language reactor" in lower
+def test_the_reply_points_at_the_app_and_names_no_command() -> None:
+    body = format_help_message()
+    assert body == texts.HELP_AFTER_W22
+    assert "app" in body.lower()
+    assert "couple challenge" in body.lower()
+    # Every command a learner used to type is gone; the reply names none.
+    assert re.search(r"/[a-z]", body) is None
 
 
 def test_help_ignores_unregistered(fake_telegram_id: int) -> None:
-    update = _update(fake_telegram_id)
-    context = MagicMock()
-    asyncio.run(on_help_command(update, context))
+    update = _update(fake_telegram_id, "/help")
+    asyncio.run(on_help_command(update, MagicMock()))
     update.message.reply_text.assert_not_called()
 
 
-def test_help_replies_for_registered(cleanup_user: int) -> None:
+@pytest.mark.parametrize("command", ["/start", "/help"])
+def test_start_and_help_reply_for_a_registered_learner(
+    cleanup_user: int, command: str
+) -> None:
     _onboard(cleanup_user)
-    update = _update(cleanup_user)
-    context = MagicMock()
-    asyncio.run(on_help_command(update, context))
-    update.message.reply_text.assert_awaited_once()
-    body = update.message.reply_text.await_args.args[0]
-    assert "/stats" in body
-    assert "/ping" not in body
+    update = _update(cleanup_user, command)
+    asyncio.run(on_help_command(update, MagicMock()))
+    update.message.reply_text.assert_awaited_once_with(texts.HELP_AFTER_W22)
 
 
-# --- drift: menu ⊆ registered handlers --------------------------------------
-
-
-def test_menu_commands_have_handlers(wired_app) -> None:
-    registered = _collect_registered_commands(wired_app)
-    for name in menu_command_names(include_import=True):
-        assert name in registered, f"menu command /{name} has no handler"
-    # Deliberately hidden still works
-    assert "ping" in registered
-    assert "ping" not in menu_command_names(include_import=True)
-    assert "help" in registered
-
-
-def test_no_guilt_in_s18b_copy() -> None:
-    for s in s18b_user_facing_strings():
-        assert _GUILT.search(s) is None, s
+def test_no_banned_phrase_in_what_this_module_shows() -> None:
+    for s in user_facing_strings():
+        assert BANNED.search(s) is None, s

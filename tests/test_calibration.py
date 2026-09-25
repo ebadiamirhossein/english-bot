@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from apps.bot import texts
+from core import copy as texts
 from core.db import close_pool, connection
 from core.services.calibration import (
     CEFR_LADDER,

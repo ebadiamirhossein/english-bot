@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
 import re
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
@@ -11,42 +9,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from apps.bot import texts
 from core.db import close_pool, connection
-from apps.bot.handlers.nudge import on_nudge_callback
-from apps.bot.handlers.quiz import quiz_effective_total
-from apps.bot.scheduler import (
-    ANKI_FIRST_SECONDS,
-    NUDGE_FIRST_SECONDS,
-    SUNDAY_REPORT_FIRST_SECONDS,
-)
 from core.services.errors import mark_result, resolved_types, top_error_types
-from apps.bot.motivation_delivery import (
-    deliver_nudges_for_user,
-    deliver_sunday_report,
-    nudge_keyboard,
-)
 from core.services.motivation import (
-    EARLY_LIMIT,
     MotivationUser,
     assemble_sunday_report,
     format_active_days_line,
-    format_nudge_message,
-    is_user_due_for_sunday_report,
     list_motivation_users,
     s10_button_labels,
     s10_user_facing_strings,
-    sessions_due_for_nudge,
     task_still_open,
 )
 from core.services.sessions import (
-    bot_initiated_count,
-    complete_session,
-    daily_nudges_sent,
-    get_session_by_id,
     has_anki_session_on,
-    has_sunday_report_session_on,
-    increment_bot_messages,
     insert_session,
     local_today,
     set_session_delivered_at,
@@ -291,17 +266,6 @@ def test_active_days_copy_bands() -> None:
     assert "/7" not in line7
 
 
-def test_sunday_report_leads_with_progress_not_shortfall(
-    cleanup_user: int,
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    day = date(2026, 8, 9)
-    body = assemble_sunday_report(user_id, local_day=day, why_statement=None)
-    assert body.startswith(texts.SUNDAY_LEAD_KEEPING) or "Quiet" in body
-    assert not body.startswith(texts.SUNDAY_SHORTFALL)
-
-
 def test_sunday_report_leads_with_resolved_types(cleanup_user: int) -> None:
     tid = cleanup_user
     user_id = _onboard(tid)
@@ -322,206 +286,6 @@ def test_sunday_report_leads_with_resolved_types(cleanup_user: int) -> None:
 # --- nudge ladder -------------------------------------------------------------
 
 
-def test_nudge_ladder_3h_6h_never_third(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    user = _mot_user(user_id)
-    day = local_today("Europe/Vilnius", _MON_MORNING)
-    delivered = _MON_MORNING
-    sid = _open_quiz(user_id, day, delivered_at=delivered)
-    app = _mock_app()
-
-    at_plus_2h = delivered + timedelta(hours=2)
-    assert sessions_due_for_nudge(user, at_plus_2h) == []
-
-    at_plus_3h = delivered + timedelta(hours=3)
-    actions = asyncio.run(deliver_nudges_for_user(app, user, now=at_plus_3h))
-    assert actions == ["sent_first"]
-    assert daily_nudges_sent(user_id, day) == 1
-
-    actions2 = asyncio.run(deliver_nudges_for_user(app, user, now=at_plus_3h))
-    assert actions2 == []
-    assert daily_nudges_sent(user_id, day) == 1
-
-    at_plus_6h = delivered + timedelta(hours=6)
-    actions3 = asyncio.run(deliver_nudges_for_user(app, user, now=at_plus_6h))
-    assert actions3 == ["sent_second"]
-    assert daily_nudges_sent(user_id, day) == 2
-
-    at_plus_9h = delivered + timedelta(hours=9)
-    actions4 = asyncio.run(deliver_nudges_for_user(app, user, now=at_plus_9h))
-    assert actions4 == []
-    with connection() as conn:
-        row = conn.execute(
-            "SELECT nudges_sent FROM sessions WHERE id = %s", (sid,)
-        ).fetchone()
-    assert int(row["nudges_sent"]) == 2
-
-
-def test_second_nudge_copy_differs_and_offers_smaller(
-    cleanup_user: int,
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    day = local_today("Europe/Vilnius", _MON_MORNING)
-    sid = _open_quiz(user_id, day, delivered_at=_MON_MORNING)
-    from core.services.sessions import list_open_nudgeable_sessions
-
-    sessions = list_open_nudgeable_sessions(user_id)
-    assert sessions
-    s0 = sessions[0]
-    first_body, first_action = format_nudge_message(s0)
-    with connection() as conn:
-        conn.execute(
-            "UPDATE sessions SET nudges_sent = 1 WHERE id = %s", (sid,)
-        )
-    s1 = list_open_nudgeable_sessions(user_id)[0]
-    second_body, second_action = format_nudge_message(s1)
-    assert first_body != second_body
-    assert first_action is None
-    assert second_action == {"action": "short_session", "session_id": sid}
-    assert "2" in second_body or "two" in second_body.lower()
-    # apps/bot renders the action; core never names the widget (W1).
-    button = nudge_keyboard(second_action).inline_keyboard[0][0]
-    assert button.text == texts.BTN_NUDGE_JUST_2
-    assert f"nudge:short:{sid}" == button.callback_data
-    assert nudge_keyboard(first_action) is None
-
-
-def test_completed_before_3h_no_nudge(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    user = _mot_user(user_id)
-    day = local_today("Europe/Vilnius", _MON_MORNING)
-    sid = _open_quiz(user_id, day, delivered_at=_MON_MORNING)
-    complete_session(sid, 1.0)
-    app = _mock_app()
-    actions = asyncio.run(
-        deliver_nudges_for_user(
-            app, user, now=_MON_MORNING + timedelta(hours=4)
-        )
-    )
-    assert actions == []
-    assert app.bot.send_message.await_count == 0
-
-
-def test_ceiling_suppresses_nudge_no_increment(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    user = _mot_user(user_id)
-    day = local_today("Europe/Vilnius", _MON_MORNING)
-    sid = _open_quiz(user_id, day, delivered_at=_MON_MORNING)
-    for _ in range(3):
-        increment_bot_messages(user_id, day)
-    assert bot_initiated_count(user_id, day) == 3
-    app = _mock_app()
-    with caplog.at_level(logging.WARNING):
-        actions = asyncio.run(
-            deliver_nudges_for_user(
-                app, user, now=_MON_MORNING + timedelta(hours=3)
-            )
-        )
-    assert actions == ["skipped_ceiling"]
-    with connection() as conn:
-        row = conn.execute(
-            "SELECT nudges_sent FROM sessions WHERE id = %s", (sid,)
-        ).fetchone()
-    assert int(row["nudges_sent"]) == 0
-    assert any("message_ceiling" in r.message for r in caplog.records)
-
-
-def test_nudge_dual_timezone(cleanup_user: int, fake_telegram_id: int) -> None:
-    """Tokyo and Vilnius each get nudges on their own local clock."""
-    tid_v = cleanup_user
-    tid_t = fake_telegram_id + 1
-    try:
-        user_id = _onboard(tid_v, tz="Europe/Vilnius")
-        tid_t_id = _onboard(tid_t, tz="Asia/Tokyo")
-        delivered = datetime(2026, 8, 3, 2, 0, tzinfo=timezone.utc)
-        day_v = local_today("Europe/Vilnius", delivered)
-        day_t = local_today("Asia/Tokyo", delivered)
-        _open_quiz(user_id, day_v, delivered_at=delivered)
-        _open_quiz(tid_t_id, day_t, delivered_at=delivered)
-        user_v = _mot_user(user_id, tz="Europe/Vilnius")
-        user_t = _mot_user(tid_t_id, tz="Asia/Tokyo")
-        app = _mock_app()
-        now = delivered + timedelta(hours=3)
-        asyncio.run(deliver_nudges_for_user(app, user_v, now=now))
-        asyncio.run(deliver_nudges_for_user(app, user_t, now=now))
-        assert daily_nudges_sent(user_id, day_v) == 1
-        assert daily_nudges_sent(tid_t_id, day_t) == 1
-    finally:
-        _delete_user(tid_t)
-
-
-def test_paused_user_no_nudge_no_report(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    day = local_today("Europe/Vilnius", _MON_MORNING)
-    with connection() as conn:
-        conn.execute(
-            "UPDATE users SET paused_until = %s WHERE id = %s",
-            (day + timedelta(days=30), user_id),
-        )
-    user = _mot_user(user_id)
-    _open_quiz(user_id, day, delivered_at=_MON_MORNING)
-    app = _mock_app()
-    actions = asyncio.run(
-        deliver_nudges_for_user(
-            app, user, now=_MON_MORNING + timedelta(hours=4)
-        )
-    )
-    assert actions == []
-    assert is_user_due_for_sunday_report(user, _SUNDAY_EVENING) is False
-    assert (
-        asyncio.run(deliver_sunday_report(app, user, now=_SUNDAY_EVENING))
-        == "skipped"
-    )
-
-
-def test_sunday_report_idempotent(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    user = _mot_user(user_id)
-    app = _mock_app()
-    action = asyncio.run(deliver_sunday_report(app, user, now=_SUNDAY_EVENING))
-    assert action == "sent"
-    day = local_today("Europe/Vilnius", _SUNDAY_EVENING)
-    assert has_sunday_report_session_on(user_id, day)
-    action2 = asyncio.run(
-        deliver_sunday_report(app, user, now=_SUNDAY_EVENING)
-    )
-    assert action2 == "skipped"
-    assert app.bot.send_message.await_count == 1
-
-
-def test_anki_not_due_on_sunday_evening(cleanup_user: int) -> None:
-    """S11: Anki moved to Saturday — Sunday evening must not write anki_export."""
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    from apps.bot.scheduler import EligibleUser, is_user_due_for_anki
-
-    anki_user = EligibleUser(
-        id=user_id,
-        # Deliberately not equal to `id`.
-        telegram_address=_TG_ADDRESS_BASE + user_id,
-        timezone="Europe/Vilnius",
-        morning_time=time(8, 0),
-        paused_until=None,
-        evening_time=time(21, 0),
-    )
-    assert is_user_due_for_anki(anki_user, _SUNDAY_EVENING) is False
-    day = local_today("Europe/Vilnius", _SUNDAY_EVENING)
-    assert not has_anki_session_on(user_id, day)
-
-
-def test_scheduler_report_before_anki_offsets() -> None:
-    assert SUNDAY_REPORT_FIRST_SECONDS < ANKI_FIRST_SECONDS
-    assert ANKI_FIRST_SECONDS < NUDGE_FIRST_SECONDS
-
-
 def test_task_still_open_until_0300_next_night() -> None:
     session_date = date(2026, 8, 3)
     tue_0259 = datetime(2026, 8, 3, 23, 59, tzinfo=timezone.utc)
@@ -531,40 +295,6 @@ def test_task_still_open_until_0300_next_night() -> None:
 
 
 # --- smaller version / early complete -----------------------------------------
-
-
-def test_just_do_2_completes_quiz_with_score(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    day = local_today("Europe/Vilnius", _MON_MORNING)
-    payload = _quiz_payload(answered=2, correct_count=1, index=2)
-    payload["early_limit"] = EARLY_LIMIT
-    sid = _open_quiz(user_id, day, delivered_at=_MON_MORNING, payload=payload)
-
-    msg = MagicMock()
-    msg.reply_text = AsyncMock()
-    cq = MagicMock()
-    cq.data = f"nudge:short:{sid}"
-    cq.answer = AsyncMock()
-    cq.message = msg
-    update = MagicMock()
-    update.callback_query = cq
-    update.effective_user = MagicMock(id=tid)
-    context = MagicMock()
-    context.bot = MagicMock()
-    context.bot.edit_message_text = AsyncMock()
-
-    asyncio.run(on_nudge_callback(update, context))
-    sess = get_session_by_id(user_id, sid)
-    assert sess is not None
-    assert sess.completed is True
-    assert sess.score == pytest.approx(0.5)  # 1/2
-
-
-def test_quiz_effective_total_honours_early_limit() -> None:
-    payload = _quiz_payload(early_limit=2)
-    assert quiz_effective_total(payload) == 2
-    assert quiz_effective_total(_quiz_payload()) == 5
 
 
 # --- no-guilt / labels --------------------------------------------------------

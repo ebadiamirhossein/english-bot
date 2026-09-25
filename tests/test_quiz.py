@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
-from datetime import date, datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import date
 
 import pytest
 
 from core.db import close_pool, connection
-from apps.bot.handlers import quiz as quiz_handler
-from apps.bot.handlers.quiz import grade_answer, normalize_answer
 from core.services.errors import mark_result
 from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_310_000_000
@@ -108,82 +104,6 @@ def _next_review(error_id: int) -> date:
     return row["next_review"]
 
 
-def test_grading_normalisation() -> None:
-    accept = ["isn't", "is not", "isnt"]
-    assert grade_answer("Isn't", accept)
-    assert grade_answer("isn't ", accept)
-    assert grade_answer("isnt", accept)
-    assert grade_answer("is not", accept)
-    assert grade_answer("Isn't.", accept)
-    assert grade_answer("isn\u2019t", accept)  # curly apostrophe
-    assert not grade_answer("aren't", accept)
-    assert normalize_answer("  Is NOT  ") == "is not"
-
-
-def test_answer_calls_mark_result_once(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    eid = _insert_error(user_id, next_review=date.today())
-    today = date.today()
-    payload = {
-        "index": 0,
-        "correct_count": 0,
-        "answered": 0,
-        "questions": [
-            {
-                "error_id": eid,
-                "format": "gap",
-                "prompt": "It ___ very good.",
-                "accept": ["isn't", "is not"],
-                "answer": "isn't",
-                "error_type": "quantifier_modifier",
-                "explanation": "Use very.",
-            }
-        ],
-        "chat_id": tid,
-        "message_id": 1,
-        "session_id": 0,
-    }
-    from psycopg.types.json import Jsonb
-
-    with connection() as conn:
-        row = conn.execute(
-            """
-            INSERT INTO sessions (
-                user_id, date, task_type, delivered_at, completed, payload
-            ) VALUES (%s, %s, 'quiz', NOW(), FALSE, %s)
-            RETURNING id
-            """,
-            (user_id, today, Jsonb(payload)),
-        ).fetchone()
-    assert row is not None
-    session_id = int(row["id"])
-    payload["session_id"] = session_id
-    with connection() as conn:
-        conn.execute(
-            "UPDATE sessions SET payload = %s WHERE id = %s",
-            (Jsonb(payload), session_id),
-        )
-
-    context = MagicMock()
-    context.bot.edit_message_text = AsyncMock()
-
-    with patch.object(quiz_handler, "mark_result", wraps=mark_result) as mocked:
-        asyncio.run(
-            quiz_handler._advance_after_answer(
-                context,
-                user_id,
-                session_id,
-                payload,
-                correct=True,
-                question=payload["questions"][0],
-                user_answer="isn't",
-            )
-        )
-        assert mocked.call_count == 1
-        mocked.assert_called_with(eid, True)
-
-
 def test_abandon_leaves_remaining_untouched(cleanup_user: int) -> None:
     tid = cleanup_user
     user_id = _onboard(tid)
@@ -199,36 +119,3 @@ def test_abandon_leaves_remaining_untouched(cleanup_user: int) -> None:
         assert _next_review(eid) == reviews_before[eid]
 
 
-def test_zero_due_errors_free_practice_once(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid, morning="00:00", tz="UTC")
-    # Future review only — nothing due
-    _insert_error(user_id, next_review=date.today() + timedelta(days=10))
-
-    app = MagicMock()
-    app.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
-    now = datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc)
-
-    action1 = asyncio.run(quiz_handler.deliver_morning(app, user_id, now=now))
-    assert action1 == "free_practice"
-    assert app.bot.send_message.await_count == 1
-
-    sessions = _sessions(user_id)
-    assert len(sessions) == 1
-    assert sessions[0]["task_type"] == "free_practice"
-    assert sessions[0]["completed"] is False
-    assert not any(s["task_type"] == "quiz" for s in sessions)
-
-    # Next poll five minutes later must not send again
-    action2 = asyncio.run(
-        quiz_handler.deliver_morning(app, user_id, now=now + timedelta(minutes=5))
-    )
-    assert action2 == "skipped_existing"
-    assert app.bot.send_message.await_count == 1
-    assert len(_sessions(user_id)) == 1
-
-    # And eligibility must exclude the user
-    from apps.bot.scheduler import users_due_for_morning
-
-    due_ids = [u.id for u in users_due_for_morning(now + timedelta(minutes=5))]
-    assert user_id not in due_ids

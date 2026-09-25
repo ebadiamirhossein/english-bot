@@ -21,7 +21,6 @@ from apps.bot.handlers.couple import (
     run_couple_poll,
     wrap_error_row,
 )
-from apps.bot.scheduler import EligibleUser, is_user_due_for_morning
 from core.services.calibration import compute_accuracy_window
 from apps.bot.services.couple import (
     add_point,
@@ -39,7 +38,6 @@ from apps.bot.services.couple import (
     scores_for_week,
     week_start,
 )
-from core.services.sessions import has_session_on
 from core.services.streaks import evaluate_pending, get_streak, roll_over_day
 from core.services.identity import save_onboarding
 FAKE_TELEGRAM_ID_BASE = 9_490_000_000
@@ -575,27 +573,6 @@ def test_leaderboard_marker_rollover_neutral(
     marker2 = leaderboard_marker_row(a_id, sunday)
     assert marker2 is not None
     assert marker2["completed"] is False
-
-
-def test_leaderboard_marker_does_not_block_morning(
-    cleanup_pair: tuple[int, int],
-) -> None:
-    a, b = cleanup_pair
-    a_id = _onboard(a)
-    b_id = _onboard(b)
-    sunday = date(2026, 8, 9)
-    assert claim_sunday_leaderboard(sunday, a_id) is True
-    assert has_session_on(a_id, sunday) is False
-    user = EligibleUser(
-        id=a,
-        telegram_address=a_id,
-        timezone="Europe/Vilnius",
-        morning_time=__import__("datetime").time(7, 0),
-        paused_until=None,
-    )
-    # Monday morning after that Sunday marker day — use Sunday morning slot
-    morning = datetime(2026, 8, 9, 4, 10, tzinfo=timezone.utc)  # 07:10 Vilnius
-    assert is_user_due_for_morning(user, morning) is True
 
 
 def test_leaderboard_marker_not_in_calibration(

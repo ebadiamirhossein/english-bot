@@ -12,12 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram import Chat, Document, Message, Update, User
 
-from apps.bot import texts
 from core.db import close_pool, connection
-from apps.bot.handlers.csv_import import (
-    on_csv_document,
-    s24_share_button_labels,
-)
 from core.services.anki import fetch_unexported_chunks
 from core.services.chunks import due_chunks
 from core.services.identity import save_onboarding
@@ -518,117 +513,6 @@ def test_folder_path_refuses_vocabulary_without_llm(
 # --- Handler path ------------------------------------------------------------
 
 
-def test_handler_vocabulary_uses_to_thread_no_share(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _doc_update(tid, file_name="VOCABULARY_LIST.csv")
-    context = _context_with_download(_REAL_VOCAB_CSV.encode("utf-8"))
-
-    chat_fn = MagicMock(return_value=_fake_sentences(["tier", "notch"]))
-    to_thread_targets: list[object] = []
-
-    async def _fake_to_thread(fn, *args, **kwargs):
-        to_thread_targets.append(fn)
-        if "chat_fn" not in kwargs and fn is prepare_vocabulary_import:
-            kwargs = {**kwargs, "chat_fn": chat_fn}
-        return fn(*args, **kwargs)
-
-    sc_before, sd_before = _shared_counts()
-    with (
-        patch(
-            "apps.bot.handlers.csv_import.asyncio.to_thread",
-            new=_fake_to_thread,
-        ),
-        patch(
-            "apps.bot.handlers.csv_import.notify_operator", new=AsyncMock()
-        ),
-        patch.object(Message, "reply_text", new=AsyncMock()) as reply,
-        patch("core.llm.chat", new=MagicMock()) as real_llm,
-        patch("core.services.vocab_import.chat", chat_fn),
-    ):
-        asyncio.run(on_csv_document(update, context))
-
-    assert to_thread_targets == [prepare_vocabulary_import]
-    real_llm.assert_not_called()
-    reply.assert_awaited()
-    body = reply.await_args.args[0]
-    kwargs = reply.await_args.kwargs
-    assert "share:" not in body.lower()
-    assert kwargs.get("reply_markup") is None
-    assert "Share" not in body
-    sc_after, sd_after = _shared_counts()
-    assert sc_after == sc_before
-    assert sd_after == sd_before
-    with connection() as conn:
-        rows = conn.execute(
-            "SELECT chunk, source, meaning FROM chunks WHERE user_id = %s "
-            "ORDER BY chunk",
-            (user_id,),
-        ).fetchall()
-    assert len(rows) == 2
-    assert {r["source"] for r in rows} == {VOCAB_SOURCE}
-    assert _error_count(user_id) == 0
-
-
-def test_handler_vocab_llm_failure_zero_rows(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _doc_update(tid)
-    context = _context_with_download(_REAL_VOCAB_CSV.encode("utf-8"))
-
-    async def _failing_to_thread(fn, *args, **kwargs):
-        raise VocabGenerationError("llm down")
-
-    with (
-        patch(
-            "apps.bot.handlers.csv_import.asyncio.to_thread",
-            new=_failing_to_thread,
-        ),
-        patch(
-            "apps.bot.handlers.csv_import.notify_operator", new=AsyncMock()
-        ) as notify,
-        patch.object(Message, "reply_text", new=AsyncMock()) as reply,
-        patch("core.llm.chat", new=MagicMock()) as real_llm,
-    ):
-        asyncio.run(on_csv_document(update, context))
-
-    real_llm.assert_not_called()
-    reply.assert_awaited_once_with(texts.IMPORT_DOC_VOCAB_LLM_FAILED)
-    notify.assert_awaited_once()
-    alert = notify.await_args.kwargs["text"]
-    assert "VOCABULARY" in alert or "vocab" in alert.lower() or "Vocabulary" in alert
-    with connection() as conn:
-        n = conn.execute(
-            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (user_id,)
-        ).fetchone()
-    assert int(n["n"]) == 0
-    assert _error_count(user_id) == 0
-
-
-def test_handler_failed_headers_prose_alert(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _doc_update(tid, file_name="weird.csv")
-    context = _context_with_download(b"alpha,beta\n1,2\n")
-    with (
-        patch(
-            "apps.bot.handlers.csv_import.notify_operator", new=AsyncMock()
-        ) as notify,
-        patch.object(Message, "reply_text", new=AsyncMock()) as reply,
-        patch("core.llm.chat", new=MagicMock()) as real_llm,
-    ):
-        asyncio.run(on_csv_document(update, context))
-    real_llm.assert_not_called()
-    reply.assert_awaited_once()
-    assert "Forward" in reply.await_args.args[0]
-    alert = notify.await_args.kwargs["text"]
-    assert str(user_id) in alert
-    assert "weird.csv" in alert
-    assert "alpha" in alert
-    assert "Expected" in alert
-    assert "Couldn't map a CSV" in alert
-
-
 def test_non_operator_vocabulary_sender_only(cleanup_user: int) -> None:
     tid = cleanup_user
     user_id = _onboard(tid, cefr="A2")
@@ -704,18 +588,6 @@ def test_vocabulary_due_and_anki(cleanup_user: int) -> None:
         export_rows = fetch_unexported_chunks(conn, user_id)
     assert {r.chunk for r in export_rows} >= {"tier", "notch"}
     assert _error_count(user_id) == 0
-
-
-def test_s24a_share_button_labels_le_20() -> None:
-    for label in s24_share_button_labels():
-        assert len(label) <= 20
-
-
-def test_handler_source_has_no_direct_llm_sdk_import() -> None:
-    src = Path("apps/bot/handlers/csv_import.py").read_text(encoding="utf-8")
-    assert "from core.llm import" not in src
-    assert "import core.llm" not in src
-    assert "anthropic" not in src
 
 
 # --- S24b: exact-form retry + skip visibility --------------------------------

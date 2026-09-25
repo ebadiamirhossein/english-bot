@@ -4,8 +4,13 @@
 #
 #     streak_rollover   monthly_freeze_reset   heartbeat   backup_freshness
 #
-# W20 made the tables disjoint from the worker's side (#69): the worker runs
-# ONLY push_poll, and those four stay the bot's until W22.
+# W20 made the tables disjoint from the worker's side (#69): the worker ran
+# ONLY push_poll, and those four stayed the bot's until W22.
+#
+# W22 moved the four here: the worker runs streak_rollover,
+# monthly_freeze_reset, push_poll, heartbeat and backup_freshness, and the bot
+# runs couple_poll alone. On a W22 deploy, restart english-bot BEFORE this unit
+# so the old bot process is gone before the worker starts running the four.
 # tests/test_backup_r2.py::test_bot_and_worker_job_tables_are_disjoint fails
 # the moment they overlap again.
 #

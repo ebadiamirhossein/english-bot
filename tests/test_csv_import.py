@@ -2,25 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from telegram import Chat, Document, Message, Update, User
 
-from apps.bot import texts
 from core.db import close_pool, connection
-from apps.bot.handlers.csv_import import (
-    on_csv_document,
-    on_non_csv_document,
-)
 from core.services.identity import save_onboarding
 from core.services.watch_import import (
-    CSV_IMPORT_MAX_BYTES,
     clear_orphan_warnings,
     detect_tool_from_headers,
     import_csv_bytes,
@@ -129,15 +122,14 @@ def _context_with_download(data: bytes) -> MagicMock:
 
 
 def test_one_mapping_implementation() -> None:
-    """Folder and Telegram entrances must not drift into two mappers."""
+    """The entrances must not drift into two mappers. (W22 deleted the Telegram
+    entrance, `apps/bot/handlers/csv_import.py`, and the half of this test that
+    read it; the one-mapper half is about `core` and stays.)"""
     src = Path("packages/core/services/watch_import.py").read_text(encoding="utf-8")
     assert src.count("def map_headers(") == 1
     assert src.count("def import_csv_rows(") == 1
     assert "def import_csv_bytes(" in src
     assert "def process_csv_file(" in src
-    handler = Path("apps/bot/handlers/csv_import.py").read_text(encoding="utf-8")
-    assert "map_headers" not in handler
-    assert "import_csv_bytes" in handler
 
 
 def test_detect_tool_trancy_and_lr_and_fallback() -> None:
@@ -242,93 +234,6 @@ def test_attribution_is_sender(cleanup_user: int, fake_telegram_id: int) -> None
         _delete_user(tid_b)
 
 
-def test_unrecognisable_headers_no_persist_alerts_operator(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _doc_update(tid, file_name="bad.csv")
-    context = _context_with_download(_BAD_HEADERS_CSV.encode("utf-8"))
-    with (
-        patch(
-            "apps.bot.handlers.csv_import.notify_operator", new=AsyncMock()
-        ) as notify,
-        caplog.at_level(logging.WARNING),
-        patch.object(Message, "reply_text", new=AsyncMock()) as reply,
-    ):
-        asyncio.run(on_csv_document(update, context))
-    reply.assert_awaited_once()
-    body = reply.await_args.args[0]
-    assert "Forward" in body or "forward" in body
-    notify.assert_awaited_once()
-    alert = notify.await_args.kwargs["text"]
-    assert "Couldn't map a CSV" in alert
-    assert "alpha" in alert
-    assert DISTINCTIVE not in alert
-    assert DISTINCTIVE not in caplog.text
-    assert "failed_headers" in caplog.text
-    with connection() as conn:
-        n = conn.execute(
-            "SELECT COUNT(*) AS n FROM chunks WHERE user_id = %s", (user_id,)
-        ).fetchone()
-    assert int(n["n"]) == 0
-
-
-def test_non_csv_warm_line_no_llm(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _doc_update(tid, file_name="notes.xlsx")
-    context = MagicMock()
-    with (
-        patch("core.llm.chat", new=MagicMock()) as llm,
-        patch.object(Message, "reply_text", new=AsyncMock()) as reply,
-    ):
-        asyncio.run(on_non_csv_document(update, context))
-    llm.assert_not_called()
-    reply.assert_awaited_once_with(texts.IMPORT_DOC_NOT_CSV)
-    handler_src = Path("apps/bot/handlers/csv_import.py").read_text(encoding="utf-8")
-    assert "core.llm" not in handler_src
-    assert "from core import llm" not in handler_src
-
-
-def test_oversized_refused_before_download(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _doc_update(
-        tid, file_name="huge.csv", file_size=CSV_IMPORT_MAX_BYTES + 1
-    )
-    context = _context_with_download(b"should-not-download")
-    with patch.object(Message, "reply_text", new=AsyncMock()) as reply:
-        asyncio.run(on_csv_document(update, context))
-    context.bot.get_file.assert_not_called()
-    reply.assert_awaited_once_with(texts.IMPORT_DOC_TOO_LARGE)
-
-
-def test_unregistered_document_ignored(fake_telegram_id: int) -> None:
-    update = _doc_update(fake_telegram_id, file_name="export.csv")
-    context = _context_with_download(_TRANCY_CSV.encode("utf-8"))
-    with patch.object(Message, "reply_text", new=AsyncMock()) as reply:
-        asyncio.run(on_csv_document(update, context))
-    context.bot.get_file.assert_not_called()
-    reply.assert_not_called()
-
-
-def test_handler_reports_counts(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _doc_update(tid, file_name="export.csv")
-    context = _context_with_download(_TRANCY_CSV.encode("utf-8"))
-    with (
-        patch("apps.bot.handlers.csv_import.notify_operator", new=AsyncMock()),
-        patch.object(Message, "reply_text", new=AsyncMock()) as reply,
-    ):
-        asyncio.run(on_csv_document(update, context))
-    body = reply.await_args.args[0]
-    assert "Imported: 2" in body
-    assert "already had: 0" in body
-    assert "Due for review now:" in body
-
-
 def test_dedupe_across_folder_and_telegram(
     cleanup_user: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -394,10 +299,3 @@ def test_watch_dir_unset_telegram_still_works(
     assert result.imported == 2
 
 
-def test_no_disk_write_in_handler() -> None:
-    src = Path("apps/bot/handlers/csv_import.py").read_text(encoding="utf-8")
-    assert "download_as_bytearray" in src
-    assert "WATCH_DIR" not in src or "Independent" in src
-    assert "write_bytes" not in src
-    assert "open(" not in src
-    assert "Path(" not in src

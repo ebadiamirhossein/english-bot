@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
-import re
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from telegram import InlineKeyboardMarkup
 
-from apps.bot import texts
 from core.config import Settings
 from core.db import close_pool, connection
-from apps.bot.handlers import shadow as shadow_handler
-from apps.bot.handlers.voice import handle_voice
 from core.services.calibration import (
     CALIBRATION_TASK_TYPES,
     compute_accuracy_window,
@@ -25,14 +18,9 @@ from core.services.calibration import (
 )
 from core.services.chunks import insert_chunks
 from core.services.sessions import (
-    SHADOW_VOICE_CLAIM_MINUTES,
     complete_session,
-    get_claimable_shadow_session,
-    get_open_shadow_session,
     has_session_on,
     insert_session,
-    local_today,
-    save_voice_exchange,
     update_session_payload,
 )
 from core.services.shadow import (
@@ -44,7 +32,6 @@ from core.services.shadow import (
 )
 from core.services.streaks import get_streak, roll_over_day
 from core.services.identity import save_onboarding
-from core.speech import SpeechError
 
 FAKE_TELEGRAM_ID_BASE = 9_510_000_000
 PERSONAL_FIXTURE = "ZX9SHADOWPRIVATE transcript must never land in DB or logs"
@@ -304,385 +291,10 @@ def test_select_empty_pool(cleanup_user: int) -> None:
 # --- /shadow command ----------------------------------------------------------
 
 
-def test_shadow_command_with_chunks_creates_session(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_chunks(user_id, 1)
-    update = _make_command_update(tid)
-    context = _make_context()
-    with (
-        patch("apps.bot.handlers.shadow.load_settings", return_value=_settings()),
-        patch(
-            "apps.bot.handlers.shadow.synthesize", return_value=b"ogg-bytes"
-        ) as synth,
-    ):
-        asyncio.run(shadow_handler.on_shadow_command(update, context))
-    synth.assert_called_once()
-    sessions = _shadow_sessions(user_id)
-    assert len(sessions) == 1
-    assert sessions[0]["completed"] is False
-    assert sessions[0]["payload"]["target_sentence"]
-    assert "clip_sent_at" in sessions[0]["payload"]
-    update.message.reply_voice.assert_awaited()
-
-
-def test_shadow_empty_pool_no_tts_no_session(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    update = _make_command_update(tid)
-    context = _make_context()
-    with (
-        patch("apps.bot.handlers.shadow.load_settings", return_value=_settings()),
-        patch("apps.bot.handlers.shadow.synthesize") as synth,
-    ):
-        asyncio.run(shadow_handler.on_shadow_command(update, context))
-    synth.assert_not_called()
-    assert _shadow_sessions(user_id) == []
-    update.message.reply_text.assert_awaited_with(texts.SHADOW_EMPTY_POOL)
-
-
-def test_shadow_tts_failure_warm_degrade(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    _seed_chunks(user_id, 1)
-    update = _make_command_update(tid)
-    context = _make_context()
-    with (
-        caplog.at_level(logging.WARNING),
-        patch("apps.bot.handlers.shadow.load_settings", return_value=_settings()),
-        patch(
-            "apps.bot.handlers.shadow.synthesize",
-            side_effect=SpeechError("tts down"),
-        ),
-    ):
-        asyncio.run(shadow_handler.on_shadow_command(update, context))
-    assert _shadow_sessions(user_id) == []
-    update.message.reply_text.assert_awaited_with(texts.SHADOW_FAILED_TTS)
-    assert any("TTS failed" in r.message for r in caplog.records)
-
-
 # --- voice routing / claim window ---------------------------------------------
 
 
-def test_claimable_shadow_routes_to_shadow_not_m3(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    now = datetime.now(timezone.utc)
-    day = local_today("Europe/Vilnius", now)
-    insert_session(
-        user_id,
-        "shadow",
-        day,
-        payload={
-            "chunk_id": 1,
-            "target_sentence": TARGET,
-            "clip_sent_at": now.isoformat(),
-            "attempts": 0,
-        },
-        completed=False,
-    )
-    update = _make_voice_update(tid)
-    context = _make_context()
-    shadow_spy = AsyncMock()
-    diary_spy = AsyncMock()
-    m3_spy = AsyncMock()
-    with (
-        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
-        patch("apps.bot.handlers.shadow.handle_shadow_voice", shadow_spy),
-        patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
-        patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
-    ):
-        asyncio.run(handle_voice(update, context))
-    shadow_spy.assert_awaited_once()
-    diary_spy.assert_not_awaited()
-    m3_spy.assert_not_awaited()
-
-
-def test_stale_shadow_defers_to_live_m3(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    now = datetime.now(timezone.utc)
-    day = local_today("Europe/Vilnius", now)
-    stale = now - timedelta(minutes=45)
-    assert SHADOW_VOICE_CLAIM_MINUTES == 30
-    sid = insert_session(
-        user_id,
-        "shadow",
-        day,
-        payload={
-            "chunk_id": 1,
-            "target_sentence": TARGET,
-            "clip_sent_at": stale.isoformat(),
-            "attempts": 0,
-        },
-        completed=False,
-    )
-    save_voice_exchange(
-        None,
-        user_id,
-        day,
-        {
-            "messages": [
-                {"role": "user", "content": "hi"},
-                {"role": "assistant", "content": "hey"},
-            ],
-            "turn_count": 1,
-        },
-    )
-    assert get_claimable_shadow_session(user_id, day, now=now) is None
-
-    update = _make_voice_update(tid)
-    context = _make_context()
-    shadow_spy = AsyncMock()
-    diary_spy = AsyncMock()
-    m3_spy = AsyncMock()
-    with (
-        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
-        patch("apps.bot.handlers.shadow.handle_shadow_voice", shadow_spy),
-        patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
-        patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
-    ):
-        asyncio.run(handle_voice(update, context))
-    m3_spy.assert_awaited_once()
-    shadow_spy.assert_not_awaited()
-    diary_spy.assert_not_awaited()
-    open_s = get_open_shadow_session(user_id, day)
-    assert open_s is not None
-    assert open_s.id == sid
-    assert open_s.completed is False
-
-
-def test_claimable_shadow_beats_live_m3_and_diary(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    now = datetime.now(timezone.utc)
-    day = local_today("Europe/Vilnius", now)
-    insert_session(
-        user_id,
-        "shadow",
-        day,
-        payload={
-            "chunk_id": 1,
-            "target_sentence": TARGET,
-            "clip_sent_at": now.isoformat(),
-            "attempts": 0,
-        },
-        completed=False,
-    )
-    save_voice_exchange(
-        None,
-        user_id,
-        day,
-        {
-            "messages": [
-                {"role": "user", "content": "hi"},
-                {"role": "assistant", "content": "hey"},
-            ],
-            "turn_count": 1,
-        },
-    )
-    insert_session(user_id, "diary", day, payload={"source": "poll"}, completed=False)
-
-    update = _make_voice_update(tid)
-    context = _make_context()
-    shadow_spy = AsyncMock()
-    diary_spy = AsyncMock()
-    m3_spy = AsyncMock()
-    with (
-        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
-        patch("apps.bot.handlers.shadow.handle_shadow_voice", shadow_spy),
-        patch("apps.bot.handlers.diary.handle_diary_voice", diary_spy),
-        patch("apps.bot.handlers.voice._handle_voice_locked", m3_spy),
-    ):
-        asyncio.run(handle_voice(update, context))
-    shadow_spy.assert_awaited_once()
-    diary_spy.assert_not_awaited()
-    m3_spy.assert_not_awaited()
-
-
 # --- attempt / retry / complete -----------------------------------------------
-
-
-def test_attempt_offers_retry_then_completes(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    now = datetime.now(timezone.utc)
-    day = local_today("Europe/Vilnius", now)
-    sid = insert_session(
-        user_id,
-        "shadow",
-        day,
-        payload={
-            "chunk_id": 1,
-            "target_sentence": TARGET,
-            "clip_sent_at": now.isoformat(),
-            "attempts": 0,
-        },
-        completed=False,
-    )
-    update = _make_voice_update(tid)
-    context = _make_context()
-
-    with (
-        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
-        patch(
-            "apps.bot.handlers.shadow.transcribe",
-            return_value="the quiet brown fox jumps",
-        ),
-    ):
-        asyncio.run(handle_voice(update, context))
-
-    sessions = _shadow_sessions(user_id)
-    assert sessions[0]["completed"] is False
-    assert sessions[0]["payload"]["attempts"] == 1
-    assert PERSONAL_FIXTURE not in str(sessions[0]["payload"])
-    call_kwargs = [
-        c.kwargs for c in update.message.reply_text.await_args_list
-    ]
-    assert any(
-        isinstance(c.get("reply_markup"), InlineKeyboardMarkup)
-        for c in call_kwargs
-    )
-    assert _error_count(user_id) == 0
-
-    update2 = _make_voice_update(tid, message_id=51)
-    context2 = _make_context()
-    with (
-        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
-        patch(
-            "apps.bot.handlers.shadow.transcribe",
-            return_value="totally different words here",
-        ),
-    ):
-        asyncio.run(handle_voice(update2, context2))
-
-    sessions = _shadow_sessions(user_id)
-    assert sessions[0]["id"] == sid
-    assert sessions[0]["completed"] is True
-    assert sessions[0]["score"] is not None
-    assert sessions[0]["payload"].get("transcript") is None
-    assert PERSONAL_FIXTURE not in str(sessions[0]["payload"])
-    assert _error_count(user_id) == 0
-
-
-def test_retry_rearms_clip_sent_at(cleanup_user: int) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    now = datetime.now(timezone.utc)
-    day = local_today("Europe/Vilnius", now)
-    old = (now - timedelta(minutes=40)).isoformat()
-    sid = insert_session(
-        user_id,
-        "shadow",
-        day,
-        payload={
-            "chunk_id": 1,
-            "target_sentence": TARGET,
-            "clip_sent_at": old,
-            "attempts": 1,
-        },
-        completed=False,
-    )
-    msg = MagicMock()
-    msg.chat_id = tid
-    msg.message_id = 10
-    msg.reply_text = AsyncMock()
-    cq = MagicMock()
-    cq.data = f"shadow:again:{sid}"
-    cq.from_user = MagicMock(id=tid)
-    cq.message = msg
-    cq.answer = AsyncMock()
-    update = MagicMock()
-    update.callback_query = cq
-    update.effective_user = MagicMock(id=tid)
-    context = _make_context()
-    before = datetime.now(timezone.utc)
-    with (
-        patch("apps.bot.handlers.shadow.load_settings", return_value=_settings()),
-        patch(
-            "apps.bot.handlers.shadow.synthesize", return_value=b"ogg"
-        ) as synth,
-    ):
-        asyncio.run(shadow_handler.on_shadow_retry(update, context))
-    synth.assert_called_once()
-    sessions = _shadow_sessions(user_id)
-    rearmed = datetime.fromisoformat(sessions[0]["payload"]["clip_sent_at"])
-    if rearmed.tzinfo is None:
-        rearmed = rearmed.replace(tzinfo=timezone.utc)
-    assert rearmed >= before - timedelta(seconds=2)
-    assert get_claimable_shadow_session(user_id, day, now=datetime.now(timezone.utc)) is not None
-
-
-def test_stt_failure_warm_degrade(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    now = datetime.now(timezone.utc)
-    day = local_today("Europe/Vilnius", now)
-    insert_session(
-        user_id,
-        "shadow",
-        day,
-        payload={
-            "chunk_id": 1,
-            "target_sentence": TARGET,
-            "clip_sent_at": now.isoformat(),
-            "attempts": 0,
-        },
-        completed=False,
-    )
-    update = _make_voice_update(tid)
-    context = _make_context()
-    with (
-        caplog.at_level(logging.WARNING),
-        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
-        patch(
-            "apps.bot.handlers.shadow.transcribe",
-            side_effect=SpeechError("stt down"),
-        ),
-    ):
-        asyncio.run(handle_voice(update, context))
-    assert any("STT failed" in r.message for r in caplog.records)
-    assert get_open_shadow_session(user_id, day) is not None
-
-
-def test_transcript_not_in_payload_or_logs(
-    cleanup_user: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    tid = cleanup_user
-    user_id = _onboard(tid)
-    now = datetime.now(timezone.utc)
-    day = local_today("Europe/Vilnius", now)
-    insert_session(
-        user_id,
-        "shadow",
-        day,
-        payload={
-            "chunk_id": 1,
-            "target_sentence": TARGET,
-            "clip_sent_at": now.isoformat(),
-            "attempts": 0,
-        },
-        completed=False,
-    )
-    update = _make_voice_update(tid)
-    context = _make_context()
-    with (
-        caplog.at_level(logging.DEBUG),
-        patch("apps.bot.handlers.voice.load_settings", return_value=_settings()),
-        patch(
-            "apps.bot.handlers.shadow.transcribe",
-            return_value=PERSONAL_FIXTURE,
-        ),
-    ):
-        asyncio.run(handle_voice(update, context))
-    payload = _shadow_sessions(user_id)[0]["payload"]
-    assert PERSONAL_FIXTURE not in str(payload)
-    for record in caplog.records:
-        assert PERSONAL_FIXTURE not in record.getMessage()
 
 
 # --- streaks / morning / calibration ------------------------------------------
@@ -793,38 +405,6 @@ def test_shadow_score_outside_calibration(cleanup_user: int) -> None:
 
 
 # --- copy / labels ------------------------------------------------------------
-
-
-def test_s16_button_labels_max_20() -> None:
-    labels = [
-        getattr(texts, name)
-        for name in dir(texts)
-        if name.startswith("BTN_") and "SHADOW" in name
-    ]
-    assert labels
-    for label in labels:
-        assert len(label) <= 20, label
-
-
-def test_no_guilt_in_s16_copy() -> None:
-    banned = re.compile(
-        r"\bmissed\b|\bfailed\b|\bbroke\b|wrong!|should have|"
-        r"pronunciation was wrong|you failed|"
-        r"😞|😢|😔|☹️|🙁|😟|😤|😠",
-        re.IGNORECASE,
-    )
-    names = [
-        n
-        for n in dir(texts)
-        if n.startswith("SHADOW_") or n.startswith("BTN_SHADOW")
-    ]
-    for name in names:
-        val = getattr(texts, name)
-        if callable(val):
-            sample = val("target", "attempt", "tip")
-            assert banned.search(sample) is None, sample
-        else:
-            assert banned.search(str(val)) is None, val
 
 
 def test_abandon_open_shadow() -> None:
