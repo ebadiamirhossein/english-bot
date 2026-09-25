@@ -551,6 +551,39 @@ class VideoTodayOut(BaseModel):
     completed: bool = False
 
 
+class KnownPointOut(BaseModel):
+    """One day's known-word count, as the progress screen read it (W19)."""
+
+    local_date: date
+    known_words: int
+
+
+class ProgressOut(BaseModel):
+    """W19: the progress screen. **Every number traces to a ledger**, named in
+    `core.services.progress`'s banner.
+
+    **NO FIELD COUNTS AN ABSENCE**: no missed days, no remaining, no target
+    shortfall, no partner comparison (the couple leaderboard is dropped by scope
+    ruling). **No field for the radar, placement history, the six-month target
+    line or units MASTERED** — each needs data that does not exist yet (W18's
+    placement; #135's retention metric), and a field for any of them would be a
+    number with nothing behind it. **No `sessions.xp`, `minutes` or
+    `completed_at`** (#349): XP is computed from the activity logs.
+
+    Zeros ARE honest here; the screen draws none of them (W11b's split).
+    """
+
+    known_words: int
+    #: Ascending; at most six months. One point per day the screen was read, so
+    #: a line exists only from the second point on.
+    known_history: list[KnownPointOut]
+    #: Never lower than any value this learner has been shown (029's mark).
+    xp: int
+    streak_days: int
+    freezes: int
+    units_passed: int
+
+
 class WeekOut(BaseModel):
     """W11b: the Sunday weekly report. **Six numbers, and nothing that was not
     done.**

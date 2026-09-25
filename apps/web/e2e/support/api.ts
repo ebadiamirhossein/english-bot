@@ -151,3 +151,28 @@ export async function mockTalk(
     );
   }
 }
+
+/**
+ * W19 — `/progress`, from `components/progress/progress.fixture.json`
+ * (`scripts/export_progress_fixture.py`, held to the wire by
+ * `tests/test_progress_fixture.py`).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const progressFixture: Record<string, any> = JSON.parse(
+  readFileSync(path.join(__dirname, "../../components/progress/progress.fixture.json"), "utf-8"),
+);
+
+/**
+ * Answers `GET /progress` with ``body``, or with a 500 when ``status`` is
+ * given. Call AFTER `mockApi` (a later `page.route` wins).
+ */
+export async function mockProgress(
+  page: Page,
+  { body = progressFixture.weeks_in as unknown, status = 200 } = {},
+) {
+  await page.route(`${API}/progress`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.fulfill({ status: 204, headers: cors(route) })
+      : json(route, status, status === 200 ? body : { detail: "x" }),
+  );
+}

@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from typing import Literal
 
 from core.db import connection
+from core.services.activity import practised_on
 from core.services.sessions import local_time_hhmm, local_today
 
 logger = logging.getLogger(__name__)
@@ -152,7 +153,14 @@ def roll_over_day(user_id: int, day: date) -> StreakResult:
                 """,
                 (user_id, day),
             ).fetchall()
-            any_completed = any(bool(r["completed"]) for r in day_rows)
+            # **#259 (W19): a day the learner PRACTISED is Active**, read from
+            # the logs by `core.services.activity` — the one signal the nudge
+            # ladder and `count_active_days` read too. `completed` alone never
+            # held for a `daily` row, so a learner on the web session every day
+            # never moved this streak. v2's completed rows still count.
+            any_completed = any(
+                bool(r["completed"]) for r in day_rows
+            ) or practised_on(conn, user_id, day)
             incomplete_quiz = any(
                 (not bool(r["completed"])) and str(r["task_type"]) == "quiz"
                 for r in day_rows
@@ -356,6 +364,9 @@ def _day_is_missed(conn, user_id: int, day: date) -> bool:
         (user_id, day),
     ).fetchall()
     if any(bool(r["completed"]) for r in day_rows):
+        return False
+    # #259: a day with practice in the logs is Active, so never Missed.
+    if practised_on(conn, user_id, day):
         return False
     return any(
         (not bool(r["completed"])) and str(r["task_type"]) == "quiz"

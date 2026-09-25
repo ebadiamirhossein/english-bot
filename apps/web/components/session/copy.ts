@@ -608,3 +608,50 @@ export const WRITE = {
    * time, no come back later. */
   ceiling: "That’s the writing done for today. There’ll be a new one tomorrow.",
 } as const;
+
+/**
+ * W19 — the progress screen. §1a is suspended for this run (ruling 0.3), so
+ * these take the conventions `/talk` and `/write` shipped; the operator reviews
+ * them from `e2e/screenshots/W19/` at the launch pass.
+ *
+ * **No sentence here counts what was not done.** No *missed*, no *left*, no
+ * *behind*, no *keep it up*. A number is drawn only when it is above zero, and
+ * each carries one line saying what it counts — the reader should never have
+ * to guess whether a number is a verdict.
+ */
+export const PROGRESS = {
+  eyebrow: "Progress",
+  title: "What has actually changed.",
+  subline: "Words you know, the work you’ve put in, and the units you’ve passed.",
+  words: {
+    eyebrow: "Words you know",
+    /** The floor is never counted (W4), so the number starts small and is real. */
+    about: "Words you’ve shown you know — in reviews, taps and practice. The starting list isn’t counted.",
+    /** One point, no line yet. */
+    firstPoint: "Each visit here adds a point, and the line starts from the second.",
+    chartLabel: "Words you know over time",
+  },
+  xp: {
+    eyebrow: "XP",
+    about: "Speaking earns the most, then writing, then typing, then tapping.",
+  },
+  streak: {
+    eyebrow: "Streak",
+    days: (n: number) => (n === 1 ? "day of practice" : "days of practice"),
+    about: "A day off doesn’t break it.",
+    freezes: (n: number) =>
+      n === 1
+        ? "One freeze this month covers a day you can’t make it."
+        : `${n === 2 ? "Two" : n} freezes this month cover days you can’t make it.`,
+  },
+  units: {
+    eyebrow: "Units",
+    passed: (n: number) => (n === 1 ? "unit passed" : "units passed"),
+  },
+  /** Week one is both learners' state: one line, no table of zeros. */
+  empty: "Nothing to show yet. This fills in as you practise.",
+  /** W18 is blocked; said once, plainly, not as a promise with a date. */
+  later: "Your skill profile and level history arrive with the placement test.",
+  trouble: "That didn’t load. Nothing’s lost.",
+  retry: "Try again",
+} as const;

@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from core import copy
 from core.db import connection
+from core.services.activity import practised_on
 from core.services.errors import resolved_types
 from core.services.sessions import (
     MAX_NUDGES_PER_DAY,
@@ -121,6 +122,13 @@ def sessions_due_for_nudge(
     for session in list_open_nudgeable_sessions(user.id):
         if not task_still_open(session.date, user.timezone, now):
             continue
+        # **#259 (W19): a learner who practised on the session's day is never
+        # nudged to practise that day** — an open v2 quiz beside a finished web
+        # session was enough to nudge before. The signal is the logs'
+        # (`core.services.activity`), the same one the streak reads.
+        with connection() as conn:
+            if practised_on(conn, user.id, session.date):
+                continue
         # Daily budget keys off the session's delivery local date (PRD: max 2
         # nudges per day) so Monday's quiz nudges count on Monday even before
         # Tuesday 03:00 close.

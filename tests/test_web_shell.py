@@ -1376,6 +1376,44 @@ def test_the_backlog_and_guilt_scans_reach_the_weekly_report() -> None:
     assert missing == [], f"outside the copy scans: {', '.join(missing)}"
 
 
+#: W19's surface, named for the same reason as W11b's: a progress screen is the
+#: other place this product is most likely to count what was not done.
+_PROGRESS_SURFACE = (
+    "apps/web/components/progress/progress-view.tsx",
+    "apps/web/app/(app)/progress/page.tsx",
+    "apps/web/components/session/copy.ts",
+)
+
+
+def test_the_backlog_and_guilt_scans_reach_the_progress_screen() -> None:
+    """W19. RED with `SOURCE_DIRS = ("app", "lib")` (the view is in `components/`)."""
+    scanned = set(_shipped_sources())
+    missing = [rel for rel in _PROGRESS_SURFACE if rel not in scanned]
+    assert missing == [], f"outside the copy scans: {', '.join(missing)}"
+
+
+def test_the_progress_screen_names_no_absence() -> None:
+    """W19: the screen counts nothing that was not done and ranks nobody.
+
+    Structural, over the comment-stripped source, beside the Vitest rendering
+    checks: the way this breaks is a new line added for a state no fixture
+    draws. RED with `later: "3 days missed this week"` in `PROGRESS` and,
+    separately, with a `partner` field read in the view.
+    """
+    for rel in _PROGRESS_SURFACE[:2]:
+        source = _without_comments((REPO_ROOT / rel).read_text(encoding="utf-8")).lower()
+        for word in ("missed", "behind", "remaining", "left today", "partner", "leaderboard", "rank"):
+            assert word not in source, f"{rel}: {word}"
+    copy = _without_comments(
+        (WEB / "components" / "session" / "copy.ts").read_text(encoding="utf-8")
+    )
+    block = copy[copy.index("export const PROGRESS") :].lower()
+    # Positive control: the block really is the progress copy.
+    assert "words you know" in block
+    for word in ("missed", "behind", "remaining", "partner", "leaderboard", "rank", "lost your"):
+        assert word not in block, word
+
+
 def test_sundays_home_carries_no_session_call_to_action() -> None:
     """PRD §4.2: *"No tasks… deliberate and non-negotiable"*, so **a Sunday that
     acquires a task is a defect** (#310's own words, quoting W11b's row).

@@ -34,6 +34,7 @@ from apps.api.routers import conversation as conversation_router
 # and mounts it, so a retired router that stopped importing would still fail
 # a test rather than rot unnoticed.
 from apps.api.routers import week as week_router
+from apps.api.routers import progress as progress_router
 from core.config import Settings, load_settings
 from core.logging import configure_console_logging
 from core.services.alerts import format_alert, should_send_alert
@@ -233,6 +234,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # learner's voice to OpenAI. The recipient changed; the question did not.
     app.include_router(conversation_router.router)
     app.include_router(week_router.router)
+    # W19. Added to BOTH lists in the same commit (#255).
+    app.include_router(progress_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -267,6 +270,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     # deliberately while editing.
                     conversation_router.router,
                     week_router.router,
+                    progress_router.router,
                 )
                 for route in router.routes
             )

@@ -391,20 +391,30 @@ def count_active_days(
     start: date,
     end: date,
 ) -> int:
-    """Distinct local dates with any completed session in [start, end]."""
+    """Distinct local dates in [start, end] with a completed session OR practice.
+
+    **#259 (W19):** this counted `completed = TRUE` only, a flag no `daily` row
+    has ever carried, so a learner on the web session every day counted zero —
+    in the v2 `/stats` line and the operator panel. A day the learner practised
+    (`core.services.activity`, the one signal the streak and the nudge ladder
+    read too) now counts; v2's completed rows still do.
+    """
+    from core.services.activity import practised_dates
+
     with connection() as conn:
-        row = conn.execute(
+        rows = conn.execute(
             """
-            SELECT COUNT(DISTINCT date) AS n
+            SELECT DISTINCT date AS d
               FROM sessions
              WHERE user_id = %s
                AND completed = TRUE
                AND date BETWEEN %s AND %s
             """,
             (user_id, start, end),
-        ).fetchone()
-    assert row is not None
-    return int(row["n"])
+        ).fetchall()
+        days = {r["d"] for r in rows}
+        days |= practised_dates(conn, user_id, start=start, end=end)
+    return len(days)
 
 
 def claim_sunday_report_session(

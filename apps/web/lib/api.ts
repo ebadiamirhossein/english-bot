@@ -879,3 +879,40 @@ export function saveConversationWord(
     body: JSON.stringify(offer),
   });
 }
+
+/**
+ * W19: the progress screen. PRD §9, *gamification — the honest kind*.
+ *
+ * **Every number traces to a ledger** (`core.services.progress`'s banner names
+ * each). **No field counts what was not done** — no missed days, no remaining,
+ * no target shortfall, no partner. **There is no field for the radar, placement
+ * history, the six-month target line or units mastered**: each needs data that
+ * does not exist yet (W18's placement; #135's retention metric), so the client
+ * cannot draw a number with nothing behind it.
+ *
+ * Zeros arrive honestly and the SCREEN draws none of them (W11b's split).
+ */
+export type KnownPoint = {
+  /** The learner's local date the screen was read on. */
+  local_date: string;
+  known_words: number;
+};
+
+export type Progress = {
+  /** Words the learner has shown they know. The starting frequency floor is
+   * never counted (W4's ruling). */
+  known_words: number;
+  /** Ascending, at most six months — one point per day this screen was read.
+   * **A line exists only from the second point**; nothing is reconstructed. */
+  known_history: KnownPoint[];
+  /** Weighted by effort; never lower than any value already shown. */
+  xp: number;
+  /** Days practised under v2's rule: a day off does not break it. */
+  streak_days: number;
+  freezes: number;
+  units_passed: number;
+};
+
+export function getProgress(): Promise<Progress> {
+  return request<Progress>("/progress");
+}
