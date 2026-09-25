@@ -56,6 +56,12 @@ dependencies = [
     # `webauthn`), so declaring it turns an undeclared transitive dependency into
     # a declared one -- a tightening, and the deploy sequence gains no step.
     "cryptography>=42",
+    # W23. `core/monitoring.py` is the ONLY module in the repository that
+    # imports it (tests/test_core_boundary.py). MIT (read from the 2.70.0
+    # wheel's LICENSE, `data/LICENCES.md`); two runtime dependencies, `urllib3`
+    # and `certifi`, both already in every venv. `pip install -e packages/core`
+    # is already step 3 of the deploy sequence, so the sequence gains no step.
+    "sentry-sdk>=2.70,<3",
 ]
 
 # `core` is this directory itself, so the package root maps to ".".

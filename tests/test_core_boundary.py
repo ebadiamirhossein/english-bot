@@ -262,6 +262,38 @@ def test_only_the_passkeys_wrapper_imports_webauthn() -> None:
     )
 
 
+SENTRY_WRAPPER = CORE / "monitoring.py"
+SENTRY_LIBS = frozenset({"sentry_sdk"})
+
+
+def test_only_the_monitoring_wrapper_imports_sentry() -> None:
+    """W23: one door for the Sentry SDK (ruling 0.2), as ``passkeys.py`` is for WebAuthn.
+
+    **The door is where the scrubber is.** ``core.monitoring`` builds every
+    client with ``before_send=scrub_event`` and the automatic integrations off;
+    a second importer could call ``sentry_sdk.capture_message(text)`` or turn
+    the FastAPI integration on, and learner text would leave by a path the
+    scrubber's tests never see.
+
+    **RED DEMONSTRATION (2026-09-25):** ``import sentry_sdk`` added to
+    ``apps/api/main.py`` turned this test red.
+    """
+    offenders: list[str] = []
+    for root in (CORE, APPS):
+        for path in _python_files(root):
+            if path == SENTRY_WRAPPER:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            hit = _imported_roots(tree) & SENTRY_LIBS
+            if hit:
+                rel = path.relative_to(REPO_ROOT)
+                offenders.append(f"{rel}: {', '.join(sorted(hit))}")
+    assert offenders == [], (
+        "only packages/core/monitoring.py may import sentry_sdk: "
+        + "; ".join(offenders)
+    )
+
+
 # requirements.txt is organised by which app needs a line: "# apps/bot",
 # "# packages/core", "# apps/api (W1b)", "# tests — ...".
 _SECTION_HEADER = re.compile(r"^#\s*(apps/|packages/|tests\b)")

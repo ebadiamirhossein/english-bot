@@ -21,6 +21,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from apps.worker.jobs import JOBS, Job, run_job
+from core import monitoring
 from core.config import ConfigError, Settings, load_settings
 from core.instance_lock import InstanceLock, InstanceLockError
 from core.logging import configure_logging
@@ -89,6 +90,8 @@ def main() -> int:
         return 1
 
     configure_logging(replace(settings, log_file=str(worker_log_path(settings))))
+    # W23. After logging, so its one line ("Monitoring on/off") reaches the log.
+    monitoring.init_monitoring(settings, component="worker")
     scheduler = build_scheduler()
     logger.info("Worker starting (lock=%s)", worker_lock_path(settings))
     try:

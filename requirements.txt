@@ -20,6 +20,8 @@ fsrs>=6.3.2,<7
 httpx>=0.27
 # W20: core/push.py imports it directly (Web Push encryption and VAPID).
 cryptography>=42
+# W23: core/monitoring.py, the one door to Sentry.
+sentry-sdk>=2.70,<3
 # apps/api (W1b)
 fastapi>=0.115
 uvicorn[standard]>=0.30

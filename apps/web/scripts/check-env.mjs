@@ -37,3 +37,39 @@ if (!/^https?:\/\//.test(value.trim())) {
 }
 
 console.log(`NEXT_PUBLIC_API_URL = ${value.trim()}`);
+
+/**
+ * W23 — refuse a Sentry DSN outside the EU region (build run 2, ruling 0.2).
+ *
+ * Unset is fine and is the state until the launch pass: monitoring is off.
+ * Set, it must be `https://<key>@o<number>.ingest.de.sentry.io/<project>` —
+ * Sentry's docs say an EU organisation "must use `o<number>.ingest.de.sentry.io`",
+ * so any other host is a US organisation, whose region cannot be changed later.
+ * The value is not printed: it is public by design, but it is also nobody's
+ * business in a build log.
+ */
+const dsn = (process.env.NEXT_PUBLIC_SENTRY_DSN || "").trim();
+if (dsn) {
+  let eu = false;
+  try {
+    const url = new URL(dsn);
+    eu =
+      url.protocol === "https:" &&
+      url.username !== "" &&
+      /^o\d+\.ingest\.de\.sentry\.io$/.test(url.hostname) &&
+      /^\/\d+\/?$/.test(url.pathname);
+  } catch {
+    eu = false;
+  }
+  if (!eu) {
+    console.error(
+      "\nNEXT_PUBLIC_SENTRY_DSN is not an EU-region DSN.\n\n" +
+        "  It must look like https://<key>@o<number>.ingest.de.sentry.io/<project>\n" +
+        "  (ruling 0.2: the EU data region). Refusing to build.\n",
+    );
+    process.exit(1);
+  }
+  console.log("NEXT_PUBLIC_SENTRY_DSN = set (EU region)");
+} else {
+  console.log("NEXT_PUBLIC_SENTRY_DSN = unset (monitoring off)");
+}

@@ -922,6 +922,36 @@ export function getProgress(): Promise<Progress> {
 }
 
 /**
+ * W23 — `GET /admin/activity`, the bot's `/admin` panel on the web. The
+ * OPERATOR only: anybody else gets 404, which arrives here as `ApiError` with
+ * `status === 404`. **Activity, never content** — `AdminUserOut`'s fields are
+ * states and counts of days, and `tests/test_admin_route.py` holds the set.
+ */
+export type AdminUser = {
+  id: number;
+  name: string;
+  cefr_level: string;
+  current_streak: number;
+  /** Days practised in the last `lookback_days`. */
+  active_days: number;
+  /** The learner's local date, or null for someone who has not practised. */
+  last_active: string | null;
+  paused: boolean;
+  revoked: boolean;
+};
+
+export type AdminActivity = {
+  pending_requests: number;
+  weekly_goal_days: number;
+  lookback_days: number;
+  users: AdminUser[];
+};
+
+export function getAdminActivity(): Promise<AdminActivity> {
+  return request<AdminActivity>("/admin/activity");
+}
+
+/**
  * W20: daily reminders by Web Push. PRD §10.
  *
  * **`public_key: null` means reminders are not set up on this server**, and the

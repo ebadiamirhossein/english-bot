@@ -281,3 +281,28 @@ export async function mockPlacement(
   );
   return calls;
 }
+
+/**
+ * W23 — `GET /admin/activity`, from `components/admin/admin.fixture.json`
+ * (`scripts/export_admin_fixture.py`, held to the wire by
+ * `tests/test_admin_fixture.py`).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const adminFixture: Record<string, any> = JSON.parse(
+  readFileSync(path.join(__dirname, "../../components/admin/admin.fixture.json"), "utf-8"),
+);
+
+/**
+ * Answers `GET /admin/activity` with ``body``, or with ``status`` (404 for a
+ * learner who is not the operator, 500 for a failed load). Call AFTER `mockApi`.
+ */
+export async function mockAdmin(
+  page: Page,
+  { body = adminFixture.two as unknown, status = 200 } = {},
+) {
+  await page.route(`${API}/admin/activity`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.fulfill({ status: 204, headers: cors(route) })
+      : json(route, status, status === 200 ? body : { detail: status === 404 ? "not_found" : "x" }),
+  );
+}

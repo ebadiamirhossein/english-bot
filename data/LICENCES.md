@@ -404,6 +404,78 @@ comes from:
 else): TASKS' *"calibrated"* needs real learners' results and is reported unmet,
 not claimed.
 
+## W23's error monitoring — Sentry, the licence gate and what it receives (build run 2, ruling 0.2, 2026-09-25)
+
+**Nothing is committed to `data/` by this slice.** This section records two
+questions the ruling requires answered before the SDKs were wired: *may the
+code be used in a commercial product*, and *what does the service receive*.
+Read, not recalled, on 2026-09-25.
+
+### The SDKs — MIT, verified from the packages themselves
+
+| Package | Version | Where read | What it says |
+|---|---|---|---|
+| `sentry-sdk` (PyPI) — `apps/api`, `apps/worker` through `core/monitoring.py` | 2.70.0 (wheel SHA-256 `89600e8bb5fc5239cad5c4434217f453204f2207ad29399ea58947460b37a62e`) | the wheel's `METADATA` and `licenses/LICENSE` | `License-Expression: MIT`; the grant: *"Permission is hereby granted, free of charge, to any person obtaining a copy of this software…"* — to *"use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies"*, on the condition that the notice is kept. `Copyright (c) 2018 Functional Software, Inc. dba Sentry`. Runtime dependencies `urllib3` and `certifi` only. |
+| `@sentry/nextjs` (npm) — `apps/web` through `lib/monitoring.ts` | 10.75.3 | `package.json` `license` and `LICENSE` in `node_modules`; the same checked for `@sentry/core`, `@sentry/browser`, `@sentry/react` and `@sentry/node` at 10.75.3 | `MIT` in every one; `Copyright (c) 2021 Functional Software, Inc. dba Sentry`. |
+
+**Verdict: commercial use allowed**, with the MIT notice kept — which a
+dependency in `node_modules` and `site-packages` keeps by construction; nothing
+is vendored. **Why 10.75.3 and not 11.0.0:** 11.0.0 was two days old on the day
+it was read (published 2026-09-23), a major version; 10.75.3 is the same day's
+patch release of the line every Next 15 guide describes, and its peer range
+names Next 15.
+
+### The service — what Sentry receives, and where
+
+**Sentry receives stack traces and user ids, never content** (ruling 0.2). The
+whole list, because both scrubbers are allowlists (`core/monitoring.py::scrub_event`,
+`apps/web/lib/monitoring.ts::scrubEvent`):
+
+- **an error:** the exception's TYPE (never its message), each stack frame's
+  file, module, function, line (and column, in the browser), the learner's
+  `users.id` — a number, not a name or an email — the tags `component` (`api`,
+  `worker`, `web`, `probe`) and `route` (a route's name, or `job:<name>`), the
+  environment, and the SDK's name and version;
+- **a worker check-in** (#438): the monitor's slug (`english-worker`), the run's
+  status and duration, and its schedule.
+
+**Never:** a request (body, headers, cookies, query string, URL), a local
+variable, a source line, a breadcrumb (log line, click, fetch), the host name,
+an IP address, a session replay, a trace. Tests assert each of these absent
+from the bytes the SDK serialised (`tests/test_monitoring.py`,
+`apps/web/lib/monitoring.test.ts`).
+
+**Where it is stored — the EU region, enforced.** Sentry's docs, read
+2026-09-25 (<https://docs.sentry.io/organization/data-storage-location/>):
+the European Union location is *"Frankfurt, Germany"*; error events and the
+like are *"stored in whichever data storage location (US or EU) you select"*;
+and *"Once selected, your data storage location can't be changed."* From
+<https://docs.sentry.io/security-legal-pii/security/ip-ranges/>: EU
+organisations *"must use `o<number>.ingest.de.sentry.io`"*. **Both `core/config.py`
+and `apps/web/scripts/check-env.mjs` refuse a DSN on any other host**, so a
+DSN from a US organisation stops the process or the build rather than sending
+anything. **What is NOT in the EU**, from the same page: user accounts,
+organisation settings and access tokens are *"stored in the US, regardless"* —
+that is the operator's own Sentry login, not learner data.
+
+**The plan (pricing page, read 2026-09-25, <https://sentry.io/pricing/>):** the
+free Developer plan — *"One user"*, *"5k errors"* a month, *"1 cron monitor"*,
+a *"30-day lookback"*, *"Alerts and notifications via email"*. **The one cron
+monitor is why the worker has exactly one** (`core/monitoring.py::WORKER_MONITOR_SLUG`).
+No restriction on commercial use appears on the page. **Sentry's Terms of
+Service and Data Processing Addendum were NOT read in this slice** — they are
+accepted by the operator when the account is created at the launch pass, and
+reading them then is a launch-pass check (#446).
+
+**The processor question is #364's family, and the answer here is narrower
+than #364's.** #364 is a learner's VOICE leaving her device. What leaves for
+Sentry is a stack trace and a number that identifies a row; no learner text,
+audio or name. It still makes Sentry a processor of pseudonymous data about two
+people, which is why this section exists and why it names what is sent.
+
+**PostHog is dropped and reported unmet (ruling 0.2):** product analytics on
+two learners adds a second data processor and buys nothing.
+
 ## If the share-alike condition has to go
 
 Replace **source 1** — the frequency half is what carries BY-SA. Candidates to

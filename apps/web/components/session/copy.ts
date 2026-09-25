@@ -782,3 +782,32 @@ export const REMINDERS = {
   trouble: "That didn’t go through. Try again in a moment.",
   working: "Working on it",
 } as const;
+
+/**
+ * W23 — the operator's panel (`/admin`), the bot's `/admin` on the web. **Read
+ * by the operator alone**: the route answers 404 to anybody else. It shows
+ * activity and never content (CLAUDE.md §5) — no sentence, no correction, no
+ * topic. The approve/decline/revoke/pause actions stay where they are until
+ * W22, and `requests` says so **without naming the other channel**:
+ * `test_no_telegram_surface_in_the_web_app` (PRODUCT-PRINCIPLES §1) refused the
+ * first draft, which did.
+ */
+export const ADMIN = {
+  eyebrow: "Operator",
+  title: "Who’s practising.",
+  subline: "Activity only — never what anyone wrote or said.",
+  requestsNone: "No access requests waiting.",
+  requests: (n: number) =>
+    `Access ${n === 1 ? "request" : "requests"} waiting: ${n}. This panel only reads — approve or decline ${n === 1 ? "it" : "them"} where you always have.`,
+  empty: "Nobody has joined yet.",
+  level: "Level",
+  streak: "Streak",
+  active: (lookback: number) => `Active, last ${lookback} days`,
+  last: "Last practised",
+  never: "Not yet",
+  paused: "Paused",
+  revoked: "Access revoked",
+  notFound: "There’s nothing here.",
+  trouble: "That didn’t load. Try again in a moment.",
+  retry: "Try again",
+} as const;

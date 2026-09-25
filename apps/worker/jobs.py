@@ -29,11 +29,13 @@ bodies are kept and still tested.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from core import monitoring
 from core.config import load_settings
 from core.services import push as push_service
 from core.scheduling import (
@@ -273,13 +275,36 @@ HELD_JOBS: dict[str, tuple[Job, str]] = {
 }
 
 
+#: W23 — the ONE job that checks in to Sentry Crons (#438). One because
+#: Sentry's free plan allows one cron monitor (`core.monitoring`); `push_poll`
+#: because it is the job that runs every five minutes and the one whose silence
+#: costs a learner a reminder. A dead worker misses its check-in; a worker that
+#: is up and failing every tick checks in `error`.
+LIVENESS_JOB = "push_poll"
+
+
 def run_job(job: Job) -> None:
     """Run one job, swallowing its exception so the scheduler survives it.
 
     APScheduler removes nothing on error, but an unlogged traceback in a
     process with no operator channel is an invisible failure.
+
+    **W23: the exception also goes to Sentry** (type, frames and the job's name
+    as the ``route`` tag — never the message), and ``LIVENESS_JOB`` reports each
+    run to its cron monitor. Both are no-ops while ``SENTRY_DSN`` is unset.
     """
+    started = time.monotonic()
+    ok = True
     try:
         job.func()
-    except Exception:
+    except Exception as exc:
+        ok = False
         logger.exception("Scheduled job failed name=%s", job.name)
+        monitoring.capture_exception(exc, user_id=None, route=f"job:{job.name}")
+    if job.name == LIVENESS_JOB:
+        monitoring.check_in(
+            monitoring.WORKER_MONITOR_SLUG,
+            ok=ok,
+            duration_s=time.monotonic() - started,
+            interval_minutes=job.interval_seconds // 60,
+        )

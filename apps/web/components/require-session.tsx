@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 
 import { getAuthHealth } from "@/lib/api";
+import { setMonitoringUser } from "@/lib/monitoring";
 import type { SessionUser } from "@/lib/webauthn";
 
 /**
@@ -53,8 +54,11 @@ export function RequireSession({ children }: { children: React.ReactNode }) {
     getAuthHealth().then((result) => {
       if (cancelled) return;
       if (result.kind === "signed-in") {
+        // W23: the id an error report carries — `users.id`, never the name.
+        setMonitoringUser(result.session.user_id);
         setState({ kind: "in", user: result.session as unknown as SessionUser });
       } else if (result.kind === "anonymous") {
+        setMonitoringUser(null);
         setState({ kind: "out" });
       } else {
         // Deliberately NOT a redirect. Sending someone to /sign-in because the

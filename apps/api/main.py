@@ -37,6 +37,8 @@ from apps.api.routers import week as week_router
 from apps.api.routers import progress as progress_router
 from apps.api.routers import push as push_router
 from apps.api.routers import placement as placement_router
+from apps.api.routers import admin as admin_router
+from core import monitoring
 from core.config import Settings, load_settings
 from core.logging import configure_console_logging
 from core.services.alerts import format_alert, should_send_alert
@@ -83,25 +85,31 @@ def allowed_origins(settings: Settings) -> list[str]:
 
 
 def init_monitoring(settings: Settings) -> None:
-    """Sentry hook — a documented no-op at W1b.
+    """Sentry, through its one door (W23; ``core.monitoring``).
 
-    Deliberately does not import an SDK or read a DSN. When monitoring is
-    wired, the DSN is read in ``core.config`` like every other environment
-    variable and passed in through ``settings``; this function is the one
-    place the SDK's init call goes, so nothing else in the app has to know it
-    exists. ARCHITECTURE-v3 §2: "v2 had no visibility at all."
+    The W1b stub this replaces promised exactly this shape — *"the DSN is read
+    in ``core.config`` like every other environment variable and passed in
+    through ``settings``; this function is the one place the SDK's init call
+    goes"* — and the SDK call itself now lives in ``core.monitoring``, so
+    ``apps/api`` imports no ``sentry_sdk`` at all. Off while ``SENTRY_DSN`` is
+    unset, which it is until the launch pass.
     """
-    logger.info("Monitoring not configured (W1b stub)")
+    monitoring.init_monitoring(settings, component="api")
 
 
 def send_operator_alert(text: str) -> None:
-    """Deliver a formatted operator alert. A logging no-op at W1b.
+    """Write a formatted operator alert to the log at ERROR.
 
     The bot's channel (``apps.bot.alerts.operator_send``) belongs to the bot
     process; the API cannot borrow it without importing Telegram, which
-    CLAUDE.md §2 forbids in every direction. Until the API has a channel of
-    its own, the alert lands in the log at ERROR — visible to whoever reads
-    the log, and never silently dropped.
+    CLAUDE.md §2 forbids in every direction.
+
+    **W23: THIS IS NO LONGER THE API'S ONLY CHANNEL (#65).** The exception
+    itself goes to Sentry from ``handle_unexpected_error`` — type, frames, user
+    id and route, never the message — and Sentry emails the operator. This
+    formatted alert carries the exception's MESSAGE and full traceback, which is
+    exactly what ruling 0.2 keeps out of Sentry, so it stays in the journal on
+    the host and goes nowhere else.
     """
     logger.error("OPERATOR ALERT (unsent — no API channel yet):\n%s", text)
 
@@ -134,6 +142,9 @@ def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
     logger.exception(
         "Unhandled exception route=%s user_id=%s", route, user_id, exc_info=exc
     )
+    # W23: every unhandled exception, unthrottled — Sentry groups repeats into
+    # one issue, which is the throttle's job done better. Never raises.
+    monitoring.capture_exception(exc, user_id=user_id, route=route)
 
     key = f"api|{type(exc).__name__}|{route}"
     try:
@@ -242,6 +253,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(push_router.router)
     # W18. Added to BOTH lists in the same commit (#255).
     app.include_router(placement_router.router)
+    # W23. Added to BOTH lists in the same commit (#255).
+    app.include_router(admin_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -279,6 +292,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     progress_router.router,
                     push_router.router,
                     placement_router.router,
+                    admin_router.router,
                 )
                 for route in router.routes
             )

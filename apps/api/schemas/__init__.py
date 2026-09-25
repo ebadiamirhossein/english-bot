@@ -853,4 +853,33 @@ class PushStateOut(BaseModel):
     on: bool
 
 
+
+class AdminUserOut(BaseModel):
+    """W23: one learner on the operator's panel — the bot panel's line, as data.
+
+    **ACTIVITY, NEVER CONTENT (CLAUDE.md §5).** Every field is a state or a
+    count of days; no field can carry anything a learner wrote or said.
+    ``tests/test_admin_route.py`` holds the key set exactly.
+    """
+
+    id: int
+    name: str
+    cefr_level: str
+    current_streak: int
+    active_days: int
+    last_active: date | None
+    paused: bool
+    revoked: bool
+
+
+class AdminActivityOut(BaseModel):
+    """W23: `GET /admin/activity`. The operator only; 404 for anybody else."""
+
+    pending_requests: int
+    #: The bot's `active X/5 of the last 7` line, as its two constants.
+    weekly_goal_days: int
+    lookback_days: int
+    users: list[AdminUserOut]
+
+
 CorrectionResult.model_rebuild()

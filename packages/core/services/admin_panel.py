@@ -1,13 +1,18 @@
-"""Operator admin panel assembly (S18d).
+"""Operator admin panel assembly (S18d; ported to the web by W23).
 
 Activity and state only — never error text, diary corrections, chunks,
 or reading topics. PRD §10: the journal is private data.
+
+**W23 — `operator_activity` is the web's door to the same rows.** It returns
+exactly what the bot's panel prints (``AdminUserRow`` and the pending count),
+and nothing is added for the web: the rows were already chosen as activity and
+never content, and ``tests/test_access_approval.py`` has held that since S18d.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from core import copy
 from core.db import connection
@@ -33,8 +38,15 @@ class AdminUserRow:
     revoked: bool
 
 
-def list_admin_users(*, now_day: date | None = None) -> list[AdminUserRow]:
-    """All onboarded users (including revoked), activity fields only."""
+def list_admin_users(
+    *, now_day: date | None = None, now: datetime | None = None
+) -> list[AdminUserRow]:
+    """All onboarded users (including revoked), activity fields only.
+
+    ``now`` (W23) is an instant, turned into each learner's OWN local date — the
+    web route reads the clock once and passes it. ``now_day`` is the bot's
+    older form: one calendar date for everybody. Neither: the wall clock.
+    """
     with connection() as conn:
         rows = conn.execute(
             """
@@ -59,6 +71,8 @@ def list_admin_users(*, now_day: date | None = None) -> list[AdminUserRow]:
         # UTC wall — tests inject now_day to avoid the wall clock.
         if now_day is not None:
             day = now_day
+        elif now is not None:
+            day = local_today(tz, now)
         else:
             from datetime import datetime, timezone
 
@@ -165,3 +179,42 @@ def admin_user_label(user_id: int) -> str:
 def user_is_paused(user_id: int, day: date) -> bool:
     paused_until = get_paused_until(user_id)
     return paused_until is not None and paused_until >= day
+
+
+@dataclass(frozen=True)
+class OperatorActivity:
+    """W23: the web panel's whole payload — the bot panel's home screen."""
+
+    pending_requests: int
+    weekly_goal_days: int
+    lookback_days: int
+    users: list[AdminUserRow]
+
+
+def is_operator(user_id: int, admin_user_ids: tuple[int, ...]) -> bool:
+    """Is this ``users.id`` on ``ADMIN_USER_IDS``? **Empty means nobody.**
+
+    A ``users.id`` allowlist, not the operator's Telegram id: the web path
+    identifies people by ``users.id`` alone (W4b), and the first build of this
+    function — which compared ``OPERATOR_TELEGRAM_ID`` with
+    ``users.telegram_user_id`` — was refused by ``tests/test_identity_boundary.py``.
+    """
+    return user_id in admin_user_ids
+
+
+def operator_activity(
+    user_id: int, *, admin_user_ids: tuple[int, ...], now: datetime
+) -> OperatorActivity | None:
+    """The panel, or ``None`` when the caller is not the operator.
+
+    One call for the route (CLAUDE.md §2): the authorisation question and the
+    read are one service function, so no route can read the rows unasked.
+    """
+    if not is_operator(user_id, admin_user_ids):
+        return None
+    return OperatorActivity(
+        pending_requests=count_pending_requests(),
+        weekly_goal_days=WEEKLY_SUCCESS_DAYS,
+        lookback_days=ACTIVE_LOOKBACK_DAYS,
+        users=list_admin_users(now=now),
+    )

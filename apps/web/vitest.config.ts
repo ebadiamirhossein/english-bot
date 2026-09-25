@@ -20,7 +20,13 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { "@": path.resolve(__dirname, ".") },
+    alias: {
+      "@": path.resolve(__dirname, "."),
+      // W23: `@sentry/nextjs`'s package exports hand Node its SERVER build, and
+      // Vitest resolves like Node. The browser is what `lib/monitoring.ts` runs
+      // in, so the tests load the CLIENT build Next bundles for the browser.
+      "@sentry/nextjs": path.resolve(__dirname, "node_modules/@sentry/nextjs/build/esm/index.client.js"),
+    },
   },
   // Tailwind v4's PostCSS plugin is an ESM package Vite's CJS config loader
   // cannot construct, and nothing here renders styles anyway — these tests read
@@ -33,5 +39,8 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     // W20 adds `worker/`: the service worker's own handlers, against a stub scope.
     include: ["{app,components,lib,worker}/**/*.test.{ts,tsx}"],
+    // W23: transformed by Vite rather than loaded by Node, whose ESM loader
+    // cannot resolve the bare `next/constants` the client build imports.
+    server: { deps: { inline: [/@sentry\/nextjs/] } },
   },
 });
