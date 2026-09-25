@@ -469,7 +469,15 @@ def bank_for_session(user_id: int, *, unit_number: int, limit: int = 20) -> list
               ) ASC NULLS FIRST, items.created_at ASC
               LIMIT %s
             """
-    where = " WHERE items.user_id = %s AND items.unit_number = %s" + _CURRENT_VALIDATOR
+    # **W17: a drill is never unit practice.** A drill has no `unit_number`, so
+    # the unit predicate already excludes it; the cohort is named as well so that
+    # a drill written WITH a unit could never leak into block 3's eight. It is in
+    # `where` and not in `reserved`, because the suspension below drops
+    # `reserved` -- `test_a_drill_is_never_unit_practice` found exactly that.
+    where = (
+        " WHERE items.user_id = %s AND items.unit_number = %s" + _CURRENT_VALIDATOR
+        + " AND " + _COHORT + " <> 'drill'"
+    )
     args = (user_id, unit_number, VALIDATOR_VERSION, limit)
     with cursor() as cur:
         cur.row_factory = tuple_row
@@ -595,6 +603,111 @@ def focus_items(
         for row in bank_for_session(user_id, unit_number=unit_number, limit=limit)
     ]
 
+
+
+#: **W17: at most this many of block 3's eight are drills.** Two of eight keeps
+#: the week's grammar target the block's main business (PRD §4.1) and gives a
+#: weak spot a daily, bounded place. The session does not grow: the unit's share
+#: shrinks to make room, so a drill is never an extra task (CLAUDE.md §4).
+DRILLS_PER_SESSION = 2
+
+#: **The drill bank per pattern the generator fills to.** One cohort of eight.
+DRILL_BANK_TARGET = 8
+
+_DRILL_STOCK = (
+    " WHERE items.user_id = %s AND items.error_type = ANY(%s)"
+    + _CURRENT_VALIDATOR
+    + " AND " + _COHORT + " = 'drill'"
+)
+
+
+def drill_items(
+    user_id: int, *, codes: Sequence[str], limit: int = DRILLS_PER_SESSION
+) -> list[ItemPresentation]:
+    """Up to `limit` drills for this learner's EVIDENCED patterns. **W17's read.**
+
+    `codes` is `core.services.drills.evidenced_patterns`' output and nothing else
+    — the caller cannot ask for a pattern the journal does not evidence, because
+    this function never reads the journal itself; an empty `codes` returns
+    nothing. **A pattern with no evidence is never drilled.**
+
+    **Rotation, not rank (#412).** Candidates are ordered least-recently-attempted
+    first — `bank_for_session`'s rule — and the pick is one per pattern before any
+    pattern gets a second, so two evidenced patterns share the two slots rather
+    than the one with more rows taking both.
+
+    **A READ AND ONLY A READ**: drills are generated days earlier by the human-run
+    `python -m core.items.drills` (#196), never while the learner waits.
+    """
+    if not codes or limit <= 0:
+        return []
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            _SELECT
+            + _DRILL_STOCK
+            + """
+              ORDER BY (
+                  SELECT MAX(a.attempted_at) FROM item_attempts a
+                   WHERE a.item_id = items.id
+              ) ASC NULLS FIRST, items.created_at ASC, items.id ASC
+              LIMIT %s
+            """,
+            (user_id, list(codes), VALIDATOR_VERSION, limit * 10),
+        )
+        rows = [_to_stored(row) for row in cur.fetchall()]
+    picked: list[StoredItem] = []
+    used: set[str] = set()
+    for row in rows:  # one per pattern first
+        if row.error_type not in used:
+            picked.append(row)
+            used.add(row.error_type)
+        if len(picked) >= limit:
+            break
+    for row in rows:  # then fill from the rest, in the same order
+        if len(picked) >= limit:
+            break
+        if all(row.id != one.id for one in picked):
+            picked.append(row)
+    return [_present(row) for row in picked]
+
+
+def drill_sentences(user_id: int, *, error_type: str) -> tuple[str, ...]:
+    """The drill generator's avoid-list for one pattern: `prompt [answer]`.
+
+    `core.items.generate._bank_sentences`' shape, over `_DRILL_STOCK`.
+    """
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            "SELECT items.prompt_text, items.answer FROM items" + _DRILL_STOCK
+            + " ORDER BY items.id",
+            (user_id, [error_type], VALIDATOR_VERSION),
+        )
+        out: list[str] = []
+        for text, answer in cur.fetchall():
+            text, answer = (text or "").strip(), (answer or "").strip()
+            joined = f"{text} [{answer}]" if answer else text
+            if joined and joined not in out:
+                out.append(joined)
+        return tuple(out)
+
+
+def drills_held(user_id: int, *, error_type: str) -> int:
+    """How many servable drills this learner holds for one pattern. **W17.**
+
+    What `python -m core.items.drills` subtracts from `DRILL_BANK_TARGET`, and it
+    shares `_DRILL_STOCK` with `drill_items` so the counter cannot count rows the
+    read cannot serve (`focus_held`'s rule, #299).
+    """
+    with cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            "SELECT count(*)::int FROM items" + _DRILL_STOCK,
+            (user_id, [error_type], VALIDATOR_VERSION),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
 
 def focus_held(user_id: int, *, unit_number: int) -> int:

@@ -223,6 +223,19 @@ export type ItemPresentation = {
 };
 
 /**
+ * One of block 3's items, as `_focus_block` serves it. **W17 adds `pattern`.**
+ *
+ * `pattern` is present only on a weak-spot drill: the plain `learner_label` of
+ * the error pattern the learner's journal evidences (*"Articles"*). **Never a
+ * count** — no tally of how often the learner got it wrong crosses the wire
+ * (CLAUDE.md §4). `seen` is #276 (c)'s: answered in an earlier session.
+ */
+export type FocusItem = ItemPresentation & {
+  seen?: boolean;
+  pattern?: string;
+};
+
+/**
  * One learner response. The client sends the field its mode produces; the
  * server decides which one *is* the answer, from the item's own type.
  */

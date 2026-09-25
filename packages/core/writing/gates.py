@@ -78,9 +78,12 @@ def changed_learner_tokens(you_said: str, correct_form: str) -> list[str]:
     contractions, and a contraction failing to resolve is not evidence of a
     misspelling. A pure insertion (a missing article) changes no learner token.
     """
-    kept = {_normal(t) for t in _WORD.findall(correct_form or "")}
+    # **Straighten BEFORE tokenising (#421, fixed W17).** `_WORD` matches a
+    # straight apostrophe only, so a raw `can’t` -- what iOS types -- split into
+    # `can` + `t`, `t` failed to resolve, and a genuine error was dropped as a typo.
+    kept = {_normal(t) for t in _WORD.findall(_normal(correct_form or ""))}
     out: list[str] = []
-    for token in _WORD.findall(you_said or ""):
+    for token in _WORD.findall(_normal(you_said or "")):
         low = _normal(token)
         if "'" in low or low in kept:
             continue

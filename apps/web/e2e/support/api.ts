@@ -40,12 +40,23 @@ async function json(route: Route, status: number, body: unknown) {
   });
 }
 
+/**
+ * W17 — block 3 with weak-spot drills, from `components/session/drill.fixture.json`
+ * (`scripts/export_drill_fixture.py`, held to the wire by
+ * `tests/test_drill_fixture.py`).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const drillFixture: Record<string, any> = JSON.parse(
+  readFileSync(path.join(__dirname, "../../components/session/drill.fixture.json"), "utf-8"),
+);
+
 export async function mockApi(
   page: Page,
   {
     today = fixture.today,
     correct = { body: fixture.two } as CorrectReply,
     session = fixture.session,
+    answer = undefined as unknown,
   } = {},
 ) {
   // Registered first, so it matches last: anything unlisted is a quiet 404
@@ -65,6 +76,14 @@ export async function mockApi(
       : json(route, 200, { status: "saved" }),
   );
   await page.route(`${API}/write/today`, (route) => json(route, 200, today));
+  if (answer !== undefined) {
+    // W17 — `POST /items/{id}/answer`, from the drill fixture.
+    await page.route(`${API}/items/*/answer`, (route) =>
+      route.request().method() === "OPTIONS"
+        ? route.fulfill({ status: 204, headers: cors(route) })
+        : json(route, 200, answer),
+    );
+  }
   await page.route(`${API}/correct`, async (route) => {
     if (route.request().method() === "OPTIONS") {
       await route.fulfill({ status: 204, headers: cors(route) });

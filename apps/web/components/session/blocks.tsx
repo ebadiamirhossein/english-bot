@@ -8,12 +8,18 @@ import { CardRunner } from "@/components/cards/card-runner";
 import { ItemCard } from "@/components/items/item-card";
 import { LessonBody } from "@/components/lessons/lesson";
 import { BlockShell } from "@/components/session/block-shell";
-import { BLOCKS, CONVERSATION, SEEN_BEFORE, NOTHING_DUE } from "@/components/session/copy";
+import {
+  BLOCKS,
+  CONVERSATION,
+  DRILL_EYEBROW,
+  SEEN_BEFORE,
+  NOTHING_DUE,
+} from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
 import { VideoPlayer } from "@/components/video/player";
 import type {
   CardFace,
-  ItemPresentation,
+  FocusItem,
   Lesson,
   SessionBlock,
   VideoBlockPayload,
@@ -192,7 +198,7 @@ export function FocusBlock({
   const targets =
     (block.payload.grammar_targets as { target: string }[] | undefined) ?? [];
   const lesson = (block.payload.lesson as Lesson | null | undefined) ?? null;
-  const items = (block.payload.items as ItemPresentation[] | undefined) ?? [];
+  const items = (block.payload.items as FocusItem[] | undefined) ?? [];
   // **W11: the lesson is paced.** Operator ruling 2026-08-29 (#245) — a section
   // advances per COMPLETED SESSION, not per calendar day, so a skipped day
   // loses nothing. The index is computed server-side; this reads it.
@@ -274,7 +280,24 @@ export function FocusBlock({
                   .replace("{n}", String(index + 1))
                   .replace("{total}", String(items.length))}
               </p>
-              {(item as { seen?: boolean }).seen ? (
+              {item.pattern ? (
+                // W17: a weak-spot drill names its pattern, and only its pattern.
+                <div
+                  className="flex flex-wrap items-center gap-2"
+                  data-testid="focus-drill"
+                >
+                  <span className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
+                    {DRILL_EYEBROW}
+                  </span>
+                  <span
+                    className="inline-flex items-center rounded-full border border-border px-3 py-1 text-xs"
+                    data-testid="focus-drill-pattern"
+                  >
+                    {item.pattern}
+                  </span>
+                </div>
+              ) : null}
+              {item.seen ? (
                 <p
                   className="text-sm leading-relaxed text-muted-foreground"
                   data-testid="focus-seen-before"

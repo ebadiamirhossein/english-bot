@@ -598,21 +598,28 @@ def test_a_correction_the_gates_dropped_still_refuses_the_quote() -> None:
 def test_overlap_ignores_the_apostrophe_a_phone_types() -> None:
     """iOS types `’`. The overlap is matched after `_normal`, so a curly `can’t` in
     the correction still matches a straight `can't` in the quote. *(Tested on the pure
-    gate, not through `shape`: through `shape` the curly correction is dropped by G2
-    first — #421, below.)*"""
+    gate, not through `shape`: until W17 the curly correction was dropped by G2
+    first — #421, fixed below.)*"""
     assert gates.overlaps_a_correction(LIVE_QUOTE, "we can’t  depend of the old plan any more.")
 
 
-def test_stated_defect_421_g2_drops_a_correction_whose_apostrophe_is_curly() -> None:
-    """**#421, FOUND WHILE DEMONSTRATING THIS FIX, PINNED AND NOT FIXED.**
-    `changed_learner_tokens` tokenises `you_said` BEFORE straightening its quotes, so
-    `can’t` splits into `can` + `t`; `t` does not resolve, and G2 calls a genuine
-    error a typo whenever `you_said` carries `’` and `correct_form` carries `'`.
-    **Not fixed here: the W16b prompt holds G1 and G2 exactly as W16a built them.**
-    It errs toward a MISSING journal row (recoverable). **When #421 is fixed this
-    test goes red — invert it; do not restore the defect.**"""
-    assert gates.is_typo("we can’t depend of the old plan", "we can't depend on the old plan") is True
+def test_421_g2_keeps_a_correction_whose_apostrophe_is_curly() -> None:
+    """**#421, FIXED IN W17 (2026-09-25).** This test replaces
+    `test_stated_defect_421_g2_drops_a_correction_whose_apostrophe_is_curly`, which
+    asserted `is_typo(curly) is True` and said to invert it when the fix landed.
+    `changed_learner_tokens` tokenised `you_said` BEFORE straightening its quotes, so
+    `can’t` split into `can` + `t`, `t` did not resolve, and G2 dropped a genuine
+    error as a typo whenever `you_said` carried `’` — which is what iOS types.
+
+    **Red method:** run against the unfixed `changed_learner_tokens` (tokenise raw
+    text, then `_normal` each token); the first assertion fails because `is_typo`
+    returns True. Demonstrated red before the fix, green after."""
+    assert gates.is_typo("we can’t depend of the old plan", "we can't depend on the old plan") is False
     assert gates.is_typo("we can't depend of the old plan", "we can't depend on the old plan") is False
+    # Both directions: a curly correction against a straight original too.
+    assert gates.is_typo("we can't depend of the old plan", "we can’t depend on the old plan") is False
+    # And the gate still does its job on a curly original: a real misspelling is a typo.
+    assert gates.is_typo("we can’t depnd on it", "we can't depend on it") is True
 
 
 def test_overlap_is_matched_on_whole_words() -> None:

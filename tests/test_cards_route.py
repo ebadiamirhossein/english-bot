@@ -328,7 +328,13 @@ def test_grading_returns_the_interval_it_actually_stored(app, db, learner) -> No
     assert rating == 3
     assert due == due_after
     assert duration == 3300
-    assert body["interval_days"] == (due - reviewed_at).days
+    # **In UTC, not in the session's zone (fixed 2026-09-25, W17's full run).**
+    # psycopg returns both in `Europe/Vilnius`, and Python subtracts two datetimes
+    # sharing a zoneinfo `tzinfo` in WALL-CLOCK time: a 34-day interval crossing
+    # the 2026-10-25 DST change read 33 days 23 hours, and the test went red on a
+    # calendar date, not a code change (CLAUDE.md §3 rule 6). Elapsed time is UTC.
+    elapsed = due.astimezone(timezone.utc) - reviewed_at.astimezone(timezone.utc)
+    assert body["interval_days"] == elapsed.days
     assert datetime.fromisoformat(body["due"]) == due
 
 

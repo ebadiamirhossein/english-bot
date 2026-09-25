@@ -1,0 +1,295 @@
+{
+  "session_unit_first": {
+    "session_id": 91,
+    "date": "2026-09-25",
+    "l1_language": "fa",
+    "current_block": 3,
+    "completed": false,
+    "blocks": [
+      {
+        "n": 1,
+        "kind": "review",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 2,
+        "kind": "input",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 3,
+        "kind": "focus",
+        "state": "ready",
+        "payload": {
+          "answered": 0,
+          "unit_number": 1,
+          "can_do": "Can tell a short story about something that happened yesterday.",
+          "grammar_targets": [
+            {
+              "target": "past simple: regular and irregular verbs"
+            }
+          ],
+          "lesson": null,
+          "lesson_section": null,
+          "teaching_complete": false,
+          "items": [
+            {
+              "id": 501,
+              "response_mode": "typed",
+              "projection": {
+                "item_type": "cloze_cued",
+                "prompt_text": "I ___ my keys at the café yesterday."
+              },
+              "seen": false
+            },
+            {
+              "id": 502,
+              "response_mode": "typed",
+              "projection": {
+                "item_type": "cloze_cued",
+                "prompt_text": "Can you pass me ___ umbrella by the door?"
+              },
+              "seen": false,
+              "pattern": "Articles"
+            },
+            {
+              "id": 503,
+              "response_mode": "tap",
+              "projection": {
+                "item_type": "error_spot",
+                "prompt_text": "Tap the word that is wrong.",
+                "tiles": [
+                  "She",
+                  "go",
+                  "to",
+                  "the",
+                  "gym",
+                  "on",
+                  "Mondays."
+                ]
+              },
+              "seen": true,
+              "pattern": "Subject and verb"
+            }
+          ]
+        }
+      },
+      {
+        "n": 4,
+        "kind": "output",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 5,
+        "kind": "close",
+        "state": "ready",
+        "payload": {
+          "cards_reviewed": 0,
+          "blocks_completed": 0,
+          "block_count": 5
+        }
+      }
+    ]
+  },
+  "session_on_drill": {
+    "session_id": 91,
+    "date": "2026-09-25",
+    "l1_language": "fa",
+    "current_block": 3,
+    "completed": false,
+    "blocks": [
+      {
+        "n": 1,
+        "kind": "review",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 2,
+        "kind": "input",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 3,
+        "kind": "focus",
+        "state": "ready",
+        "payload": {
+          "answered": 1,
+          "unit_number": 1,
+          "can_do": "Can tell a short story about something that happened yesterday.",
+          "grammar_targets": [
+            {
+              "target": "past simple: regular and irregular verbs"
+            }
+          ],
+          "lesson": null,
+          "lesson_section": null,
+          "teaching_complete": false,
+          "items": [
+            {
+              "id": 501,
+              "response_mode": "typed",
+              "projection": {
+                "item_type": "cloze_cued",
+                "prompt_text": "I ___ my keys at the café yesterday."
+              },
+              "seen": false
+            },
+            {
+              "id": 502,
+              "response_mode": "typed",
+              "projection": {
+                "item_type": "cloze_cued",
+                "prompt_text": "Can you pass me ___ umbrella by the door?"
+              },
+              "seen": false,
+              "pattern": "Articles"
+            },
+            {
+              "id": 503,
+              "response_mode": "tap",
+              "projection": {
+                "item_type": "error_spot",
+                "prompt_text": "Tap the word that is wrong.",
+                "tiles": [
+                  "She",
+                  "go",
+                  "to",
+                  "the",
+                  "gym",
+                  "on",
+                  "Mondays."
+                ]
+              },
+              "seen": true,
+              "pattern": "Subject and verb"
+            }
+          ]
+        }
+      },
+      {
+        "n": 4,
+        "kind": "output",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 5,
+        "kind": "close",
+        "state": "ready",
+        "payload": {
+          "cards_reviewed": 0,
+          "blocks_completed": 0,
+          "block_count": 5
+        }
+      }
+    ]
+  },
+  "session_on_seen_drill": {
+    "session_id": 91,
+    "date": "2026-09-25",
+    "l1_language": "fa",
+    "current_block": 3,
+    "completed": false,
+    "blocks": [
+      {
+        "n": 1,
+        "kind": "review",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 2,
+        "kind": "input",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 3,
+        "kind": "focus",
+        "state": "ready",
+        "payload": {
+          "answered": 2,
+          "unit_number": 1,
+          "can_do": "Can tell a short story about something that happened yesterday.",
+          "grammar_targets": [
+            {
+              "target": "past simple: regular and irregular verbs"
+            }
+          ],
+          "lesson": null,
+          "lesson_section": null,
+          "teaching_complete": false,
+          "items": [
+            {
+              "id": 501,
+              "response_mode": "typed",
+              "projection": {
+                "item_type": "cloze_cued",
+                "prompt_text": "I ___ my keys at the café yesterday."
+              },
+              "seen": false
+            },
+            {
+              "id": 502,
+              "response_mode": "typed",
+              "projection": {
+                "item_type": "cloze_cued",
+                "prompt_text": "Can you pass me ___ umbrella by the door?"
+              },
+              "seen": false,
+              "pattern": "Articles"
+            },
+            {
+              "id": 503,
+              "response_mode": "tap",
+              "projection": {
+                "item_type": "error_spot",
+                "prompt_text": "Tap the word that is wrong.",
+                "tiles": [
+                  "She",
+                  "go",
+                  "to",
+                  "the",
+                  "gym",
+                  "on",
+                  "Mondays."
+                ]
+              },
+              "seen": true,
+              "pattern": "Subject and verb"
+            }
+          ]
+        }
+      },
+      {
+        "n": 4,
+        "kind": "output",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 5,
+        "kind": "close",
+        "state": "ready",
+        "payload": {
+          "cards_reviewed": 0,
+          "blocks_completed": 0,
+          "block_count": 5
+        }
+      }
+    ]
+  },
+  "answer_drill": {
+    "correct": true,
+    "graded_by": "deterministic",
+    "canonical": "the",
+    "explanation": "The, because you both know which umbrella: the one by the door.",
+    "murphy_units": null,
+    "pairs": null
+  }
+}

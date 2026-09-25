@@ -142,7 +142,14 @@ class BaseItem(BaseModel):
     #: In `NOT_THE_GENERATORS` -- the run's mode is not the model's to choose --
     #: and in `projection.NEVER_VISIBLE`, because telling a learner (or the blind
     #: solver) that an item is a checkpoint item is a category hint.
-    cohort: Literal["focus", "checkpoint"] | None = None
+    #:
+    #: **W17 adds `drill`: a weak-spot drill, written for a pattern this learner's
+    #: error journal evidences.** A drill carries `error_type` and NO
+    #: `unit_number` (`items_declares_a_target` is satisfied by `error_type`), so
+    #: `bank_for_session`'s `unit_number = %s` can never reach it, and
+    #: `bank_for_session` also excludes the cohort by name. Drills reach block 3
+    #: only through `core.services.items.drill_items`.
+    cohort: Literal["focus", "checkpoint", "drill"] | None = None
 
     #: Shown after grading, never before — see `projection.visible_projection`.
     explanation: str | None = None

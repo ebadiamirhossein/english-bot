@@ -399,6 +399,10 @@ class Slot:
     #: Required, so a missing run mode raises at the point of the mistake instead
     #: of producing a plausible wrong answer.
     cohort: str
+    #: **W17.** Set only on a `drill` slot: the `error_types.code` the drill is
+    #: written for. The runner binds it onto the item in `_draft_to_item`; the
+    #: model never authors it (`NOT_THE_GENERATORS`).
+    error_type: str | None = None
 
 
 def track_for(unit_number: int) -> str:
@@ -723,10 +727,21 @@ def _draft_to_item(raw: dict, slot: Slot, unit_number: int) -> BaseItem:
     """
     draft = dict(raw)
     draft["item_type"] = slot.item_type
-    draft["track"] = track_for(unit_number)
-    draft["unit_number"] = unit_number
     draft["grammar_target"] = slot.target
     draft["cohort"] = slot.cohort
+    if slot.cohort == "drill":
+        # **W17: a drill belongs to a PATTERN, not to a unit.** No `unit_number`,
+        # so no unit-scoped read can serve it; `error_type` is the target the
+        # schema's `items_declares_a_target` needs. Track is `life`: a weak spot
+        # is drilled in everyday English first (CLAUDE.md §4).
+        if not slot.error_type:
+            raise ValueError("a drill slot must carry its error_type")
+        draft["track"] = "life"
+        draft["unit_number"] = None
+        draft["error_type"] = slot.error_type
+    else:
+        draft["track"] = track_for(unit_number)
+        draft["unit_number"] = unit_number
 
     answer = draft.get("answer")
     if answer is not None and not isinstance(answer, str):

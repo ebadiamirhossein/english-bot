@@ -207,6 +207,18 @@ export const TYPED = {
  */
 export const SEEN_BEFORE = "You've answered this one before.";
 
+/**
+ * **W17 — the eyebrow above a weak-spot drill in block 3.** The pattern's plain
+ * label sits beside it in a bordered pill (*"Articles"*), from
+ * `error_types.learner_label`.
+ *
+ * **It names where the drill comes from, and nothing about how often.** No
+ * count, no "again", no "you keep getting this wrong": the journal's count is a
+ * threshold the server reads and never a number the learner sees (#412,
+ * CLAUDE.md §4). Covered by the `.tsx`/`.ts` no-guilt scan.
+ */
+export const DRILL_EYEBROW = "From your own English";
+
 
 /**
  * The player. **W13-i.**

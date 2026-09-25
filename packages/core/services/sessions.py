@@ -1298,8 +1298,19 @@ def _focus_block(
     conn: Any = None,
     session_id: int | None = None,
     stored_payload: dict | None = None,
+    now: datetime | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Block 3. The unit's can-do, its grammar targets, and **its eight items.**
+
+    **W17: UP TO TWO OF THE EIGHT ARE WEAK-SPOT DRILLS** — items written for a
+    pattern this learner's error journal evidences (`core.services.drills`), served
+    after the unit's items and each carrying the pattern's plain `learner_label`
+    as `pattern`. **Inside the session, never as a separate queue, and never with
+    a count** (#160, CLAUDE.md §4): no tally of how often the learner got it wrong
+    crosses the wire. The block does not grow — the unit's share shrinks to make
+    room. With no evidenced pattern, or no drills generated for one, block 3 is
+    exactly what it was before W17. `now` is what the evidence window is read
+    against; without it no drill is served.
 
     PRD §4.1 asks for "this week's grammar target: 90-second explanation + 8
     generated items". **W10c filled the second half and W10b fills the first**,
@@ -1353,9 +1364,12 @@ def _focus_block(
     if stored_ids:
         presentations = items_service.items_by_id(user_id, stored_ids)
     else:
+        drills = _weak_spot_drills(user_id, now)
         presentations = items_service.focus_items(
-            user_id, unit_number=unit.unit_number
-        )
+            user_id,
+            unit_number=unit.unit_number,
+            limit=items_service.FOCUS_ITEM_COUNT - len(drills),
+        ) + drills
         if presentations and conn is not None and session_id is not None:
             conn.execute(
                 # COALESCE: a daily row is inserted with NO payload and
@@ -1418,6 +1432,8 @@ def _focus_block(
         ).fetchone()
         seen_before = set((row["array_agg"] or []) if row else [])
 
+    patterns = _drill_labels(user_id, [one.id for one in presentations])
+
     return "ready", {
         "answered": answered_count,
         "unit_number": unit.unit_number,
@@ -1427,15 +1443,60 @@ def _focus_block(
         "lesson_section": lesson_section,
         "teaching_complete": teaching_complete,
         "items": [
-            {
-                "id": one.id,
-                "response_mode": one.response_mode,
-                "projection": one.projection,
-                "seen": one.id in seen_before,
-            }
+            focus_item_out(one, seen=one.id in seen_before, pattern=patterns.get(one.id))
             for one in presentations
         ],
     }
+
+
+def focus_item_out(presentation: Any, *, seen: bool, pattern: str | None) -> dict[str, Any]:
+    """One of block 3's items as it goes on the wire. **Pure, and the ONE shape.**
+
+    `scripts/export_drill_fixture.py` builds the committed Vitest/Playwright
+    fixture through this function, so the fixture and the route cannot describe
+    two different shapes (#190). W17's `pattern` — the pattern's plain label —
+    is present on a drill only, and is never a count.
+    """
+    out: dict[str, Any] = {
+        "id": presentation.id,
+        "response_mode": presentation.response_mode,
+        "projection": presentation.projection,
+        "seen": seen,
+    }
+    if pattern:
+        out["pattern"] = pattern
+    return out
+
+
+def _weak_spot_drills(user_id: int, now: datetime | None) -> list[Any]:
+    """Block 3's drills for today: evidenced patterns only (W17).
+
+    **A failure here costs the drills, never the block.** The unit's items are
+    the block's main business; a journal read that raises serves the day without
+    drills rather than turning block 3 `unavailable`. Logged with the user id
+    only (PRD §10).
+    """
+    if now is None:
+        return []
+    from core.services import drills as drills_service
+    from core.services import items as items_service
+
+    try:
+        codes = [one.code for one in drills_service.evidenced_patterns(user_id, now=now)]
+        return items_service.drill_items(user_id, codes=codes)
+    except Exception:  # noqa: BLE001 -- see docstring
+        logger.exception("weak-spot drills failed user_id=%s", user_id)
+        return []
+
+
+def _drill_labels(user_id: int, item_ids: list[int]) -> dict[int, str]:
+    from core.services import drills as drills_service
+
+    try:
+        return drills_service.drill_labels(user_id, item_ids)
+    except Exception:  # noqa: BLE001 -- a missing label costs the eyebrow only
+        logger.exception("drill labels failed user_id=%s", user_id)
+        return {}
 
 
 def _output_block(
@@ -1895,6 +1956,7 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
                     conn=conn,
                     session_id=session_id,
                     stored_payload=_session_payload(conn, session_id),
+                    now=now,
                 ),
             ),
             "output": ("unavailable", {})
