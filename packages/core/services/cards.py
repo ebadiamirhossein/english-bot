@@ -45,6 +45,7 @@ from core.cards.fsrs import CardState, review
 from core.db import connection, cursor
 from core.items.grading import equivalence_key
 from core.items.repair import first_letter_cue
+from core.services import lexeme_images
 
 logger = logging.getLogger(__name__)
 
@@ -762,8 +763,19 @@ def card_face(card: Card, *, now: datetime) -> dict:
 
     `now` is injected, like every other clock in this module, so a due-date
     preview is assertable without freezing time (CLAUDE.md §3 rule 6).
+
+    **`image` (W13d) is added HERE and not in `Card.face()`, for the same
+    reason:** a picture is read from `lexeme_images`, and the one producer is
+    the one place that read can live without a second caller forgetting it. It
+    is None for a phrase card, a collocation card and every word without an
+    operator-approved picture — which is PRD §2.6.3's *"demonstrably
+    unchanged"*: those faces are what they were, plus `"image": null`.
     """
-    return {**card.face(), "intervals": grade_intervals(card, now=now)}
+    return {
+        **card.face(),
+        "intervals": grade_intervals(card, now=now),
+        "image": lexeme_images.face_for(card.card_type, card.lexeme_id),
+    }
 
 
 # ---------------------------------------------------------------------------

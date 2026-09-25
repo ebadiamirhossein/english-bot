@@ -306,3 +306,39 @@ export async function mockAdmin(
       : json(route, status, status === 200 ? body : { detail: status === 404 ? "not_found" : "x" }),
   );
 }
+
+/**
+ * W13d — `/review` with a picturable word, from
+ * `components/cards/review-queue.fixture.json` (`scripts/export_review_fixture.py`,
+ * held to the wire by `tests/test_lexeme_images.py`). The picture's bytes are
+ * `e2e/fixtures/card-picture.png`, this project's own drawing, written by the
+ * same script.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const reviewFixture: Record<string, any> = JSON.parse(
+  readFileSync(path.join(__dirname, "../../components/cards/review-queue.fixture.json"), "utf-8"),
+);
+
+const cardPicture = readFileSync(path.join(__dirname, "../fixtures/card-picture.png"));
+
+export async function mockReview(
+  page: Page,
+  { queue = reviewFixture as unknown, picture = "ok" as "ok" | "offline" } = {},
+) {
+  const pictureRequests: string[] = [];
+  await page.route(`${API}/review/queue*`, (route) => json(route, 200, queue));
+  await page.route(`${API}/lexeme-images/**`, async (route) => {
+    pictureRequests.push(route.request().url());
+    if (picture === "offline") {
+      await route.abort("internetdisconnected");
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      headers: { ...cors(route), "cache-control": "private, max-age=31536000, immutable" },
+      body: cardPicture,
+    });
+  });
+  return pictureRequests;
+}

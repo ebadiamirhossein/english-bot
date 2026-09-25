@@ -320,6 +320,32 @@ export type CardFace = {
    */
   typed: boolean;
   intervals: Record<Rating, number>;
+  /**
+   * W13d. A picturable word's picture and the credit its licence requires, or
+   * `null` — for a phrase card, a collocation card and every word nobody
+   * approved a picture for (PRD §2.6.3: those cards are unchanged).
+   */
+  image: CardImage | null;
+};
+
+/**
+ * One operator-approved Wikimedia Commons picture (W13d, migration 033).
+ *
+ * **The credit is not optional where the licence needs it**: CC BY requires it
+ * to be VISIBLE, so a picture that arrives without `author` and `licence` is
+ * never drawn. `author` is `null` only for a public-domain or CC0 file whose
+ * author Commons does not name.
+ */
+export type CardImage = {
+  id: number;
+  ext: "jpg" | "png";
+  width: number;
+  height: number;
+  alt: string;
+  author: string | null;
+  licence: string;
+  licence_url: string | null;
+  source_url: string;
 };
 
 /** The four FSRS grades, in the order they are shown. */
@@ -401,6 +427,16 @@ export function answerItem(
  */
 export function itemAudioUrl(itemId: number): string {
   return `${API_BASE_URL}/items/${itemId}/audio`;
+}
+
+/**
+ * W13d — a card's picture, served by OUR API and never hot-linked from
+ * Wikimedia, so no third party sees a learner's browser. A URL, like
+ * `itemAudioUrl`, so the `<img>` carries the cookie with
+ * `crossOrigin="use-credentials"`.
+ */
+export function lexemeImageUrl(image: Pick<CardImage, "id" | "ext">): string {
+  return `${API_BASE_URL}/lexeme-images/${image.id}.${image.ext}`;
 }
 
 /** Due cards, capped by the two daily budgets. Empty is an ordinary state. */

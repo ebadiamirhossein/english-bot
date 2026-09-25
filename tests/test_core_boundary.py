@@ -109,8 +109,18 @@ def _imported_roots(tree: ast.AST) -> set[str]:
 # chose) are a provider with no SDK worth taking (`pywebpush` pulls aiohttp,
 # requests and six). `core/push.py` holds the REQUEST — RFC 8291's encryption and
 # RFC 8292's VAPID signature, no network — and `core/push_api.py` posts it.
+# W13d adds the FOURTH door, by name, for the same reason as the first three:
+# Wikidata and Wikimedia Commons are one provider (the Wikimedia Foundation's
+# APIs) with no SDK in this tree, reached only by the human-run
+# `core.images.bank` and never by a route. `core/images/__init__.py` holds the
+# POLICY — the licence gate — with no network; `commons_api.py` holds the REQUEST.
 HTTP_WRAPPERS = frozenset(
-    {CORE / "video_api.py", CORE / "speech_api.py", CORE / "push_api.py"}
+    {
+        CORE / "video_api.py",
+        CORE / "speech_api.py",
+        CORE / "push_api.py",
+        CORE / "images" / "commons_api.py",
+    }
 )
 
 
@@ -126,8 +136,8 @@ def test_core_imports_no_web_framework() -> None:
             offenders.append(f"{rel}: {', '.join(sorted(hit))}")
     assert offenders == [], (
         "packages/core may not import a web framework, an HTTP client or "
-        "Telegram (CLAUDE.md §2); core/video_api.py, core/speech_api.py and "
-        "core/push_api.py are the named exemptions, one door per external provider: "
+        "Telegram (CLAUDE.md §2); core/video_api.py, core/speech_api.py, "
+        "core/push_api.py and core/images/commons_api.py are the named exemptions, one door per external provider: "
         + "; ".join(offenders)
     )
 
@@ -162,10 +172,16 @@ def test_the_http_wrapper_exemption_is_one_door_per_provider_and_stays_pinned() 
     # *"assert HTTP_WRAPPERS == {CORE / 'video_api.py', CORE / 'speech_api.py'}"*.
     # `push_api.py` is a provider door — the browsers' push services — not a
     # service or a helper, which is this docstring's test for a good widening.
+    # **W13d WIDENED IT TO FOUR, and the three-file assertion is quoted (#82):**
+    # *"assert HTTP_WRAPPERS == {CORE / 'video_api.py', CORE / 'speech_api.py',
+    # CORE / 'push_api.py'}"*. `images/commons_api.py` is a provider door —
+    # Wikimedia's APIs (Wikidata + Commons, one foundation, one policy set) —
+    # and the licence gate beside it in `images/__init__.py` has no network.
     assert HTTP_WRAPPERS == {
         CORE / "video_api.py",
         CORE / "speech_api.py",
         CORE / "push_api.py",
+        CORE / "images" / "commons_api.py",
     }
     for door in HTTP_WRAPPERS:
         assert door.is_file(), door

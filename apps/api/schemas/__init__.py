@@ -270,6 +270,31 @@ class ItemAnswerResult(BaseModel):
     pairs: list[tuple[str, str]] | None = None
 
 
+class CardImage(BaseModel):
+    """A picturable word's picture, and the credit its licence requires. W13d.
+
+    **Everything the card must SHOW travels with the picture**, because CC BY
+    requires the credit to be visible (TASKS' W13d row): a picture that arrived
+    without its author and licence could not be rendered lawfully, so the
+    fields are not optional where the licence needs them. `author` is None only
+    for a public-domain or CC0 file whose author Commons does not name.
+    """
+
+    id: int
+    #: `jpg` or `png` — the URL is `/lexeme-images/{id}.{ext}`, built by
+    #: `lexemeImageUrl` in `apps/web/lib/api.ts`.
+    ext: str
+    width: int
+    height: int
+    #: The lemma. The word is printed beside the picture, so this names it for
+    #: a screen reader rather than describing the photograph.
+    alt: str
+    author: str | None
+    licence: str
+    licence_url: str | None
+    source_url: str
+
+
 class CardFace(BaseModel):
     """One card as the reviewer renders it (PRD §5, §8.5.4).
 
@@ -313,6 +338,9 @@ class CardFace(BaseModel):
     #: rule W6 established for grading, and a scan over the deck tree fails the
     #: commit that adds one.
     intervals: dict[str, int]
+    #: W13d. None for a phrase card, a collocation card and every word without
+    #: an operator-approved picture — PRD §2.6.3's *"demonstrably unchanged"*.
+    image: CardImage | None
 
 
 class DeckCountsOut(BaseModel):

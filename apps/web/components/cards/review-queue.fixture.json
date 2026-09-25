@@ -1,0 +1,104 @@
+{
+  "cards": [
+    {
+      "id": 51,
+      "card_type": "recognition",
+      "front": "Could you pass me a spoon?",
+      "back": "spoon",
+      "cue": null,
+      "context_sentence": "Could you pass me a spoon?",
+      "source_ref": "vocabulary",
+      "meaning": "قاشق",
+      "register": "neutral",
+      "neutral_equivalent": null,
+      "who_says_this": null,
+      "typed": false,
+      "intervals": {
+        "again": 0,
+        "hard": 10,
+        "good": 10,
+        "easy": 16
+      },
+      "image": {
+        "id": 7,
+        "ext": "png",
+        "width": 330,
+        "height": 215,
+        "alt": "spoon",
+        "author": "THOR",
+        "licence": "CC BY 2.0",
+        "licence_url": "https://creativecommons.org/licenses/by/2.0",
+        "source_url": "https://commons.wikimedia.org/wiki/File:SpoonCollection.jpg"
+      }
+    },
+    {
+      "id": 52,
+      "card_type": "recognition",
+      "front": "It takes years to build that kind of trust.",
+      "back": "trust",
+      "cue": null,
+      "context_sentence": "It takes years to build that kind of trust.",
+      "source_ref": "vocabulary",
+      "meaning": "اعتماد",
+      "register": "neutral",
+      "neutral_equivalent": null,
+      "who_says_this": null,
+      "typed": false,
+      "intervals": {
+        "again": 0,
+        "hard": 10,
+        "good": 10,
+        "easy": 16
+      },
+      "image": null
+    },
+    {
+      "id": 53,
+      "card_type": "production",
+      "front": "دست کشیدن\nDon't _____ now.",
+      "back": "give up",
+      "cue": null,
+      "context_sentence": null,
+      "source_ref": "vocabulary",
+      "meaning": "دست کشیدن",
+      "register": "neutral",
+      "neutral_equivalent": null,
+      "who_says_this": null,
+      "typed": true,
+      "intervals": {
+        "again": 0,
+        "hard": 10,
+        "good": 10,
+        "easy": 16
+      },
+      "image": null
+    },
+    {
+      "id": 54,
+      "card_type": "collocation",
+      "front": "_____ a spoon properly",
+      "back": "hold",
+      "cue": null,
+      "context_sentence": "Hold a spoon properly.",
+      "source_ref": "vocabulary",
+      "meaning": null,
+      "register": "neutral",
+      "neutral_equivalent": null,
+      "who_says_this": null,
+      "typed": false,
+      "intervals": {
+        "again": 0,
+        "hard": 10,
+        "good": 10,
+        "easy": 16
+      },
+      "image": null
+    }
+  ],
+  "counts": {
+    "new_remaining": 0,
+    "review_remaining": 4,
+    "total_remaining": 4
+  },
+  "l1_language": "fa"
+}

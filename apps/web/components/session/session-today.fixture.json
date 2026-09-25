@@ -17,7 +17,8 @@
       "hard": 10,
       "good": 10,
       "easy": 16
-    }
+    },
+    "image": null
   },
   {
     "id": 42,
@@ -37,6 +38,7 @@
       "hard": 10,
       "good": 10,
       "easy": 16
-    }
+    },
+    "image": null
   }
 ]

@@ -3,6 +3,8 @@
 import { cn } from "@/lib/utils";
 import type { CardFace as CardFaceData } from "@/lib/api";
 
+import { CardImage } from "./card-image";
+
 /**
  * One card, front then back. PRD §5 and §8.5.4.
  *
@@ -239,6 +241,12 @@ export function CardFace({
               <BidiText language={l1Language} text={card.meaning} />
             </p>
           ) : null}
+          {/* W13d. On the ANSWER side and never the front: on a recognition
+              card the picture IS the meaning, so before the reveal it would
+              answer the question — the leak W8c removed from the source line.
+              `null` for a phrase, a collocation and every unpictured word, and
+              then nothing here renders at all (PRD §2.6.3). */}
+          {card.image ? <CardImage image={card.image} /> : null}
         </div>
       ) : null}
 

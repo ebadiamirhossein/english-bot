@@ -27,6 +27,8 @@ function card(over: Partial<CardFaceData> = {}): CardFaceData {
     // wording and fail a learner for being right in different words.
     typed: false,
     intervals: { again: 0, hard: 3, good: 7, easy: 15 },
+    // W13d: most cards carry no picture, and a hand-built face says so.
+    image: null,
     ...over,
   };
 }

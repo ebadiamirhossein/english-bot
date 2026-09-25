@@ -38,6 +38,7 @@ from apps.api.routers import progress as progress_router
 from apps.api.routers import push as push_router
 from apps.api.routers import placement as placement_router
 from apps.api.routers import admin as admin_router
+from apps.api.routers import lexeme_images as lexeme_images_router
 from core import monitoring
 from core.config import Settings, load_settings
 from core.logging import configure_console_logging
@@ -255,6 +256,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(placement_router.router)
     # W23. Added to BOTH lists in the same commit (#255).
     app.include_router(admin_router.router)
+    # W13d. Added to BOTH lists in the same commit (#255).
+    app.include_router(lexeme_images_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -293,6 +296,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     push_router.router,
                     placement_router.router,
                     admin_router.router,
+                    lexeme_images_router.router,
                 )
                 for route in router.routes
             )
