@@ -253,9 +253,10 @@ function Switch({ on }: { on: boolean }) {
       )}
     >
       <span
+        data-testid="reminders-thumb"
         className={cn(
           "absolute h-4 w-4 rounded-full shadow-sm transition-transform",
-          on ? "translate-x-[1.125rem] bg-primary-foreground" : "translate-x-1 bg-background",
+          on ? "translate-x-[1.125rem] bg-primary-foreground" : "translate-x-1 bg-muted-foreground",
         )}
       />
     </span>

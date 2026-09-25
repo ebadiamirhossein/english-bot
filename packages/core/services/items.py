@@ -957,6 +957,23 @@ def _present(stored: StoredItem) -> ItemPresentation:
     )
 
 
+def present_bank_item(bank_id: int, item: BaseItem) -> ItemPresentation:
+    """**W18: a placement-bank item's learner-visible face, through THIS module.**
+
+    `placement_bank` rows are not learner items (migration 032: the bank is
+    global), but what a learner sees of one must be what the blind solver saw of
+    it when it was gated — so it is projected here, by the same
+    `visible_projection` call `_present` makes, rather than by a fourth
+    projector (`tests/test_core_boundary.py::test_exactly_one_module_projects_an_item`).
+    `bank_id` is the placement bank's id, not an `items.id`.
+    """
+    return ItemPresentation(
+        id=bank_id,
+        response_mode=RESPONSE_MODE[item.item_type],
+        projection=visible_projection(item),
+    )
+
+
 def _fetch(user_id: int, item_id: int) -> StoredItem | None:
     with cursor() as cur:
         cur.row_factory = tuple_row

@@ -1,8 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { createContext, useContext, useRef, useState } from "react";
 
 import { itemAudioUrl } from "@/lib/api";
+
+/**
+ * **Where an item's audio comes from.** `/items/{id}/audio` by default; W18's
+ * placement clips are bank rows, not learner items, and come from
+ * `/placement/items/{id}/audio`. A context rather than a prop, so the eleven
+ * presentation components — which branch on nothing — gain no field that one
+ * type needs (`presentation/types.ts`' rule).
+ */
+export const AudioSource = createContext<(itemId: number) => string>(itemAudioUrl);
 import { Button } from "@/components/ui/button";
 
 /**
@@ -20,6 +29,7 @@ import { Button } from "@/components/ui/button";
  * learner "it did not play, try again" is the whole of the useful information.
  */
 export function AudioButton({ itemId }: { itemId: number }) {
+  const source = useContext(AudioSource);
   const ref = useRef<HTMLAudioElement | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "played" | "problem">(
     "idle",
@@ -42,7 +52,7 @@ export function AudioButton({ itemId }: { itemId: number }) {
     <div className="space-y-2">
       <audio
         ref={ref}
-        src={itemAudioUrl(itemId)}
+        src={source(itemId)}
         crossOrigin="use-credentials"
         preload="none"
         data-testid="item-audio"

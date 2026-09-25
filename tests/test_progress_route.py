@@ -122,10 +122,20 @@ def test_the_payload_carries_no_backlog_and_no_unmet_field(app, learners) -> Non
     """User action: the learner taps the Progress tab.
 
     The key set is exact. **Every field it refuses is a number with nothing
-    behind it, or a count of what was not done**: the radar and placement
-    history (W18), the target line (no baseline), units mastered (#135), the
-    couple leaderboard (scope ruling), and `sessions.xp`/`minutes`/`completed`
-    (#349).
+    behind it, or a count of what was not done**: the target line (no
+    baseline), units mastered (#135), the couple leaderboard (scope ruling), and
+    `sessions.xp`/`minutes`/`completed` (#349).
+
+    **W18 TURNED ON `placement`** (the radar and placement history), so the key
+    set gains it and the absent-list loses `"placement"`. The old assertion is
+    kept here rather than deleted (#82's shape) — it read::
+
+        assert set(body) == {"known_words", "known_history", "xp",
+                             "streak_days", "freezes", "units_passed"}
+        for absent in ("radar", "placement", "target", ...):
+
+    **Before a first sitting `placement` is null and there is still no radar on
+    the wire**; `tests/test_placement_route.py` asserts the shape after one.
     """
     learner = learners()
     response = request(
@@ -139,12 +149,14 @@ def test_the_payload_carries_no_backlog_and_no_unmet_field(app, learners) -> Non
         "streak_days",
         "freezes",
         "units_passed",
+        "placement",
     }
+    assert body["placement"] is None
     text = response.text.lower()
     for key in BACKLOG_KEYS:
         assert key not in text, key
     for absent in (
-        "radar", "placement", "target", "mastered", "partner", "leader", "rank",
+        "radar", "target", "mastered", "partner", "leader", "rank",
         "minutes", "completed", "missed", "remaining", "behind", "lost",
     ):
         assert absent not in text, absent

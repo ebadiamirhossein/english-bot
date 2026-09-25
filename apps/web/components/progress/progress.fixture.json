@@ -10,7 +10,8 @@
     "xp": 0,
     "streak_days": 0,
     "freezes": 2,
-    "units_passed": 0
+    "units_passed": 0,
+    "placement": null
   },
   "first_day": {
     "known_words": 12,
@@ -23,7 +24,8 @@
     "xp": 38,
     "streak_days": 1,
     "freezes": 2,
-    "units_passed": 0
+    "units_passed": 0,
+    "placement": null
   },
   "weeks_in": {
     "known_words": 164,
@@ -56,7 +58,44 @@
     "xp": 1246,
     "streak_days": 23,
     "freezes": 1,
-    "units_passed": 2
+    "units_passed": 2,
+    "placement": {
+      "where_to_start": "B2",
+      "radar": [
+        {
+          "skill": "vocabulary",
+          "band": "B2"
+        },
+        {
+          "skill": "grammar",
+          "band": "B2"
+        },
+        {
+          "skill": "listening",
+          "band": "B2"
+        },
+        {
+          "skill": "speaking",
+          "band": "B1"
+        }
+      ],
+      "history": [
+        {
+          "finished_on": "2026-09-09",
+          "band": "B1"
+        },
+        {
+          "finished_on": "2026-10-11",
+          "band": "B2"
+        }
+      ],
+      "vocab_estimate": 3300,
+      "raised_from": "B1",
+      "raised_skills": [
+        "vocabulary",
+        "grammar"
+      ]
+    }
   },
   "no_freezes": {
     "known_words": 164,
@@ -89,6 +128,7 @@
     "xp": 1246,
     "streak_days": 23,
     "freezes": 0,
-    "units_passed": 1
+    "units_passed": 1,
+    "placement": null
   }
 }

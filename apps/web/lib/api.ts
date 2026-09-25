@@ -885,10 +885,12 @@ export function saveConversationWord(
  *
  * **Every number traces to a ledger** (`core.services.progress`'s banner names
  * each). **No field counts what was not done** — no missed days, no remaining,
- * no target shortfall, no partner. **There is no field for the radar, placement
+ * no target shortfall, no partner. ~~**There is no field for the radar, placement
  * history, the six-month target line or units mastered**: each needs data that
  * does not exist yet (W18's placement; #135's retention metric), so the client
- * cannot draw a number with nothing behind it.
+ * cannot draw a number with nothing behind it.~~ **W18 (2026-09-25), the old
+ * text struck rather than deleted: `placement` carries the radar and the level
+ * history, in bands.** The target line and units mastered still have no field.
  *
  * Zeros arrive honestly and the SCREEN draws none of them (W11b's split).
  */
@@ -911,6 +913,8 @@ export type Progress = {
   streak_days: number;
   freezes: number;
   units_passed: number;
+  /** W18: null until the first placement sitting finishes. */
+  placement: PlacementShown | null;
 };
 
 export function getProgress(): Promise<Progress> {
@@ -968,4 +972,114 @@ export function getPushState(endpoint: string): Promise<PushState> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ endpoint }),
   });
+}
+
+/**
+ * W18: the placement test. PRD §6.
+ *
+ * **A placement is never a score.** What comes back is a band — *where to
+ * start* — and a radar of bands per skill. **No field is a percentage, a count
+ * of right or wrong answers, or a position in the sitting** (*12 of 60* is a
+ * backlog running backwards). Every value is the learner's HIGH-WATER mark
+ * across sittings, so a re-run that reads lower changes nothing on screen, and
+ * `raised_from` is set only when the latest sitting went up (CLAUDE.md §4:
+ * raises announced, drops silent).
+ */
+export type Band = "A2" | "B1" | "B2" | "C1";
+export type PlacementSkill = "vocabulary" | "grammar" | "listening" | "speaking";
+
+export type PlacementShown = {
+  where_to_start: Band;
+  /** One entry per skill measured by the instrument; `band` null when never measured. */
+  radar: { skill: PlacementSkill; band: Band | null }[];
+  /** The band as shown after each sitting, oldest first. */
+  history: { finished_on: string; band: Band }[];
+  /** Words recognised, rounded to the hundred; null when it could not be read. */
+  vocab_estimate: number | null;
+  raised_from: Band | null;
+  raised_skills: PlacementSkill[];
+};
+
+/**
+ * One item's learner-visible face. Which fields are set depends on the part:
+ * `word` (vocabulary), `response_mode` + `projection` (grammar and listening —
+ * the same shape every item in the app has), `prompt_text` + `voice` (speaking).
+ */
+export type PlacementItem = {
+  id: number;
+  word?: string | null;
+  response_mode?: string | null;
+  projection?: Record<string, unknown> | null;
+  prompt_text?: string | null;
+  voice?: boolean | null;
+};
+
+export type PlacementSection = "vocabulary" | "grammar" | "listening" | "speaking" | "done";
+
+export type PlacementStep = { section: PlacementSection; item: PlacementItem | null };
+
+export type Placement = {
+  state: "none" | "open" | "finished";
+  /** The bank can supply a whole sitting. False until the operator builds it. */
+  ready: boolean;
+  /** A sitting can be started now. */
+  available: boolean;
+  /** The first day a new sitting is offered, after one has finished. */
+  next_from: string | null;
+  voice: boolean;
+  step: PlacementStep | null;
+  shown: PlacementShown | null;
+};
+
+export type PlacementResult = { shown: PlacementShown; next_from: string | null };
+
+/** What one answer carries. Only the field the item produces is read. */
+export type PlacementAnswer = {
+  known?: boolean;
+  skip?: boolean;
+  text?: string;
+  option?: string;
+  tile_index?: number;
+  order?: string[];
+  pairs?: Record<string, string>;
+};
+
+export function getPlacement(): Promise<Placement> {
+  return request<Placement>("/placement");
+}
+
+const JSON_POST = { method: "POST", headers: { "Content-Type": "application/json" } } as const;
+
+/** Starts a sitting, or resumes the open one. `409` too soon or no bank. */
+export function startPlacement(): Promise<PlacementStep> {
+  return request<PlacementStep>("/placement/start", { ...JSON_POST, body: "{}" });
+}
+
+/** One answer. `409` means the item was not the one being asked: re-read. */
+export function answerPlacement(itemId: number, answer: PlacementAnswer): Promise<PlacementStep> {
+  return request<PlacementStep>("/placement/answer", {
+    ...JSON_POST,
+    body: JSON.stringify({ item_id: itemId, ...answer }),
+  });
+}
+
+/**
+ * The spoken answer, the recording as the body. **Transcribed and discarded
+ * server-side**; `404` means voice is not on for this learner (#364).
+ */
+export function speakPlacement(itemId: number, recording: Blob): Promise<PlacementStep> {
+  return request<PlacementStep>(`/placement/speak/${itemId}`, {
+    method: "POST",
+    headers: { "Content-Type": recording.type || "audio/webm" },
+    body: recording,
+  });
+}
+
+export function finishPlacement(): Promise<PlacementResult> {
+  return request<PlacementResult>("/placement/finish", { ...JSON_POST, body: "{}" });
+}
+
+/** A served listening clip. Fetched on tap by `AudioButton`, never on load. */
+export function placementAudioUrl(itemId: number): string {
+  return `${API_BASE_URL}/placement/items/${itemId}/audio`;
 }

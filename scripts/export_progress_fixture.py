@@ -13,6 +13,11 @@ values — never a hand-written guess at the shape.
 state exists: a learner in their first week (every number zero, one point), a
 learner with a single day read (numbers, no line yet), and a learner some weeks
 in (a line of several points, and one lapse so the line has a dip in it).
+
+**W18:** `weeks_in` carries two finished placements — the second raised the
+band from B1 to B2, and read LOWER on listening, which the radar does not show
+(drops are silent) — built through `core.placement.scoring.shown`, the function
+the service calls. The other three bodies have none (`placement: null`).
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "packages"))
 
 from apps.api.routers.progress import progress_out  # noqa: E402
+from core.placement.scoring import Sitting, shown  # noqa: E402
 from core.services.progress import KnownPoint, Progress  # noqa: E402
 
 TARGET = REPO_ROOT / "apps" / "web" / "components" / "progress" / "progress.fixture.json"
@@ -37,6 +43,17 @@ TODAY = date(2026, 10, 14)
 
 def _body(**fields) -> dict:
     return progress_out(Progress(**fields)).model_dump(mode="json")
+
+
+def _placement():
+    return shown((
+        Sitting(TODAY - timedelta(days=35), "B1",
+                {"vocabulary": "B1", "grammar": "B1", "listening": "B2", "speaking": "B1"},
+                vocab_estimate=2900),
+        Sitting(TODAY - timedelta(days=3), "B2",
+                {"vocabulary": "B2", "grammar": "B2", "listening": "B1", "speaking": None},
+                vocab_estimate=3300),
+    ))
 
 
 def bodies() -> dict:
@@ -70,6 +87,7 @@ def bodies() -> dict:
             streak_days=23,
             freezes=1,
             units_passed=2,
+            placement=_placement(),
         ),
         "no_freezes": _body(
             known_words=164,

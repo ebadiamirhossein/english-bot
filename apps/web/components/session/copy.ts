@@ -650,8 +650,104 @@ export const PROGRESS = {
   },
   /** Week one is both learners' state: one line, no table of zeros. */
   empty: "Nothing to show yet. This fills in as you practise.",
-  /** W18 is blocked; said once, plainly, not as a promise with a date. */
-  later: "Your skill profile and level history arrive with the placement test.",
+  /**
+   * **W18 turned this on (2026-09-25).** The line it replaces, kept rather than
+   * deleted (#82's shape): *"Your skill profile and level history arrive with
+   * the placement test."* — written while W18 was blocked; it would now be
+   * untrue. What replaces it is the level card below, and before a first
+   * sitting a link to take one.
+   */
+  level: {
+    eyebrow: "Level",
+    /** Before a first sitting. An offer, not a task. */
+    offer: "A short check finds the level to start from. Nothing in it is marked.",
+    offerLink: "Find where to start",
+    /** The band, named, under the letters. */
+    lead: "Where to start",
+    history: "After each check",
+    again: "Check where you are now",
+  },
+  trouble: "That didn’t load. Nothing’s lost.",
+  retry: "Try again",
+} as const;
+
+/**
+ * W18 — the placement check. PRD §6.
+ *
+ * **A placement is never a score.** Nothing here counts right or wrong answers,
+ * says how many items are left (*12 of 60* is a backlog running backwards), or
+ * shows a percentage. The result is a band — *where to start* — and a radar of
+ * bands. **Raises are announced; a check that reads the same or lower says
+ * nothing about it** (CLAUDE.md §4) — the screen shows the high-water band the
+ * wire sends.
+ *
+ * **There are no wrong-answer words anywhere in a sitting**: no feedback is
+ * shown per item at all. A placement item is a measurement, not practice, and
+ * a verdict after each one would turn twelve minutes into a running tally.
+ */
+export const PLACEMENT = {
+  eyebrow: "Where to start",
+  title: "Find the level to start from.",
+  subline: "About twelve minutes, in four short parts. Nothing is marked — it only finds where to begin.",
+  start: "Start",
+  resume: "Carry on",
+  /** The operator has not built the bank yet. Plain, no date promised. */
+  notReady: "The check isn’t ready yet. It will appear here when it is.",
+  nextFrom: (date: string) => `The next check opens on ${date}.`,
+  parts: {
+    vocabulary: "Words",
+    grammar: "Grammar",
+    listening: "Listening",
+    speaking: "Speaking",
+  },
+  vocabulary: {
+    ask: "Do you know this word?",
+    /** Said once, up front: the yes/no test only works if nobody is surprised. */
+    about: "Some of these aren’t real English words. For those, “no” is the answer.",
+    yes: "I know it",
+    no: "Not a word I know",
+  },
+  grammar: {
+    about: "Answer the way you would in conversation. The questions change as you go.",
+  },
+  listening: {
+    about: "Play the sentence, then type the missing word. You can play it again.",
+  },
+  speaking: {
+    about: "Answer out loud for about a minute and a half. Any answer is a good answer.",
+    typedAbout: "Type your answer — a few sentences is plenty.",
+    record: "Record",
+    stop: "Stop",
+    typeInstead: "Type it instead",
+    send: "Send",
+    placeholder: "Your answer",
+    skip: "Skip this part",
+    listening: "Listening…",
+    unheard: "That didn’t come through. Try once more, or type it instead.",
+  },
+  finishing: "Working out where to start…",
+  result: {
+    eyebrow: "Where to start",
+    raised: (from: string) => `Up from ${from}.`,
+    vocab: (n: number) =>
+      `You recognise about ${n.toLocaleString("en-GB")} of the most common English words.`,
+    radar: "Your level in each skill",
+    back: "Back to Progress",
+  },
+  skills: {
+    vocabulary: "Words",
+    grammar: "Grammar",
+    listening: "Listening",
+    speaking: "Speaking",
+  },
+  /** Under the letters, so a band reads as a place and not a grade. */
+  bandName: {
+    A2: "Elementary",
+    B1: "Intermediate",
+    B2: "Upper intermediate",
+    C1: "Advanced",
+  },
+  unmeasured: "not measured",
   trouble: "That didn’t load. Nothing’s lost.",
   retry: "Try again",
 } as const;

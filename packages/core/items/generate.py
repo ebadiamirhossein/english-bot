@@ -773,13 +773,15 @@ def _draft_to_item(raw: dict, slot: Slot, unit_number: int) -> BaseItem:
     draft["item_type"] = slot.item_type
     draft["grammar_target"] = slot.target
     draft["cohort"] = slot.cohort
-    if slot.cohort == "drill":
+    if slot.cohort in ("drill", "placement"):
         # **W17: a drill belongs to a PATTERN, not to a unit.** No `unit_number`,
         # so no unit-scoped read can serve it; `error_type` is the target the
         # schema's `items_declares_a_target` needs. Track is `life`: a weak spot
-        # is drilled in everyday English first (CLAUDE.md §4).
+        # is drilled in everyday English first (CLAUDE.md §4). **W18's
+        # placement items are bound the same way**: a band's pattern, no unit,
+        # everyday English.
         if not slot.error_type:
-            raise ValueError("a drill slot must carry its error_type")
+            raise ValueError(f"a {slot.cohort} slot must carry its error_type")
         draft["track"] = "life"
         draft["unit_number"] = None
         draft["error_type"] = slot.error_type
@@ -842,15 +844,22 @@ def generate_drafts(
     *,
     settings: Settings | None = None,
     avoid: Sequence[str] = (),
+    item_types: Sequence[str] = SLOT_TYPES,
 ) -> list[dict]:
     """One billed call. The raw drafts, in the order the model returned them.
 
     `avoid` is F2's list of sentences the bank already holds; it reaches the
     model through `constraint_block`, whose docstring carries the argument.
+
+    **W18: `item_types`** names the types whose field contract the system
+    prompt carries. It defaults to `SLOT_TYPES`, so every existing caller sends
+    byte-for-byte what it sent before; the placement bank passes its own
+    (`listening_gap` is not in `SLOT_TYPES`, and its `transcript` field would
+    otherwise be a rule the model was never told — W10c's third attempt).
     """
     response = gates._chat(
         [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-        system=generator_system_prompt(avoid=avoid),
+        system=generator_system_prompt(item_types, avoid=avoid),
         json_mode=True,
         max_tokens=GENERATE_MAX_TOKENS,
         reject_truncation=True,

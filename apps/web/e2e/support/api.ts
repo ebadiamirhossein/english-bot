@@ -231,3 +231,53 @@ export async function mockPush(
   });
   return calls;
 }
+
+/**
+ * W18 — `/placement/*`, from `components/placement/placement.fixture.json`
+ * (`scripts/export_placement_fixture.py`, held to the wire by
+ * `tests/test_placement_fixture.py`).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const placementFixture: Record<string, any> = JSON.parse(
+  readFileSync(path.join(__dirname, "../../components/placement/placement.fixture.json"), "utf-8"),
+);
+
+/** What the page posted to `/placement/*`: the path and the parsed body. */
+export type PlacementCall = { url: string; body: unknown };
+
+/**
+ * Answers the placement routes. Call AFTER `mockApi`. `answers` is the queue
+ * of steps `POST /placement/answer` returns, one per call (the last repeats).
+ * The clip route answers a few silent bytes. Returns every call made.
+ */
+export async function mockPlacement(
+  page: Page,
+  {
+    overview = placementFixture.ready as unknown,
+    start = placementFixture.steps.vocabulary as unknown,
+    answers = [placementFixture.steps.vocabulary] as unknown[],
+    finish = placementFixture.result_first as unknown,
+  } = {},
+) {
+  const calls: PlacementCall[] = [];
+  let next = 0;
+  const post = (reply: () => unknown) => async (route: Route) => {
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: cors(route) });
+      return;
+    }
+    calls.push({ url: route.request().url(), body: route.request().postDataJSON() });
+    await json(route, 200, reply());
+  };
+  await page.route(`${API}/placement`, (route) => json(route, 200, overview));
+  await page.route(`${API}/placement/start`, post(() => start));
+  await page.route(
+    `${API}/placement/answer`,
+    post(() => answers[Math.min(next++, answers.length - 1)]),
+  );
+  await page.route(`${API}/placement/finish`, post(() => finish));
+  await page.route(`${API}/placement/items/*/audio`, (route) =>
+    route.fulfill({ status: 200, contentType: "audio/mpeg", headers: cors(route), body: Buffer.alloc(8) }),
+  );
+  return calls;
+}

@@ -19,9 +19,11 @@
  * on `bg-card`, the serif for the app's own words and numbers.
  */
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { PROGRESS } from "@/components/session/copy";
+import { Radar } from "@/components/placement/radar";
+import { PLACEMENT, PROGRESS } from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
 import { getProgress, type KnownPoint, type Progress } from "@/lib/api";
 
@@ -150,10 +152,70 @@ function Sections({ progress }: { progress: Progress }) {
         </section>
       ) : null}
 
-      <p className="max-w-prose text-sm leading-relaxed text-muted-foreground" data-testid="progress-later">
-        {PROGRESS.later}
-      </p>
+      <LevelCard placement={progress.placement} />
     </>
+  );
+}
+
+/**
+ * **W18 turned the radar and level history on.** Before a first sitting the
+ * card is an offer and a link; after one it is the band, the radar and the
+ * band after each check — all high-water marks from the wire, so nothing here
+ * can go down (CLAUDE.md §4). No percentage and no score: bands only.
+ */
+function LevelCard({ placement }: { placement: Progress["placement"] }) {
+  return (
+    <section className={CARD} data-testid="progress-level" aria-labelledby="progress-level-h">
+      <h2 id="progress-level-h" className={EYEBROW}>
+        {PROGRESS.level.eyebrow}
+      </h2>
+      {placement ? (
+        <>
+          <p className="mt-3 flex items-baseline gap-2">
+            <span className={NUMBER} data-testid="progress-level-band">
+              {placement.where_to_start}
+            </span>
+            <span className="font-heading text-lg">
+              {PLACEMENT.bandName[placement.where_to_start]}
+            </span>
+          </p>
+          <Radar radar={placement.radar} />
+          {placement.history.length >= 2 ? (
+            <div className="mt-3" data-testid="progress-level-history">
+              <p className={EYEBROW}>{PROGRESS.level.history}</p>
+              <ol className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                {placement.history.map((point) => (
+                  <li key={point.finished_on} className="flex items-baseline gap-1.5">
+                    <span className="text-muted-foreground">{shortDate(point.finished_on)}</span>
+                    <span className="font-heading text-base">{point.band}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+          <Link
+            href="/placement"
+            className="mt-3 inline-flex min-h-11 items-center text-sm font-medium text-primary underline-offset-4 hover:underline"
+            data-testid="progress-level-link"
+          >
+            {PROGRESS.level.again}
+          </Link>
+        </>
+      ) : (
+        <>
+          <p className="mt-2 max-w-prose text-sm leading-relaxed text-muted-foreground" data-testid="progress-level-offer">
+            {PROGRESS.level.offer}
+          </p>
+          <Link
+            href="/placement"
+            className="mt-2 inline-flex min-h-11 items-center text-sm font-medium text-primary underline-offset-4 hover:underline"
+            data-testid="progress-level-link"
+          >
+            {PROGRESS.level.offerLink}
+          </Link>
+        </>
+      )}
+    </section>
   );
 }
 

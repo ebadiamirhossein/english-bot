@@ -26,7 +26,9 @@ import {
  * `w-full` changed to `w-[480px]` (the document scrolled sideways on the phone
  * projects: *"the page scrolls horizontally"*); the problem-state test went red
  * with the retry `Button` given `className="pointer-events-none min-h-11"`
- * (*"something covers the control's centre"*).
+ * (*"something covers the control's centre"*). **W18 (2026-09-25):** the level
+ * card's two links without `min-h-11` turned both W18 tests red (*"the control
+ * is shorter than a thumb"*).
  */
 
 async function shot(page: Page, info: TestInfo, state: string) {
@@ -103,12 +105,47 @@ test.describe("W19 — the progress screen", () => {
     const freezes = page.getByTestId("progress-freezes");
     await showCard(page, freezes);
     expect(await contrastOf(freezes)).toBeGreaterThanOrEqual(4.5);
-    const later = page.getByTestId("progress-later");
-    await showCard(page, later);
-    expect(await contrastOf(later)).toBeGreaterThanOrEqual(4.5);
+    // W18: the `progress-later` line this test checked is gone — its sentence
+    // ("…arrive with the placement test") became untrue when W18 turned the
+    // radar and history on. The level card is checked in its own test below.
     await expectNoHorizontalOverflow(page);
     await shot(page, info, "5-weeks-in-streak-units");
     await theTabIsReachable(page);
+  });
+
+  test("W18 — the level card: the band, the radar in bands, the history and the link", async ({ page }, info) => {
+    await openWith(page, "weeks_in");
+    const band = page.getByTestId("progress-level-band");
+    await showCard(page, band);
+    await expect(band).toHaveText("B2");
+    expect(await contrastOf(band)).toBeGreaterThanOrEqual(4.5);
+    const radar = page.getByTestId("placement-radar");
+    await showCard(page, radar);
+    const svg = await radar.locator("svg").boundingBox();
+    expect(svg && svg.width, "the radar has a real width").toBeGreaterThan(240);
+    await showCard(page, page.getByTestId("progress-level-history"));
+    const link = page.getByTestId("progress-level-link");
+    await showCard(page, link);
+    await expectReachable(link);
+    await expectTapTarget(link);
+    expect(await contrastOf(link)).toBeGreaterThanOrEqual(4.5);
+    await expect(page.getByTestId("progress-level")).not.toContainText(/%|score/i);
+    await expectNoHorizontalOverflow(page);
+    await shot(page, info, "8-level-radar");
+  });
+
+  test("W18 — before a first check, the level card is an offer and a link", async ({ page }, info) => {
+    await openWith(page, "empty");
+    const offer = page.getByTestId("progress-level-offer");
+    await showCard(page, offer);
+    expect(await contrastOf(offer)).toBeGreaterThanOrEqual(4.5);
+    const link = page.getByTestId("progress-level-link");
+    await showCard(page, link);
+    await expectReachable(link);
+    await expectTapTarget(link);
+    await expect(page.getByTestId("placement-radar")).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await shot(page, info, "9-level-offer");
   });
 
   test("no freezes held: the streak card draws no freezes line", async ({ page }, info) => {

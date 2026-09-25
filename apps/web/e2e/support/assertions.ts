@@ -120,3 +120,54 @@ export async function contrastOf(locator: Locator): Promise<number> {
     return (hi + 0.05) / (lo + 0.05);
   });
 }
+
+/**
+ * **#441's assert: one painted surface against another, ≥ 3:1 for a control's
+ * state (WCAG 1.4.11, non-text contrast).** `contrastOf` measures TEXT against
+ * what is behind it; a switch's state is carried by its thumb against its track,
+ * and no text is involved, so the text check could never see the OFF state go
+ * dark-on-dark. Each element's background is composited up its own ancestor
+ * chain through the same 1×1 canvas, so `oklch()` tokens resolve as painted.
+ */
+export async function surfaceContrast(a: Locator, b: Locator): Promise<number> {
+  const other = await b.elementHandle();
+  return a.evaluate((el, otherEl) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    const rgba = (color: string) => {
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = "rgba(0,0,0,0)";
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, 1, 1);
+      const d = ctx.getImageData(0, 0, 1, 1).data;
+      return [d[0], d[1], d[2], d[3] / 255];
+    };
+    const over = (top: number[], under: number[]) => {
+      const a = top[3] + under[3] * (1 - top[3]);
+      if (a === 0) return [0, 0, 0, 0];
+      return [0, 1, 2].map((i) => (top[i] * top[3] + under[i] * under[3] * (1 - top[3])) / a).concat(a);
+    };
+    const painted = (start: Element) => {
+      const layers: number[][] = [];
+      for (let node: Element | null = start; node; node = node.parentElement) {
+        const bg = rgba(getComputedStyle(node).backgroundColor);
+        if (bg[3] > 0) layers.push(bg);
+        if (bg[3] >= 0.999) break;
+      }
+      let bg = rgba(getComputedStyle(document.documentElement).backgroundColor);
+      if (bg[3] < 0.999) bg = over(bg, [255, 255, 255, 1]);
+      for (const layer of layers.reverse()) bg = over(layer, bg);
+      return bg;
+    };
+    const lum = (c: number[]) => {
+      const [r, g, b] = c.slice(0, 3).map((v) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const [hi, lo] = [lum(painted(el)), lum(painted(otherEl as Element))].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  }, other);
+}

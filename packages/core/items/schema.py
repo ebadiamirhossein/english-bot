@@ -149,7 +149,11 @@ class BaseItem(BaseModel):
     #: `bank_for_session`'s `unit_number = %s` can never reach it, and
     #: `bank_for_session` also excludes the cohort by name. Drills reach block 3
     #: only through `core.services.items.drill_items`.
-    cohort: Literal["focus", "checkpoint", "drill"] | None = None
+    #:
+    #: **W18 adds `placement`: an item in the fixed, global placement bank**
+    #: (`placement_bank`, migration 032), never an `items` row. Like a drill it
+    #: carries `error_type` and no `unit_number`.
+    cohort: Literal["focus", "checkpoint", "drill", "placement"] | None = None
 
     #: Shown after grading, never before — see `projection.visible_projection`.
     explanation: str | None = None

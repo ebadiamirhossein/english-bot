@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from apps.api.deps import rate_limit, require_current_user
+from apps.api.routers.placement import shown_out
 from apps.api.schemas import KnownPointOut, ProgressOut
 from core.services import progress as progress_service
 from core.services.auth import AuthenticatedUser
@@ -66,4 +67,5 @@ def progress_out(summary: progress_service.Progress) -> ProgressOut:
         streak_days=summary.streak_days,
         freezes=summary.freezes,
         units_passed=summary.units_passed,
+        placement=shown_out(summary.placement) if summary.placement is not None else None,
     )

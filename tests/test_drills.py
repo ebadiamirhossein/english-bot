@@ -232,6 +232,33 @@ def test_every_drill_target_is_a_labelled_code_and_every_labelled_code_has_one(d
     assert set(gen.DRILL_TARGETS) == labelled
 
 
+def test_the_missing_article_target_excludes_the_a_an_choice() -> None:
+    """**#440.** `article_missing` is a MISSING article; choosing between *a* and
+    *an* is `article_wrong`'s error. The launch probe's `article_missing` drill
+    came back as *"I saw a elephant"* → `an`, because the target read *"using a,
+    an or the where English needs one"* — naming *an* as something the item may
+    turn on. **The rule, stated as text the generator and `probe_target` both
+    read:** the target names the missing article, and the only place *an* may
+    appear is inside the clause that rules the a/an choice out.
+
+    **Red:** the pre-fix text (*"Articles: using a, an or the where English needs
+    one"*) has no *missing* and lists *an* as an option — both asserts fail.
+    """
+    target = gen.DRILL_TARGETS["article_missing"]
+    assert "missing" in target.lower()
+    cut = re.search(r"\b(not|never)\b", target)
+    positive = target[: cut.start()] if cut else target
+    exclusion = target[cut.end():] if cut else ""
+    assert not re.search(r"\ban\b", positive, re.IGNORECASE), (
+        f"the target offers `an` as something to test: {positive!r}"
+    )
+    assert re.search(r"\ba\b.*\ban\b", exclusion, re.IGNORECASE), (
+        "the target must rule out the a/an choice in words the model reads"
+    )
+    # The sibling still owns the a/an choice, so the decoy discriminates.
+    assert re.search(r"\ban\b", gen.DRILL_TARGETS["article_wrong"])
+
+
 # ── serving ─────────────────────────────────────────────────────────────────
 
 

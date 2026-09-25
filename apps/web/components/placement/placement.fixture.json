@@ -1,0 +1,243 @@
+{
+  "not_ready": {
+    "state": "none",
+    "ready": false,
+    "available": false,
+    "next_from": null,
+    "voice": false,
+    "step": null,
+    "shown": null
+  },
+  "ready": {
+    "state": "none",
+    "ready": true,
+    "available": true,
+    "next_from": null,
+    "voice": false,
+    "step": null,
+    "shown": null
+  },
+  "open": {
+    "state": "open",
+    "ready": true,
+    "available": false,
+    "next_from": null,
+    "voice": false,
+    "step": {
+      "section": "grammar",
+      "item": {
+        "id": 202,
+        "word": null,
+        "response_mode": "typed",
+        "projection": {
+          "item_type": "cloze_cued",
+          "prompt_text": "By the time we got there, the film ___ already started."
+        },
+        "prompt_text": null,
+        "voice": null
+      }
+    },
+    "shown": null
+  },
+  "waiting": {
+    "state": "finished",
+    "ready": true,
+    "available": false,
+    "next_from": "2026-11-11",
+    "voice": false,
+    "step": null,
+    "shown": {
+      "where_to_start": "B1",
+      "radar": [
+        {
+          "skill": "vocabulary",
+          "band": "B2"
+        },
+        {
+          "skill": "grammar",
+          "band": "B1"
+        },
+        {
+          "skill": "listening",
+          "band": "B1"
+        },
+        {
+          "skill": "speaking",
+          "band": "B1"
+        }
+      ],
+      "history": [
+        {
+          "finished_on": "2026-10-14",
+          "band": "B1"
+        }
+      ],
+      "vocab_estimate": 3300,
+      "raised_from": null,
+      "raised_skills": []
+    }
+  },
+  "steps": {
+    "vocabulary": {
+      "section": "vocabulary",
+      "item": {
+        "id": 101,
+        "word": "cupboard",
+        "response_mode": null,
+        "projection": null,
+        "prompt_text": null,
+        "voice": null
+      }
+    },
+    "grammar": {
+      "section": "grammar",
+      "item": {
+        "id": 202,
+        "word": null,
+        "response_mode": "typed",
+        "projection": {
+          "item_type": "cloze_cued",
+          "prompt_text": "By the time we got there, the film ___ already started."
+        },
+        "prompt_text": null,
+        "voice": null
+      }
+    },
+    "grammar_tap": {
+      "section": "grammar",
+      "item": {
+        "id": 203,
+        "word": null,
+        "response_mode": "tap",
+        "projection": {
+          "item_type": "error_spot",
+          "prompt_text": "Tap the word that is wrong.",
+          "tiles": [
+            "She",
+            "don't",
+            "like",
+            "coffee",
+            "in",
+            "the",
+            "evening"
+          ]
+        },
+        "prompt_text": null,
+        "voice": null
+      }
+    },
+    "listening": {
+      "section": "listening",
+      "item": {
+        "id": 303,
+        "word": null,
+        "response_mode": "typed",
+        "projection": {
+          "item_type": "listening_gap",
+          "prompt_text": "If I'd known, I ___ have come earlier."
+        },
+        "prompt_text": null,
+        "voice": null
+      }
+    },
+    "speaking": {
+      "section": "speaking",
+      "item": {
+        "id": 404,
+        "word": null,
+        "response_mode": null,
+        "projection": null,
+        "prompt_text": "Describe a meal you remember well. Where were you, and who were you with?",
+        "voice": false
+      }
+    },
+    "speaking_voice": {
+      "section": "speaking",
+      "item": {
+        "id": 404,
+        "word": null,
+        "response_mode": null,
+        "projection": null,
+        "prompt_text": "Describe a meal you remember well. Where were you, and who were you with?",
+        "voice": true
+      }
+    },
+    "done": {
+      "section": "done",
+      "item": null
+    }
+  },
+  "result_first": {
+    "shown": {
+      "where_to_start": "B1",
+      "radar": [
+        {
+          "skill": "vocabulary",
+          "band": "B2"
+        },
+        {
+          "skill": "grammar",
+          "band": "B1"
+        },
+        {
+          "skill": "listening",
+          "band": "B1"
+        },
+        {
+          "skill": "speaking",
+          "band": "B1"
+        }
+      ],
+      "history": [
+        {
+          "finished_on": "2026-10-14",
+          "band": "B1"
+        }
+      ],
+      "vocab_estimate": 3300,
+      "raised_from": null,
+      "raised_skills": []
+    },
+    "next_from": "2026-11-11"
+  },
+  "result_raised": {
+    "shown": {
+      "where_to_start": "B2",
+      "radar": [
+        {
+          "skill": "vocabulary",
+          "band": "B2"
+        },
+        {
+          "skill": "grammar",
+          "band": "B2"
+        },
+        {
+          "skill": "listening",
+          "band": "B2"
+        },
+        {
+          "skill": "speaking",
+          "band": "B2"
+        }
+      ],
+      "history": [
+        {
+          "finished_on": "2026-09-14",
+          "band": "B1"
+        },
+        {
+          "finished_on": "2026-10-14",
+          "band": "B2"
+        }
+      ],
+      "vocab_estimate": 3500,
+      "raised_from": "B1",
+      "raised_skills": [
+        "vocabulary",
+        "grammar"
+      ]
+    },
+    "next_from": "2026-11-11"
+  }
+}

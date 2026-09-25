@@ -36,6 +36,7 @@ from apps.api.routers import conversation as conversation_router
 from apps.api.routers import week as week_router
 from apps.api.routers import progress as progress_router
 from apps.api.routers import push as push_router
+from apps.api.routers import placement as placement_router
 from core.config import Settings, load_settings
 from core.logging import configure_console_logging
 from core.services.alerts import format_alert, should_send_alert
@@ -239,6 +240,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(progress_router.router)
     # W20. Added to BOTH lists in the same commit (#255).
     app.include_router(push_router.router)
+    # W18. Added to BOTH lists in the same commit (#255).
+    app.include_router(placement_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -275,6 +278,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     week_router.router,
                     progress_router.router,
                     push_router.router,
+                    placement_router.router,
                 )
                 for route in router.routes
             )

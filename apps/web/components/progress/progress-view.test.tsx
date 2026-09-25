@@ -29,7 +29,10 @@ const { ProgressView } = await import("./progress-view");
  * with `KnownLine` returning null; "draws no freezes line when none are held"
  * went red with the `freezes > 0` guard removed (the `no_freezes` body then
  * drew a freezes line for zero); "offers a way back after a failed load" went red
- * with the retry button's `onClick` removed.
+ * with the retry button's `onClick` removed. **W18 (2026-09-25):** "draws the
+ * level, the radar in bands…" went red with `<Radar>` removed from the level
+ * card; "offers the placement check before a first sitting…" went red with the
+ * card drawn only when `placement` is set.
  */
 
 const EMPTY = fixture.empty as Progress;
@@ -116,11 +119,35 @@ describe("the progress screen", () => {
     expect(screen.queryByTestId("progress-freezes")).toBeNull();
   });
 
-  it("says the radar and level history arrive with placement, and draws neither", async () => {
-    await open(WEEKS);
-    expect(screen.getByTestId("progress-later")).toHaveTextContent(
-      "Your skill profile and level history arrive with the placement test.",
+  // **W18 turned the radar and level history on.** The W19 test this replaces,
+  // kept as text rather than deleted (#82's shape): *"says the radar and level
+  // history arrive with placement, and draws neither"* — it asserted the line
+  // "Your skill profile and level history arrive with the placement test.",
+  // which would now be untrue.
+  it("offers the placement check before a first sitting, and draws no band", async () => {
+    await open(EMPTY);
+    expect(screen.getByTestId("progress-level-offer")).toHaveTextContent(
+      "A short check finds the level to start from.",
     );
+    expect(screen.getByTestId("progress-level-link")).toHaveAttribute("href", "/placement");
+    expect(screen.queryByTestId("progress-level-band")).toBeNull();
+    expect(screen.queryByTestId("placement-radar")).toBeNull();
+    expect(screen.queryByTestId("progress-later")).toBeNull();
+  });
+
+  it("draws the level, the radar in bands, and the band after each check", async () => {
+    const { container } = await open(WEEKS);
+    expect(screen.getByTestId("progress-level-band")).toHaveTextContent("B2");
+    expect(screen.getByTestId("placement-radar")).toBeInTheDocument();
+    expect(screen.getByTestId("placement-radar-grammar")).toHaveTextContent("GrammarB2");
+    // Listening read B2 then B1: the radar holds B2 (drops are silent).
+    expect(screen.getByTestId("placement-radar-listening")).toHaveTextContent("ListeningB2");
+    const history = screen.getByTestId("progress-level-history");
+    expect(history.querySelectorAll("li")).toHaveLength(2);
+    expect(history).toHaveTextContent("B1");
+    // Bands only: nothing on the card is a percentage or a score.
+    expect(screen.getByTestId("progress-level").textContent).not.toMatch(/%|score|\/\s*\d/);
+    expect(container.textContent).not.toMatch(VERDICT);
   });
 
   it.each([

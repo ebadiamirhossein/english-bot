@@ -65,7 +65,10 @@ MAX_PATTERNS_PER_RUN = 3
 #: neighbours in this list, so the two article codes decoy each other — the
 #: sibling that discriminates, `generate.target_candidates`' own reasoning.
 DRILL_TARGETS: dict[str, str] = {
-    "article_missing": "Articles: using a, an or the where English needs one",
+    # #440: a MISSING article only. The launch probe got an a/an item back from
+    # the old text ("using a, an or the where English needs one"), which is
+    # `article_wrong`'s error; the exclusion is written where the model reads it.
+    "article_missing": "Articles: putting in the missing a or the that English needs before a noun, not choosing between a and an",
     "article_wrong": "Articles: choosing between a, an, the and no article",
     "plural_countable": "Countable and uncountable nouns, and their plurals",
     "quantifier_modifier": "Quantifiers: some, any, much, many, a few, a little, enough",

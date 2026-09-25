@@ -7,6 +7,7 @@ import {
   expectNoHorizontalOverflow,
   expectReachable,
   expectTapTarget,
+  surfaceContrast,
 } from "./support/assertions";
 import { stubPushBrowser, type PushBrowser } from "./support/push-browser";
 
@@ -43,6 +44,13 @@ import { stubPushBrowser, type PushBrowser } from "./support/push-browser";
  * own first draft checked corners and reported every caution line as covered by
  * its own section — hit testing honours `border-radius` — so it checks edge
  * midpoints.
+ *
+ * **#441 (build run 2, 2026-09-25): `theStateIsLegible` went red BEFORE the
+ * fix, on the code as shipped** — the OFF thumb against its track read
+ * **1.27:1 in every dark project**, and the light OFF state failed too; the ON
+ * state passed. The thumb is now `bg-muted-foreground` when off, and all 42
+ * pass. Text contrast (`contrastOf`) could never see this: the switch carries
+ * its state in two painted surfaces and no text.
  */
 
 async function shot(page: Page, info: TestInfo, state: string) {
@@ -83,6 +91,21 @@ async function theSwitchIsUsable(page: Page, toggle: Locator) {
   await expectInViewport(page, toggle);
   await expectReachable(toggle);
   await expectTapTarget(toggle);
+  await theStateIsLegible(page);
+}
+
+/**
+ * **#441: the thumb against its track, ≥ 3:1, in every state and theme.** The
+ * switch says ON or OFF with no text, so the only thing that tells a learner
+ * which it is is the thumb against the track (WCAG 1.4.11). Filed from the dark
+ * OFF screenshot, where the thumb was darker than the track at about 1.3:1.
+ */
+async function theStateIsLegible(page: Page) {
+  const ratio = await surfaceContrast(
+    page.getByTestId("reminders-thumb"),
+    page.getByTestId("reminders-switch"),
+  );
+  expect(ratio, "the switch's thumb against its track").toBeGreaterThanOrEqual(3);
 }
 
 /**

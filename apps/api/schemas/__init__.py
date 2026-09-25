@@ -558,16 +558,120 @@ class KnownPointOut(BaseModel):
     known_words: int
 
 
+class PlacementSkillOut(BaseModel):
+    """One radar axis (W18): a skill and the band shown for it, or null when
+    that skill has never been measured. **A band, never a number.**"""
+
+    skill: Literal["vocabulary", "grammar", "listening", "speaking"]
+    band: Literal["A2", "B1", "B2", "C1"] | None
+
+
+class PlacementPointOut(BaseModel):
+    """One finished sitting, as the history shows it: the band as SHOWN after
+    it — the high-water mark so far, so a later sitting that read lower draws
+    the same band again (drops are silent, CLAUDE.md §4)."""
+
+    finished_on: date
+    band: Literal["A2", "B1", "B2", "C1"]
+
+
+class PlacementShownOut(BaseModel):
+    """W18: what a learner is shown of their placements. **No percentage, no
+    count of right or wrong answers, no score** — *where to start* is a band.
+
+    Every value is the high-water mark across finished sittings
+    (`core.placement.scoring.shown`). `raised_from` is set only when the latest
+    sitting raised the band; a sitting that read the same or lower says nothing.
+    `vocab_estimate` is rounded to the hundred (PRD §6's ±300).
+    """
+
+    where_to_start: Literal["A2", "B1", "B2", "C1"]
+    radar: list[PlacementSkillOut]
+    history: list[PlacementPointOut]
+    vocab_estimate: int | None
+    raised_from: Literal["A2", "B1", "B2", "C1"] | None
+    raised_skills: list[str]
+
+
+class PlacementItemOut(BaseModel):
+    """The learner-visible face of one placement item — whichever of the three
+    shapes its section has. **Never an answer, and for a yes/no word nothing that
+    says whether it is real.**"""
+
+    id: int
+    #: vocabulary
+    word: str | None = None
+    #: grammar and listening — the same presentation every item in the app has
+    response_mode: str | None = None
+    projection: dict[str, Any] | None = None
+    #: speaking
+    prompt_text: str | None = None
+    #: speaking: whether a recording may be sent (#364). False means typed only.
+    voice: bool | None = None
+
+
+class PlacementStepOut(BaseModel):
+    """What comes next in a sitting. **No position and no count** — *12 of 60* is
+    a backlog running backwards (W13b's `/talk` reasoning), so the screen names
+    the part it is on and nothing else."""
+
+    section: Literal["vocabulary", "grammar", "listening", "speaking", "done"]
+    item: PlacementItemOut | None = None
+
+
+class PlacementOut(BaseModel):
+    """`GET /placement`."""
+
+    state: Literal["none", "open", "finished"]
+    ready: bool
+    available: bool
+    next_from: date | None
+    voice: bool
+    step: PlacementStepOut | None
+    shown: PlacementShownOut | None
+
+
+class PlacementResultOut(BaseModel):
+    """`POST /placement/finish`."""
+
+    shown: PlacementShownOut
+    next_from: date | None
+
+
+class PlacementAnswerIn(BaseModel):
+    """One answer. The client sends the field its item produces; the service
+    decides which one is the answer from the section and the item's type."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: int
+    #: vocabulary: *I know this word*
+    known: bool | None = None
+    #: speaking: move on without answering
+    skip: bool = False
+    #: typed items and the typed speaking fallback. **Placed and discarded; never
+    #: stored.** 4,000 characters is `core.placement.speaking.MAX_CHARS`.
+    text: str | None = Field(default=None, max_length=4000)
+    option: str | None = None
+    tile_index: int | None = None
+    order: list[str] = Field(default_factory=list, max_length=40)
+    pairs: dict[str, str] = Field(default_factory=dict)
+
+
 class ProgressOut(BaseModel):
     """W19: the progress screen. **Every number traces to a ledger**, named in
     `core.services.progress`'s banner.
 
     **NO FIELD COUNTS AN ABSENCE**: no missed days, no remaining, no target
     shortfall, no partner comparison (the couple leaderboard is dropped by scope
-    ruling). **No field for the radar, placement history, the six-month target
+    ruling). ~~**No field for the radar, placement history, the six-month target
     line or units MASTERED** — each needs data that does not exist yet (W18's
     placement; #135's retention metric), and a field for any of them would be a
-    number with nothing behind it. **No `sessions.xp`, `minutes` or
+    number with nothing behind it.~~ **W18 (2026-09-25), the old text struck
+    rather than deleted: `placement` now carries the radar and the placement
+    history, in bands.** The six-month target line and units MASTERED still have
+    no field, for the reasons above (the target line's baseline is a placement's
+    vocabulary estimate from week 1, which no learner has yet; #135). **No `sessions.xp`, `minutes` or
     `completed_at`** (#349): XP is computed from the activity logs.
 
     Zeros ARE honest here; the screen draws none of them (W11b's split).
@@ -582,6 +686,9 @@ class ProgressOut(BaseModel):
     streak_days: int
     freezes: int
     units_passed: int
+    #: **W18.** The radar and placement history, TURNED ON HERE — null until the
+    #: learner's first sitting finishes. Bands, never a percentage.
+    placement: PlacementShownOut | None = None
 
 
 class WeekOut(BaseModel):

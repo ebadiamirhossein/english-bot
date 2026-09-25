@@ -21,9 +21,17 @@ wrote, and the table is named beside it:**
 **WHAT IS NOT HERE, REPORTED AS AN ABSENCE AND NEVER FILLED (CLAUDE.md §1a,
 §3 rule 7):**
 
-* **The radar and placement history** need placement (W18, blocked on its
+* ~~**The radar and placement history** need placement (W18, blocked on its
   item bank). Not approximated from `users.cefr_level` or the v2
-  `calibration_log`: neither measures the five skills the radar draws.
+  `calibration_log`: neither measures the five skills the radar draws.~~
+  **TURNED ON BY W18 (2026-09-25), the old text struck above rather than
+  deleted (#82's shape):** `placement` is `core.services.placement.shown_for` —
+  the radar as bands per measured skill and the history as the band shown
+  after each sitting, both high-water marks (drops are silent, CLAUDE.md §4),
+  read from `placement_runs` (032). Still not approximated from
+  `users.cefr_level` or `calibration_log`. **Two of PRD §6's five axes stay
+  unmet** — reading (no reading section) and pronunciation (the Azure
+  assessment was retired) — and are not drawn.
 * **The six-month TARGET line.** PRD §11's target is *+1,800 lemmas over a
   baseline measured in week 1* — by placement. Without W18 there is no
   baseline, and a target drawn from the first snapshot of an evidenced-only
@@ -54,6 +62,7 @@ from core.db import connection
 from core.items import RESPONSE_MODE
 from core.services.activity import practised_dates
 from core.services.lexicon import evidenced_known_count
+from core.services.placement import shown_for as placement_shown
 
 #: PRD §9: *"XP weighted by cognitive effort. Production > recognition.
 #: Speaking a sentence: 10. Typing an L1→L2 production item: 6. Tapping an
@@ -108,6 +117,9 @@ class Progress:
     streak_days: int
     freezes: int
     units_passed: int
+    #: W18: the high-water view of finished placements, or None before the
+    #: first. `core.placement.scoring.Shown`.
+    placement: Any = None
 
 
 def xp_counts(conn: Any, user_id: int) -> dict[str, int]:
@@ -276,6 +288,7 @@ def progress_summary(user_id: int, *, now: datetime) -> Progress | None:
                 (user_id,),
             )
             units = int(cur.fetchone()[0])
+        placement = placement_shown(conn, user_id)
         conn.commit()
 
     return Progress(
@@ -285,4 +298,5 @@ def progress_summary(user_id: int, *, now: datetime) -> Progress | None:
         streak_days=streak_days,
         freezes=freezes,
         units_passed=units,
+        placement=placement,
     )
