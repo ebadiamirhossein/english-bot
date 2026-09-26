@@ -42,10 +42,13 @@ from core.items import (
 )
 from core.items.checks import (
     Failure,
+    answer_spoken_in,
     deterministic_failures,
     judged_sentence,
     probe_canonical,
+    says_the_same,
     sentence_of,
+    spoken_variant,
 )
 from core.items.grading import (
     distinct_answers,
@@ -706,7 +709,10 @@ def audio_round_trip(text: str, *, settings: Settings | None = None) -> tuple[bo
     """
     audio = _synthesize(text, settings=settings)
     heard = _transcribe(audio, settings=settings)
-    return fold_answer(heard) == fold_answer(text), heard
+    # Contractions read (B1): a recogniser writing *might have* for audio of
+    # *might've* heard the sentence. A different word, or punctuation inside
+    # the sentence, still fails — `says_the_same` is not fuzzy.
+    return says_the_same(fold_answer(heard), fold_answer(text)), heard
 
 
 # ── orchestration ───────────────────────────────────────────────────────────
@@ -759,7 +765,27 @@ def free_stages(
             ValidationReport("discarded", deterministic=tuple(f.code for f in det)),
         )
 
-    return item, None
+    return _with_spoken_variant(item), None
+
+
+def _with_spoken_variant(item: BaseItem) -> BaseItem:
+    """A listening answer the transcript SAYS differently is accepted as said.
+
+    The checks admit *might have* against audio saying *might've* (B1). The
+    learner types what they heard, so the heard spelling is stored beside the
+    canonical — the convention `grading.matches` already rests on (*either is
+    accepted because both are stored*). Widens grading only; never rewrites
+    the answer, the stem or the audio.
+    """
+    if not isinstance(item, ListeningGapItem):
+        return item
+    heard = spoken_variant(item.answer, item.transcript)
+    if heard is None:
+        return item
+    return item.model_copy(
+        update={"accepted_variants": normalise_variants(
+            item.answer, (*item.accepted_variants, heard))}
+    )
 
 
 def validate(
@@ -871,10 +897,11 @@ def _audio_gate(item: BaseItem, *, settings: Settings | None) -> Validated:
         )
     if isinstance(item, ListeningGapItem):
         # The gapped word specifically must survive the round-trip. If the
-        # recogniser did not hear it, a learner will not either.
-        if fold_answer(item.answer) not in {
-            fold_answer(w) for w in heard.split()
-        }:
+        # recogniser did not hear it, a learner will not either. **A run of
+        # words, contractions read (launch 2026-09-26, B1):** this compared the
+        # whole answer with ONE heard word, so *would cancel* could never pass,
+        # and *might have* failed against a recogniser that wrote *might've*.
+        if not answer_spoken_in(item.answer, heard):
             return Validated(
                 None,
                 ValidationReport(

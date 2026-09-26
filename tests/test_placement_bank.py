@@ -263,3 +263,91 @@ def test_an_inflected_form_is_never_a_pseudo_word(empty_bank, monkeypatch) -> No
 
     monkeypatch.setattr(normalize, "inflections", lambda: {first: "x"})
     assert first not in build.plan(build.FREE).pseudo
+
+
+# ── B4 (launch 2026-09-26): W18-R1's reading of the host's bank ─────────────
+#
+# **RED DEMONSTRATIONS (2026-09-26, a scripted mutation each, `python -B`):**
+# the draw put back as it was before B4 → the first two tests red (the seeded
+# draw holds *englishman*, *mustache* and *moustache*, exactly as the host's
+# does; and *moustache* was drawn beside a banked *mustache*). The `ence$` rule
+# widened to `ce$` → the spelling-key test red (it merged pairs of DIFFERENT
+# words); the `tre$` rule removed → red (pairs lost); *halloween* added to
+# `CAPITALISED_IN_USE` → the pool test red.
+
+#: The 39 pairs a person read out of the 5,000-word pool on 2026-09-26, each
+#: one word in two spellings. Hardcoded (§3 rule 5): a key rule that starts
+#: merging two different words, or stops finding one of these, fails here.
+SPELLING_PAIRS = {
+    ("adviser", "advisor"), ("apologise", "apologize"), ("behavior", "behaviour"),
+    ("catalog", "catalogue"), ("center", "centre"), ("civilisation", "civilization"),
+    ("color", "colour"), ("defence", "defense"), ("favor", "favour"),
+    ("favorite", "favourite"), ("flavor", "flavour"), ("gray", "grey"),
+    ("harbor", "harbour"), ("honor", "honour"), ("honorable", "honourable"),
+    ("humor", "humour"), ("enquiry", "inquiry"), ("jewellery", "jewelry"),
+    ("judgement", "judgment"), ("kilometer", "kilometre"), ("labor", "labour"),
+    ("licence", "license"), ("mama", "mamma"), ("marvellous", "marvelous"),
+    ("meter", "metre"), ("moustache", "mustache"), ("neighbor", "neighbour"),
+    ("neighborhood", "neighbourhood"), ("offence", "offense"),
+    ("organisation", "organization"), ("organise", "organize"),
+    ("practice", "practise"), ("program", "programme"), ("realise", "realize"),
+    ("recognise", "recognize"), ("rumor", "rumour"), ("theater", "theatre"),
+    ("traveler", "traveller"), ("whiskey", "whisky"),
+}
+
+
+def _pool_from_disk() -> set[str]:
+    """The draw's pool, read from `data/lexemes.tsv` rather than the service:
+    content POS, a CEFR tag, rank 1–10,000, lower-case letters, 3+."""
+    out = set()
+    rows = [line.split("\t") for line in (DATA / "lexemes.tsv").read_text(
+        encoding="utf-8").splitlines() if line and not line.startswith("#")]
+    for lemma, pos, rank, _band, cefr in (r[:5] for r in rows[1:]):
+        if (rank and int(rank) <= 10_000 and cefr and pos in ("NOUN", "VERB", "ADJ", "ADV")
+                and re.fullmatch(r"[a-z]{3,}", lemma)):
+            out.add(lemma)
+    return out
+
+
+def test_no_capitalised_word_and_one_spelling_per_word_is_drawn(empty_bank) -> None:
+    """User action: the learner sits the yes/no section. *englishman* shown
+    lower-case, and *mustache* then *moustache*, were on the host."""
+    from core.placement.targets import CAPITALISED_IN_USE, spelling_key
+
+    drawn = [w for w, _, _ in build.plan(build.FREE).words]
+    assert len(drawn) == 240
+    assert not set(drawn) & CAPITALISED_IN_USE
+    assert "englishman" not in drawn
+    assert len({spelling_key(w) for w in drawn}) == 240
+
+
+def test_a_spelling_already_banked_is_not_drawn_again(empty_bank, monkeypatch) -> None:
+    """The top-up after the prune: the bank holds *mustache*; the one candidate
+    left in its band is *moustache*. Nothing is drawn rather than a repeat."""
+    from core.services import placement as svc
+
+    monkeypatch.setattr(svc, "bank_rows", lambda conn: [
+        {"id": 1, "section": "vocabulary", "cefr": "B2", "error_type": None,
+         "word": "mustache", "is_word": True, "freq_rank": 5655,
+         "content_hash": "x", "item": None},
+    ])
+    monkeypatch.setattr(svc, "vocabulary_candidates", lambda conn, lo, hi: (
+        [("moustache", 5894, "B2")] if lo == 5001 else []))
+    assert build.plan(build.FREE).words == []
+
+
+def test_the_spelling_key_groups_exactly_the_reviewed_pairs() -> None:
+    from core.placement.targets import spelling_key
+
+    groups: dict[str, set[str]] = {}
+    for lemma in _pool_from_disk():
+        groups.setdefault(spelling_key(lemma), set()).add(lemma)
+    found = {tuple(sorted(g)) for g in groups.values() if len(g) > 1}
+    assert found == SPELLING_PAIRS
+
+
+def test_every_capitalised_word_is_in_the_pool_it_guards() -> None:
+    """A stale entry would guard nothing; each one was read out of the pool."""
+    from core.placement.targets import CAPITALISED_IN_USE
+
+    assert CAPITALISED_IN_USE <= _pool_from_disk()

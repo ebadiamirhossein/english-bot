@@ -65,7 +65,7 @@ from core.config import Settings, load_settings
 from core.items import gates
 from core.items import generate
 from core.items.generate import Outcome, Slot
-from core.placement import BANDS, CALIBRATION
+from core.placement import BANDS, CALIBRATION, readiness
 from core.placement.pseudowords import pseudowords
 from core.placement.scoring import BAND_SIZE, PSEUDO_PER_SITTING, REAL_PER_BAND, VOCAB_BANDS
 from core.placement.targets import (
@@ -77,10 +77,12 @@ from core.placement.targets import (
     LISTENING_TARGETS,
     LISTENING_TYPE,
     SITTINGS,
+    CAPITALISED_IN_USE,
     NOT_A_TEST_WORD,
     SPEAKING_PROMPTS,
     all_targets,
     band_can_do,
+    spelling_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -200,16 +202,27 @@ def plan(sections: Sequence[str] = SECTIONS) -> Plan:
         out.held = _held(rows)
         in_bank = {r["word"] for r in rows if r["word"]}
         if "vocabulary" in sections:
+            # One spelling per word across the whole bank (B4): *moustache* is
+            # not drawn once *mustache* is in it, or drawn before it here.
+            taken = {spelling_key(w) for w in in_bank}
             for band in range(VOCAB_BANDS):
                 need = SITTINGS * REAL_PER_BAND - out.held[("vocabulary", band)]
                 if need <= 0:
                     continue
                 pool = [c for c in svc.vocabulary_candidates(
                     conn, band * BAND_SIZE + 1, (band + 1) * BAND_SIZE)
-                    if c[0] not in in_bank and c[0] not in NOT_A_TEST_WORD]
+                    if c[0] not in in_bank and c[0] not in NOT_A_TEST_WORD
+                    and c[0] not in CAPITALISED_IN_USE]
                 rng = random.Random(SEED * 100 + band)
-                out.words.extend(sorted(rng.sample(pool, min(need, len(pool))),
-                                        key=lambda c: c[1]))
+                picked: list[tuple[str, int, str]] = []
+                for candidate in rng.sample(pool, len(pool)):
+                    if len(picked) == need:
+                        break
+                    if spelling_key(candidate[0]) in taken:
+                        continue
+                    taken.add(spelling_key(candidate[0]))
+                    picked.append(candidate)
+                out.words.extend(sorted(picked, key=lambda c: c[1]))
             need = SITTINGS * PSEUDO_PER_SITTING - out.held[("pseudo",)]
             if need > 0:
                 real = svc.lexeme_lemmas(conn) | frozenset(inflections())
@@ -256,6 +269,22 @@ def sample(p: Plan) -> Plan:
     return Plan(cohorts=keep, held=p.held)
 
 
+def first_sitting_cells(held: Counter) -> dict[tuple, int]:
+    """The bank's totals keyed as `core.placement.readiness` reads them — what a
+    learner who has sat nothing has unserved (launch 2026-09-26, B2)."""
+    cells: Counter = Counter()
+    for key, n in held.items():
+        if key[0] == "vocabulary":
+            cells[("vocabulary", "real", key[1])] += n
+        elif key[0] == "pseudo":
+            cells[("vocabulary", "pseudo")] += n
+        elif key[0] == "speaking":
+            cells[("speaking", "any")] += n
+        else:
+            cells[(key[0], key[1])] += n
+    return cells
+
+
 def free_rows(p: Plan) -> int:
     return len(p.words) + len(p.pseudo) + len(p.speaking)
 
@@ -283,6 +312,11 @@ def dry_print(p: Plan, *, settings: Settings, journal_path: Path) -> int:
     print(f"  speaking prompts               "
           f"{sum(1 for _, t in SPEAKING_PROMPTS if p.held[('speaking', t)]):>3} of "
           f"{len(SPEAKING_PROMPTS)}")
+    short = readiness.shortfall(first_sitting_cells(p.held))
+    print("  a first sitting can be offered now: " + (
+        "yes" if not short else "NO — short " + ", ".join(
+            f"{' '.join(str(k) for k in cell)} by {n}" for cell, n in sorted(short.items(),
+                                                                          key=str))))
 
     print(f"\n=== FREE: {len(p.words)} real words, {len(p.pseudo)} pseudo-words, "
           f"{len(p.speaking)} speaking prompts would be written ===")

@@ -17,6 +17,7 @@ by tests, so renaming one is a data migration, not a refactor.
 
 from __future__ import annotations
 
+import functools
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -40,7 +41,7 @@ from core.items.schema import (
     WordBankOrderItem,
 )
 from core.lexicon.coverage import compute_coverage
-from core.lexicon.normalize import CONTRACTIONS, lemmatize, tokenize
+from core.lexicon.normalize import CONTRACTIONS, inflections, lemmatize, tokenize
 
 # v2's own constant, from `apps/bot/handlers/quiz.py:920`, kept rather than
 # re-chosen: a stem longer than this does not fit a phone without scrolling,
@@ -121,6 +122,175 @@ class Failure:
 
 def words(text: str) -> list[str]:
     return _WORD.findall(text or "")
+
+
+# ── what a listening sentence SAYS, contractions read (launch 2026-09-26, B1) ─
+#
+# **WHY THIS EXISTS.** The listening checks compared strings. Listening C1 lost
+# all six items to `answer_not_in_transcript` + `stem_transcript_mismatch`, and
+# B2 lost two to `answer_not_in_transcript` alone. Read from the code, the
+# causes are two and neither is only a contraction:
+#
+# 1. `answer_not_in_transcript` asked whether the WHOLE answer equalled ONE word
+#    of the transcript, so no multi-word answer could ever pass it — *would
+#    cancel*, *might have*. That alone explains B2: the stem reconstructed the
+#    transcript exactly, so the answer was spoken, and still it failed.
+# 2. Both checks were literal about contractions, and the C1 target asks for
+#    *could have / might have in fast speech*: a transcript saying *might've*
+#    against an answer *might have* failed both. Rule 4 (`mechanical_naturalness`)
+#    makes the same collision for *we would → we'd* after the first pass.
+#
+# `gates._audio_gate`'s `gapped_word_not_heard` had cause 1 too, one BILLED
+# stage later; it reads `answer_spoken_in` now.
+#
+# **THE RULE:** two texts say the same thing when their word sequences are equal
+# after the standard contractions are read — `n't`, `'ve`, `'ll`, `'re`, `'m`,
+# `'d`, `'s` — in either direction; punctuation must still agree. An answer is
+# in the transcript when its words are a contiguous run of the transcript's.
+# **A word that is not there still fails** — nothing here is fuzzy.
+#
+# **`'d` AND `'s` ARE READ AS ONE WORD EACH, NEVER AS "EITHER".** `listening_gap`
+# has no text blind solver (validator v3, #121), so a gate that accepted *had*
+# OR *would* for `'d` would let *"She'd been asleep"* with the answer *would*
+# through every gate to a learner. So:
+#
+# * `'d` is **had** when the next word (past `_ADVERBS`) is *been* or *better*,
+#   or an inflected verb form that is not an -ing or -s form (*left*, *gone*,
+#   *forgotten* — `data/inflections.tsv` maps it to a different lemma);
+#   otherwise **would** — the reading `core.lexicon.normalize.CONTRACTIONS`
+#   gives every `'d` it lists (*we'd cancel*, *I'd rather*, *I'd have gone*).
+# * `'s` is **has** by the same test (plus *got*, *gotten*); otherwise **is**.
+#   A possessive reads as *is* on both sides, so it still compares equal.
+#
+# The known blind spot is a base form that is also a participle (*I'd put it*:
+# read *would*) and an adjectival participle after `'s` (*she's tired*: read
+# *has*). There the reading is wrong: an answer spelling the RIGHT word is
+# refused (recoverable), and one spelling the wrong word would pass — which
+# needs a generator whose grammar failed in exactly that spot. Named, not fixed.
+
+#: Irregular contractions whose first word is not the prefix, taken from the
+#: one table (`CONTRACTIONS`) rather than restated. `cannot` is added: it is a
+#: spelling, not a contraction, and the table does not list it.
+_IRREGULAR_SPOKEN: dict[str, tuple[str, ...]] = {
+    **{k: v for k, v in CONTRACTIONS.items()
+       if k in ("won't", "can't", "shan't", "ain't", "let's")},
+    "cannot": ("can", "not"),
+}
+_SUFFIXES: tuple[tuple[str, str | None], ...] = (
+    ("n't", "not"), ("'ve", "have"), ("'ll", "will"), ("'re", "are"),
+    ("'m", "am"), ("'d", None), ("'s", None),
+)
+_BARE_SUFFIX = {suffix for suffix, _ in _SUFFIXES}
+_ADVERBS = frozenset(
+    "already just never ever always also really probably still not only even".split()
+)
+_SPOKEN_TOKEN = re.compile(r"'?[a-z][a-z'-]*")
+_NOT_A_WORD = re.compile(r"[^\sa-z'-]")
+
+
+@functools.cache
+def _inflection_table() -> dict[str, str]:
+    return inflections()
+
+
+def _inflected_past(word: str) -> bool:
+    """A verb form that is neither the base, nor -ing, nor -s: *left*, *gone*."""
+    lemma = _inflection_table().get(word)
+    return (
+        lemma is not None and lemma != word
+        and not word.endswith("ing") and not word.endswith("s")
+    )
+
+
+def _clitic(suffix: str, following: list[str]) -> str:
+    """What `'d` or `'s` stands for, read from the words after it."""
+    nxt = next((w for w in following if w not in _ADVERBS and not w.endswith("ly")), "")
+    past = nxt in ("been", "better") or (
+        suffix == "'s" and nxt in ("got", "gotten")
+    ) or (nxt != "" and _inflected_past(nxt))
+    if suffix == "'d":
+        return "had" if past else "would"
+    return "has" if past else "is"
+
+
+def spoken_tokens(text: str | None) -> list[tuple[str, tuple[str, ...]]]:
+    """``(surface, words it says)`` per token, contractions read (see above)."""
+    raw = [t.strip("'") if t.strip("'") and t not in _BARE_SUFFIX else t
+           for t in _SPOKEN_TOKEN.findall(fold(text))]
+    out: list[tuple[str, tuple[str, ...]]] = []
+    for i, token in enumerate(raw):
+        following = [t.strip("'") for t in raw[i + 1:]]
+        if token in _IRREGULAR_SPOKEN:
+            out.append((token, _IRREGULAR_SPOKEN[token]))
+            continue
+        said: tuple[str, ...] = (token,)
+        for suffix, word in _SUFFIXES:
+            base = token[: -len(suffix)]
+            if token.endswith(suffix) and (base == "" or base.isalpha()):
+                said = (*((base,) if base else ()), word or _clitic(suffix, following))
+                break
+        out.append((token, said))
+    return out
+
+
+def spoken_words(text: str | None) -> tuple[str, ...]:
+    """The words a text says, contractions read."""
+    return tuple(w for _, said in spoken_tokens(text) for w in said)
+
+
+def says_the_same(a: str | None, b: str | None) -> bool:
+    """Equal words once contractions are read, and the same punctuation."""
+    if fold(a) == fold(b):
+        return True
+    return (
+        spoken_words(a) == spoken_words(b)
+        and _NOT_A_WORD.findall(fold(a)) == _NOT_A_WORD.findall(fold(b))
+    )
+
+
+def _run_at(haystack: tuple[str, ...], needle: tuple[str, ...]) -> int | None:
+    n = len(needle)
+    for i in range(len(haystack) - n + 1):
+        if haystack[i:i + n] == needle:
+            return i
+    return None
+
+
+def answer_spoken_in(answer: str | None, text: str | None) -> bool:
+    """The answer's words are a contiguous run of the text's (contractions read)."""
+    needle = spoken_words(fold_answer(answer))
+    return bool(needle) and _run_at(spoken_words(text), needle) is not None
+
+
+def spoken_variant(answer: str | None, transcript: str | None) -> str | None:
+    """The transcript's own spelling of the answer, when it differs.
+
+    *might have* against *She might've been asleep.* → ``"might've"``. Only when
+    the answer covers whole tokens; *would cancel* against *we'd cancel* covers
+    half of *we'd* and gives ``None``. Stored as an accepted variant, so a
+    learner who types what they HEARD is not marked wrong.
+    """
+    needle = spoken_words(fold_answer(answer))
+    tokens = spoken_tokens(transcript)
+    if not needle:
+        return None
+    starts, flat = [], []
+    for surface, said in tokens:
+        starts.append(len(flat))
+        flat.extend(said)
+    at = _run_at(tuple(flat), needle)
+    if at is None or at not in starts:
+        return None
+    first = starts.index(at)
+    end = at + len(needle)
+    covered, i = [], first
+    while i < len(tokens) and starts[i] < end:
+        covered.append(i)
+        i += 1
+    if starts[covered[-1]] + len(tokens[covered[-1]][1]) != end:
+        return None
+    surface = " ".join(tokens[j][0] for j in covered)
+    return None if surface == fold_answer(answer) else surface
 
 
 def sentence_of(item: BaseItem) -> str:
@@ -520,7 +690,8 @@ def _listening_gap(item: ListeningGapItem) -> list[Failure]:
                 f"{answer!r} is reduced at speed and cannot be recovered by ear",
             )
         )
-    if fold_answer(answer) not in {fold_answer(w) for w in words(item.transcript)}:
+    # A run of words, contractions read — not one word (the B1 fix, above).
+    if not answer_spoken_in(answer, item.transcript):
         out.append(
             Failure(
                 "answer_not_in_transcript",
@@ -528,9 +699,9 @@ def _listening_gap(item: ListeningGapItem) -> list[Failure]:
             )
         )
     # The stem must be the transcript with the gap punched in it, or the learner
-    # is reading one sentence and hearing another.
-    reconstructed = fold(item.prompt_text.replace(GAP, answer))
-    if reconstructed != fold(item.transcript):
+    # is reading one sentence and hearing another. *might have* in the stem and
+    # *might've* in the audio are the same sentence; a different word is not.
+    if not says_the_same(item.prompt_text.replace(GAP, answer), item.transcript):
         out.append(
             Failure(
                 "stem_transcript_mismatch",

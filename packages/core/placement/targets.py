@@ -19,6 +19,8 @@ content check).
 
 from __future__ import annotations
 
+import re
+
 from core.placement import BANDS
 
 #: PRD §6's per-sitting counts.
@@ -165,3 +167,52 @@ NOT_A_TEST_WORD: frozenset[str] = frozenset("""
     sex sexy naked kill killer murder dead death die gun shoot rape drug drugs
     god hell damn jesus christ church pray bitch shit fuck ass bastard whore
 """.split())
+
+#: **Written with a capital letter in normal use — never shown lower-case as a
+#: test word (launch 2026-09-26, B4; W18-R1's reading found *englishman*).**
+#: The lexicon is lower-cased by construction (`scripts/build_lexicon.py`), so
+#: the draw cannot see capitals; this list is the pool read by a person on
+#: 2026-09-26 (every content word ranked 1–10,000 with a CEFR tag, 5,000 of
+#: them). **In:** the days, the months that are not also ordinary words, a
+#: nationality, a faith, a title, three oceans and seas, the Olympics, a
+#: political adjective, three acronyms. **Out, deliberately:** *march* and *may*
+#: (ordinary words too; *may* is a function word above), *polish*, *turkey*,
+#: *arctic* (lower-case as an adjective), *valentine* and *scrooge* (lower-case
+#: as common nouns), *god*, *internet*, *heaven*.
+CAPITALISED_IN_USE: frozenset[str] = frozenset("""
+    monday tuesday wednesday thursday friday saturday sunday
+    january february april june july august september october november december
+    englishman christian mrs atlantic pacific mediterranean olympic olympics soviet
+    dna dvd hiv
+""".split())
+
+#: Pairs no rule below reaches, each spelling → the one it is keyed under.
+_SPELLING_PAIRS: dict[str, str] = {
+    "grey": "gray", "moustache": "mustache", "jewellery": "jewelry",
+    "judgement": "judgment", "programme": "program", "whisky": "whiskey",
+    "practise": "practice", "adviser": "advisor", "enquiry": "inquiry",
+    "mamma": "mama",
+}
+_SPELLING_RULES: tuple[tuple[str, str], ...] = (
+    (r"our(ite|able|ably|hood|ful|less|s)?$", r"or\1"),  # colour, favourite
+    (r"(?<=[a-z]{2})is(e|ed|es|ing|ation|ations)$", r"iz\1"),  # realise
+    (r"tre$", "ter"),  # centre, theatre, metre
+    (r"ence$", "ense"),  # defence, licence
+    (r"([aeiou])ll(er|ed|ing|ous)$", r"\1l\2"),  # traveller, marvellous
+    (r"logue$", "log"),  # catalogue
+)
+
+
+def spelling_key(lemma: str) -> str:
+    """Two spellings of one word share a key: *moustache* and *mustache*,
+    *colour* and *color* (launch 2026-09-26, B4).
+
+    **Checked against the whole draw pool, not trusted:** over the 5,000
+    candidates it groups exactly 39 pairs, every one a spelling of one word,
+    and nothing else — `tests/test_placement_bank.py` holds that list
+    hardcoded, so a rule that starts merging two different words fails there.
+    """
+    key = _SPELLING_PAIRS.get(lemma, lemma)
+    for pattern, replacement in _SPELLING_RULES:
+        key = re.sub(pattern, replacement, key)
+    return key

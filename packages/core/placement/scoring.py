@@ -99,22 +99,30 @@ def vocabulary_band(estimate: int | None) -> str | None:
 LISTENING_ORDER: tuple[str, ...] = ("A2", "B1", "B1", "B2", "B2", "C1")
 
 
-def listening_band(answers: Sequence[bool]) -> str | None:
+def listening_band(answers: Sequence[bool], *, served: Sequence[str]) -> str | None:
     """Right answers as a share of the clips served → a band.
 
     Under a third A2, under two thirds B1, all but full B2, every one C1 — on
     six clips: 0–1, 2–3, 4–5, 6. ``None`` when no clip was served.
+
+    **Never above the highest band a clip was served at** (``served``: each
+    clip's band; launch 2026-09-26, B2). A sitting that skipped an empty C1
+    cell and got its five clips right read C1 — a band it never asked about.
+    Keyword-only and required, so no caller can forget it.
     """
     if not answers:
         return None
     share = sum(answers) / len(answers)
     if share >= 1:
-        return "C1"
-    if share * 3 >= 2:
-        return "B2"
-    if share * 3 >= 1:
-        return "B1"
-    return "A2"
+        band = "C1"
+    elif share * 3 >= 2:
+        band = "B2"
+    elif share * 3 >= 1:
+        band = "B1"
+    else:
+        band = "A2"
+    ceiling = max(served, key=BANDS.index, default=BANDS[0])
+    return min(band, ceiling, key=BANDS.index)
 
 
 # ── what the learner is shown ───────────────────────────────────────────────

@@ -21,6 +21,14 @@ export default withPWAInit({
   register: true,
   cacheOnFrontEndNav: true,
   reloadOnOnline: true,
+  // #114 (2026-09-26): the start-URL route's `cacheWillUpdate` reached `sw.js`
+  // calling an SWC helper it does not carry — Next compiles this file, and the
+  // `.cjs` it imports, to ES5, and Workbox copies the plugin by its source
+  // text. `/` returns one static document in every state (no middleware, no
+  // server redirect), which is the case the option documents for `false`;
+  // `/` then caches under the default page rule like every other route.
+  // `e2e/precache.spec.ts` asserts no undefined helper is called.
+  dynamicStartUrl: false,
   workboxOptions: {
     // Skip waiting: with two users there is no staged rollout to protect, and
     // an app that needs closing twice to pick up a fix is worse.

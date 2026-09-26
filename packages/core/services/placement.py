@@ -59,7 +59,7 @@ from core.db import connection
 from core.items.checks import sentence_of
 from core.items.response import Submission, grade
 from core.items.schema import BaseItem, parse
-from core.placement import ladder, scoring
+from core.placement import ladder, readiness, scoring
 from core.services.items import present_bank_item
 from core.placement.scoring import (
     BAND_SIZE,
@@ -292,6 +292,41 @@ def insert_generated(conn, section: str, *, cefr: str, error_type: str,
     return int(row[0]) if row else None
 
 
+def vocabulary_real_words(conn) -> list[dict]:
+    """Every real-word row, with whether ANY learner has been served it. For
+    `core.placement.prune` (launch 2026-09-26, B4); oldest first."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT b.id, b.word, b.freq_rank,
+                   EXISTS (SELECT 1 FROM placement_run_items r
+                            WHERE r.bank_id = b.id) AS served
+              FROM placement_bank b
+             WHERE b.section = 'vocabulary' AND b.is_word
+             ORDER BY b.id
+            """
+        )
+        return list(cur.fetchall())
+
+
+def delete_unserved_vocabulary(conn, ids: list[int]) -> list[int]:
+    """Delete these vocabulary rows **unless served** — the refusal is in the
+    statement, so a row served between the read and the delete stays. Returns
+    the ids deleted. The caller commits."""
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            DELETE FROM placement_bank b
+             WHERE b.id = ANY(%s) AND b.section = 'vocabulary'
+               AND NOT EXISTS (SELECT 1 FROM placement_run_items r
+                                WHERE r.bank_id = b.id)
+            RETURNING b.id
+            """,
+            (ids,),
+        )
+        return sorted(int(r[0]) for r in cur.fetchall())
+
+
 # ── the bank, for a sitting ─────────────────────────────────────────────────
 
 _UNSERVED = """
@@ -329,21 +364,15 @@ def _unserved_counts(conn, user_id: int) -> Counter:
 
 
 def _ready(conn, user_id: int) -> bool:
-    """Can the bank supply a whole sitting? Every vocabulary band's four, the
-    twenty pseudo-words, a grammar item where the ladder starts, and at least
-    one listening clip and one speaking prompt. **A thinner grammar or
-    listening section is allowed** — the ladder stops as `bank_thin` and the
-    listening band is read from the clips served — but a sitting that could not
-    even begin a section is not offered."""
-    counts = _unserved_counts(conn, user_id)
-    if any(counts[("vocabulary", "real", b)] < REAL_PER_BAND for b in range(VOCAB_BANDS)):
-        return False
-    return (
-        counts[("vocabulary", "pseudo")] >= PSEUDO_PER_SITTING
-        and counts[("grammar", ladder.START)] >= 1
-        and counts[("listening", "any")] >= 1
-        and counts[("speaking", "any")] >= 1
-    )
+    """Can the bank supply a whole sitting to THIS learner, from rows they have
+    never been served? `core.placement.readiness` states the rule and why.
+
+    *(Launch 2026-09-26, B2. It read: every vocabulary band's four, the twenty
+    pseudo-words, ONE grammar item at B1, ONE listening clip of any band and
+    one speaking prompt — so production's bank, with no listening C1 at all,
+    read ready, and a sitting would have skipped the C1 clip and could then
+    claim C1 from five clips that never included one.)*"""
+    return readiness.ready(_unserved_counts(conn, user_id))
 
 
 def _pick(conn, user_id: int, section: str, *, cefr: str | None = None) -> int | None:
@@ -414,6 +443,11 @@ def _draw_listening(conn, run_id: int, user_id: int) -> int:
     for band in LISTENING_ORDER:
         bank_id = _pick(conn, user_id, "listening", cefr=band)
         if bank_id is None:
+            # Unreachable while `_ready` held at the start; a row deleted under
+            # an open sitting can still land here. Skipped, logged, and never
+            # claimed (`scoring.listening_band`'s `served`).
+            logger.info("placement listening band_thin user_id=%s run=%s band=%s",
+                        user_id, run_id, band)
             continue
         _serve(conn, run_id, user_id, bank_id, "listening", served)
         served += 1
@@ -796,7 +830,8 @@ def finish(user_id: int, *, now: datetime) -> Result:
         grammar_band = state.result or ladder.held_band(history, state.moves)
         profile = Counter(r["error_type"] for r in grammar
                           if r["answered_at"] is not None and not r["correct"])
-        listening = [bool(r["correct"]) for r in _served(conn, run["id"], "listening")]
+        heard = _served(conn, run["id"], "listening")
+        listening = [bool(r["correct"]) for r in heard]
 
         floor = None
         if estimate is not None and estimate in FLOOR_RANGE:
@@ -814,7 +849,8 @@ def finish(user_id: int, *, now: datetime) -> Result:
                 """,
                 (
                     now, grammar_band, grammar_band,
-                    scoring.vocabulary_band(estimate), scoring.listening_band(listening),
+                    scoring.vocabulary_band(estimate),
+                    scoring.listening_band(listening, served=[r["cefr"] for r in heard]),
                     estimate, floor, state.stop or run["grammar_stop"],
                     Jsonb(dict(profile)), run["id"],
                 ),

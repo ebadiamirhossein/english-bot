@@ -78,12 +78,26 @@ def test_vocabulary_bands_follow_the_stated_thresholds() -> None:
     assert scoring.vocabulary_band(9000) == "C1"
 
 
+ALL_SIX = ("A2", "B1", "B1", "B2", "B2", "C1")
+
+
 def test_listening_reads_right_answers_up_the_order() -> None:
-    assert scoring.listening_band([]) is None
+    assert scoring.listening_band([], served=[]) is None
     six = lambda n: [True] * n + [False] * (6 - n)  # noqa: E731
-    assert [scoring.listening_band(six(n)) for n in range(7)] == [
+    assert [scoring.listening_band(six(n), served=ALL_SIX) for n in range(7)] == [
         "A2", "A2", "B1", "B1", "B2", "B2", "C1",
     ]
+
+
+def test_listening_never_claims_a_band_no_clip_was_served_at() -> None:
+    """Launch 2026-09-26, B2: production's bank has no listening C1. A sitting
+    that skipped it and got the five clips it DID serve right read C1 — the
+    share rule alone cannot see which bands were asked. Capped at the highest
+    band served; the share still decides below it."""
+    five = ("A2", "B1", "B1", "B2", "B2")
+    assert scoring.listening_band([True] * 5, served=five) == "B2"
+    assert scoring.listening_band([True] * 3, served=("A2", "B1", "B1")) == "B1"
+    assert scoring.listening_band([True, True, False, False, False], served=five) == "B1"
 
 
 def _sitting(day: int, cefr: str, **bands) -> Sitting:

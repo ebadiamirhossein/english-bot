@@ -160,3 +160,32 @@ def test_the_panel_is_activity_and_never_content(db, operator, learners) -> None
     }
     assert "AdminGuard" not in response.text
     assert "boss" not in response.text
+
+
+def test_a_web_practice_day_is_counted_by_the_panel(db, operator, learners) -> None:
+    """Launch 2026-09-26, B3 — *is the activity true?* All three learners read
+    **0 active days in the last 7** on the operator's `/admin`. This pins that
+    the panel's count reads the WEB logs (`core.services.activity`, #259's one
+    signal), so a 0 there is the data, not a panel that cannot see the web.
+
+    User action: a learner answers block 3 on the web one day and talks on
+    `/talk` another; the operator opens `/admin`. The window is the route's own
+    — today in the learner's timezone, computed here the way the route computes
+    it (§3 rule 6), and the days are placed relative to it.
+
+    **RED DEMONSTRATION (2026-09-26):** `count_active_days` without its
+    `practised_dates` union (v2's `completed = TRUE` only, #259's defect) → red,
+    0 active days.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from core.services.sessions import local_today
+
+    other = learners("W23 web learner")
+    today = local_today("Europe/Vilnius", datetime.now(timezone.utc))
+    seed.attempt(db, other.user_id, "cloze_cued", seed.at(today - timedelta(days=1), 12))
+    seed.turns(db, other.user_id, today - timedelta(days=3), typed=4)
+    seed.turns(db, other.user_id, today - timedelta(days=9), typed=4)  # outside the 7
+    response = _get(operator)
+    assert response.status_code == 200, response.text
+    assert _row(response.json(), other.user_id)["active_days"] == 2
