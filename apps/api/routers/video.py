@@ -24,9 +24,14 @@ token or nothing; the figure itself never enters a response model, so no client
 can render one it was never given (#288, #334, #330 -- written out at
 `core/video/badge.py`).
 
-**THE ROUTE THIS SLICE DOES NOT SHIP: `POST /video/{id}/save-word`.** It is
+~~**THE ROUTE THIS SLICE DOES NOT SHIP: `POST /video/{id}/save-word`.** It is
 W13-ii's, it is the one that reaches a model, and shipping its route here would
-be a route with no caller -- a defect class this record has named twice.
+be a route with no caller -- a defect class this record has named twice.~~
+*(Stale since W13-ii shipped the route below; corrected by W31a, old text kept.
+The route reaches no model: §1a was ruled PRE-GENERATE and a tap reads a stored
+`video_glosses` row. **Its request contract** -- the content type and body the
+web sends -- is held by `apps/web/lib/web-requests.contract.json` from both
+sides since #465.)*
 """
 
 from __future__ import annotations

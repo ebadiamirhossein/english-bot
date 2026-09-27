@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SaveWordResult, VideoBlockPayload } from "@/lib/api";
 
@@ -217,8 +217,14 @@ describe("the watch signal (#258, #291)", () => {
    */
   it("reports the last position on unmount so closing the tab keeps the place", async () => {
     const setPlaybackRate = vi.fn();
+    // **W31a: the fake now fires `onReady`, as the real API always does.** It
+    // had every method from birth and never readied, which is the one shape
+    // the real player never has — and the shape that hid `ENGLISH-WEB-2`.
     (window as unknown as { YT: unknown }).YT = {
       Player: class {
+        constructor(_el: HTMLElement, options: { events?: { onReady?: () => void } }) {
+          queueMicrotask(() => options.events?.onReady?.());
+        }
         getCurrentTime() {
           return 412.6;
         }
@@ -229,6 +235,9 @@ describe("the watch signal (#258, #291)", () => {
 
     const { unmount } = render(
       <VideoPlayer payload={payload()} l1Language="fa" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("player-mount").dataset.playerReady).toBe("true"),
     );
     unmount();
 
@@ -243,6 +252,9 @@ describe("the watch signal (#258, #291)", () => {
   it("sends a position and never a completion verdict", async () => {
     (window as unknown as { YT: unknown }).YT = {
       Player: class {
+        constructor(_el: HTMLElement, options: { events?: { onReady?: () => void } }) {
+          queueMicrotask(() => options.events?.onReady?.());
+        }
         getCurrentTime() {
           return 700;
         }
@@ -252,6 +264,9 @@ describe("the watch signal (#258, #291)", () => {
     };
     const { unmount } = render(
       <VideoPlayer payload={payload()} l1Language="fa" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("player-mount").dataset.playerReady).toBe("true"),
     );
     unmount();
     // **The client cannot assert a video was finished (#190, #291).**
@@ -431,6 +446,48 @@ describe("saving a tapped word", () => {
     );
   });
 
+  /**
+   * **W31a: every outcome that is not `saved` says what actually happened.**
+   * Until 2026-09-27 every refusal — a 422 from a malformed request, a 404, a
+   * rate limit, a dropped connection — read *"Could not add that just now."*,
+   * which is how sixteen 422s looked like a flaky network to the operator.
+   */
+  async function refuse(error: unknown) {
+    vi.mocked(api.saveWord).mockRejectedValue(error);
+    render(<VideoPlayer payload={payload()} l1Language="fa" />);
+    await userEvent.click(screen.getByText("rent"));
+    return screen.findByTestId("save-word-result");
+  }
+
+  it.each([
+    [404, "This video isn’t in your list any more."],
+    [429, "That’s a lot of words at once — try again in a minute."],
+    [422, "That didn’t go through on our side — not yours. Try again in a moment."],
+    [500, "That didn’t go through on our side — not yours. Try again in a moment."],
+  ])("says what a %i means", async (status, copy) => {
+    const message = await refuse(new api.ApiError("x", status));
+    expect(message).toHaveTextContent(copy);
+    expect(message.dataset.outcome).toBeTruthy();
+  });
+
+  it("says a dropped connection is a connection, not a refusal", async () => {
+    const message = await refuse(new api.ApiError("Could not reach the API"));
+    expect(message).toHaveTextContent(
+      "Couldn’t reach the server. Check your connection and tap again.",
+    );
+  });
+
+  it("never shows the old catch-all line", async () => {
+    for (const status of [404, 422, 429, 500, undefined]) {
+      const { unmount } = render(<VideoPlayer payload={payload()} l1Language="fa" />);
+      vi.mocked(api.saveWord).mockRejectedValue(new api.ApiError("x", status));
+      await userEvent.click(screen.getByText("rent"));
+      const message = await screen.findByTestId("save-word-result");
+      expect(message).not.toHaveTextContent("Could not add that just now.");
+      unmount();
+    }
+  });
+
   it("does not claim a save before the server has answered", async () => {
     // **The anti-optimistic assertion, and it is the one a screenshot cannot
     // make.** A promise that never settles: the message must not appear.
@@ -438,5 +495,126 @@ describe("saving a tapped word", () => {
     render(<VideoPlayer payload={payload()} l1Language="fa" />);
     await userEvent.click(screen.getByText("rent"));
     expect(screen.queryByTestId("save-word-result")).toBeNull();
+  });
+});
+
+/**
+ * W31a — **`ENGLISH-WEB-2`**: an unhandled `TypeError` with no message, user 3,
+ * the frame `setInterval(() => { … e.getCurrentTime() … }, 250)`.
+ *
+ * **The IFrame API attaches `getCurrentTime` and friends only when the player
+ * is ready** — `new YT.Player(...)` returns at once and the methods arrive with
+ * `onReady`. The player passed no `onReady` and started its 250 ms clock on
+ * mount, so every tick between the constructor and the iframe loading threw.
+ * The fakes below model that, which the older fakes in this file did not: they
+ * had every method from birth, so they could not see the defect.
+ */
+type FakeInstance = {
+  el: HTMLElement;
+  options: { events?: { onReady?: (e: unknown) => void } } & Record<string, unknown>;
+  getCurrentTime?: ReturnType<typeof vi.fn>;
+  setPlaybackRate?: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
+  fireReady: (time?: number) => void;
+};
+
+function fakeIframeApi(): FakeInstance[] {
+  const instances: FakeInstance[] = [];
+  class FakePlayer {
+    el: HTMLElement;
+    options: FakeInstance["options"];
+    getCurrentTime?: ReturnType<typeof vi.fn>;
+    setPlaybackRate?: ReturnType<typeof vi.fn>;
+    destroy = vi.fn();
+    constructor(el: HTMLElement, options: FakeInstance["options"]) {
+      this.el = el;
+      this.options = options;
+      instances.push(this as unknown as FakeInstance);
+    }
+    fireReady(time = 12) {
+      this.getCurrentTime = vi.fn(() => time);
+      this.setPlaybackRate = vi.fn();
+      this.options.events?.onReady?.({ target: this });
+    }
+  }
+  (window as unknown as { YT: unknown }).YT = { Player: FakePlayer };
+  return instances;
+}
+
+const CUED = {
+  transcript: "hey how are you",
+  transcript_cues: [
+    { text: "hey", start: 0, duration: 2 },
+    { text: "how are you", start: 1.5, duration: 2 },
+  ],
+};
+
+describe("the player waits for the IFrame API to be ready (ENGLISH-WEB-2)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reads no clock before onReady — the ticks that threw on production", async () => {
+    vi.useFakeTimers();
+    const instances = fakeIframeApi();
+    render(<VideoPlayer payload={payload(CUED)} l1Language="fa" />);
+    expect(instances).toHaveLength(1);
+    // Before ready the fake has NO getCurrentTime, exactly like the real API.
+    expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+    act(() => instances[0].fireReady(3));
+    act(() => vi.advanceTimersByTime(1000));
+    // The positive control: once ready, the highlight clock does read it.
+    expect(instances[0].getCurrentTime).toHaveBeenCalled();
+  });
+
+  it("never pings a position from a player that was never ready", async () => {
+    // Closing the tab before the iframe loaded: there is no position to keep,
+    // and reading one is the TypeError. Nothing is sent.
+    fakeIframeApi();
+    const { unmount } = render(<VideoPlayer payload={payload(CUED)} l1Language="fa" />);
+    unmount();
+    await Promise.resolve();
+    expect(vi.mocked(api.reportVideoProgress)).not.toHaveBeenCalled();
+  });
+
+  it("stops reading the clock when the player goes away", () => {
+    vi.useFakeTimers();
+    const instances = fakeIframeApi();
+    const { unmount } = render(<VideoPlayer payload={payload(CUED)} l1Language="fa" />);
+    act(() => instances[0].fireReady(3));
+    act(() => vi.advanceTimersByTime(500));
+    unmount();
+    const after = instances[0].getCurrentTime!.mock.calls.length;
+    vi.advanceTimersByTime(5000);
+    expect(instances[0].getCurrentTime!.mock.calls.length).toBe(after);
+    expect(instances[0].destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("on a new video, drops the old clock and waits for the new player's onReady", () => {
+    vi.useFakeTimers();
+    const instances = fakeIframeApi();
+    const { rerender } = render(<VideoPlayer payload={payload(CUED)} l1Language="fa" />);
+    act(() => instances[0].fireReady(3));
+    rerender(
+      <VideoPlayer payload={payload({ ...CUED, youtube_id: "other_video" })} l1Language="fa" />,
+    );
+    expect(instances).toHaveLength(2);
+    expect(instances[0].destroy).toHaveBeenCalledTimes(1);
+    const oldCalls = instances[0].getCurrentTime!.mock.calls.length;
+    // The new player is not ready: nothing may call into it, and nothing may
+    // keep calling into the destroyed one.
+    expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+    expect(instances[0].getCurrentTime!.mock.calls.length).toBe(oldCalls);
+    // A fresh element per player: the old one was handed to YT and replaced.
+    expect(instances[1].el).not.toBe(instances[0].el);
+    act(() => instances[1].fireReady(7));
+    act(() => vi.advanceTimersByTime(500));
+    expect(instances[1].getCurrentTime).toHaveBeenCalled();
+  });
+
+  it("asks YouTube for the ready event rather than guessing", () => {
+    const instances = fakeIframeApi();
+    render(<VideoPlayer payload={payload(CUED)} l1Language="fa" />);
+    expect(typeof instances[0].options.events?.onReady).toBe("function");
   });
 });

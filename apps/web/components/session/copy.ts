@@ -329,7 +329,16 @@ export const VIDEO = {
     // than the word**: a request that did not come back is the app's problem,
     // and naming the state after a failure invites copy that reads like the
     // learner's. `unavailable` is `BLOCK_STATES`' own word for the same thing.
-    unavailable: "Could not add that just now.",
+    //
+    // **W31a: `unavailable` IS GONE AND FOUR SENTENCES REPLACE IT.** It read
+    // *"Could not add that just now."* and it was the answer to everything that
+    // was not a 200 — so sixteen 422s from a malformed request (#465) read to the
+    // operator like a flaky connection. Each refusal now says what it is. The old
+    // line is quoted here and nowhere else; `player.test.tsx` refuses it.
+    notAssigned: "This video isn’t in your list any more.",
+    rateLimited: "That’s a lot of words at once — try again in a minute.",
+    offline: "Couldn’t reach the server. Check your connection and tap again.",
+    server: "That didn’t go through on our side — not yours. Try again in a moment.",
   },
   /** **#335.** The transcript was purged at thirty days and the video is still
    * assigned and still watchable. It says what IS there, does not apologise,

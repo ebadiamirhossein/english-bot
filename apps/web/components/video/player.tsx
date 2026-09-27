@@ -27,15 +27,20 @@
  *
  * **WHAT IT DELIBERATELY DOES NOT BUILD, AND WHY — EACH NAMED ONCE:**
  *
- * - **The follow-along highlight, loop-a-line and per-line 0.75× (R12).** No
+ * - ~~**The follow-along highlight, loop-a-line and per-line 0.75× (R12).** No
  *   per-cue timings are stored anywhere: `videos.transcript` is one `TEXT`
  *   column and the fetch path discards every segment `start`. **Held, not
  *   dropped**; they return with migration `021` once **T5** says whether the
  *   timings can be recovered from the run dumps for free or need a billed
- *   re-fetch. See `components/video/transcript.tsx`.
- * - **Tap-to-define and Add to deck (W13-ii, §1a).** Both reach a model, and the
+ *   re-fetch. See `components/video/transcript.tsx`.~~
+ * - ~~**Tap-to-define and Add to deck (W13-ii, §1a).** Both reach a model, and the
  *   standing operator ruling of 2026-08-27 is that the app never generates while
- *   a learner waits. **Not this slice's to assume.**
+ *   a learner waits. **Not this slice's to assume.**~~
+ *
+ *   *(Both struck by W31a as stale, old text kept: 021 stored the cue timings
+ *   and W13-i's second commit built the highlight — which never rendered, since
+ *   nothing styled `data-lit` (W31b's to fix); W13-ii shipped Add to deck as a
+ *   read of a pre-generated gloss. Loop-a-line is W31b's.)*
  * - **Shadow-this-line.** W14/W15's — it needs Azure, which is a priced decision
  *   and not reachable code.
  * - **A completion control (#258).** Block completion is automatic. The ping
@@ -55,11 +60,43 @@ import { VIDEO } from "@/components/session/copy";
 import { Transcript } from "@/components/video/transcript";
 import { Button } from "@/components/ui/button";
 import {
+  ApiError,
   reportVideoProgress,
   saveWord,
   type SaveWordResult,
   type VideoBlockPayload,
 } from "@/lib/api";
+
+/**
+ * What a tap came to. The server's three states, plus **the four ways a request
+ * can come back refused**, each with its own sentence (W31a). Before, all four
+ * were one catch-all line, which is how a malformed request (#465) read to the
+ * operator as a dropped connection.
+ */
+type TapOutcome =
+  | SaveWordResult["state"]
+  | "not_assigned"
+  | "rate_limited"
+  | "offline"
+  | "server";
+
+function refusal(error: unknown): TapOutcome {
+  if (!(error instanceof ApiError)) return "server";
+  if (error.status === undefined) return "offline";
+  if (error.status === 404) return "not_assigned";
+  if (error.status === 429) return "rate_limited";
+  return "server";
+}
+
+const TAP_COPY: Record<TapOutcome, string> = {
+  saved: VIDEO.saveWord.saved,
+  already_saved: VIDEO.saveWord.already,
+  no_gloss: VIDEO.saveWord.notReady,
+  not_assigned: VIDEO.saveWord.notAssigned,
+  rate_limited: VIDEO.saveWord.rateLimited,
+  offline: VIDEO.saveWord.offline,
+  server: VIDEO.saveWord.server,
+};
 
 /**
  * How often the position is reported. **Fifteen seconds, and the number is a
@@ -84,6 +121,12 @@ const RATES = [1, 0.75] as const;
  */
 const HIGHLIGHT_MS = 250;
 
+/**
+ * The slice of the IFrame API this component calls. **Every method but
+ * `destroy` exists only after `onReady`** (W31a, `ENGLISH-WEB-2`): the
+ * constructor returns at once and the API attaches the rest when the iframe has
+ * loaded, so nothing here calls one until `playerReady` says so.
+ */
 type Player = {
   getCurrentTime: () => number;
   setPlaybackRate: (rate: number) => void;
@@ -146,6 +189,18 @@ export function VideoPlayer({
   const ready = useIframeApi();
   const mount = useRef<HTMLDivElement | null>(null);
   const player = useRef<Player | null>(null);
+  /**
+   * **W31a — `ENGLISH-WEB-2`.** True from the player's `onReady` until its
+   * teardown. The clocks below start only when it is true, because a
+   * `YT.Player` that has been constructed but not readied has no
+   * `getCurrentTime` — calling it was the unhandled `TypeError` Sentry recorded
+   * for user 3, four times a second until the iframe loaded.
+   *
+   * State for the effects, a ref for `ping`, which runs inside the player
+   * effect's cleanup where state is already stale.
+   */
+  const [playerReady, setPlayerReady] = useState(false);
+  const readyRef = useRef(false);
   const [rate, setRate] = useState<number>(1);
   const [completed, setCompleted] = useState(payload.completed);
   /**
@@ -171,7 +226,7 @@ export function VideoPlayer({
    * and, on a second viewing, the expected thing.
    */
   const [tapped, setTapped] = useState<
-    { word: string; state: SaveWordResult["state"] | "unavailable" } | null
+    { word: string; state: TapOutcome } | null
   >(null);
 
   const onWordTap = useCallback(
@@ -182,19 +237,21 @@ export function VideoPlayer({
       // grade is in flight.
       void saveWord(payload.video_id, word)
         .then((result) => setTapped({ word, state: result.state }))
-        .catch(() => setTapped({ word, state: "unavailable" }));
+        .catch((error: unknown) => setTapped({ word, state: refusal(error) }));
     },
     [payload.video_id],
   );
 
   const ping = useCallback(async () => {
     const current = player.current;
-    if (!current) return;
+    // **Not ready is not an error; it is nothing to report yet.** The clock is
+    // read OUTSIDE the `try` below, which is for the network and nothing else —
+    // it used to wrap this call too, and silently swallowed the same TypeError
+    // the highlight clock was throwing (W31a).
+    if (!current || !readyRef.current) return;
+    const position = current.getCurrentTime();
     try {
-      const result = await reportVideoProgress(
-        payload.video_id,
-        current.getCurrentTime(),
-      );
+      const result = await reportVideoProgress(payload.video_id, position);
       setCompleted(result.completed);
     } catch {
       // **A failed ping is silent, and that is deliberate.** The learner is
@@ -206,8 +263,21 @@ export function VideoPlayer({
 
   useEffect(() => {
     if (!ready || !mount.current || player.current || !window.YT) return;
-    player.current = new window.YT.Player(mount.current, {
+    // **A fresh element per player (W31a).** YT replaces the element it is
+    // given with its iframe, so building the next video's player on the same
+    // node would hand it one YT had already taken away.
+    const host = document.createElement("div");
+    host.className = "h-full w-full";
+    mount.current.appendChild(host);
+    const wrapper = mount.current;
+    player.current = new window.YT.Player(host, {
       videoId: payload.youtube_id,
+      events: {
+        onReady: () => {
+          readyRef.current = true;
+          setPlayerReady(true);
+        },
+      },
       // **The resume position, honoured on the embed itself** — the learner
       // picks up where they stopped rather than restarting. #335's purged case
       // never reaches here; that branch renders no player at all.
@@ -232,8 +302,11 @@ export function VideoPlayer({
       // the callback would have asserted that a function calls itself and
       // passed on the broken ordering.
       void ping();
+      readyRef.current = false;
+      setPlayerReady(false);
       player.current?.destroy();
       player.current = null;
+      wrapper.replaceChildren();
     };
   }, [ready, payload.youtube_id, payload.resume_position_s, ping]);
 
@@ -241,13 +314,17 @@ export function VideoPlayer({
   const cues = payload.transcript_cues ?? undefined;
 
   useEffect(() => {
-    if (!cues?.length) return;
+    // **Only a READY player has a clock** (W31a). The effect re-runs when
+    // readiness changes, so a video change — whose cleanup sets it false —
+    // clears this interval before the old player is destroyed, and the new
+    // one's starts only at the new `onReady`.
+    if (!cues?.length || !playerReady) return;
     const timer = setInterval(() => {
       const current = player.current;
       if (current) setPositionS(current.getCurrentTime());
     }, HIGHLIGHT_MS);
     return () => clearInterval(timer);
-  }, [cues]);
+  }, [cues, playerReady]);
 
   useEffect(() => {
     const timer = setInterval(() => void ping(), PING_SECONDS * 1000);
@@ -277,7 +354,12 @@ export function VideoPlayer({
       ) : null}
 
       <div className="aspect-video w-full overflow-hidden rounded-lg bg-muted">
-        <div ref={mount} className="h-full w-full" />
+        <div
+          ref={mount}
+          className="h-full w-full"
+          data-testid="player-mount"
+          data-player-ready={playerReady ? "true" : "false"}
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -289,7 +371,7 @@ export function VideoPlayer({
             data-testid={`rate-${option}`}
             onClick={() => {
               setRate(option);
-              player.current?.setPlaybackRate(option);
+              if (readyRef.current) player.current?.setPlaybackRate(option);
             }}
           >
             {option}×
@@ -307,15 +389,10 @@ export function VideoPlayer({
         <p
           className="text-sm text-muted-foreground"
           data-testid="save-word-result"
+          data-outcome={tapped.state}
           aria-live="polite"
         >
-          {tapped.state === "saved"
-            ? VIDEO.saveWord.saved
-            : tapped.state === "already_saved"
-              ? VIDEO.saveWord.already
-              : tapped.state === "no_gloss"
-                ? VIDEO.saveWord.notReady
-                : VIDEO.saveWord.unavailable}
+          {TAP_COPY[tapped.state]}
         </p>
       ) : null}
 

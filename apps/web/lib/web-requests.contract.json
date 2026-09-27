@@ -1,0 +1,9 @@
+[
+  {
+    "name": "save_word",
+    "method": "POST",
+    "path": "/video/{video_id}/save-word",
+    "content_type": "application/json",
+    "body": { "word": "mastodon" }
+  }
+]

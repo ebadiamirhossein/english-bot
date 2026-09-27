@@ -31,7 +31,33 @@ function cors(route: Route) {
   };
 }
 
+/**
+ * **W31a (#465): the mocks refuse what FastAPI refuses.** A string body sent
+ * with no `Content-Type` leaves the browser as `text/plain;charset=UTF-8`, and
+ * the API answers 422 without running the route. `saveWord` did exactly that for
+ * sixteen taps on production while this harness answered 200, because it never
+ * looked at the header. Every mocked body goes through `json()`, so the check
+ * lives here. A recording (`audio/*`) is not text and passes.
+ */
+function fastApiWouldRefuse(route: Route): boolean {
+  const request = route.request();
+  if (!request.postData()) return false;
+  const type = (request.headers()["content-type"] ?? "").toLowerCase();
+  return type === "" || type.startsWith("text/plain");
+}
+
 async function json(route: Route, status: number, body: unknown) {
+  if (fastApiWouldRefuse(route)) {
+    await route.fulfill({
+      status: 422,
+      contentType: "application/json",
+      headers: cors(route),
+      body: JSON.stringify({
+        detail: [{ type: "model_attributes_type", loc: ["body"], msg: "not JSON" }],
+      }),
+    });
+    return;
+  }
   await route.fulfill({
     status,
     contentType: "application/json",

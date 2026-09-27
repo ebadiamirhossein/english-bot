@@ -57,7 +57,23 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** Exported for `api.contract.test.ts`'s sweep only; callers use the named functions. */
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // **W31a: A STRING BODY IS JSON UNLESS THE CALLER SAID OTHERWISE.** Every
+  // string body this client sends is `JSON.stringify`'d, and a string body with
+  // no header leaves the browser as `text/plain;charset=UTF-8` — which FastAPI
+  // does not parse. `saveWord` shipped that way and answered 422 to all sixteen
+  // of the operator's taps on 2026-09-27 (#465). A Blob body (a recording)
+  // keeps the type its caller gave it.
+  // A plain object, as every caller passes one and the tests read one.
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...((init?.headers as Record<string, string> | undefined) ?? {}),
+  };
+  const typed = Object.keys(headers).some((k) => k.toLowerCase() === "content-type");
+  if (typeof init?.body === "string" && !typed) {
+    headers["Content-Type"] = "application/json";
+  }
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
@@ -65,7 +81,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // The session cookie arrives at W2; sending credentials from the start
       // means CORS is exercised in its real shape, not a laxer one.
       credentials: "include",
-      headers: { Accept: "application/json", ...(init?.headers ?? {}) },
+      headers,
     });
   } catch {
     // A CORS refusal and a dead server look identical from here — say so
@@ -796,6 +812,9 @@ export function saveWord(
 ): Promise<SaveWordResult> {
   return request<SaveWordResult>(`/video/${videoId}/save-word`, {
     method: "POST",
+    // Explicit as well as defaulted by `request()`: this is the call that
+    // shipped without it (#465), and `web-requests.contract.json` names it.
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ word }),
   });
 }
