@@ -400,3 +400,69 @@ export async function mockKeepGoing(
     await page.route(`${API}/week`, (route) => json(route, 200, week));
   }
 }
+
+/**
+ * W31b — the video routes the study screen calls: the progress ping and the
+ * word tap. Returns the save-word requests it saw, so a spec can assert what
+ * the web actually sent (#465). `saveState` is the body's `state`.
+ */
+export async function mockVideo(page: Page, { saveState = "no_gloss" } = {}) {
+  const saves: { contentType: string; body: unknown }[] = [];
+  await page.route(`${API}/video/*/progress`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.fulfill({ status: 204, headers: cors(route) })
+      : json(route, 200, {
+          video_id: 44, youtube_id: "aqz-KE-bpKQ", title: null, duration_s: 48,
+          resume_position_s: 0, completed: false,
+        }),
+  );
+  await page.route(`${API}/video/*/save-word`, (route) => {
+    if (route.request().method() === "OPTIONS") {
+      return route.fulfill({ status: 204, headers: cors(route) });
+    }
+    saves.push({
+      contentType: route.request().headers()["content-type"] ?? "",
+      body: route.request().postDataJSON(),
+    });
+    return json(route, 200, { state: saveState, card_ids: [] });
+  });
+  return saves;
+}
+
+/**
+ * A stand-in for the YouTube IFrame API, installed before the page loads. It
+ * behaves like the real one where the player depends on it: the constructor
+ * replaces the element it is given, the methods answer only after `onReady`
+ * fires (asynchronously), and time, state, seeks, pauses and plays are read and
+ * set through `window.__yt`.
+ */
+export async function fakeYouTube(page: Page) {
+  await page.addInitScript(() => {
+    const yt = {
+      time: 0, state: 2, options: null as unknown, seeks: [] as number[], pauses: 0, plays: 0,
+    };
+    (window as unknown as { __yt: typeof yt }).__yt = yt;
+    (window as unknown as { YT: unknown }).YT = {
+      Player: class {
+        constructor(el: HTMLElement, options: { events?: { onReady?: (e: unknown) => void } }) {
+          yt.options = options;
+          const frame = document.createElement("div");
+          frame.setAttribute("data-testid", "fake-yt");
+          frame.style.cssText =
+            "width:100%;height:100%;background:#1f2937;color:#e5e7eb;display:flex;" +
+            "align-items:center;justify-content:center;font:14px system-ui";
+          frame.textContent = "▶ video";
+          el.replaceWith(frame);
+          setTimeout(() => options.events?.onReady?.({ target: this }), 30);
+        }
+        getCurrentTime() { return yt.time; }
+        setPlaybackRate() {}
+        destroy() {}
+        pauseVideo() { yt.pauses += 1; yt.state = 2; }
+        playVideo() { yt.plays += 1; yt.state = 1; }
+        seekTo(seconds: number) { yt.seeks.push(seconds); yt.time = seconds; }
+        getPlayerState() { return yt.state; }
+      },
+    };
+  });
+}

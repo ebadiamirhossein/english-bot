@@ -11,6 +11,7 @@
  */
 
 export { API_BASE_URL } from "@/lib/env";
+import type { VideoLine } from "@/components/video/lines";
 import { API_BASE_URL } from "@/lib/env";
 
 export type Health = {
@@ -655,10 +656,15 @@ export type VideoBlockPayload = {
   completed: boolean;
   transcript_available: boolean;
   transcript: string | null;
-  /** Per-cue timings (migration 021). **Null is the third state** — transcript
-   * present, cues absent: it renders, words stay tappable, the badge still
-   * shows, and there is no highlight. Nothing is said to the learner about it. */
-  transcript_cues: { text: string; start: number; duration?: number }[] | null;
+  /**
+   * **W31b: display lines, built on the server from whole cues**
+   * (`core.video.lines`) — the raw cues no longer cross the wire. With
+   * `lines_timed` false this is the THIRD STATE (transcript present, cues
+   * absent): the lines are untimed sentences, the list still shows, words stay
+   * tappable, nothing syncs, and nothing is said to the learner about it.
+   */
+  lines: VideoLine[];
+  lines_timed: boolean;
   transcript_lang: string | null;
   /** Lemmas this learner has no `known`/`mastered` row for. The highlight set.
    *

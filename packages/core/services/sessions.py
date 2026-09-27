@@ -1291,7 +1291,24 @@ def video_payload(conn: Any, user_id: int, assigned: Any) -> dict[str, Any]:
     Extracted from `_input_block` by W24e so keep going's *watch another* page
     hands the SAME shape to the SAME player -- a second assembly of this dict
     would be #190's defect (two producers of one contract) the day either moved.
+
+    **W31b split it in two, and there is still one producer:** this function
+    reads the learner's coverage (the only part that needs the database) and
+    `assemble_video_payload` builds the dict. The fixture exporter calls the
+    assembler with a coverage report computed without a database, so the
+    Playwright study screen renders the real wire shape.
     """
+    report = None
+    if assigned.transcript is not None:
+        from core.services import lexicon as lexicon_service
+
+        report = lexicon_service.coverage_for(conn, user_id, assigned.transcript)
+    return assemble_video_payload(assigned, report)
+
+
+def assemble_video_payload(assigned: Any, report: Any) -> dict[str, Any]:
+    """The payload dict. Pure: `report` is the learner's coverage, or None."""
+    from core.video import lines as video_lines
     from core.video.badge import band_for
 
     payload: dict[str, Any] = {
@@ -1305,26 +1322,28 @@ def video_payload(conn: Any, user_id: int, assigned: Any) -> dict[str, Any]:
         "completed": assigned.completed_at is not None,
         "transcript_available": assigned.transcript is not None,
         "transcript": None,
-        # **None is the THIRD STATE and not a gap**: transcript present, cues
-        # absent. It renders, its words stay tappable, the coverage badge still
-        # shows, and there is no follow-along highlight -- and the learner is
-        # told nothing about it, because a line explaining a missing feature is
-        # a message about our pipeline dressed as a message about the video.
-        # The ordinary case for every pool row the backfill did not reach, and
-        # nothing drains it on a schedule (#69).
-        "transcript_cues": None,
+        # **W31b: LINES, NOT CUES, CROSS THE WIRE.** The study screen shows the
+        # transcript as display lines built from whole cues (`core.video.lines`,
+        # the operator's ruling on #397); the raw cues stay in the database.
+        # `lines_timed` False is the THIRD STATE -- transcript present, cues
+        # absent -- and the lines are then untimed sentences: the list still
+        # shows, every word is still tappable, nothing scrolls, and the learner
+        # is told nothing about a missing highlight.
+        "lines": [],
+        "lines_timed": False,
         "transcript_lang": assigned.transcript_lang,
         "unknown_lemmas": [],
         "coverage_band": None,
     }
-    if assigned.transcript is None:
+    if assigned.transcript is None or report is None:
         return payload
 
-    from core.services import lexicon as lexicon_service
-
-    report = lexicon_service.coverage_for(conn, user_id, assigned.transcript)
+    timed = video_lines.lines_for(assigned.transcript_cues)
     payload["transcript"] = assigned.transcript
-    payload["transcript_cues"] = assigned.transcript_cues
+    payload["lines"] = [
+        line.wire() for line in (timed or video_lines.sentences_for(assigned.transcript))
+    ]
+    payload["lines_timed"] = bool(timed)
     payload["unknown_lemmas"] = sorted(report.unknown_lemmas)
     payload["coverage_band"] = band_for(
         report.coverage,

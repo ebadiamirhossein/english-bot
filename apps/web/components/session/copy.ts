@@ -346,6 +346,18 @@ export const VIDEO = {
    * did caused this and nothing they can do fixes it. */
   noTranscript:
     "The follow-along text isn’t available for this one. The video still plays.",
+  /**
+   * **W31b — the study screen.** Plain labels; nothing counts, nothing scores.
+   * `noTimed` is Focus mode's one line for a video with no timings — it says
+   * what is there (the video) and not what went missing.
+   */
+  study: {
+    focus: "Focus",
+    focusExit: "Exit focus",
+    loop: "Loop line",
+    loopOn: "Looping this line",
+    noTimed: "This video has no timed subtitles.",
+  },
   /** Shown once the watch signal has been written. **Not a congratulation and
    * not a streak** — a plain statement of where they are. */
   watched: "You’ve watched this one.",

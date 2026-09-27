@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,7 +11,6 @@ vi.mock("@/lib/api", async () => {
 
 const api = await import("@/lib/api");
 const { VideoPlayer } = await import("./player");
-const { Transcript } = await import("./transcript");
 
 /**
  * W13-i's client half.
@@ -34,10 +33,12 @@ function payload(over: Partial<VideoBlockPayload> = {}): VideoBlockPayload {
     completed: false,
     transcript_available: true,
     transcript: "we were talking about the rent again",
-    // **Null by default: the THIRD STATE is the ordinary one.** Most pool rows
-    // have a transcript and no cues until a refresh fills them, so the fixture
-    // defaults to the case a learner is most likely to meet.
-    transcript_cues: null,
+    // **Untimed by default: the THIRD STATE is the ordinary one.** Most pool
+    // rows have a transcript and no cues until a refresh fills them, so the
+    // fixture defaults to the case a learner is most likely to meet. W31b: the
+    // server sends display lines, here one untimed sentence.
+    lines: [{ start: null, end: null, text: "we were talking about the rent again" }],
+    lines_timed: false,
     transcript_lang: "en",
     unknown_lemmas: ["rent"],
     coverage_band: "in",
@@ -181,13 +182,15 @@ describe("playback speed", () => {
   });
 
   /**
-   * **R12, asserted so the absence is deliberate rather than forgotten.** No
-   * per-cue timings are stored anywhere, so per-line speed, loop-a-line and the
-   * follow-along highlight have no data behind them. They are HELD pending T5
-   * and migration `021`, not dropped — and this test fails the day one of them
-   * is added without the timings.
+   * **W31b, Q3: loop-line exists now, and only where there are line bounds.**
+   * This test read *"offers no per-line control, because no per-cue timings
+   * exist"* (R12) and asserted `loop-line` absent everywhere. Migration 021
+   * stored the timings, and `core.video.lines` builds lines from whole cues;
+   * the operator ruled loop-line in. **It is still absent where there are no
+   * bounds** — an untimed transcript — which is the half of R12 that stands.
+   * `line-rate` stays absent: YouTube has one rate per player (0.75× + loop).
    */
-  it("offers no per-line control, because no per-cue timings exist", () => {
+  it("offers no loop without timed lines, and never a per-line rate", () => {
     render(<VideoPlayer payload={payload()} l1Language="fa" />);
     expect(screen.queryByTestId("loop-line")).toBeNull();
     expect(screen.queryByTestId("line-rate")).toBeNull();
@@ -279,127 +282,230 @@ describe("the watch signal (#258, #291)", () => {
   });
 });
 
-describe("the transcript", () => {
-  it("marks the words the SERVER said were unknown", () => {
-    render(
-      <Transcript
-        text="we were talking about the rent again"
-        unknownLemmas={["rent"]}
-        language="en"
-      />,
-    );
-    const marked = screen.getAllByTestId("unknown-word").map((n) => n.textContent);
-    expect(marked).toEqual(["rent"]);
-  });
-
-  /**
-   * **It must not re-derive the set.** `unknown_lemmas` comes from
-   * `core.lexicon`, which lemmatises against the seed list and the inflection
-   * table; a cruder normaliser here would be a second instrument on one screen.
-   * An inflected form whose lemma is unknown is simply not marked — erring
-   * toward marking too LITTLE, which is the safe direction.
-   */
-  it("does not invent highlights the server did not send", () => {
-    render(
-      <Transcript
-        text="we were renting the flat"
-        unknownLemmas={["rent"]}
-        language="en"
-      />,
-    );
-    expect(screen.queryAllByTestId("unknown-word")).toHaveLength(0);
-  });
-
-  it("makes every word tappable, and a tap defines nothing yet (W13-ii)", async () => {
-    const onWordTap = vi.fn();
-    render(
-      <Transcript
-        text="we were talking"
-        unknownLemmas={[]}
-        language="en"
-        onWordTap={onWordTap}
-      />,
-    );
-    await userEvent.click(screen.getAllByTestId("known-word")[0]);
-    expect(onWordTap).toHaveBeenCalledWith("we");
-  });
-});
-
 /**
- * The synced highlight. **W13-i cue timings.**
+ * W31b — the transcript as **lines** (the operator's ruling on #397).
  *
- * The tracks here are **synthesised** to the shape T5 measured — overlapping
- * windows, float seconds, a `start` on every element. **No committed fixture
- * holds anyone's subtitles** (#175), and it costs nothing: the property under
- * test is the overlap, not the content.
+ * The tracks are **synthesised** (#175): the lines here are what
+ * `core.video.lines` sends; the Python suite holds how they are built.
  */
-describe("the synced highlight", () => {
-  const ROLLING = [
-    { text: "hey", start: 0.0, duration: 3.84 },
-    { text: "how are you", start: 2.4, duration: 3.5 },
-    { text: "doing today", start: 5.1, duration: 2.9 },
-  ];
-  const TEXT = "hey how are you doing today";
+const TIMED = {
+  transcript: "hey how are you doing today [laughter] it was great",
+  lines: [
+    { start: 0, end: 2.4, text: "hey how are you" },
+    { start: 2.4, end: 5.1, text: "doing today" },
+    { start: 5.1, end: 8, text: "[laughter] it was great" },
+  ],
+  lines_timed: true,
+};
 
-  it("lights the latest-started cue when two windows are live", () => {
-    // At t=3.0 cue 0 (0→3.84) and cue 1 (2.4→5.9) are BOTH displayed.
-    // The ruling picks the newer one, and it never reads `duration`.
+describe("the transcript as lines", () => {
+  it("is a list of lines, not a paragraph", () => {
+    render(<VideoPlayer payload={payload(TIMED)} l1Language="fa" />);
+    const rows = screen.getAllByTestId("line");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "0:00hey how are you",
+      "0:02doing today",
+      "0:05[laughter] it was great",
+    ]);
+  });
+
+  it("marks the words the SERVER said were unknown, and invents none", () => {
     render(
-      <Transcript
-        text={TEXT}
-        unknownLemmas={[]}
-        language="en"
-        cues={ROLLING}
-        positionS={3.0}
+      <VideoPlayer
+        payload={payload({
+          lines: [{ start: null, end: null, text: "we were renting the rent" }],
+          unknown_lemmas: ["rent"],
+        })}
+        l1Language="fa"
       />,
     );
-    expect(screen.getByTestId("cue-active").textContent).toBe("how are you");
+    // "renting" is not marked: no lemmatising on the client (W13-i's rule).
+    expect(screen.getAllByTestId("unknown-word").map((n) => n.textContent)).toEqual(["rent"]);
   });
 
-  it("lights nothing before the first cue starts", () => {
-    render(
-      <Transcript
-        text={TEXT}
-        unknownLemmas={[]}
-        language="en"
-        cues={ROLLING}
-        positionS={-1}
-      />,
-    );
-    expect(screen.queryByTestId("cue-active")).toBeNull();
+  it("renders a sound tag dimmed and not tappable", () => {
+    render(<VideoPlayer payload={payload(TIMED)} l1Language="fa" />);
+    const tags = screen.getAllByTestId("sound-tag");
+    expect(tags[0].textContent).toBe("[laughter]");
+    expect(tags[0].tagName).toBe("SPAN");
+    expect(screen.queryByRole("button", { name: "laughter" })).toBeNull();
   });
 
-  it("keeps the last cue lit after it starts, through the caption tail", () => {
-    // Captions end 15–22 s before the video does, so this tail is real.
-    render(
-      <Transcript
-        text={TEXT}
-        unknownLemmas={[]}
-        language="en"
-        cues={ROLLING}
-        positionS={900}
-      />,
-    );
-    expect(screen.getByTestId("cue-active").textContent).toBe("doing today");
-  });
-
-  it("renders the transcript unhighlighted when there are no cues", () => {
-    // **The third state**: transcript present, cues absent. It renders, the
-    // words stay tappable, and nothing tells the learner anything is missing.
-    render(<Transcript text={TEXT} unknownLemmas={[]} language="en" />);
-    expect(screen.getByTestId("transcript")).not.toBeNull();
-    expect(screen.queryByTestId("cue-active")).toBeNull();
-    expect(screen.getAllByTestId("known-word").length).toBeGreaterThan(0);
-  });
-
-  it("says nothing to the learner about a missing highlight", () => {
-    const { container } = render(
-      <Transcript text={TEXT} unknownLemmas={[]} language="en" />,
-    );
-    expect(container.textContent).toBe(TEXT);
+  it("shows untimed lines without times, without a current line, without a loop", () => {
+    render(<VideoPlayer payload={payload()} l1Language="fa" />);
+    expect(screen.getAllByTestId("line")).toHaveLength(1);
+    expect(screen.queryByTestId("line-seek")).toBeNull();
+    expect(screen.queryByTestId("subtitle-block")).toBeNull();
+    // Nothing tells the learner a highlight is missing.
+    expect(screen.getByTestId("video-player").textContent).not.toMatch(/timed|sync|highlight/i);
   });
 });
 
+describe("the synced line", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function watchAt(time: number) {
+    vi.useFakeTimers();
+    const instances = fakeIframeApi();
+    render(<VideoPlayer payload={payload(TIMED)} l1Language="fa" />);
+    act(() => instances[0].fireReady(time));
+    act(() => vi.advanceTimersByTime(300));
+    return instances[0];
+  }
+
+  it("shows the line being spoken large, with the ones either side dimmed", () => {
+    watchAt(3.0);
+    expect(screen.getByTestId("subtitle-now").textContent).toBe("doing today");
+    expect(screen.getByTestId("subtitle-prev").textContent).toBe("hey how are you");
+    expect(screen.getByTestId("subtitle-next").textContent).toBe("[laughter] it was great");
+  });
+
+  it("highlights the active line in the list, and only that one", () => {
+    watchAt(3.0);
+    const rows = screen.getAllByTestId("line");
+    expect(rows.map((r) => r.dataset.active ?? null)).toEqual([null, "true", null]);
+    // Real styling, not an unread data attribute (#467).
+    expect(rows[1].className).toMatch(/bg-primary/);
+  });
+
+  it("shows nothing as spoken before the first line starts", () => {
+    watchAt(-1);
+    expect(screen.getByTestId("subtitle-now").textContent).toBe("");
+    expect(screen.getByTestId("subtitle-next").textContent).toBe("hey how are you");
+  });
+
+  it("keeps the last line through the caption tail", () => {
+    watchAt(900);
+    expect(screen.getByTestId("subtitle-now").textContent).toBe("[laughter] it was great");
+  });
+
+  it("seeks to a line when its time is tapped", () => {
+    const fake = watchAt(0.5);
+    act(() => {
+      screen.getAllByTestId("line-seek")[2].click();
+    });
+    expect(fake.seekTo).toHaveBeenCalledWith(5.1, true);
+  });
+
+  it("loops the current line: past its end, back to its start", () => {
+    const fake = watchAt(3.0);
+    act(() => {
+      screen.getByTestId("loop-line").click();
+    });
+    expect(screen.getByTestId("loop-line").getAttribute("aria-pressed")).toBe("true");
+    fake.time = 5.2; // past "doing today"'s end (5.1)
+    act(() => vi.advanceTimersByTime(300));
+    expect(fake.seekTo).toHaveBeenCalledWith(2.4, true);
+    act(() => {
+      screen.getByTestId("loop-line").click();
+    });
+    fake.seekTo.mockClear();
+    fake.time = 5.2;
+    act(() => vi.advanceTimersByTime(300));
+    expect(fake.seekTo).not.toHaveBeenCalled();
+  });
+
+  it("a word tap pauses a playing video", () => {
+    const fake = watchAt(1.0);
+    vi.mocked(api.saveWord).mockReturnValue(new Promise(() => {}));
+    act(() => {
+      screen.getAllByTestId("known-word")[0].click();
+    });
+    expect(fake.pauseVideo).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("pause to read, on a desktop pointer (C5)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function desktop(matches: boolean) {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    (window as unknown as { matchMedia: unknown }).matchMedia = globalThis.matchMedia;
+  }
+
+  function watching() {
+    vi.useFakeTimers();
+    const instances = fakeIframeApi();
+    render(<VideoPlayer payload={payload(TIMED)} l1Language="fa" />);
+    act(() => instances[0].fireReady(3.0));
+    return instances[0];
+  }
+
+  it("pauses while the pointer is on the current line, and resumes after", () => {
+    desktop(true);
+    const fake = watching();
+    fireEvent.mouseEnter(screen.getByTestId("subtitle-block"));
+    expect(fake.pauseVideo).toHaveBeenCalledTimes(1);
+    fireEvent.mouseLeave(screen.getByTestId("subtitle-block"));
+    expect(fake.playVideo).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not pause over the line list", () => {
+    desktop(true);
+    const fake = watching();
+    fireEvent.mouseEnter(screen.getByTestId("line-list"));
+    fireEvent.mouseOver(screen.getAllByTestId("line")[1]);
+    expect(fake.pauseVideo).not.toHaveBeenCalled();
+  });
+
+  it("does not resume a video the learner had paused themselves", () => {
+    desktop(true);
+    const fake = watching();
+    fake.state = 2; // paused already
+    fireEvent.mouseEnter(screen.getByTestId("subtitle-block"));
+    fireEvent.mouseLeave(screen.getByTestId("subtitle-block"));
+    expect(fake.pauseVideo).not.toHaveBeenCalled();
+    expect(fake.playVideo).not.toHaveBeenCalled();
+  });
+
+  it("does nothing on hover without a hovering pointer (a phone)", () => {
+    desktop(false);
+    const fake = watching();
+    fireEvent.mouseEnter(screen.getByTestId("subtitle-block"));
+    expect(fake.pauseVideo).not.toHaveBeenCalled();
+  });
+});
+
+describe("Focus", () => {
+  it("fills the screen with the player and the line, where the browser has no element fullscreen", async () => {
+    render(<VideoPlayer payload={payload(TIMED)} l1Language="fa" />);
+    await userEvent.click(screen.getByTestId("focus-enter"));
+    const root = screen.getByTestId("video-player");
+    // jsdom has no Fullscreen API: the fixed full-viewport layout (iPhone's).
+    expect(root.dataset.focus).toBe("fixed");
+    expect(root.className).toMatch(/fixed inset-0/);
+    expect(screen.getByTestId("subtitle-block")).toBeInTheDocument();
+    expect(screen.queryByTestId("line-list")).toBeNull();
+    await userEvent.click(screen.getByTestId("focus-exit"));
+    expect(screen.getByTestId("video-player").dataset.focus).toBe("off");
+  });
+
+  it("says plainly when a video has no timed subtitles to show", async () => {
+    render(<VideoPlayer payload={payload()} l1Language="fa" />);
+    await userEvent.click(screen.getByTestId("focus-enter"));
+    expect(screen.getByTestId("no-timed")).toHaveTextContent(
+      "This video has no timed subtitles.",
+    );
+  });
+
+  it("asks YouTube to turn off its own fullscreen and play inline", () => {
+    const instances = fakeIframeApi();
+    render(<VideoPlayer payload={payload(TIMED)} l1Language="fa" />);
+    const vars = instances[0].options.playerVars as Record<string, unknown>;
+    expect(vars.fs).toBe(0);
+    expect(vars.playsinline).toBe(1);
+  });
+});
 
 /**
  * W13-ii — the tap. **#178's three states on a screen.**
@@ -514,7 +620,13 @@ type FakeInstance = {
   options: { events?: { onReady?: (e: unknown) => void } } & Record<string, unknown>;
   getCurrentTime?: ReturnType<typeof vi.fn>;
   setPlaybackRate?: ReturnType<typeof vi.fn>;
+  pauseVideo: ReturnType<typeof vi.fn>;
+  playVideo: ReturnType<typeof vi.fn>;
+  seekTo: ReturnType<typeof vi.fn>;
+  getPlayerState?: ReturnType<typeof vi.fn>;
   destroy: ReturnType<typeof vi.fn>;
+  time: number;
+  state: number;
   fireReady: (time?: number) => void;
 };
 
@@ -531,9 +643,26 @@ function fakeIframeApi(): FakeInstance[] {
       this.options = options;
       instances.push(this as unknown as FakeInstance);
     }
+    time = 0;
+    state = 1;
+    pauseVideo?: ReturnType<typeof vi.fn>;
+    playVideo?: ReturnType<typeof vi.fn>;
+    seekTo?: ReturnType<typeof vi.fn>;
+    getPlayerState?: ReturnType<typeof vi.fn>;
     fireReady(time = 12) {
-      this.getCurrentTime = vi.fn(() => time);
+      this.time = time;
+      this.getCurrentTime = vi.fn(() => this.time);
       this.setPlaybackRate = vi.fn();
+      this.pauseVideo = vi.fn(() => {
+        this.state = 2;
+      });
+      this.playVideo = vi.fn(() => {
+        this.state = 1;
+      });
+      this.seekTo = vi.fn((s: number) => {
+        this.time = s;
+      });
+      this.getPlayerState = vi.fn(() => this.state);
       this.options.events?.onReady?.({ target: this });
     }
   }
@@ -543,10 +672,8 @@ function fakeIframeApi(): FakeInstance[] {
 
 const CUED = {
   transcript: "hey how are you",
-  transcript_cues: [
-    { text: "hey", start: 0, duration: 2 },
-    { text: "how are you", start: 1.5, duration: 2 },
-  ],
+  lines: [{ start: 0, end: 3.5, text: "hey how are you" }],
+  lines_timed: true,
 };
 
 describe("the player waits for the IFrame API to be ready (ENGLISH-WEB-2)", () => {

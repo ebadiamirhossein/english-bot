@@ -453,7 +453,11 @@ def test_a_transcript_with_no_cues_is_served_and_says_nothing_about_it(
 
     before = _block_two(app, learner)["payload"]
     assert before["transcript_available"] is True
-    assert before["transcript_cues"] is None
+    # W31b: lines, not cues, cross the wire. With no cues they are untimed
+    # sentences -- the list still shows -- and `lines_timed` says so.
+    assert before["lines_timed"] is False
+    assert before["lines"] and all(l["start"] is None for l in before["lines"])
+    assert "transcript_cues" not in before
     assert before["coverage_band"] in ("below", "in", "above")
 
     # **THE CLAIM THIS TEST IS ACTUALLY ABOUT: the badge reads `transcript` and
@@ -493,7 +497,13 @@ def test_cues_reach_the_client_when_they_reproduce_the_transcript(
         conn.commit()
 
     payload = _block_two(app, learner)["payload"]
-    assert payload["transcript_cues"] == CUES
+    # **W31b: the cues reach the client as a LINE** (`core.video.lines`), and
+    # the raw cues stay in the database. Worked by hand: two cues, no sentence
+    # end and no speaker, so one line from the first start to the last cue's
+    # start + duration (1.2 + 2.0).
+    assert payload["lines_timed"] is True
+    assert payload["lines"] == [{"start": 0.0, "end": 3.2, "text": "we were talking"}]
+    assert "transcript_cues" not in payload
 
 
 def test_cues_that_do_not_reproduce_the_transcript_are_refused(
@@ -514,7 +524,7 @@ def test_cues_that_do_not_reproduce_the_transcript_are_refused(
         ) is False
         conn.commit()
 
-    assert _block_two(app, learner)["payload"]["transcript_cues"] is None
+    assert _block_two(app, learner)["payload"]["lines_timed"] is False
 
 
 def test_the_purge_nulls_the_cues_with_the_transcript_on_one_clock(
@@ -656,3 +666,30 @@ def test_no_definition_crosses_the_route_boundary(app, db, learner, assigned) ->
     ).text
     assert "disappointing" not in raw
     assert "younger speakers" not in raw
+
+
+def test_the_study_fixture_matches_the_wire(app, learner, db) -> None:
+    """**#190 for W31b's Playwright fixture.** `write.fixture.json`'s
+    `watch_study` is built by the exporter through `assemble_video_payload`
+    without a database; this holds its keys — and its lines' keys — to the
+    payload the real route serves for a video with cues."""
+    import json
+    from pathlib import Path
+
+    committed = json.loads(
+        (Path(__file__).resolve().parents[1] / "apps/web/components/write/write.fixture.json")
+        .read_text(encoding="utf-8")
+    )["watch_study"]["video"]
+    text = " ".join(c["text"] for c in CUES)
+    _assign_today(db, learner, transcript=text, youtube_id="rt13s00001")
+    with psycopg.connect(load_settings().database_url) as conn:
+        video_id = conn.execute(
+            "SELECT id FROM videos WHERE youtube_id = %s", ("rt13s00001",)
+        ).fetchone()[0]
+        assert svc.record_cues(conn, video_id=video_id, cues=CUES, text=text)
+        conn.commit()
+
+    served = _block_two(app, learner)["payload"]
+    assert set(committed) == set(served)
+    assert set(committed["lines"][0]) == set(served["lines"][0]) == {"start", "end", "text"}
+    assert committed["lines_timed"] is served["lines_timed"] is True

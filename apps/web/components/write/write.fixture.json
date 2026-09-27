@@ -117,10 +117,266 @@
       "completed": false,
       "transcript_available": false,
       "transcript": null,
-      "transcript_cues": null,
+      "lines": [],
+      "lines_timed": false,
       "transcript_lang": null,
       "unknown_lemmas": [],
       "coverage_band": null
+    }
+  },
+  "watch_study": {
+    "l1_language": "fa",
+    "video": {
+      "video_id": 44,
+      "youtube_id": "aqz-KE-bpKQ",
+      "title": "A sitcom scene",
+      "duration_s": 48,
+      "accent": "american",
+      "track": "life",
+      "resume_position_s": 0,
+      "completed": false,
+      "transcript_available": true,
+      "transcript": ">> HEY, ROSS! IS THAT A MASTODON? [laughter] >> it's a model of one. we found it in the museum's basement. >> I told Ross it would never fit through the front door. >> so what's its nickname? [laughter] we call it Epoch. >> Epoch? like a period of time? exactly, a very long one. >> you know what, it suits him. he's been in that basement forever. >> can we move it this weekend? I'll need at least four people. >> four people and a very big van. [door slams] was that the manager? >> no, that was the wind. relax. okay. I'm relaxed. I'm totally relaxed. >> you don't look relaxed at all. that's because I'm standing next to a mastodon.",
+      "lines": [
+        {
+          "start": 0.0,
+          "end": 3.1,
+          "text": "Hey, Ross! Is that a mastodon? [laughter]"
+        },
+        {
+          "start": 3.1,
+          "end": 7.4,
+          "text": "it's a model of one. we found it in the museum's basement."
+        },
+        {
+          "start": 7.4,
+          "end": 11.6,
+          "text": "I told Ross it would never fit through the front door."
+        },
+        {
+          "start": 11.6,
+          "end": 13.4,
+          "text": "so what's its nickname?"
+        },
+        {
+          "start": 13.4,
+          "end": 16.1,
+          "text": "[laughter] we call it Epoch."
+        },
+        {
+          "start": 16.1,
+          "end": 18.3,
+          "text": "Epoch? like a period of time?"
+        },
+        {
+          "start": 18.3,
+          "end": 21.0,
+          "text": "exactly, a very long one."
+        },
+        {
+          "start": 21.0,
+          "end": 22.9,
+          "text": "you know what, it suits him."
+        },
+        {
+          "start": 22.9,
+          "end": 26.0,
+          "text": "he's been in that basement forever."
+        },
+        {
+          "start": 26.0,
+          "end": 27.8,
+          "text": "can we move it this weekend?"
+        },
+        {
+          "start": 27.8,
+          "end": 30.6,
+          "text": "I'll need at least four people."
+        },
+        {
+          "start": 30.6,
+          "end": 33.0,
+          "text": "four people and a very big van."
+        },
+        {
+          "start": 33.0,
+          "end": 35.8,
+          "text": "[door slams] was that the manager?"
+        },
+        {
+          "start": 35.8,
+          "end": 37.6,
+          "text": "no, that was the wind. relax."
+        },
+        {
+          "start": 37.6,
+          "end": 40.9,
+          "text": "okay. I'm relaxed. I'm totally relaxed."
+        },
+        {
+          "start": 40.9,
+          "end": 42.8,
+          "text": "you don't look relaxed at all."
+        },
+        {
+          "start": 42.8,
+          "end": 46.0,
+          "text": "that's because I'm standing next to a mastodon."
+        }
+      ],
+      "lines_timed": true,
+      "transcript_lang": "en",
+      "unknown_lemmas": [
+        "basement",
+        "mastodon",
+        "nickname"
+      ],
+      "coverage_band": "in"
+    }
+  },
+  "watch_untimed": {
+    "l1_language": "fa",
+    "video": {
+      "video_id": 45,
+      "youtube_id": "aqz-KE-bpKQ",
+      "title": "A sitcom scene",
+      "duration_s": 48,
+      "accent": "american",
+      "track": "life",
+      "resume_position_s": 0,
+      "completed": false,
+      "transcript_available": true,
+      "transcript": ">> HEY, ROSS! IS THAT A MASTODON? [laughter] >> it's a model of one. we found it in the museum's basement. >> I told Ross it would never fit through the front door. >> so what's its nickname? [laughter] we call it Epoch. >> Epoch? like a period of time? exactly, a very long one. >> you know what, it suits him. he's been in that basement forever. >> can we move it this weekend? I'll need at least four people. >> four people and a very big van. [door slams] was that the manager? >> no, that was the wind. relax. okay. I'm relaxed. I'm totally relaxed. >> you don't look relaxed at all. that's because I'm standing next to a mastodon.",
+      "lines": [
+        {
+          "start": null,
+          "end": null,
+          "text": "Hey, Ross!"
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "Is that a mastodon?"
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "[laughter]"
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "it's a model of one."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "we found it in the museum's basement."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "I told Ross it would never fit through the front door."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "so what's its nickname?"
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "[laughter] we call it Epoch."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "Epoch?"
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "like a period of time?"
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "exactly, a very long one."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "you know what, it suits him."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "he's been in that basement forever."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "can we move it this weekend?"
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "I'll need at least four people."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "four people and a very big van."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "[door slams] was that the manager?"
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "no, that was the wind."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "relax."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "okay."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "I'm relaxed."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "I'm totally relaxed."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "you don't look relaxed at all."
+        },
+        {
+          "start": null,
+          "end": null,
+          "text": "that's because I'm standing next to a mastodon."
+        }
+      ],
+      "lines_timed": false,
+      "transcript_lang": "en",
+      "unknown_lemmas": [
+        "basement",
+        "mastodon",
+        "nickname"
+      ],
+      "coverage_band": "in"
     }
   },
   "week_sunday": {

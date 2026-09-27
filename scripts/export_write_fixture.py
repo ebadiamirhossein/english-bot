@@ -205,6 +205,83 @@ def _watch() -> dict:
     return WatchOut(l1_language="fa", video=sessions.video_payload(None, 3, video)).model_dump(mode="json")
 
 
+#: W31b — a study-screen video. **Synthesised, Friends-SHAPED and nobody's
+#: subtitles (#175)**: rolling cues whose overlap is in `duration` only, `>>`
+#: turns, sound tags and a shouted ALL-CAPS line with names (C1), long enough
+#: that the line list has to scroll.
+STUDY_CUES = [
+    (">> HEY, ROSS! IS THAT A", 0.0, 2.6),
+    ("MASTODON? [laughter]", 1.9, 2.4),
+    (">> it's a model of one. we found", 3.1, 2.8),
+    ("it in the museum's basement.", 4.8, 2.5),
+    (">> I told Ross it would never fit", 7.4, 2.6),
+    ("through the front door.", 9.3, 2.2),
+    (">> so what's its nickname?", 11.6, 2.3),
+    ("[laughter] we call it Epoch.", 13.4, 2.6),
+    (">> Epoch? like a period of time?", 16.1, 2.7),
+    ("exactly, a very long one.", 18.3, 2.4),
+    (">> you know what, it suits him.", 21.0, 2.5),
+    ("he's been in that basement forever.", 22.9, 2.8),
+    (">> can we move it this weekend?", 26.0, 2.4),
+    ("I'll need at least four people.", 27.8, 2.6),
+    (">> four people and a very big van.", 30.6, 2.7),
+    ("[door slams] was that the manager?", 33.0, 2.5),
+    (">> no, that was the wind. relax.", 35.8, 2.4),
+    ("okay. I'm relaxed. I'm totally relaxed.", 37.6, 2.9),
+    (">> you don't look relaxed at all.", 40.9, 2.5),
+    ("that's because I'm standing next to a mastodon.", 42.8, 3.2),
+]
+
+#: The words this fixture's learner does not know — the highlight set.
+STUDY_UNKNOWN = frozenset({"mastodon", "epoch", "nickname", "basement"})
+
+
+def _watch_study() -> dict:
+    """W31b: a video with a transcript and cues, through the ONE assembler
+    (`sessions.assemble_video_payload`) and the real `core.video.lines`.
+
+    **The coverage report is computed without a database** — the real
+    `compute_coverage` over the transcript, with every lemma known except
+    `STUDY_UNKNOWN` — because the ledger is the only part of the payload that
+    needs Postgres, and the exporter touches none."""
+    from core.lexicon.coverage import compute_coverage
+
+    cues = [{"text": t, "start": a, "duration": d} for t, a, d in STUDY_CUES]
+    text = " ".join(c["text"] for c in cues)
+    everything = compute_coverage(text, frozenset(), ledger={}, vocabulary=frozenset())
+    known = frozenset(everything.unknown_lemmas) - STUDY_UNKNOWN
+    report = compute_coverage(text, known, ledger={}, vocabulary=frozenset())
+    video = TodayVideo(
+        assignment_id=2, video_id=44, youtube_id="aqz-KE-bpKQ", title="A sitcom scene",
+        duration_s=48, accent="american", track="life", transcript=text,
+        transcript_cues=cues, transcript_lang="en", captions_kind="generated",
+        resume_position_s=0, completed_at=None,
+    )
+    return WatchOut(
+        l1_language="fa", video=sessions.assemble_video_payload(video, report)
+    ).model_dump(mode="json")
+
+
+def _watch_untimed() -> dict:
+    """W31b: the same text with NO cues — the third state: untimed lines."""
+    body = _watch_study()
+    from core.lexicon.coverage import compute_coverage
+
+    video = TodayVideo(
+        assignment_id=3, video_id=45, youtube_id="aqz-KE-bpKQ", title="A sitcom scene",
+        duration_s=48, accent="american", track="life", transcript=body["video"]["transcript"],
+        transcript_cues=None, transcript_lang="en", captions_kind="generated",
+        resume_position_s=0, completed_at=None,
+    )
+    text = body["video"]["transcript"]
+    everything = compute_coverage(text, frozenset(), ledger={}, vocabulary=frozenset())
+    known = frozenset(everything.unknown_lemmas) - STUDY_UNKNOWN
+    report = compute_coverage(text, known, ledger={}, vocabulary=frozenset())
+    return WatchOut(
+        l1_language="fa", video=sessions.assemble_video_payload(video, report)
+    ).model_dump(mode="json")
+
+
 def bodies() -> dict:
     return {
         "auth": Session(
@@ -217,6 +294,9 @@ def bodies() -> dict:
         "keep_going_sunday": KeepGoingOut(options=["watch"]).model_dump(mode="json"),
         "keep_going_none": KeepGoingOut(options=[]).model_dump(mode="json"),
         "watch": _watch(),
+        # W31b — the study screen: timed lines, and the untimed third state.
+        "watch_study": _watch_study(),
+        "watch_untimed": _watch_untimed(),
         # W24e — Sunday's home, week one: `empty`, so the report renders its one
         # line and no number, and keep going is the only offer below it (R1).
         "week_sunday": WeekOut(

@@ -913,6 +913,23 @@ def rows_needing_cues(conn) -> list[tuple[int, str, str]]:
         return [(int(r[0]), str(r[1]), str(r[2])) for r in cur.fetchall()]
 
 
+def cues_for_report(conn, video_id: int) -> dict[str, Any] | None:
+    """One video's stored cues and caption kind, for `core.video.lines --report`.
+
+    **W31b, read-only.** The operator's three-video check (Q2) runs this on the
+    host; it reads two columns and writes nothing. `None` for no such video.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            "SELECT captions_kind, transcript_cues FROM videos WHERE id = %s",
+            (video_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {"captions_kind": row[0], "transcript_cues": row[1]}
+
+
 def record_cues(conn, *, video_id: int, cues: Any, text: str) -> bool:
     """The backfill's write. **Gated on the same identity check as the fetch.**
 

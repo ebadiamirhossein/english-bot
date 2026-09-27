@@ -52,12 +52,34 @@
  * **NO COVERAGE PERCENTAGE EXISTS ON THIS SCREEN AND NONE CAN.** The server
  * sends a band token or nothing; the number never leaves `packages/core`
  * (#288, #334, #330).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * **W31b — THE STUDY SCREEN.** The operator used `/watch` on 2026-09-27 and could
+ * not learn from it (one wall of text, nothing synced, subtitles gone in
+ * YouTube's fullscreen). The reference named was Trancy / Language Reactor, so:
+ *
+ * - **the line being spoken, large, directly under the player**, with the one
+ *   before and after dimmed (`SubtitleBlock`); the whole transcript below as a
+ *   **list of lines** (`LineList`, the ruling on #397), active line highlighted
+ *   and scrolled into view inside the list, a line's time seeks to it;
+ * - **YouTube's own fullscreen is off (`fs: 0`) and video plays inline
+ *   (`playsinline: 1`)** — in YouTube's fullscreen, or iPhone's native player,
+ *   our line is gone. **Focus** fills the screen with the player and the line
+ *   instead: the Fullscreen API on our own wrapper where the browser allows it,
+ *   a fixed full-viewport layout where it does not (iPhone Safari);
+ * - **pause to read**: on a desktop pointer, hovering the current-line block —
+ *   and only that block (C5) — pauses; leaving resumes if the hover paused it.
+ *   A word tap pauses on any device;
+ * - **loop the line** (Q3) on the derived line's bounds; 0.75× stays
+ *   whole-player (YouTube has one rate per player).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { VIDEO } from "@/components/session/copy";
-import { Transcript } from "@/components/video/transcript";
+import { LineList } from "@/components/video/line-list";
+import { activeLineIndex } from "@/components/video/lines";
+import { SubtitleBlock } from "@/components/video/subtitle-block";
 import { Button } from "@/components/ui/button";
 import {
   ApiError,
@@ -110,8 +132,21 @@ const TAP_COPY: Record<TapOutcome, string> = {
  */
 const PING_SECONDS = 15;
 
-/** Whole-video playback rates. **Not per-line — that needs timings (R12).** */
+/** Whole-video playback rates. **YouTube has one rate per player**, so a slow
+ * line is 0.75× together with Loop line (W31b, Q3). */
 const RATES = [1, 0.75] as const;
+
+/** `YT.PlayerState.PLAYING`. */
+const PLAYING = 1;
+
+/** A desktop pointer: hover means something. Touch screens pause on tap. */
+function canHoverPause(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(hover: hover) and (pointer: fine)").matches
+  );
+}
 
 /**
  * How often the highlight re-reads the player clock. Four times a second: fast
@@ -131,6 +166,10 @@ type Player = {
   getCurrentTime: () => number;
   setPlaybackRate: (rate: number) => void;
   destroy: () => void;
+  pauseVideo: () => void;
+  playVideo: () => void;
+  seekTo: (seconds: number, allowSeekAhead: boolean) => void;
+  getPlayerState: () => number;
 };
 
 declare global {
@@ -289,6 +328,14 @@ export function VideoPlayer({
         cc_load_policy: 0,
         rel: 0,
         modestbranding: 1,
+        // **W31b: YouTube's own fullscreen is OFF, and video plays inline.** In
+        // YouTube's fullscreen — or iPhone Safari's native player, which is
+        // what a missing `playsinline` gives — our subtitle line is not on the
+        // screen, which is what the operator found on 2026-09-27. Focus (below)
+        // is the full screen that keeps it.
+        fs: 0,
+        playsinline: 1,
+        origin: typeof window === "undefined" ? undefined : window.location.origin,
       },
     });
     return () => {
@@ -311,20 +358,49 @@ export function VideoPlayer({
   }, [ready, payload.youtube_id, payload.resume_position_s, ping]);
 
 
-  const cues = payload.transcript_cues ?? undefined;
+  const lines = payload.lines;
+  const timed = payload.lines_timed && lines.length > 0;
+  const unknown = useMemo(
+    () => new Set(payload.unknown_lemmas.map((w) => w.toLowerCase())),
+    [payload.unknown_lemmas],
+  );
+  const active = timed ? activeLineIndex(lines, positionS) : null;
+
+  /** W31b, Q3: the line being looped, or null. A ref too, for the clock. */
+  const [loopIndex, setLoopIndex] = useState<number | null>(null);
+  const loopRef = useRef<number | null>(null);
+  loopRef.current = loopIndex;
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
 
   useEffect(() => {
     // **Only a READY player has a clock** (W31a). The effect re-runs when
     // readiness changes, so a video change — whose cleanup sets it false —
     // clears this interval before the old player is destroyed, and the new
     // one's starts only at the new `onReady`.
-    if (!cues?.length || !playerReady) return;
+    if (!timed || !playerReady) return;
     const timer = setInterval(() => {
       const current = player.current;
-      if (current) setPositionS(current.getCurrentTime());
+      if (!current) return;
+      const t = current.getCurrentTime();
+      const looping = loopRef.current;
+      if (looping !== null) {
+        const line = linesRef.current[looping];
+        if (line && line.start !== null && line.end !== null && t >= line.end) {
+          current.seekTo(line.start, true);
+          setPositionS(line.start);
+          return;
+        }
+      }
+      setPositionS(t);
     }, HIGHLIGHT_MS);
     return () => clearInterval(timer);
-  }, [cues, playerReady]);
+  }, [timed, playerReady]);
+
+  useEffect(() => {
+    // A new video is a new set of lines: whatever was looping is gone.
+    setLoopIndex(null);
+  }, [payload.video_id]);
 
   useEffect(() => {
     const timer = setInterval(() => void ping(), PING_SECONDS * 1000);
@@ -333,17 +409,119 @@ export function VideoPlayer({
     return () => clearInterval(timer);
   }, [ping]);
 
+  const seek = useCallback((seconds: number) => {
+    if (!readyRef.current) return;
+    player.current?.seekTo(seconds, true);
+    setPositionS(seconds);
+  }, []);
+
+  // ── pause to read (W31b) ──────────────────────────────────────────────────
+  /** True when the pause was ours, so leaving resumes only what hover paused. */
+  const pausedByHover = useRef(false);
+  const pauseIfPlaying = useCallback((): boolean => {
+    const current = player.current;
+    if (!readyRef.current || !current) return false;
+    if (current.getPlayerState() !== PLAYING) return false;
+    current.pauseVideo();
+    return true;
+  }, []);
+  const onHoverStart = useCallback(() => {
+    if (!canHoverPause()) return;
+    pausedByHover.current = pauseIfPlaying() || pausedByHover.current;
+  }, [pauseIfPlaying]);
+  const onHoverEnd = useCallback(() => {
+    if (!canHoverPause()) return;
+    if (pausedByHover.current && readyRef.current) player.current?.playVideo();
+    pausedByHover.current = false;
+  }, []);
+  const onLineWordTap = useCallback(
+    (word: string) => {
+      // **A tap pauses, on every device** — the learner stopped to look at a
+      // word. On a desktop the hover has usually paused already.
+      pauseIfPlaying();
+      onWordTap(word);
+    },
+    [onWordTap, pauseIfPlaying],
+  );
+
+  // ── Focus (W31b) ──────────────────────────────────────────────────────────
+  const root = useRef<HTMLDivElement | null>(null);
+  /** `native`: the Fullscreen API on our wrapper. `fixed`: a full-viewport
+   * layout, where the browser has no element fullscreen (iPhone Safari). */
+  const [focus, setFocus] = useState<"off" | "native" | "fixed">("off");
+
+  const enterFocus = useCallback(() => {
+    const el = root.current as
+      | (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void })
+      | null;
+    if (!el) return;
+    const doc = document as Document & { webkitFullscreenEnabled?: boolean };
+    const request = el.requestFullscreen ?? el.webkitRequestFullscreen;
+    const enabled = doc.fullscreenEnabled ?? doc.webkitFullscreenEnabled ?? false;
+    if (!request || !enabled) {
+      setFocus("fixed");
+      return;
+    }
+    Promise.resolve(request.call(el))
+      .then(() => setFocus("native"))
+      .catch(() => setFocus("fixed"));
+  }, []);
+
+  const exitFocus = useCallback(() => {
+    const doc = document as Document & { webkitExitFullscreen?: () => void };
+    if (document.fullscreenElement) {
+      void (document.exitFullscreen?.() ?? doc.webkitExitFullscreen?.());
+    }
+    setFocus("off");
+  }, []);
+
+  useEffect(() => {
+    // The browser's own exit (Esc, a swipe) ends native focus too.
+    const sync = () => {
+      if (!document.fullscreenElement) setFocus((f) => (f === "native" ? "off" : f));
+    };
+    document.addEventListener("fullscreenchange", sync);
+    document.addEventListener("webkitfullscreenchange", sync);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener("webkitfullscreenchange", sync);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (focus !== "fixed") return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFocus("off");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [focus]);
+
+  const focused = focus !== "off";
   const band = payload.coverage_band;
+  const hasText = payload.transcript_available && lines.length > 0;
 
   return (
-    <div className="space-y-4" data-testid="video-player">
+    <div
+      ref={root}
+      data-testid="video-player"
+      data-focus={focus}
+      className={
+        focused
+          ? "fixed inset-0 z-50 flex h-[100dvh] w-full flex-col justify-center gap-3 overflow-hidden bg-background p-3"
+          : "space-y-4"
+      }
+    >
       {/* **The chip is BEFORE the player** — the row's criterion is "coverage
           badge shown before play", and a difficulty read after watching is not
           a decision aid. Absent when the server withheld it (#330), and its
-          absence is silent: there is no "we can't tell you" line, because that
-          would be a message about our instrument dressed as a message about
-          the video. */}
-      {band ? (
+          absence is silent. Hidden in Focus, which is for watching. */}
+      {band && !focused ? (
         <p
           className="text-sm text-muted-foreground"
           data-testid="coverage-band"
@@ -353,14 +531,35 @@ export function VideoPlayer({
         </p>
       ) : null}
 
-      <div className="aspect-video w-full overflow-hidden rounded-lg bg-muted">
+      <div className={focused ? "flex min-h-0 shrink items-center justify-center" : ""}>
         <div
-          ref={mount}
-          className="h-full w-full"
-          data-testid="player-mount"
-          data-player-ready={playerReady ? "true" : "false"}
-        />
+          className="mx-auto aspect-video w-full overflow-hidden rounded-lg bg-muted"
+          style={focused ? { width: "min(100%, calc((100dvh - 14rem) * 16 / 9))" } : undefined}
+        >
+          <div
+            ref={mount}
+            className="h-full w-full"
+            data-testid="player-mount"
+            data-player-ready={playerReady ? "true" : "false"}
+          />
+        </div>
       </div>
+
+      {timed ? (
+        <SubtitleBlock
+          lines={lines}
+          active={active}
+          unknown={unknown}
+          onWordTap={onLineWordTap}
+          onHoverStart={onHoverStart}
+          onHoverEnd={onHoverEnd}
+          large={focused}
+        />
+      ) : focused ? (
+        <p className="text-center text-sm text-muted-foreground" data-testid="no-timed">
+          {VIDEO.study.noTimed}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         {RATES.map((option) => (
@@ -377,9 +576,31 @@ export function VideoPlayer({
             {option}×
           </Button>
         ))}
+        {timed ? (
+          <Button
+            size="sm"
+            variant={loopIndex !== null ? "default" : "outline"}
+            data-testid="loop-line"
+            className="min-h-11 lg:min-h-8"
+            aria-pressed={loopIndex !== null}
+            disabled={loopIndex === null && active === null}
+            onClick={() => setLoopIndex((current) => (current === null ? active : null))}
+          >
+            {loopIndex !== null ? VIDEO.study.loopOn : VIDEO.study.loop}
+          </Button>
+        ) : null}
+        <Button
+          size="sm"
+          variant="outline"
+          className="ml-auto min-h-11 lg:min-h-8"
+          data-testid={focused ? "focus-exit" : "focus-enter"}
+          onClick={focused ? exitFocus : enterFocus}
+        >
+          {focused ? VIDEO.study.focusExit : VIDEO.study.focus}
+        </Button>
       </div>
 
-      {completed ? (
+      {completed && !focused ? (
         <p className="text-sm text-muted-foreground" data-testid="video-watched">
           {VIDEO.watched}
         </p>
@@ -396,14 +617,13 @@ export function VideoPlayer({
         </p>
       ) : null}
 
-      {payload.transcript_available && payload.transcript ? (
-        <Transcript
-          onWordTap={onWordTap}
-          text={payload.transcript}
-          unknownLemmas={payload.unknown_lemmas}
-          language={payload.transcript_lang ?? "en"}
-          cues={cues}
-          positionS={cues?.length ? positionS : undefined}
+      {focused ? null : hasText ? (
+        <LineList
+          lines={lines}
+          active={active}
+          unknown={unknown}
+          onWordTap={onLineWordTap}
+          onSeek={timed ? seek : undefined}
         />
       ) : (
         // **#335 on the screen.** The video plays; only the follow-along text
