@@ -26,7 +26,9 @@ import { defineConfig, type Project } from "@playwright/test";
  */
 
 export const API = "http://api.e2e.test";
-const PORT = 3100;
+// W24c: overridable, because a port another local project holds made a run
+// race two servers (2026-09-27). The default is unchanged.
+const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 const phone = { width: 390, height: 768 }; // 812 − 44 status bar
 const keyboard = { width: 390, height: 477 }; // 768 − 291 keyboard (`1j`)
