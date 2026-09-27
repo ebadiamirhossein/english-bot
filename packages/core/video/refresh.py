@@ -20,11 +20,20 @@ projection useless exactly when it matters -- the first run.
 
 There is no `--dry` flag, matching every other CLI in this repository: dry is
 what happens when you pass nothing.
+
+**W24r (D): `run_scheduled` IS `--live --apply` FOR THE WORKER.** The weekly
+`refresh_videos` job calls `_live` -- the same function this CLI's `--live
+--apply` calls, the same purge, the same coverage recompute -- with a fixed
+`now`, at most `AUTO_TRANSCRIPT_CEILING` transcripts, and the printout captured
+rather than logged. A billed run the system makes on a schedule, on the
+operator's ruling of 2026-09-27 (an exception to #196, scoped to that job).
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import logging
 import sys
 from datetime import datetime, timezone
@@ -49,6 +58,14 @@ DEFAULT_PER_CHANNEL = 15
 #: Transcripts fetched in one run. A ceiling on the bill, and on the blast
 #: radius of a bad run.
 DEFAULT_TRANSCRIPT_LIMIT = 40
+#: W24r (D). The hard ceiling on one scheduled run, whatever a caller asks for:
+#: the operator ruled the weekly job on a measured cost under $1 a run at 40.
+AUTO_TRANSCRIPT_CEILING = 40
+
+
+class RefreshFailed(Exception):
+    """A scheduled refresh that could not run. The message carries the exit
+    code only -- never the captured printout, which names videos."""
 
 
 def _fmt_usd(amount: float) -> str:
@@ -293,11 +310,59 @@ def _dry(pool, args) -> int:
     return 0
 
 
-def _live(settings, pool, args) -> int:
-    """Poll YouTube (quota only), then price or fetch the transcript step."""
+def run_scheduled(settings, *, now: datetime, limit: int = AUTO_TRANSCRIPT_CEILING) -> dict[str, int]:
+    """The worker's weekly refresh: `--live --apply`, the same code, unattended.
+
+    **Billed** (Apify), at most `AUTO_TRANSCRIPT_CEILING` transcripts however
+    large ``limit`` is. ``now`` stamps every row and dates the 30-day purge.
+    `_live`'s printout is captured and dropped -- the worker logs one line of
+    counts (CLAUDE.md §5: no titles) -- and a run that cannot start (no keys,
+    no channel file) raises `RefreshFailed` so `run_job` reports it to Sentry.
+
+    Returns the pool's counts by status after the run, plus what this run did:
+    ``stored``, ``channels_failed`` and ``purged``.
+    """
+    from core.db import connection
+    from core.services import video as svc
+    from core.video import channels as channel_file
+
+    try:
+        pool = channel_file.load(None)
+    except channel_file.ChannelFileError as exc:
+        raise RefreshFailed("the channel pool file could not be read") from exc
+    if not pool.channels:
+        raise RefreshFailed("no usable channel in the pool file")
+    args = argparse.Namespace(
+        per_channel=DEFAULT_PER_CHANNEL,
+        limit=min(limit, AUTO_TRANSCRIPT_CEILING),
+        dump=None,
+        apply=True,
+    )
+    report: dict[str, int] = {}
+    with contextlib.redirect_stdout(io.StringIO()):
+        code = _live(settings, pool, args, now=now, report=report)
+    if code != 0:
+        raise RefreshFailed(f"the refresh exited {code}")
+    with connection() as conn:
+        counts = svc.pool_counts(conn)
+    return {
+        **{status: counts.get(status, 0) for status in ("ok", "pending", "failed", "unavailable")},
+        **report,
+    }
+
+
+def _live(settings, pool, args, *, now: datetime | None = None,
+          report: dict[str, int] | None = None) -> int:
+    """Poll YouTube (quota only), then price or fetch the transcript step.
+
+    ``now`` and ``report`` are W24r's, for `run_scheduled`: the CLI passes
+    neither and reads the wall clock, as it always did.
+    """
     from core.db import connection
     from core.services import video as svc
     from core import video_api
+
+    report = {} if report is None else report
 
     if not settings.youtube_api_key:
         print("YOUTUBE_API_KEY is not set. It lives on production only.")
@@ -306,7 +371,7 @@ def _live(settings, pool, args) -> int:
         print("APIFY_TOKEN is not set. It lives on production only.")
         return 1
 
-    now = datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)
     listed: list[tuple[str, object]] = []
     failures: list[str] = []
 
@@ -334,6 +399,7 @@ def _live(settings, pool, args) -> int:
         for meta in metas.values():
             listed.append((channel, meta))
 
+    report["channels_failed"] = len(failures)
     if failures:
         print(f"\n{len(failures)} channel(s) failed and are listed above.")
 
@@ -527,6 +593,7 @@ def _live(settings, pool, args) -> int:
                     )
                     print(f"  ! {row.youtube_id}  -> {status}: {outcome}")
             conn.commit()
+            report["stored"] = ok
             print(f"  {ok} transcript(s) stored.")
             if cues_refused:
                 # **NAMED, NOT SUMMED INTO A SUCCESS COUNT.** These rows have a
@@ -545,6 +612,8 @@ def _live(settings, pool, args) -> int:
         degraded = _recompute_coverage(conn, svc)
         purge = svc.purge_stale(conn, now=now)
         conn.commit()
+        report.setdefault("stored", 0)
+        report["purged"] = purge.purged
         print(
             f"\nPurge: {purge.purged} row(s) past {svc.RETENTION_DAYS} days had "
             f"their metadata and transcript nulled ({purge.scanned} scanned).\n"

@@ -249,3 +249,16 @@ def test_malformed_json_is_an_error_naming_the_file(tmp_path: Path) -> None:
     with pytest.raises(ChannelFileError) as exc:
         load(path)
     assert str(path) in str(exc.value)
+
+
+def test_an_empty_channel_is_not_polled_and_its_removal_is_recorded() -> None:
+    """W24r (D), #464: `@ModernFamily` still resolves, to the id this file held
+    (`UCv-nYBrZesbMKctb8hWFeMA`), and holds no video — its uploads playlist
+    404'd on the host's refresh and its public feed has no entry. Kept, the
+    weekly job would poll it for nothing, unattended. **Red before the removal**
+    (the committed pool loaded it)."""
+    pool = load(COMMITTED)
+    assert "@ModernFamily" not in {c.handle for c in pool.channels}
+    assert "UCv-nYBrZesbMKctb8hWFeMA" not in {c.channel_id for c in pool.channels}
+    removed = "\n".join(json.loads(COMMITTED.read_text(encoding="utf-8"))["_REMOVED_2026_09_27"])
+    assert "UCv-nYBrZesbMKctb8hWFeMA" in removed and "doesn't have any content" in removed

@@ -223,7 +223,14 @@
     "  entry. Stated here rather than discovered from the assignments.",
     "",
     "  WHAT THIS DOES NOT DO: it does not make the pool authentic speech.",
-    "  Sitcoms are SCRIPTED conversation. #314 is unchanged."
+    "  Sitcoms are SCRIPTED conversation. #314 is unchanged.",
+    "",
+    "  loadable 2026-09-27 (W24r): 12 of 12 -- life 7 / curiosity 4 / work 1",
+    "                              = 58.3 / 33.3 / 8.3",
+    "  @ModernFamily REMOVED (see _REMOVED_2026_09_27): the channel is empty.",
+    "  AGAINST 50/30/20: life +8.3, curiosity +3.3, WORK -11.7. Work was short",
+    "  before and is shorter now; the removal is not a reason to add a channel",
+    "  nobody has looked up."
   ],
   "channels": [
     {
@@ -328,15 +335,6 @@
       "accent_provenance": "AUTHORED BY CLAUDE 2026-09-01, NOT BY WATCHING -- THE FOURTH AND FIFTH ENTRY ON THIS WEAKER FOOTING. A single-country production is evidence ABOUT the channel, not somebody hearing it: an American sitcom is cast and shot in the United States, so what the learner hears is American. That is the same class of inference as #316's three and it is recorded as weaker rather than presented as done. The channel TITLE was verified by the operator at resolution -- that confirms WHICH channel this is, not what it sounds like. See _ACCENT_PROVENANCE and #316.",
       "track": "life",
       "why": "#329's ruling, 2026-09-01. Scripted workplace conversation: overlapping talk, interruption, sarcasm and small talk -- the register the one in-band video of six came from (Friends, 96.5%). Id resolved on production 2026-09-01 and the title read as `The Office` before it was written."
-    },
-    {
-      "handle": "@ModernFamily",
-      "channel_id": "UCv-nYBrZesbMKctb8hWFeMA",
-      "name": "Modern Family (official clips)",
-      "accent": "american",
-      "accent_provenance": "AUTHORED BY CLAUDE 2026-09-01, NOT BY WATCHING -- THE FOURTH AND FIFTH ENTRY ON THIS WEAKER FOOTING. A single-country production is evidence ABOUT the channel, not somebody hearing it: an American sitcom is cast and shot in the United States, so what the learner hears is American. That is the same class of inference as #316's three and it is recorded as weaker rather than presented as done. The channel TITLE was verified by the operator at resolution -- that confirms WHICH channel this is, not what it sounds like. See _ACCENT_PROVENANCE and #316.",
-      "track": "life",
-      "why": "#329's ruling, 2026-09-01. Domestic and family conversation, the everyday situations PRD §4.6 puts at 50% and the pool was covering with teachers describing them. Id resolved on production 2026-09-01 and the title read as `Modern Family` before it was written."
     }
   ],
   "_UNRESOLVED": [
@@ -403,5 +401,33 @@
     "",
     "SCORE ON GUESSED HANDLES: two of three. Recorded so the next person",
     "adding channels knows the hit rate rather than assuming it."
+  ],
+  "_REMOVED_2026_09_27": [
+    "@ModernFamily IS REMOVED. THE HANDLE HAS NOT MOVED -- THE CHANNEL IS EMPTY.",
+    "",
+    "THE FINDING: the host's `core.video.refresh --live` of 2026-09-27 printed",
+    "`@ModernFamily` as a failure: 404 on playlistItems. `resolve_handle` had",
+    "succeeded (it returns the uploads playlist), so the handle still resolved;",
+    "the uploads playlist behind it is what 404'd.",
+    "",
+    "THE EVIDENCE, READ 2026-09-27 BY W24r FROM THE MAC (free, keyless, public):",
+    "  https://www.youtube.com/@ModernFamily -> 200; the page's externalId is",
+    "    UCv-nYBrZesbMKctb8hWFeMA -- THE SAME ID THIS FILE HELD -- and it reads",
+    "    \"This channel doesn't have any content\".",
+    "  feeds/videos.xml?channel_id=UCv-nYBrZesbMKctb8hWFeMA -> 200, title",
+    "    `Modern Family`, ZERO <entry> elements.",
+    "  feeds/videos.xml?playlist_id=UUv-nYBrZesbMKctb8hWFeMA -> 404 -- the",
+    "    uploads playlist the refresh asked for.",
+    "So there is nothing to correct the handle TO: the id is right and holds no",
+    "video. Kept, it would spend quota every week (now unattended, W24r's weekly",
+    "job) and print the same failure. Rows already in `videos` from it (if any)",
+    "stay; the pool's purge ages them out like any other.",
+    "",
+    "THE ENTRY AS IT STOOD, for the record:",
+    "{\"handle\": \"@ModernFamily\", \"channel_id\": \"UCv-nYBrZesbMKctb8hWFeMA\", \"name\": \"Modern Family (official clips)\", \"accent\": \"american\", \"accent_provenance\": \"AUTHORED BY CLAUDE 2026-09-01, NOT BY WATCHING -- THE FOURTH AND FIFTH ENTRY ON THIS WEAKER FOOTING. A single-country production is evidence ABOUT the channel, not somebody hearing it: an American sitcom is cast and shot in the United States, so what the learner hears is American. That is the same class of inference as #316's three and it is recorded as weaker rather than presented as done. The channel TITLE was verified by the operator at resolution -- that confirms WHICH channel this is, not what it sounds like. See _ACCENT_PROVENANCE and #316.\", \"track\": \"life\", \"why\": \"#329's ruling, 2026-09-01. Domestic and family conversation, the everyday situations PRD §4.6 puts at 50% and the pool was covering with teachers describing them. Id resolved on production 2026-09-01 and the title read as `Modern Family` before it was written.\"}",
+    "",
+    "If an official Modern Family clips channel is wanted later, it comes back",
+    "as an entry with a handle somebody looked up and a title the operator read",
+    "(_RESOLUTION_2026_09_01's two-check rule), not as a guess. Filed #464."
   ]
 }

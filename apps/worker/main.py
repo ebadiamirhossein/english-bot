@@ -18,9 +18,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from apps.worker.jobs import JOBS, Job, run_job
+from apps.worker.jobs import JOBS, REFRESH_VIDEOS_TIMEZONE, Job, jobs_for, run_job
 from core import monitoring
 from core.config import ConfigError, Settings, load_settings
 from core.instance_lock import InstanceLock, InstanceLockError
@@ -55,13 +56,22 @@ def build_scheduler(jobs: tuple[Job, ...] = JOBS) -> BlockingScheduler:
     scheduler = BlockingScheduler(timezone="UTC")
     now = datetime.now(timezone.utc)
     for job in jobs:
+        # W24r: a calendar job (`refresh_videos`) fires on its crontab line and
+        # never on start-up; every other job is a poll that starts staggered.
+        timing = (
+            {"trigger": CronTrigger.from_crontab(job.cron, timezone=REFRESH_VIDEOS_TIMEZONE)}
+            if job.cron
+            else {
+                "trigger": IntervalTrigger(seconds=job.interval_seconds),
+                "next_run_time": now + timedelta(seconds=job.first_seconds),
+            }
+        )
         scheduler.add_job(
             run_job,
-            trigger=IntervalTrigger(seconds=job.interval_seconds),
             args=[job],
             id=job.name,
             name=job.name,
-            next_run_time=now + timedelta(seconds=job.first_seconds),
+            **timing,
             # One run at a time, and never a pile-up of catch-up runs after
             # the machine sleeps: every job here is a poll, so the next tick
             # does the same work as the one that was missed.
@@ -92,7 +102,7 @@ def main() -> int:
     configure_logging(replace(settings, log_file=str(worker_log_path(settings))))
     # W23. After logging, so its one line ("Monitoring on/off") reaches the log.
     monitoring.init_monitoring(settings, component="worker")
-    scheduler = build_scheduler()
+    scheduler = build_scheduler(jobs_for(settings))
     logger.info("Worker starting (lock=%s)", worker_lock_path(settings))
     try:
         scheduler.start()

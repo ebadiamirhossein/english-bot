@@ -22,6 +22,13 @@ moves them here. Resolving it from the bot's side instead would edit
 2026-09-27): registered rather than held, because the operator's ruling is the
 behaviour change the held jobs are waiting for. It shares nothing with the bot.
 
+**W24r ADDS `refresh_videos`, AND ONLY BEHIND A FLAG** (`jobs_for`): the weekly
+video refresh, Monday ~04:00 Europe/Vilnius, is a BILLED run the system makes on
+a schedule. The operator ruled it on 2026-09-27 (cost measured under $1 a run) --
+**an exception to #196's "billed runs are operator-run", scoped to this job
+only** -- and it registers only while `VIDEO_AUTO_REFRESH=1` is in `.env`, so no
+deploy can start spending by itself.
+
 **TWO JOBS THAT HAVE NEVER RUN ON PRODUCTION ARE HELD, NOT SWITCHED ON AS A
 SIDE EFFECT OF INSTALLING THE UNIT** (``HELD_JOBS``): ``assign_daily`` would
 start pre-creating tomorrow's session at night, and ``monthly_reset`` would run
@@ -40,7 +47,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from core import monitoring
-from core.config import load_settings
+from core.config import Settings, load_settings
 from core.services import push as push_service
 from core.scheduling import (
     list_candidate_users,
@@ -63,6 +70,12 @@ MAINTENANCE_POLL_SECONDS = 60 * 60
 #: W20. The reminder fires within five minutes of a learner's `morning_time` —
 #: the bot's own poll interval (`apps/bot/scheduler.py::POLL_SECONDS`).
 PUSH_POLL_SECONDS = 5 * 60
+#: W24r. `refresh_videos` runs on a calendar, not a poll: Monday 04:00 in
+#: Vilnius, where both learners are. The pool is shared, so one timezone is the
+#: right one -- unlike the per-learner jobs above.
+REFRESH_VIDEOS_CRON = "0 4 * * mon"
+REFRESH_VIDEOS_TIMEZONE = "Europe/Vilnius"
+WEEK_SECONDS = 7 * 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -75,6 +88,15 @@ class Job:
     # Seconds after start-up for the first run. Staggered so the jobs do not
     # all wake in the same second on a cold start.
     first_seconds: int
+    # W24r. A crontab line, read in `REFRESH_VIDEOS_TIMEZONE`, for the one job
+    # that runs on a calendar. When set, `interval_seconds` and `first_seconds`
+    # describe the cadence for the record and are not what schedules it.
+    cron: str | None = None
+
+
+def _now() -> datetime:
+    """The jobs' clock, one seam for a test to fix (CLAUDE.md §3 rule 6)."""
+    return datetime.now(timezone.utc)
 
 
 def streak_rollover() -> None:
@@ -249,6 +271,22 @@ def assign_video() -> None:
     )
 
 
+def refresh_videos() -> None:
+    """W24r: the weekly video refresh -- `core.video.refresh --live --apply`,
+    unattended. **BILLED** (Apify, measured under $1 a run), at most 40
+    transcripts, the same purge. Registered only behind `VIDEO_AUTO_REFRESH`.
+
+    **One line of counts, no titles** (CLAUDE.md §5). A run that cannot start
+    raises, and `run_job` sends it to Sentry as `job:refresh_videos`.
+    """
+    from core.video.refresh import run_scheduled
+
+    summary = run_scheduled(load_settings(), now=_now())
+    logger.info(
+        "refresh_videos ok %s", " ".join(f"{k}={v}" for k, v in summary.items())
+    )
+
+
 def push_poll() -> None:
     """W20: advance every learner's reminder ladder by at most one step.
 
@@ -272,6 +310,18 @@ JOBS: tuple[Job, ...] = (
     Job("push_poll", push_poll, PUSH_POLL_SECONDS, 45),
     Job("assign_video", assign_video, MAINTENANCE_POLL_SECONDS, 150),
 )
+
+#: W24r. Registered by `jobs_for` only when the flag is set.
+REFRESH_VIDEOS = Job(
+    "refresh_videos", refresh_videos, WEEK_SECONDS, 0, cron=REFRESH_VIDEOS_CRON
+)
+
+
+def jobs_for(settings: Settings) -> tuple[Job, ...]:
+    """What this worker registers: `JOBS`, plus `refresh_videos` when
+    `VIDEO_AUTO_REFRESH` is set -- the billed job is never on by default."""
+    return JOBS + ((REFRESH_VIDEOS,) if settings.video_auto_refresh else ())
+
 
 #: Built, kept, tested — and NOT registered. Each needs something before it runs
 #: on production; the reason is data so the test and the record say the same.

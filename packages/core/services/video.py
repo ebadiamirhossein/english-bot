@@ -319,9 +319,10 @@ def purge_stale(conn, *, now: datetime, days: int = RETENTION_DAYS) -> PurgeCoun
     API Data, so that clause does not reach it.
 
     A row returns to `pending`, so the next refresh re-fetches it. **A pool that
-    is not refreshed empties itself** -- there is no cron and no worker, so this
-    is a real operational consequence, and `assign` refuses loudly rather than
-    quietly assigning fewer than three.
+    is not refreshed empties itself.** *(This read "there is no cron and no
+    worker" until W24r.)* Since W24r the worker's weekly `refresh_videos` runs
+    this same purge every Monday -- while `VIDEO_AUTO_REFRESH=1` is set; without
+    it, the operator's `--live --apply` is still the only refresh.
 
     ``now`` is a parameter and not `datetime.now()` so that a test can age a row
     without waiting a month and without reading the wall clock (CLAUDE.md §3

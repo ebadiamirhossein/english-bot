@@ -134,6 +134,12 @@ class Settings:
     # publishes no output schema and so has no knowable per-video cost.
     # `codepoetry/youtube-transcript-ai-scraper` is the ruled fallback.
     apify_transcript_actor: str = "johnvc/YoutubeTranscripts"
+    # W24r (D). The worker's weekly `refresh_videos` -- `core.video.refresh
+    # --live --apply` on a schedule, BILLED -- is registered only when this is
+    # set (`VIDEO_AUTO_REFRESH=1` in `.env`). Off by default: a billed job must
+    # never start because a deploy happened (the operator's ruling of
+    # 2026-09-27, an exception to #196 scoped to this job).
+    video_auto_refresh: bool = False
     # W14 — Azure Speech pronunciation assessment. **Neither is required at
     # load**, for the reason the video keys carry: apps/api and every pure test
     # must boot without them, and the surface that needs them refuses to run
@@ -445,6 +451,13 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
             ", ".join(sorted(_RULED_TRANSCRIPT_ACTORS)),
         )
 
+    video_auto_refresh = _parse_bool(
+        "VIDEO_AUTO_REFRESH",
+        os.environ.get("VIDEO_AUTO_REFRESH", ""),
+        default=False,
+        errors=errors,
+    )
+
     operator_telegram_id = _parse_optional_int(
         "OPERATOR_TELEGRAM_ID",
         os.environ.get("OPERATOR_TELEGRAM_ID", ""),
@@ -745,6 +758,7 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         youtube_api_key=youtube_api_key,
         apify_token=apify_token,
         apify_transcript_actor=apify_transcript_actor,
+        video_auto_refresh=bool(video_auto_refresh),
         operator_telegram_id=operator_telegram_id,
         runtime_dir=runtime_dir,
         log_file=log_file,
