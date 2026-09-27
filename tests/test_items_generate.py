@@ -738,3 +738,98 @@ def test_the_dry_run_sends_nothing_and_prints_the_call_ceiling(capsys, monkeypat
     assert "the CORRECTION" in out, "item_probe.txt is not shown"
     assert "Rank the candidates, best first" in out, "item_target.txt is not shown"
     assert "Reply with ONLY this JSON object" in out
+
+
+# ── W24a: an EMPTY extra key is dropped, a non-empty one is still refused ───
+
+
+def _placement_listening_c1() -> dict:
+    """The shape the operator's 2026-09-27 run discarded 6 of 6: a C1
+    `listening_gap` whose draft carried `item_type_note: None`. The text is
+    this file's, not the model's -- the run's drafts are in its journal."""
+    return {
+        "item_type": "listening_gap",
+        "grammar_target": "modal_verb",
+        "prompt_text": "She ___ have left already, the lights are off.",
+        "answer": "must",
+        "transcript": "She must have left already, the lights are off.",
+        "explanation": "must have + past participle: a confident guess about the past.",
+        "item_type_note": None,
+    }
+
+
+def _placement_slot(item_type: str) -> Slot:
+    return Slot(index=0, item_type=item_type, target="modal_verb",
+                cohort="placement", error_type="modal_verb")
+
+
+def test_an_empty_extra_key_no_longer_throws_away_a_listening_item():
+    """**W24a, RED BEFORE THE FIX.** `item_type_note: None` cost six billed
+    listening C1 items on 2026-09-27 -- `schema_error … Extra inputs are not
+    permitted [input_value=None]`. A key that carries nothing loses nothing by
+    being dropped, so `extra="forbid"`'s reason (*"shipped without whatever it
+    was for"*) does not apply to it."""
+    from core.items.generate import _draft_to_item
+
+    item = _draft_to_item(_placement_listening_c1(), _placement_slot("listening_gap"), 0)
+    assert item.item_type == "listening_gap"
+    assert not hasattr(item, "item_type_note")
+
+
+def test_an_empty_tiles_list_on_a_cloze_is_dropped_too():
+    """**W24a, RED BEFORE THE FIX.** The launch's first sighting:
+    `w18-placement-journal.jsonl` line 4, a cloze carrying `tiles: []` --
+    `tiles` is `error_spot`'s field, and a cloze has none."""
+    from core.items.generate import _draft_to_item
+
+    draft = {
+        "item_type": "cloze_cued",
+        "prompt_text": "You ___ have told me, I'd have helped.",
+        "answer": "could",
+        "explanation": "could have: a possibility that did not happen.",
+        "tiles": [],
+        "hint": "",
+        "extra_map": {},
+    }
+    item = _draft_to_item(draft, _placement_slot("cloze_cued"), 0)
+    assert item.item_type == "cloze_cued"
+
+
+@pytest.mark.parametrize("key, value", [
+    ("tiles", ["You", "could", "have"]),
+    ("hint", "x"),
+    ("l1_gloss_note", "an invented field"),
+    ("difficulty", 0),
+    ("flag", False),
+])
+def test_a_non_empty_extra_key_is_still_refused(key, value):
+    """The invariant W24a keeps: an invented field WITH something in it fails
+    loudly. `0` and `False` are values, not emptiness."""
+    from pydantic import ValidationError
+
+    from core.items.generate import _draft_to_item
+
+    draft = {
+        "item_type": "cloze_cued",
+        "prompt_text": "You ___ have told me, I'd have helped.",
+        "answer": "could",
+        key: value,
+    }
+    with pytest.raises(ValidationError):
+        _draft_to_item(draft, _placement_slot("cloze_cued"), 0)
+
+
+def test_the_dropped_names_reach_the_journal(stub_gates):
+    """**W24a, RED BEFORE THE FIX.** The drop is recorded by NAME, never by
+    value, so a reader of the journal can count how often the model invents a
+    key without the run having thrown the item away."""
+    slots = (Slot(index=0, item_type="cloze_cued", target=UNIT_1[0], cohort="focus"),)
+    draft = _draft(0, "cloze_cued", UNIT_1[0])
+    draft["item_type_note"] = None
+    draft["tiles"] = []
+    outcomes = verify_cohort(
+        slots, [draft], unit_number=1, candidates=UNIT_1, calls=Counter()
+    )
+    assert not any("schema_error" in c for c in outcomes[0].codes), outcomes[0].codes
+    line = journal_line(outcomes[0])
+    assert line["dropped_empty_extras"] == ["item_type_note", "tiles"]

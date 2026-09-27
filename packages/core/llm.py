@@ -36,6 +36,36 @@ class LLMError(Exception):
     """Raised after retries are exhausted or on a non-retriable provider error."""
 
 
+class LLMSpendLimit(LLMError):
+    """**W24a (#458).** The provider refused because the account's money ran out.
+
+    A 400 that no retry fixes and no learner caused: the API usage limit the
+    operator sets, or a credit balance too low to call at all. On 2026-09-27 the
+    first case stopped a placement-bank run -- and because the live app shares
+    the key, every learner call was failing too, **invisibly**: `/correct`,
+    `/write` and the conversation close turn `LLMError` into a 503 or a warning,
+    and `core.monitoring.scrub_event` drops the message of anything that does
+    reach Sentry.
+
+    **A subclass, so every existing `except LLMError` still catches it**, and
+    captured ONCE where it is raised, tagged `route=llm:spend_limit`. Sentry
+    keeps the exception TYPE, so this arrives as its own issue with its own
+    alert rule, whichever caller swallowed it afterwards. The credit-balance
+    wording is included because it is the same failure for the operator --
+    money, not a request -- and would be exactly as silent.
+    """
+
+
+#: Case-insensitive markers of a money refusal in a 400's text. Matched against
+#: the SDK's whole message, which embeds the provider's error body.
+_SPEND_LIMIT_MARKERS = ("usage limits", "credit balance is too low")
+
+
+def _is_spend_limit(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _SPEND_LIMIT_MARKERS)
+
+
 def chat(
     messages: list[dict],
     *,
@@ -346,6 +376,13 @@ def _anthropic_once(
         status = exc.status_code
         if status == 429 or status >= 500:
             raise _RetriableError(f"status {status}: {exc}") from exc
+        if status == 400 and _is_spend_limit(exc):
+            spend = LLMSpendLimit(f"Anthropic API error {status}: {exc}")
+            spend.__cause__ = exc
+            from core import monitoring
+
+            monitoring.capture_exception(spend, user_id=None, route="llm:spend_limit")
+            raise spend
         raise LLMError(f"Anthropic API error {status}: {exc}") from exc
     except anthropic.APIConnectionError as exc:
         raise _RetriableError(f"connection: {exc}") from exc

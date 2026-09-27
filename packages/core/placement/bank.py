@@ -6,6 +6,8 @@ dry by default (#196).**
     python -m core.placement.bank --live --sample   # BILLED, SMALL: one grammar and one listening cohort; writes nothing
     python -m core.placement.bank --live            # BILLED: generates and gates everything; writes nothing
     python -m core.placement.bank --apply           # BILLED: writes every section, and what passed
+    python -m core.placement.bank --only listening:C1           # dry: one cell's cohorts and ceiling
+    python -m core.placement.bank --only listening:C1 --apply   # BILLED: that cell only; no free row
 
 **RULING 0.1 (build run 2): THE BANK IS GENERATED, NOT SOURCED, AND IT IS
 UNCALIBRATED.** Every row is labelled `uncalibrated` by migration 032's column
@@ -269,6 +271,39 @@ def sample(p: Plan) -> Plan:
     return Plan(cohorts=keep, held=p.held)
 
 
+#: The cells `--only` may name: the generated sections, by band. The free
+#: sections are not cells -- `--free` is their switch.
+GENERATED = ("grammar", "listening")
+
+
+def only_cell(value: str) -> tuple[str, str]:
+    """`listening:C1` -> ("listening", "C1"), or an argparse error.
+
+    **W24a.** Exact spelling, no case folding: a typo is refused rather than
+    guessed, because the next thing this value decides is what gets billed.
+    """
+    section, sep, band = value.partition(":")
+    if not sep or section not in GENERATED or band not in BANDS:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a generated cell: SECTION:BAND with SECTION in "
+            f"{', '.join(GENERATED)} and BAND in {', '.join(BANDS)}"
+        )
+    return section, band
+
+
+def only(p: Plan, cells: Sequence[tuple[str, str]]) -> Plan:
+    """The cohorts in `cells`, and no free rows. **W24a (2026-09-27).**
+
+    The operator's re-read printed one blocker -- *"NO — short listening C1 by
+    1"* -- beside a plan of ten cohorts and 148 calls. One cell costs one
+    cohort. The whole-bank readiness line still prints: it reads `held`, which
+    is kept.
+    """
+    wanted = set(cells)
+    return Plan(cohorts=[c for c in p.cohorts if (c.section, c.band) in wanted],
+                held=p.held)
+
+
 def first_sitting_cells(held: Counter) -> dict[tuple, int]:
     """The bank's totals keyed as `core.placement.readiness` reads them — what a
     learner who has sat nothing has unserved (launch 2026-09-26, B2)."""
@@ -447,6 +482,9 @@ def main(argv: list[str] | None = None) -> int:
                         "free sections untouched (the probe's live half)")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--journal", type=Path, default=DEFAULT_JOURNAL)
+    parser.add_argument("--only", type=only_cell, action="append", metavar="SECTION:BAND",
+                        help="only this generated cell, e.g. listening:C1 (repeatable); "
+                        "no free rows")
     args = parser.parse_args(argv)
     if args.live and args.apply:
         parser.error("--live and --apply are exclusive")
@@ -454,13 +492,21 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--free bills nothing, so there is nothing for --live to do")
     if args.sample and (args.free or args.apply):
         parser.error("--sample is a look, not a write: use it with --live or alone")
+    if args.only and (args.free or args.sample):
+        parser.error("--only names generated cells: it does not combine with --free or --sample")
     logging.basicConfig(level=logging.INFO)  # #140
 
     settings = load_settings()
     p = plan(FREE if args.free else SECTIONS)
     if args.sample:
         p = sample(p)
+    if args.only:
+        p = only(p, args.only)
     ceiling = dry_print(p, settings=settings, journal_path=args.journal)
+    if args.only and not p.cohorts:
+        cells = ", ".join(f"{s} {b}" for s, b in args.only)
+        print(f"\nnothing is short in {cells} — nothing to send.")
+        return 0
     if not (args.live or args.apply):
         print("\ndry run — nothing was sent and nothing was written.")
         return 0

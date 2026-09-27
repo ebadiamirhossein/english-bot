@@ -104,9 +104,28 @@ than saying so.
 
 ---
 
+## Phase E2 — Keep going (added 2026-09-27)
+
+**Operator decisions of 2026-09-27, planned in W24's plan and approved with rulings R1–R12** (`BUILD_PROGRESS.md`, decisions log): the app always offers something optional to do once the session is done; a video every day (PRD §4.2, §7 and §7.4 amended); the W13d pictures actually appear; more input and more speaking. **Built back to back in one session, W24a → W24c → W24d → W24e; W24b is the operator's; W24f is deferred (R8).**
+
+| # | Slice | Mode | Build | Accept |
+|---|---|---|---|---|
+| **W24** | Keep going — the umbrella row | **PLAN** | Split into the six rows below at planning time. **Nothing is built under this ID itself.** | Every sub-row's own criterion; the operator's phone read of the finished-session choice. |
+| **W24a** | The bank fix, `--only`, the spend-limit alarm, the 2026-09-27 record | AGENT | An extra key whose value is empty (`None`, `""`, `[]`, `{}`) is dropped before the strict schema and named in the journal; a non-empty one is still refused. `core.placement.bank --only SECTION:BAND`, dry by default, ceiling printed and typed back. `LLMSpendLimit(LLMError)` captured once per occurrence as its own Sentry issue (#458). No schema change. | The listening C1 cell fills on the host for about 20 calls and the dry run prints *"a first sitting can be offered now: yes"*; a spend-limit event appears in Sentry as its own issue the next time one happens (not provable on demand). |
+| **W24b** | Pictures: propose, read, load | **operator** | **No code.** A host read lists the nouns in the learners' cards and the placement vocabulary; Claude Code picks 60–100 picturable ones and runs the Commons proposer (free); the operator reads the contact sheet and appends the lines they approve to `data/lexeme_images.tsv`; the host loads them. #451 ruled: credit links to the Commons page, no printed title (R10). | Approved pictures show on the cards they belong to, after the reveal, with the credit visible — on the operator's phone. |
+| **W24c** | Desktop width and type scale | AGENT | At ≥1024 px only: the shell widens from 32rem to 42rem and the root type scales 112.5%. Single column; D12 stands (R5). Phone baselines are committed **before** the CSS change. | The phone baselines pass unchanged after the change; the desktop reads well to the operator. |
+| **W24d** | A daily video | AGENT | Video every day of the week (R3) instead of Mon/Wed/Fri; a per-day assignment the worker makes nightly; **daily when available — never a repeat, never below band.** A second, `extra` assignment per day becomes possible for W24e (a migration, number taken when its file is written). | A Tuesday session shows a video when the pool holds one in band; with none, block 2 is empty and nothing repeats. |
+| **W24e** | Keep going | AGENT | After the session is finished (derived from the blocks, never from `sessions.completed`) and on Sunday, an optional choice of the things that are actually available: watch another video, talk, a few more due cards, write a few lines. Sunday is watch-only (R1). No count, no score, no backlog, no "should". | The choice appears when the session is finished, each option opens, and a capped or empty option is simply absent. |
+| **W24f** | Picture drill — **DEFERRED (R8)** | — | Filed, not built. The plan's text: *"Hear or see the word → pick the picture: 4 approved pictures, 1 correct, distractors are other approved pictures; optionally picture → type the word. Only lemmas with an approved picture that sit in the learner's deck; the credit stays under each picture. Lives in 'keep going', not in Review. 0 billed, no journal, no migration, no write."* Reconsidered after pictures are loaded and used for a week. | — |
+| **W25** | Web settings (#454) | **PLAN** | Reminder time, pause, interests and track weights, explanation language — a settings screen over the existing setters — and the operator's approve / decline / revoke (#97) on `/admin`. (f), what drives `users.cefr_level` after the bot, is a ruling first. **Runs after W24 and before W22's deploy (R12).** | Each setting changes from the web and the worker honours it; W22's gate item #454 is met. |
+
+---
+
 ## Phase F — Later (only after B2)
 
-**W23a** Ad-hoc "what does this mean?" surface with register tagging (PRD §8.5.6, ports v2 M11) · **W24** Multi-tenancy · **W25** Payments · **W26** Landing page + funnel · **W27** Series/watch-together in-app · **W28** Native wrapper if PWA limits bite.
+**W23a** Ad-hoc "what does this mean?" surface with register tagging (PRD §8.5.6, ports v2 M11) · **W29** Multi-tenancy · **W30** Payments · **W26** Landing page + funnel · **W27** Series/watch-together in-app · **W28** Native wrapper if PWA limits bite.
+
+*Renumbered 2026-09-27 by operator ruling R6 (W24a), not deleted — #82's shape. The line read "**W24** Multi-tenancy · **W25** Payments". **W24 and W25 are now taken by the keep-going slice and the web settings slice (Phase E2 below), so the two later IDs moved to W29 and W30.** W26–W28 are unchanged: W27 is cited by name in the PRD and in W11's row (*watch-together is W27*), and moving an ID that nothing collides with would break those citations for no gain. The known issues that targeted multi-tenancy as W24 (#106, #128, #382, #405) are retargeted to W29 in the same commit.*
 
 ---
 

@@ -351,3 +351,64 @@ def test_every_capitalised_word_is_in_the_pool_it_guards() -> None:
     from core.placement.targets import CAPITALISED_IN_USE
 
     assert CAPITALISED_IN_USE <= _pool_from_disk()
+
+
+# ── W24a: `--only SECTION:BAND` — one cell for ~20 calls instead of 148 ──────
+#
+# **RED BEFORE THE FIX (2026-09-27): `--only` did not exist, so argparse
+# refused it (`SystemExit`) and every test below failed.** The C1 cell is the
+# one the operator's re-read printed as the only blocker: *"NO — short
+# listening C1 by 1"*, with `cohorts: 10` and `at most: 148` for the whole plan.
+
+
+def test_only_listening_c1_plans_one_cohort_and_prints_its_ceiling(
+        capsys, empty_bank, tmp_path) -> None:
+    """Dry, on the empty dev bank: one listening C1 cohort of six
+    `listening_gap` slots, whose ceiling is **20** -- worked by hand in
+    `test_the_ceiling_is_itemised_from_the_slots` (1 + 1 + 2 × 6 + 6), not
+    derived from `calls_for`. No free row: `--only` names generated cells."""
+    assert build.main(["--only", "listening:C1", "--journal", str(tmp_path / "j.jsonl")]) == 0
+    out = capsys.readouterr().out
+    assert "cohorts: 1" in out
+    assert "calls --live will make, at most: 20" in out
+    assert "rows the free sections would write: 0" in out
+    assert "=== BILLED cohort 1: listening C1, 6 slots ===" in out
+    assert "listening A2" not in out.split("=== BILLED", 1)[1]
+    assert "dry run — nothing was sent and nothing was written." in out
+
+
+def test_only_apply_asks_for_the_filtered_ceiling(capsys, empty_bank, monkeypatch, tmp_path) -> None:
+    """The typed-back number is the ONE cell's ceiling, not the whole plan's."""
+    prompts: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda p: prompts.append(p) or "no")
+    assert build.main(["--only", "listening:C1", "--apply",
+                       "--journal", str(tmp_path / "j.jsonl")]) == 1
+    assert prompts == ["This makes up to 20 billed calls. Type 20 to continue, "
+                       "anything else to stop: "]
+
+
+@pytest.mark.parametrize("bad", ["listening", "listening:C2", "speaking:B1",
+                                 "vocabulary:A1", "Listening:C1", "grammar:c1"])
+def test_only_refuses_a_cell_that_is_not_generated(bad) -> None:
+    with pytest.raises(SystemExit):
+        build.main(["--only", bad])
+
+
+def test_only_refuses_free_and_sample() -> None:
+    with pytest.raises(SystemExit):
+        build.main(["--only", "listening:C1", "--free"])
+    with pytest.raises(SystemExit):
+        build.main(["--only", "listening:C1", "--sample"])
+
+
+def test_only_on_a_full_cell_sends_nothing(capsys, monkeypatch, tmp_path) -> None:
+    """A cell with nothing short prints so and never reaches the confirm."""
+    grammar_only = build.Plan(
+        cohorts=build._generated_plan("grammar", Counter(), ()), held=Counter())
+    monkeypatch.setattr(build, "plan", lambda sections=build.SECTIONS: grammar_only)
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("asked to confirm nothing"))
+    assert build.main(["--only", "listening:C1", "--apply",
+                       "--journal", str(tmp_path / "j.jsonl")]) == 0
+    out = capsys.readouterr().out
+    assert "nothing is short in listening C1 — nothing to send." in out
+    assert "cohorts: 0" in out

@@ -190,6 +190,7 @@ from core.items.schema import (
     BaseItem,
     constraint_block,
     contract_block,
+    empty_extras,
     parse,
 )
 from core.runs import band, confirm
@@ -687,6 +688,11 @@ class Outcome:
     #: gate REFUSED; `--report` prints it as data and nothing may treat it as an
     #: item or as an instruction (CLAUDE.md §6). Trimmed by `_trim_draft`.
     rejected_draft: dict | None = None
+    #: **W24a.** Keys the model added that its item type does not declare and
+    #: whose value was EMPTY -- dropped before `parse`, recorded here by NAME
+    #: only, never by value. A non-empty invented key still ends the slot as
+    #: `schema_error`; see `core.items.schema.empty_extras`.
+    dropped_empty_extras: tuple[str, ...] = ()
 
     @property
     def accepted(self) -> bool:
@@ -808,6 +814,17 @@ def _draft_to_item(raw: dict, slot: Slot, unit_number: int) -> BaseItem:
 
     if answer is not None and not draft.get("accepted_variants"):
         draft["accepted_variants"] = list(normalise_variants(answer))
+
+    # **W24a: an extra key that carries NOTHING is dropped, not refused.**
+    # Names only in the log (CLAUDE.md §5: no bodies), and a non-empty extra
+    # still reaches `parse` and fails there.
+    dropped = empty_extras(draft)
+    if dropped:
+        for key in dropped:
+            del draft[key]
+        logger.info(
+            "dropped empty extra keys %s on a %s draft", list(dropped), slot.item_type,
+        )
     return parse(draft)
 
 
@@ -975,7 +992,10 @@ def verify_cohort(
                 _discard(slot, unit_number, "runner", f"runner_error: {exc}"[:200])
             )
             continue
-        outcomes.append(Outcome(slot=slot, unit_number=unit_number, item=item))
+        outcomes.append(Outcome(
+            slot=slot, unit_number=unit_number, item=item,
+            dropped_empty_extras=empty_extras({**raw, "item_type": slot.item_type}),
+        ))
         survivors.append((len(outcomes) - 1, item))
 
     # --- stage 1: every free gate, for all survivors, before anything is billed
@@ -1128,6 +1148,7 @@ def journal_line(outcome: Outcome) -> dict:
         "target_runner_up": None if target is None else target.runner_up,
         "target_confidence": None if target is None else target.confidence,
         "rejected_draft": outcome.rejected_draft,
+        "dropped_empty_extras": list(outcome.dropped_empty_extras),
         "coverage_pct": outcome.coverage_pct,
         "coverage_unknown": list(outcome.coverage_unknown),
         "back_translation": outcome.back_translation,

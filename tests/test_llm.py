@@ -412,3 +412,69 @@ def test_json_mode_never_ends_on_assistant(
             call.kwargs["messages"][-1]["role"] == "assistant"
             and call.kwargs["messages"][-1].get("content") == "{"
         )
+
+
+# ── W24a / #458: a spend-limit 400 is its own error and its own Sentry issue ──
+#
+# **RED BEFORE THE FIX (2026-09-27): `LLMSpendLimit` did not exist**, so the
+# import failed and every test below errored. The text is the operator's
+# paste of the first `bank --apply` that stopped on it; the live app shares
+# that key, so every learner LLM call was failing -- and nothing told anyone,
+# because `/correct`, `/write` and the conversation close swallow `LLMError`
+# into 503s and `scrub_event` drops the message of the ones that do escape.
+
+SPEND_LIMIT_TEXT = (
+    "You have reached your specified API usage limits. "
+    "You will regain access on 2026-10-01 at 00:00 UTC."
+)
+
+
+def _bad_request(message: str) -> anthropic.BadRequestError:
+    response = MagicMock()
+    response.status_code = 400
+    response.headers = {}
+    return anthropic.BadRequestError(
+        message=f"Error code: 400 - {{'type': 'error', 'error': {{'type': "
+        f"'invalid_request_error', 'message': '{message}'}}}}",
+        response=response,
+        body={"type": "error",
+              "error": {"type": "invalid_request_error", "message": message}},
+    )
+
+
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
+def test_a_spend_limit_is_raised_as_its_own_error_and_captured_once(
+    mock_anthropic_cls: MagicMock, mock_sleep: MagicMock
+) -> None:
+    from core.llm import LLMSpendLimit
+
+    client = mock_anthropic_cls.return_value
+    client.messages.create.side_effect = _bad_request(SPEND_LIMIT_TEXT)
+    with patch("core.monitoring.capture_exception") as capture:
+        with pytest.raises(LLMSpendLimit) as raised:
+            chat([{"role": "user", "content": "hi"}], settings=_settings())
+    assert isinstance(raised.value, LLMError), "every `except LLMError` must still catch it"
+    assert client.messages.create.call_count == 1, "a spend limit is not retried"
+    mock_sleep.assert_not_called()
+    assert capture.call_count == 1
+    (exc,), kwargs = capture.call_args
+    assert isinstance(exc, LLMSpendLimit)
+    assert kwargs == {"user_id": None, "route": "llm:spend_limit"}
+
+
+@patch("core.llm.time.sleep", return_value=None)
+@patch("core.llm.anthropic.Anthropic")
+def test_an_ordinary_400_is_a_plain_llm_error_and_not_captured(
+    mock_anthropic_cls: MagicMock, mock_sleep: MagicMock
+) -> None:
+    from core.llm import LLMSpendLimit
+
+    client = mock_anthropic_cls.return_value
+    client.messages.create.side_effect = _bad_request(
+        "messages: text content blocks must be non-empty")
+    with patch("core.monitoring.capture_exception") as capture:
+        with pytest.raises(LLMError) as raised:
+            chat([{"role": "user", "content": "hi"}], settings=_settings())
+    assert not isinstance(raised.value, LLMSpendLimit)
+    capture.assert_not_called()

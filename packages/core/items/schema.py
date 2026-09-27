@@ -13,6 +13,14 @@ repetitive lines and its failure mode is a silently-ignored key.
 `extra="forbid"` everywhere is load-bearing. A generator that invents a field —
 `"hint"`, `"difficulty"` — must fail loudly here rather than have the field
 dropped on the floor and the item shipped without whatever it was for.
+
+**W24a (2026-09-27) narrows what counts as "invented" by exactly one case: an
+extra key whose value is EMPTY** — `None`, `""`, `[]` or `{}`. It carried
+nothing, so dropping it cannot ship an item without whatever it was for, and
+refusing it had cost six billed listening C1 items in one run
+(`item_type_note: None`) and a cloze before that (`tiles: []`). `empty_extras`
+names them; the caller drops and logs them by NAME. **A non-empty extra is
+still refused here**, and `0` and `False` are values, not emptiness.
 """
 
 from __future__ import annotations
@@ -297,6 +305,27 @@ _PROMOTED = frozenset(
         "unit_number",
     }
 )
+
+
+def _is_empty(value: object) -> bool:
+    if value is None:
+        return True
+    return isinstance(value, (str, list, tuple, dict)) and len(value) == 0
+
+
+def empty_extras(raw: dict) -> tuple[str, ...]:
+    """Keys of `raw` its item type does not declare AND whose value is empty.
+
+    W24a. Declared means a field name or either of its aliases. An unknown
+    `item_type` names nothing: `parse` refuses that on its own terms.
+    """
+    model = MODEL_FOR_TYPE.get(raw.get("item_type"))  # type: ignore[arg-type]
+    if model is None:
+        return ()
+    known: set[str] = set()
+    for name, field in model.model_fields.items():
+        known.update(k for k in (name, field.alias, field.serialization_alias) if k)
+    return tuple(k for k, v in raw.items() if k not in known and _is_empty(v))
 
 
 def parse(raw: dict) -> BaseItem:
