@@ -37,6 +37,10 @@ EXPECTED_JOBS = {
     # The bot's own poll interval: the reminder lands within five minutes of a
     # learner's `morning_time`.
     "push_poll": 300,
+    # W24d (operator decision 2, R3): a video every day, assigned for each
+    # learner's LOCAL today. Hourly for `assign_daily`'s reason below. **Red
+    # before W24d registered it** (the registered set lacked it).
+    "assign_video": 3600,
 }
 
 # name -> interval in seconds, for the jobs kept and NOT registered.

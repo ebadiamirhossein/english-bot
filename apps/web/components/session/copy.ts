@@ -76,7 +76,13 @@ export const BLOCKS = {
     //
     // **No backlog and no yesterday** (CLAUDE.md \u00a74): it does not say a video
     // was missed, count what was not watched, or mention another day by name.
-    empty: "No video today. There\u2019ll be one on Monday, Wednesday and Friday.",
+    //
+    // **W24d (2026-09-27): A VIDEO EVERY DAY, WHEN THE POOL HAS ONE.** The line
+    // read *"No video today. There\u2019ll be one on Monday, Wednesday and
+    // Friday."* until operator decision 2 made video daily. A day with no video
+    // is now one the pool could not serve in band and unseen, so no day can be
+    // promised -- not a weekday, not tomorrow. It points at what always counts.
+    empty: "No video today \u2014 anything you enjoy watching in English counts just as much.",
   },
   focus: {
     eyebrow: "Focus",

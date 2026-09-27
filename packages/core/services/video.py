@@ -478,6 +478,25 @@ def current_unit(conn, user_id: int) -> int | None:
     return int(row[0]) if row else None
 
 
+def learner_timezones(conn) -> list[tuple[int, str]]:
+    """``(users.id, timezone)`` for every approved, onboarded learner. **W24d.**
+
+    The worker's daily assignment needs each learner's LOCAL date, so it needs
+    the timezone beside the id; `approved_onboarded_users` is the same predicate
+    every other scheduled pass uses (`core.scheduling.list_candidate_users`),
+    with the same `Europe/Vilnius` default.
+    """
+    rows = conn.execute(
+        "SELECT id, COALESCE(timezone, 'Europe/Vilnius') AS tz "
+        "FROM approved_onboarded_users ORDER BY id"
+    ).fetchall()
+    out = []
+    for row in rows:
+        values = tuple(row.values()) if isinstance(row, dict) else tuple(row)
+        out.append((int(values[0]), str(values[1])))
+    return out
+
+
 def onboarded_user_ids(conn) -> list[int]:
     """The learners coverage is computed for.
 
@@ -539,7 +558,9 @@ def seen_video_ids(conn, user_id: int) -> frozenset[int]:
         return frozenset(int(row[0]) for row in cur.fetchall())
 
 
-def assigned_dates(conn, user_id: int, dates: Sequence[date]) -> set[date]:
+def assigned_dates(
+    conn, user_id: int, dates: Sequence[date], *, kind: str = "daily"
+) -> set[date]:
     """Which of these dates already hold an assignment, so a re-run is a no-op.
 
     The unique index would refuse a duplicate anyway; asking first is what lets
@@ -552,9 +573,9 @@ def assigned_dates(conn, user_id: int, dates: Sequence[date]) -> set[date]:
         cur.execute(
             """
             SELECT assigned_for FROM video_assignments
-             WHERE user_id = %s AND assigned_for = ANY(%s)
+             WHERE user_id = %s AND assigned_for = ANY(%s) AND kind = %s
             """,
-            (user_id, list(dates)),
+            (user_id, list(dates), kind),
         )
         return {row[0] for row in cur.fetchall()}
 
@@ -566,8 +587,13 @@ def assign_video(
     video_id: int,
     assigned_for: date,
     score_breakdown: Mapping[str, Any],
+    kind: str = "daily",
 ) -> int:
     """Write one assignment. **`completed_at` is deliberately not written here.**
+
+    **W24d: `kind` is `daily` (block 2) or `extra` (keep going's watch-another,
+    W24e)** -- migration 034 allows one of each per date. Whichever it is, the
+    row is *seen* from then on: `seen_video_ids` reads every kind.
 
     Assigning a video does not complete it, and that separation is what
     `tests/test_video_service.py::test_assigning_a_video_does_not_complete_it`
@@ -577,11 +603,11 @@ def assign_video(
         cur.execute(
             """
             INSERT INTO video_assignments (user_id, video_id, assigned_for,
-                                           score_breakdown)
-            VALUES (%s, %s, %s, %s::jsonb)
+                                           score_breakdown, kind)
+            VALUES (%s, %s, %s, %s::jsonb, %s)
             RETURNING id
             """,
-            (user_id, video_id, assigned_for, json.dumps(dict(score_breakdown))),
+            (user_id, video_id, assigned_for, json.dumps(dict(score_breakdown)), kind),
         )
         return int(cur.fetchone()[0])
 
@@ -675,14 +701,20 @@ class TodayVideo:
     completed_at: datetime | None
 
 
-def today_for(conn, user_id: int, *, on: date) -> TodayVideo | None:
+def today_for(
+    conn, user_id: int, *, on: date, kind: str = "daily"
+) -> TodayVideo | None:
     """This learner's assigned video for one date, or None.
 
-    **None is the ordinary state on four days in seven.** PRD §7.1 puts curated
-    video on Monday, Wednesday and Friday; the Tuesday/Thursday series episodes
-    are the import path and are not this table's. So a `None` here is *no video
-    today*, never a failure, and block 2 renders it `empty` -- a fact computed
-    after a successful read, which is `BLOCK_STATES`' own distinction.
+    **None is *no video today*, never a failure**, and block 2 renders it
+    `empty` -- a fact computed after a successful read, which is `BLOCK_STATES`'
+    own distinction. *(W24d, 2026-09-27: this read "**None is the ordinary state
+    on four days in seven.** PRD §7.1 puts curated video on Monday, Wednesday and
+    Friday" until operator decision 2 made video daily. None is now the state of
+    a day the pool had nothing in band and unseen for -- daily when available.)*
+
+    **`kind` (W24d, migration 034):** block 2 reads `daily`; W24e's keep-going
+    reads the day's `extra`.
     """
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
@@ -693,9 +725,9 @@ def today_for(conn, user_id: int, *, on: date) -> TodayVideo | None:
                    a.completed_at
               FROM video_assignments a
               JOIN videos v ON v.id = a.video_id
-             WHERE a.user_id = %s AND a.assigned_for = %s
+             WHERE a.user_id = %s AND a.assigned_for = %s AND a.kind = %s
             """,
-            (user_id, on),
+            (user_id, on, kind),
         )
         row = cur.fetchone()
     if row is None:
@@ -775,7 +807,7 @@ def save_progress(
                        ELSE completed_at
                    END
              WHERE user_id = %s AND video_id = %s
-            RETURNING assigned_for
+            RETURNING assigned_for, kind
             """,
             (position, complete, now, user_id, video_id),
         )
@@ -785,7 +817,7 @@ def save_progress(
         # into a 404 rather than a silent success -- a ping that wrote nothing
         # and said it wrote something is the shape #298 spent a whole row on.
         return None
-    return today_for(conn, user_id, on=updated[0])
+    return today_for(conn, user_id, on=updated[0], kind=updated[1])
 
 
 def watched_video_ids(conn, user_id: int) -> frozenset[int]:

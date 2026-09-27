@@ -18,6 +18,10 @@ four overlapping jobs (``streak_rollover``, ``monthly_freeze_reset``,
 moves them here. Resolving it from the bot's side instead would edit
 ``apps/bot/scheduler.py``, which stays byte-identical until W22.
 
+**W24d ADDS `assign_video`** (a video every day, operator decision 2 of
+2026-09-27): registered rather than held, because the operator's ruling is the
+behaviour change the held jobs are waiting for. It shares nothing with the bot.
+
 **TWO JOBS THAT HAVE NEVER RUN ON PRODUCTION ARE HELD, NOT SWITCHED ON AS A
 SIDE EFFECT OF INSTALLING THE UNIT** (``HELD_JOBS``): ``assign_daily`` would
 start pre-creating tomorrow's session at night, and ``monthly_reset`` would run
@@ -222,6 +226,29 @@ def assign_daily() -> None:
     logger.info("assign_daily ok users=%s", created)
 
 
+def assign_video() -> None:
+    """W24d: give every learner their day's video, if the pool has one for them.
+
+    **Operator decision 2 of 2026-09-27 (a video every day) and R3 (Sunday
+    too).** Each learner's LOCAL today, idempotently: a day that has its video is
+    left alone, and a day the pool cannot serve -- nothing in band and unseen --
+    stays without one and is tried again next hour. **Never a repeat, never below
+    band** (`core.video.assign.choose`). No model, no network, no billed call:
+    coverage is computed locally over stored transcripts.
+
+    **Registered, not held (unlike `assign_daily`),** because the operator's
+    ruling is the behaviour change `HELD_JOBS` waits for. The log line carries
+    counts only (CLAUDE.md §5); `none_in_band` above zero is the pool running
+    short, and the fix is a refresh, never a wider band.
+    """
+    from core.video.assign import assign_today_for_all
+
+    report = assign_today_for_all(datetime.now(timezone.utc))
+    logger.info(
+        "assign_video ok %s", " ".join(f"{k}={v}" for k, v in report.items())
+    )
+
+
 def push_poll() -> None:
     """W20: advance every learner's reminder ladder by at most one step.
 
@@ -243,6 +270,7 @@ def push_poll() -> None:
 #: (#69); `tests/test_backup_r2.py` asserts the intersection is empty.
 JOBS: tuple[Job, ...] = (
     Job("push_poll", push_poll, PUSH_POLL_SECONDS, 45),
+    Job("assign_video", assign_video, MAINTENANCE_POLL_SECONDS, 150),
 )
 
 #: Built, kept, tested — and NOT registered. Each needs something before it runs

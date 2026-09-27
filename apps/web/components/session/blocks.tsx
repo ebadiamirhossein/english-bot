@@ -110,9 +110,10 @@ export function ReviewBlock({
  * Block 2 · Input. **W13-i fills it. It has been empty since W10 (#302).**
  *
  * **The empty state changed meaning rather than going away.** It used to say the
- * video side was not built; it now says there is no video *on this day* — PRD
- * §7.1 assigns video on Monday, Wednesday and Friday, so four days in seven have
- * none and that is the ordinary state. **No backlog and no yesterday**
+ * video side was not built; it now says there is no video *on this day*. **W24d:
+ * video is daily when the pool has one in band and unseen** (it read *"PRD §7.1
+ * assigns video on Monday, Wednesday and Friday, so four days in seven have none
+ * and that is the ordinary state"* until 2026-09-27). **No backlog and no yesterday**
  * (CLAUDE.md §4): it never says a video was missed.
  *
  * **A purged transcript keeps this block `ready` and not `unavailable` (#335).**

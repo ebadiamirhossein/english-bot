@@ -1233,8 +1233,10 @@ def _input_block(
 
     **THREE STATES, AND THEY ARE THREE FACTS THE LEARNER CAN ONLY SEE ONE OF:**
 
-    * **no row for today** -> `empty`. PRD §7.1 assigns video on Mon/Wed/Fri, so
-      this is the ordinary state on most days and nothing failed.
+    * **no row for today** -> `empty`. Since W24d video is daily when the pool
+      has one in band and unseen, so this is a day the pool could not serve and
+      nothing failed. *(Read "PRD §7.1 assigns video on Mon/Wed/Fri, so this is
+      the ordinary state on most days" until 2026-09-27.)*
     * **a row whose `transcript` is NULL** -> `ready`, with
       `transcript_available: false`. **#335.** The 30-day purge nulls the
       transcript and returns the row to `pending`; nothing coordinates it with

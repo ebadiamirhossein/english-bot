@@ -86,8 +86,9 @@ def today(
     without re-hydrating five blocks. **It has a caller**: the player polls it
     after a progress write to confirm what was stored.
 
-    404 when nothing is assigned for the learner's date. That is the ordinary
-    state on four days in seven (PRD §7.1 is Mon/Wed/Fri) and the client reads
+    404 when nothing is assigned for the learner's date -- since W24d, a day the
+    pool had nothing in band and unseen for (it read *"the ordinary state on four
+    days in seven (PRD §7.1 is Mon/Wed/Fri)"* until video became daily). The client reads
     it as *no video today*, never as a failure -- block 2 says the same thing
     with `empty`.
     """

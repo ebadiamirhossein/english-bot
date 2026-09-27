@@ -228,6 +228,8 @@ The app opens on **one button: Start today's session.** Not a menu. The single b
 
 Sunday being empty is deliberate and non-negotiable: input you enjoy without a task attached is a requirement of the method, not a reward.
 
+**AMENDED 2026-09-27 (W24d) — A VIDEO EVERY DAY. Operator decision 2 of 2026-09-27, with ruling R3; the rows above are kept as written (#82's shape) and this paragraph governs where they disagree.** The **video** in Mon / Wed / Fri's rows is now **every day's**: block 2 carries a video on every day of the week, Tuesday, Thursday and Saturday included, **when the pool holds one in the learner's coverage band that they have not been given before — never a repeat, never below band; a day with none shows block 2 empty and names no other day.** Tuesday's and Thursday's *series episode* is W27's and is unbuilt, so those days' input is the video until it exists. **Sunday is unchanged in what it asks — nothing**: its video is assigned too (R3) but is reachable only through *practise anyway* and the optional *keep going* choice (W24e, R1: on Sunday that choice is watch-only), which is this row's own *free extensive input, tracked but never required*. The output column is unchanged.
+
 ### 4.3 The item quality gate — **fixes the bug you reported**
 
 Your example:
@@ -347,7 +349,7 @@ Output of the test: CEFR level, vocabulary size, per-skill radar (listening / re
 
 ## 7. Video engine — the input pillar
 
-Three curated videos a week (Mon/Wed/Fri) plus two series episodes (Tue/Thu).
+~~Three curated videos a week (Mon/Wed/Fri) plus two series episodes (Tue/Thu).~~ **A curated video every day, when the pool has one in band and unseen (amended 2026-09-27, W24d — see §4.2's amendment); the Tue/Thu series episodes are W27's and unbuilt.**
 
 ### 7.1 Sources and how each is legally handled
 
@@ -397,7 +399,7 @@ Hard requirements carried from v2's M16: prefer human-written captions over auto
 
 ### 7.4 The weekly assignment
 
-Videos are *assigned*, not browsed. Mon/Wed/Fri the session opens with today's video already chosen. Browsing a library is a decision, and decisions are where sessions die.
+Videos are *assigned*, not browsed. ~~Mon/Wed/Fri~~ **Every day (W24d, 2026-09-27)** the session opens with today's video already chosen. Browsing a library is a decision, and decisions are where sessions die. **The *keep going* choice after a finished session (W24e, R2) keeps this rule: "watch another" is assigned by the same selection score, never a library to browse.**
 
 ---
 

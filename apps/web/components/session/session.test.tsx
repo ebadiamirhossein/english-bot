@@ -289,7 +289,8 @@ describe("the remaining blocks", () => {
    * **AMENDED AT W13-i, AND THE OLD NAME IS QUOTED (#82's shape):** *"says the
    * video side is not built rather than hiding the block."* The block is built;
    * what it now reports is that **this day** has no video, which is the ordinary
-   * state on four days in seven (PRD §7.1 is Mon/Wed/Fri).
+   * state on four days in seven (PRD §7.1 is Mon/Wed/Fri) — until W24d, which
+   * made video daily when the pool has one; the empty day is now the pool's.
    *
    * **The assertion that mattered survives unchanged**: the block is RENDERED
    * rather than hidden. A four-block session would say the product has four.
