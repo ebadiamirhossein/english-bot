@@ -338,7 +338,7 @@ Yes, this is possible, and doing it properly is what makes progress measurable.
 
 1. **Vocabulary size (3 min).** Yes/No lexical decision test: 60 items, 40 real words sampled across frequency bands + 20 pseudowords. Score corrected for false alarms. Outputs an estimated vocabulary size ±300 words. Cheap, fast, validated in the literature, and it seeds the known-word ledger immediately.
 2. **Grammar + usage (5 min).** 25 items adaptive over an A2–C1 bank tagged by CEFR and by the 19-type error taxonomy. Ladder: start at B1, step up on 2 consecutive correct, down on 2 wrong, stop when the band stabilises. Output: CEFR band **plus a per-error-type profile** that pre-seeds the journal with weak areas.
-3. **Listening (2 min).** 6 short clips, increasing speed and accent variety, gap-fill.
+3. **Listening (2 min).** ~~6 short clips~~ **5 short clips, A2 → B2** *(amended 2026-09-27 by W24r (C), old text quoted per #82: "6 short clips"; the operator's ruling drops listening C1 — its fast-speech target made the generator write the reduced form (*coulda*, *mighta*) into the transcript, which no transcript check can match (#463). Listening's highest band is B2)*, increasing speed and accent variety, gap-fill.
 4. **Speaking (90 s).** One prompt, free response, recorded. Scored by (a) Azure pronunciation assessment for accuracy/fluency/completeness and (b) an LLM rubric against CEFR descriptors for range, coherence, and accuracy.
 
 **Critical design constraint: the bank is authored and fixed, not generated at runtime.** Comparable scores over time are only possible if the instrument doesn't change. Re-run monthly with non-overlapping item subsets. This monthly number *is* the progress metric — it replaces "EF SET when you remember to".

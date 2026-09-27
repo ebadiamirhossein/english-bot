@@ -6,7 +6,7 @@ every cell it draws from holds, UNSERVED TO THIS LEARNER, at least:
     vocabulary, each of the ten frequency bands   REAL_PER_BAND (4)
     vocabulary, pseudo-words                      PSEUDO_PER_SITTING (20)
     grammar, each of A2 B1 B2 C1                  ladder.HOLD_ITEMS (8)
-    listening, each band, as LISTENING_ORDER      A2 1 · B1 2 · B2 2 · C1 1
+    listening, each band, as LISTENING_ORDER      A2 1 · B1 2 · B2 2 (no C1 since W24r (C))
     speaking                                      1
 
 **Why these numbers.** Vocabulary, listening and speaking are drawn whole at the
@@ -29,8 +29,10 @@ disjointly at these minimums is **not offered** — *not ready* — rather than
 served thin or served a repeat (`placement_run_items`' UNIQUE refuses a repeat
 anyway; this makes the refusal a readable state instead of a 500).
 
-**Today (the host's counts, 2026-09-26): NOT READY** — listening C1 holds 0 of
-1. Every other cell passes (grammar A2 12 is the thinnest against its 8).
+**Today (the host's counts, 2026-09-27): READY** — the only cell that was short,
+listening C1 (0 of 1), is gone (W24r (C), operator ruling: listening stops at
+B2, #463). *(Read "NOT READY — listening C1 holds 0 of 1" from 2026-09-26
+until W24r.)*
 """
 
 from __future__ import annotations

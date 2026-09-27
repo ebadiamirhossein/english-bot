@@ -200,3 +200,11 @@ def test_the_shape_rule_refuses_an_inflected_ending() -> None:
     assert not pseudowords.pronounceable("blorents")
     assert not pseudowords.pronounceable("glooom")  # three of one letter
     assert not pseudowords.pronounceable("brak")  # too short
+
+
+def test_listening_reports_at_most_b2() -> None:
+    """W24r (C), the operator's ruling: listening's highest band is B2. The
+    sitting serves no C1 clip, so the served-band cap reports at most B2 even
+    with every clip right."""
+    assert scoring.LISTENING_ORDER == ("A2", "B1", "B1", "B2", "B2")
+    assert scoring.listening_band([True] * 5, served=scoring.LISTENING_ORDER) == "B2"

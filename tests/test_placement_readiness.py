@@ -20,6 +20,10 @@ reach it (CLAUDE.md §3 rule 1):**
 User actions: the learner opens *Where to start* (`GET /placement`), taps Start
 (`POST /placement/start`), answers a sitting and reads the result.
 
+**W24r (C), 2026-09-27: listening C1 is dropped (operator ruling; #463), so the
+listening cases below name B2 — the band a sitting now tops out at — where
+they named C1; each change is noted at its test.**
+
 **RED DEMONSTRATIONS (2026-09-26, a scripted mutation each, `python -B`,
 caches cleared, source restored and re-touched):** `_ready`'s pre-B2 body put
 back (one clip of ANY band enough) → the empty-C1 and second-sitting tests red
@@ -71,21 +75,25 @@ def test_the_rule_is_the_stated_numbers() -> None:
     }
     assert {k: v for k, v in need.items() if k[0] == "listening"} == {
         ("listening", "A2"): 1, ("listening", "B1"): 2, ("listening", "B2"): 2,
-        ("listening", "C1"): 1,
     }
     assert need[("vocabulary", "pseudo")] == 20
     assert [need[("vocabulary", "real", b)] for b in range(10)] == [4] * 10
     assert need[("speaking", "any")] == 1
 
 
-def test_todays_bank_is_not_offered() -> None:
-    assert readiness.shortfall(_host_counts_2026_09_26()) == {("listening", "C1"): 1}
-    assert readiness.ready(_host_counts_2026_09_26()) is False
+def test_the_2026_09_26_bank_is_offered_once_listening_c1_is_gone() -> None:
+    """Read `shortfall(...) == {("listening", "C1"): 1}` and *not ready* until
+    W24r (C): the one cell that held the check back no longer exists."""
+    assert readiness.shortfall(_host_counts_2026_09_26()) == {}
+    assert readiness.ready(_host_counts_2026_09_26()) is True
 
 
-def test_one_c1_clip_is_enough_and_seven_a2_grammar_items_are_not() -> None:
+def test_one_b2_clip_is_not_enough_and_seven_a2_grammar_items_are_not() -> None:
+    """Read *one C1 clip is enough* until W24r (C)."""
     held = _host_counts_2026_09_26()
-    held[("listening", "C1")] = 1
+    held[("listening", "B2")] = 1
+    assert readiness.shortfall(held) == {("listening", "B2"): 1}
+    held[("listening", "B2")] = 2
     assert readiness.ready(held) is True
     held[("grammar", "A2")] = 7
     assert readiness.shortfall(held) == {("grammar", "A2"): 1}
@@ -111,8 +119,9 @@ def _remove(db, ids: list[int], section: str, cefr: str) -> None:
     db.commit()
 
 
-def test_an_empty_listening_c1_is_not_offered(app, db, bank, learners) -> None:
-    _remove(db, bank, "listening", "C1")
+def test_an_empty_listening_b2_is_not_offered(app, db, bank, learners) -> None:
+    """Named C1 until W24r (C)."""
+    _remove(db, bank, "listening", "B2")
     learner = learners()
     view = ps.call(app, "GET", "/placement", learner)
     assert view.status_code == 200
@@ -143,17 +152,18 @@ def test_a_listening_cell_emptied_under_an_open_sitting_is_never_claimed(
         app, db, bank, learners) -> None:
     learner = learners()
     step = ps.call(app, "POST", "/placement/start", learner, body={}).json()
-    _remove(db, bank, "listening", "C1")  # after the start: `_ready` held then
+    # B2, the top band since W24r (C) (C1 until then, when this read B2).
+    _remove(db, bank, "listening", "B2")  # after the start: `_ready` held then
     step = _answer_until(app, db, learner, step, "listening")
     served = []
     while step["section"] == "listening":
         served.append(ps.bank_row(db, step["item"]["id"])["cefr"])
         step = ps.answer(app, learner, step, text=ps.HEARD)
-    assert served == ["A2", "B1", "B1", "B2", "B2"]
+    assert served == ["A2", "B1", "B1"]
     step = _answer_until(app, db, learner, step, "done")
     finished = ps.call(app, "POST", "/placement/finish", learner, body={})
     assert finished.status_code == 200, finished.text
-    assert _radar(finished.json())["listening"] == "B2"
+    assert _radar(finished.json())["listening"] == "B1"
 
 
 def test_the_ladder_stepping_into_an_empty_c1_places_at_b2(app, db, bank, learners) -> None:
@@ -180,9 +190,10 @@ def test_the_ladder_stepping_into_an_empty_c1_places_at_b2(app, db, bank, learne
 
 def test_a_second_sitting_that_cannot_be_drawn_disjointly_is_not_offered(
         app, db, bank, learners) -> None:
-    """The seed holds two sittings' worth, so two C1 clips. The first sitting
-    is served one; the other is removed; a month on, the re-run finds none it
-    has not been served. **Not offered** — never a repeat, never a 500."""
+    """The seed holds two sittings' worth, so four B2 clips (two C1 clips
+    until W24r (C)). The first sitting is served two; the other two are
+    removed; a month on, the re-run finds none it has not been served. **Not
+    offered** — never a repeat, never a 500."""
     learner = learners()
     ps.run_sitting(app, db, learner)
     assert ps.call(app, "POST", "/placement/finish", learner, body={}).status_code == 200
@@ -191,8 +202,8 @@ def test_a_second_sitting_that_cannot_be_drawn_disjointly_is_not_offered(
         "finished_at = finished_at - interval '29 days' WHERE user_id = %s",
         (learner.user_id,))
     db.commit()
-    _remove(db, bank, "listening", "C1")  # removes only the unserved one
-    assert len(_ids(db, bank, "listening", "C1")) == 1  # the served one stays
+    _remove(db, bank, "listening", "B2")  # removes only the unserved two
+    assert len(_ids(db, bank, "listening", "B2")) == 2  # the served two stay
 
     view = ps.call(app, "GET", "/placement", learner).json()
     assert view["state"] == "finished"
@@ -201,3 +212,8 @@ def test_a_second_sitting_that_cannot_be_drawn_disjointly_is_not_offered(
     assert start.status_code == 409 and start.json()["detail"] == "bank_not_ready"
     assert db.execute("SELECT COUNT(*) FROM placement_runs WHERE user_id = %s",
                       (learner.user_id,)).fetchone()[0] == 1
+
+
+def test_listening_c1_has_no_minimum() -> None:
+    """W24r (C): the cell is gone, so it cannot hold the check back."""
+    assert all(cell != ("listening", "C1") for cell in readiness.minimums())

@@ -437,7 +437,7 @@ def _draw_vocabulary(conn, run_id: int, user_id: int) -> None:
 
 
 def _draw_listening(conn, run_id: int, user_id: int) -> int:
-    """Six clips in `LISTENING_ORDER`. A band with nothing unserved is skipped,
+    """The clips in `LISTENING_ORDER` (five since W24r (C); six until). A band with nothing unserved is skipped,
     never filled from another band (the order is the instrument)."""
     served = 0
     for band in LISTENING_ORDER:

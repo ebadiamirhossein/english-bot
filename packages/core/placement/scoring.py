@@ -95,15 +95,22 @@ def vocabulary_band(estimate: int | None) -> str | None:
 
 #: PRD §6: *"6 short clips, increasing"* in difficulty. The sitting serves them
 #: in this band order, so a count of right answers reads as how far up the
-#: order the learner kept up.
-LISTENING_ORDER: tuple[str, ...] = ("A2", "B1", "B1", "B2", "B2", "C1")
+#: order the learner kept up. **Five since W24r (C): the C1 clip is dropped**
+#: (operator ruling, 2026-09-27; `targets.LISTENING_BANDS`), and the order was
+#: ``("A2", "B1", "B1", "B2", "B2", "C1")`` until then.
+LISTENING_ORDER: tuple[str, ...] = ("A2", "B1", "B1", "B2", "B2")
 
 
 def listening_band(answers: Sequence[bool], *, served: Sequence[str]) -> str | None:
     """Right answers as a share of the clips served → a band.
 
-    Under a third A2, under two thirds B1, all but full B2, every one C1 — on
-    six clips: 0–1, 2–3, 4–5, 6. ``None`` when no clip was served.
+    Under a third A2, under two thirds B1, from two thirds B2 — on the five
+    clips of `LISTENING_ORDER`: 0–1 A2, 2–3 B1, 4–5 B2. ``None`` when no clip
+    was served. The share rule's *every one → C1* branch is kept for the cap
+    below to bound.
+
+    **It reports at most B2 (W24r (C)).** No C1 clip is served any more, so the
+    cap below — the highest band served — is B2 at most.
 
     **Never above the highest band a clip was served at** (``served``: each
     clip's band; launch 2026-09-26, B2). A sitting that skipped an empty C1

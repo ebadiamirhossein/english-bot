@@ -6,8 +6,8 @@ dry by default (#196).**
     python -m core.placement.bank --live --sample   # BILLED, SMALL: one grammar and one listening cohort; writes nothing
     python -m core.placement.bank --live            # BILLED: generates and gates everything; writes nothing
     python -m core.placement.bank --apply           # BILLED: writes every section, and what passed
-    python -m core.placement.bank --only listening:C1           # dry: one cell's cohorts and ceiling
-    python -m core.placement.bank --only listening:C1 --apply   # BILLED: that cell only; no free row
+    python -m core.placement.bank --only listening:B2           # dry: one cell's cohorts and ceiling
+    python -m core.placement.bank --only listening:B2 --apply   # BILLED: that cell only; no free row
 
 **RULING 0.1 (build run 2): THE BANK IS GENERATED, NOT SOURCED, AND IT IS
 UNCALIBRATED.** Every row is labelled `uncalibrated` by migration 032's column
@@ -75,6 +75,7 @@ from core.placement.targets import (
     GRAMMAR_PER_BAND,
     GRAMMAR_TARGETS,
     GRAMMAR_TYPES,
+    LISTENING_BANDS,
     LISTENING_PER_BAND,
     LISTENING_TARGETS,
     LISTENING_TYPE,
@@ -169,6 +170,8 @@ def _generated_plan(section: str, held: Counter, avoid: tuple[str, ...]) -> list
     types = GRAMMAR_TYPES if section == "grammar" else (LISTENING_TYPE,)
     cohorts: list[Cohort] = []
     for band in BANDS:
+        if band not in targets:
+            continue  # listening stops at B2 (W24r (C))
         own = targets[band]
         per_band = GRAMMAR_PER_BAND if section == "grammar" else LISTENING_PER_BAND[band]
         each = per_band // len(own)
@@ -272,8 +275,9 @@ def sample(p: Plan) -> Plan:
 
 
 #: The cells `--only` may name: the generated sections, by band. The free
-#: sections are not cells -- `--free` is their switch.
-GENERATED = ("grammar", "listening")
+#: sections are not cells -- `--free` is their switch. **Listening has no C1
+#: since W24r (C).**
+GENERATED: dict[str, tuple[str, ...]] = {"grammar": BANDS, "listening": LISTENING_BANDS}
 
 
 def only_cell(value: str) -> tuple[str, str]:
@@ -283,10 +287,10 @@ def only_cell(value: str) -> tuple[str, str]:
     guessed, because the next thing this value decides is what gets billed.
     """
     section, sep, band = value.partition(":")
-    if not sep or section not in GENERATED or band not in BANDS:
+    if not sep or section not in GENERATED or band not in GENERATED[section]:
         raise argparse.ArgumentTypeError(
-            f"{value!r} is not a generated cell: SECTION:BAND with SECTION in "
-            f"{', '.join(GENERATED)} and BAND in {', '.join(BANDS)}"
+            f"{value!r} is not a generated cell: "
+            + "; ".join(f"{s}:{'|'.join(b)}" for s, b in GENERATED.items())
         )
     return section, band
 
@@ -340,7 +344,7 @@ def dry_print(p: Plan, *, settings: Settings, journal_path: Path) -> int:
     print(f"  pseudo-words                   {p.held[('pseudo',)]:>3} of "
           f"{SITTINGS * PSEUDO_PER_SITTING}")
     for section, targets in (("grammar", GRAMMAR_TARGETS), ("listening", LISTENING_TARGETS)):
-        for band in BANDS:
+        for band in (b for b in BANDS if b in targets):
             n = sum(p.held[(section, band, code)] for code, _ in targets[band])
             want = GRAMMAR_PER_BAND if section == "grammar" else LISTENING_PER_BAND[band]
             print(f"  {section:<10} {band}                   {n:>3} of {want}")

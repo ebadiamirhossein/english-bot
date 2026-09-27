@@ -147,9 +147,10 @@ def test_a_whole_sitting_through_the_routes(app, db, bank, learners, monkeypatch
         assert ps.bank_row(db, step["item"]["id"])["cefr"] == band
         step = ps.answer(app, learner, step, text=ps.RIGHT if right else ps.WRONG)
 
-    # ── listening: six clips in rising band order; four right, two wrong → B2.
+    # ── listening: five clips in rising band order (six until W24r (C) dropped
+    # the C1 clip); four right, one wrong → 4/5 → B2.
     served_bands = []
-    for n in range(6):
+    for n in range(5):
         assert step["section"] == "listening", n
         clip = step["item"]["id"]
         served_bands.append(ps.bank_row(db, clip)["cefr"])
@@ -160,7 +161,7 @@ def test_a_whole_sitting_through_the_routes(app, db, bank, learners, monkeypatch
         step = ps.answer(app, learner, step, text=ps.HEARD if n < 4 else "does")
     assert served_bands == list(LISTENING_ORDER)
     # The clip's sentence reached the synthesiser and never the wire.
-    assert spoken == [ps.TRANSCRIPT] * 6
+    assert spoken == [ps.TRANSCRIPT] * 5
 
     # ── speaking: typed, placed by the rubric at the provider door.
     assert step["section"] == "speaking"

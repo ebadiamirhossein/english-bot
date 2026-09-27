@@ -25,7 +25,9 @@ from core.placement import BANDS
 
 #: PRD §6's per-sitting counts.
 GRAMMAR_PER_SITTING = 25
-LISTENING_PER_SITTING = 6
+#: **Five, not PRD §6's six, since W24r (C)**: the sixth clip was the C1 one,
+#: and listening C1 is dropped (operator ruling, 2026-09-27; #463).
+LISTENING_PER_SITTING = 5
 SPEAKING_PER_SITTING = 1
 
 #: **Six sittings: the six months of the program, monthly.** The bank is sized
@@ -39,7 +41,14 @@ SITTINGS = 6
 #: sittings with room; a thin band stops the ladder (`bank_thin`), it never
 #: serves off-band.
 GRAMMAR_PER_BAND = 36
-LISTENING_PER_BAND: dict[str, int] = {"A2": 6, "B1": 12, "B2": 12, "C1": 6}
+#: **Listening stops at B2 (W24r (C), operator ruling 2026-09-27).** Its C1
+#: target -- *could have* / *might have* "in fast speech" -- invited the reduced
+#: spelling (*coulda*, *mighta*) into the transcript, and no transcript check can
+#: match an answer whose point is that it is not written as spoken: the host's
+#: fill discarded 6 of 6 (#463). So there is no listening C1 cell to fill, draw
+#: or wait for.
+LISTENING_BANDS: tuple[str, ...] = ("A2", "B1", "B2")
+LISTENING_PER_BAND: dict[str, int] = {"A2": 6, "B1": 12, "B2": 12}
 
 #: The types a placement grammar item may take: one point, one answer, graded
 #: server-side by `core.items.response`. **Not** `l1_to_l2_production` (its
@@ -104,7 +113,8 @@ LISTENING_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
         ("conditional", "Listening, B2: hearing the verb form in the result half of an if-sentence"),
         ("phrasal_verb", "Listening, B2: hearing the particle of a phrasal verb"),
     ),
-    "C1": (("modal_verb", "Listening, C1: hearing could have or might have in fast speech"),),
+    # C1 is dropped (W24r (C)): its target read *"Listening, C1: hearing could
+    # have or might have in fast speech"* -- see `LISTENING_BANDS`.
 }
 
 #: **Authored for this project, one per sitting**, each pitched at a band and

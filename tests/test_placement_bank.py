@@ -359,21 +359,24 @@ def test_every_capitalised_word_is_in_the_pool_it_guards() -> None:
 # refused it (`SystemExit`) and every test below failed.** The C1 cell is the
 # one the operator's re-read printed as the only blocker: *"NO — short
 # listening C1 by 1"*, with `cohorts: 10` and `at most: 148` for the whole plan.
+# **W24r (C) dropped listening C1, so these name listening A2** — the same
+# shape (one cohort of six `listening_gap` slots, 20 calls); the tests read
+# `listening:C1` until then.
 
 
-def test_only_listening_c1_plans_one_cohort_and_prints_its_ceiling(
+def test_only_one_listening_cell_plans_one_cohort_and_prints_its_ceiling(
         capsys, empty_bank, tmp_path) -> None:
-    """Dry, on the empty dev bank: one listening C1 cohort of six
+    """Dry, on the empty dev bank: one listening A2 cohort of six
     `listening_gap` slots, whose ceiling is **20** -- worked by hand in
     `test_the_ceiling_is_itemised_from_the_slots` (1 + 1 + 2 × 6 + 6), not
     derived from `calls_for`. No free row: `--only` names generated cells."""
-    assert build.main(["--only", "listening:C1", "--journal", str(tmp_path / "j.jsonl")]) == 0
+    assert build.main(["--only", "listening:A2", "--journal", str(tmp_path / "j.jsonl")]) == 0
     out = capsys.readouterr().out
     assert "cohorts: 1" in out
     assert "calls --live will make, at most: 20" in out
     assert "rows the free sections would write: 0" in out
-    assert "=== BILLED cohort 1: listening C1, 6 slots ===" in out
-    assert "listening A2" not in out.split("=== BILLED", 1)[1]
+    assert "=== BILLED cohort 1: listening A2, 6 slots ===" in out
+    assert "listening B1" not in out.split("=== BILLED", 1)[1]
     assert "dry run — nothing was sent and nothing was written." in out
 
 
@@ -381,7 +384,7 @@ def test_only_apply_asks_for_the_filtered_ceiling(capsys, empty_bank, monkeypatc
     """The typed-back number is the ONE cell's ceiling, not the whole plan's."""
     prompts: list[str] = []
     monkeypatch.setattr("builtins.input", lambda p: prompts.append(p) or "no")
-    assert build.main(["--only", "listening:C1", "--apply",
+    assert build.main(["--only", "listening:A2", "--apply",
                        "--journal", str(tmp_path / "j.jsonl")]) == 1
     assert prompts == ["This makes up to 20 billed calls. Type 20 to continue, "
                        "anything else to stop: "]
@@ -396,9 +399,9 @@ def test_only_refuses_a_cell_that_is_not_generated(bad) -> None:
 
 def test_only_refuses_free_and_sample() -> None:
     with pytest.raises(SystemExit):
-        build.main(["--only", "listening:C1", "--free"])
+        build.main(["--only", "listening:A2", "--free"])
     with pytest.raises(SystemExit):
-        build.main(["--only", "listening:C1", "--sample"])
+        build.main(["--only", "listening:A2", "--sample"])
 
 
 def test_only_on_a_full_cell_sends_nothing(capsys, monkeypatch, tmp_path) -> None:
@@ -407,8 +410,75 @@ def test_only_on_a_full_cell_sends_nothing(capsys, monkeypatch, tmp_path) -> Non
         cohorts=build._generated_plan("grammar", Counter(), ()), held=Counter())
     monkeypatch.setattr(build, "plan", lambda sections=build.SECTIONS: grammar_only)
     monkeypatch.setattr("builtins.input", lambda _: pytest.fail("asked to confirm nothing"))
-    assert build.main(["--only", "listening:C1", "--apply",
+    assert build.main(["--only", "listening:A2", "--apply",
                        "--journal", str(tmp_path / "j.jsonl")]) == 0
     out = capsys.readouterr().out
-    assert "nothing is short in listening C1 — nothing to send." in out
+    assert "nothing is short in listening A2 — nothing to send." in out
     assert "cohorts: 0" in out
+
+
+# ── W24r (C): listening C1 dropped from the placement check (operator ruling) ─
+#
+# **Why:** on 2026-09-27 the host's `--only listening:C1 --apply` discarded all
+# six slots with `answer_not_in_transcript` + `stem_transcript_mismatch`: the
+# target asked for *could have* / *might have* "in fast speech", the generator
+# spelled the reduced form into the transcript (*mighta*, *coulda*), and no
+# transcript check can match an answer whose point is that it is not written
+# as spoken (#463). Listening's highest band is B2.
+#
+# **RED BEFORE THE CHANGE (2026-09-27):** the host's counts printed *"NO — short
+# listening C1 by 1"*; the plan held a listening C1 cohort; `listening:C1` was
+# accepted by `--only`.
+
+
+def _host_held_2026_09_27() -> Counter:
+    """The operator's `section, cefr` counts of 2026-09-27 (unchanged by the
+    C1 run, which wrote 0), keyed as `bank._held` keys them. The paste gives
+    per-band totals, so each is spread over the band's codes round-robin, the
+    way the build fills them — the readiness line sums a band's codes. Vocabulary: 240 real words (A1 26 · A2
+    46 · B1 89 · B2 79 by CEFR tag), drawn 24 per frequency band by the build;
+    120 pseudo-words; the six speaking prompts."""
+    from core.placement.targets import GRAMMAR_TARGETS, LISTENING_TARGETS, SPEAKING_PROMPTS
+
+    held: Counter = Counter()
+    for band in range(10):
+        held[("vocabulary", band)] = 24
+    held[("pseudo",)] = 120
+    for _cefr, prompt in SPEAKING_PROMPTS:
+        held[("speaking", prompt)] = 1
+    def spread(section: str, band: str, n: int, codes: list[str]) -> None:
+        for i in range(n):
+            held[(section, band, codes[i % len(codes)])] += 1
+
+    for band, n in {"A2": 27, "B1": 26, "B2": 26, "C1": 27}.items():
+        spread("grammar", band, n, [c for c, _ in GRAMMAR_TARGETS[band]])
+    for band, n in {"A2": 6, "B1": 12, "B2": 10}.items():
+        spread("listening", band, n, [c for c, _ in LISTENING_TARGETS[band]])
+    # listening C1: 0 — the cell the ruling removes.
+    return held
+
+
+def test_the_dry_run_on_the_hosts_counts_offers_a_first_sitting(capsys, tmp_path) -> None:
+    p = build.Plan(held=_host_held_2026_09_27())
+    build.dry_print(p, settings=load_settings(), journal_path=tmp_path / "j.jsonl")
+    out = capsys.readouterr().out
+    assert "  a first sitting can be offered now: yes\n" in out
+    assert "listening  C1" not in out
+
+
+def test_no_c1_listening_cohort_is_planned() -> None:
+    """Neither on an empty bank nor on the host's counts. On the host's counts
+    the only listening shortfall is B2's two (12 wanted, 10 held: 6 per target
+    wanted, 5 per target held)."""
+    empty = build._generated_plan("listening", Counter(), ())
+    assert {c.band for c in empty} == {"A2", "B1", "B2"}
+    host = build._generated_plan("listening", _host_held_2026_09_27(), ())
+    assert [(c.band, len(c.slots)) for c in host] == [("B2", 2)]
+    for cohort in empty:
+        for candidate in cohort.candidates:
+            assert "C1" not in candidate, candidate
+
+
+def test_listening_c1_is_no_longer_a_cell_only_may_name() -> None:
+    with pytest.raises(SystemExit):
+        build.main(["--only", "listening:C1"])
