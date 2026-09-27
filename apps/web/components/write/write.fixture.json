@@ -10,6 +10,7 @@
     "l1_language": "fa",
     "current_block": 4,
     "completed": false,
+    "finished": false,
     "blocks": [
       {
         "n": 1,
@@ -44,6 +45,94 @@
         "payload": {}
       }
     ]
+  },
+  "session_finished": {
+    "session_id": 90,
+    "date": "2026-09-15",
+    "l1_language": "fa",
+    "current_block": 4,
+    "completed": false,
+    "finished": true,
+    "blocks": [
+      {
+        "n": 1,
+        "kind": "review",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 2,
+        "kind": "input",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 3,
+        "kind": "focus",
+        "state": "empty",
+        "payload": {}
+      },
+      {
+        "n": 4,
+        "kind": "output",
+        "state": "done",
+        "payload": {
+          "day_kind": "journal"
+        }
+      },
+      {
+        "n": 5,
+        "kind": "close",
+        "state": "empty",
+        "payload": {}
+      }
+    ]
+  },
+  "keep_going_weekday": {
+    "options": [
+      "watch",
+      "talk",
+      "cards",
+      "write"
+    ]
+  },
+  "keep_going_sunday": {
+    "options": [
+      "watch"
+    ]
+  },
+  "keep_going_none": {
+    "options": []
+  },
+  "watch": {
+    "l1_language": "fa",
+    "video": {
+      "video_id": 41,
+      "youtube_id": "aqz-KE-bpKQ",
+      "title": "A short sitcom scene",
+      "duration_s": 212,
+      "accent": "american",
+      "track": "life",
+      "resume_position_s": 0,
+      "completed": false,
+      "transcript_available": false,
+      "transcript": null,
+      "transcript_cues": null,
+      "transcript_lang": null,
+      "unknown_lemmas": [],
+      "coverage_band": null
+    }
+  },
+  "week_sunday": {
+    "week_ending": "2026-10-04",
+    "sunday": true,
+    "days_with_a_session": 0,
+    "items_answered": 0,
+    "items_right": 0,
+    "cards_reviewed": 0,
+    "words_now_known": 0,
+    "units_passed": 0,
+    "empty": true
   },
   "today": {
     "day_kind": "journal",
@@ -122,6 +211,7 @@
     "l1_language": "fa",
     "current_block": 4,
     "completed": false,
+    "finished": false,
     "blocks": [
       {
         "n": 1,

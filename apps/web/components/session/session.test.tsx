@@ -13,6 +13,7 @@ vi.mock("@/lib/api", async () => {
   return {
     ...actual,
     getSessionToday: vi.fn(),
+    getKeepGoing: vi.fn(),
     attemptCard: vi.fn(),
     gradeCard: vi.fn(),
   };
@@ -32,6 +33,7 @@ function session(over: Partial<SessionToday> = {}): SessionToday {
     l1_language: "fa",
     current_block: 1,
     completed: false,
+    finished: false,
     blocks: [
       block({ n: 1, kind: "review", state: "empty" }),
       block({ n: 2, kind: "input", state: "empty" }),
@@ -612,3 +614,36 @@ describe("#274 — block 3 must tell the server which session it is", () => {
   });
 });
 
+
+
+/**
+ * W24e — the done state and keep going. **RED BEFORE W24e:** the runner read
+ * `completed`, which no daily session ever carries, so "Done for today." never
+ * rendered and there was no keep going to show.
+ */
+describe("keep going appears only once the session is finished (R2)", () => {
+  beforeEach(() => {
+    vi.mocked(api.getKeepGoing).mockResolvedValue({ options: ["watch", "talk", "cards", "write"] });
+  });
+
+  it("shows neither the done line nor keep going while a block is open", async () => {
+    vi.mocked(api.getSessionToday).mockResolvedValue(session());
+    render(<SessionRunner />);
+    await screen.findByTestId("session-runner");
+    expect(screen.queryByTestId("session-finished")).toBeNull();
+    expect(api.getKeepGoing).not.toHaveBeenCalled();
+  });
+
+  it("shows the done line and every offered option, as links and without a number", async () => {
+    vi.mocked(api.getSessionToday).mockResolvedValue(session({ finished: true }));
+    render(<SessionRunner />);
+    expect(await screen.findByText("Done for today.")).toBeInTheDocument();
+    const panel = await screen.findByTestId("keep-going");
+    expect(screen.getByTestId("keep-going-watch")).toHaveAttribute("href", "/watch");
+    expect(screen.getByTestId("keep-going-talk")).toHaveAttribute("href", "/talk");
+    expect(screen.getByTestId("keep-going-cards")).toHaveAttribute("href", "/review");
+    expect(screen.getByTestId("keep-going-write")).toHaveAttribute("href", "/write");
+    expect(panel.textContent).not.toMatch(/[0-9]/);
+    expect(panel.textContent?.toLowerCase()).not.toMatch(/should|must|left|remaining/);
+  });
+});

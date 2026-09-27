@@ -100,7 +100,7 @@ def session(*, answered: int) -> dict:
     ]
     return SessionTodayOut(
         session_id=91, date=date(2026, 9, 25), l1_language="fa", current_block=3,
-        completed=False, blocks=blocks,
+        completed=False, finished=False, blocks=blocks,
     ).model_dump(mode="json")
 
 

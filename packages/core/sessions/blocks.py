@@ -98,6 +98,34 @@ def completed_count(blocks: tuple[Block, ...]) -> int:
 # ── #171: what a grammar target looks like to a learner ─────────────────────
 
 
+#: The four blocks that serve work. `close` is a summary, never a task.
+_WORK_KINDS = ("review", "input", "focus", "output")
+
+
+def finished(blocks: tuple[Block, ...]) -> bool:
+    """**W24e: today's session is finished** -- derived, never stored.
+
+    Every work block that served something is `done`, and at least one was: an
+    `empty` block served nothing and cannot hold the day open, but a day where
+    every block was empty is not a session the learner finished. `unavailable`
+    (a block we could not read) and `ready` both keep it open.
+
+    **`sessions.completed` is not this and is not written by it.** It has had no
+    writer for a `daily` row since W11 (#349, #361), and writing it would feed
+    the nudge ladder's active-day count (#259) -- a behaviour change W24e was
+    told not to make. Keep going reads THIS, computed from the blocks the
+    learner can see, at hydration.
+
+    **Block 4 is `done` only from `writing_submissions` (W16a).** A learner who
+    talks on `/talk` instead of writing leaves block 4 `ready`, so their session
+    never reads finished -- filed, not papered over (#463).
+    """
+    work = [b for b in blocks if b.kind in _WORK_KINDS]
+    return any(b.state == "done" for b in work) and all(
+        b.state in ("done", "empty") for b in work
+    )
+
+
 def visible_target(target: Any) -> dict[str, str]:
     """A `GrammarTarget` as the learner receives it. **The citation is not here.**
 

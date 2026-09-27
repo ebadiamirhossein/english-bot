@@ -11,6 +11,7 @@ import {
   OutputBlock,
   ReviewBlock,
 } from "@/components/session/blocks";
+import { KeepGoing } from "@/components/keep-going/keep-going";
 import { SESSION_DONE } from "@/components/session/copy";
 import {
   ApiError,
@@ -145,12 +146,20 @@ export function SessionRunner() {
       })}
 
 
-      {session.completed ? (
-        <div className="space-y-2" data-testid="session-finished">
-          <p className="font-heading text-2xl leading-snug">{SESSION_DONE.title}</p>
-          <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
-            {SESSION_DONE.body}
-          </p>
+      {/* **W24e: `finished`, derived by the server from the blocks.** This read
+          `session.completed`, which has had no writer for a daily session since
+          W11 (#349, #361) — so the done state below had never once rendered.
+          `completed` is kept in the condition so a row the bot finished still
+          reads done. Keep going follows the done line and nothing else (R2). */}
+      {session.finished || session.completed ? (
+        <div className="space-y-4" data-testid="session-finished">
+          <div className="space-y-2">
+            <p className="font-heading text-2xl leading-snug">{SESSION_DONE.title}</p>
+            <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
+              {SESSION_DONE.body}
+            </p>
+          </div>
+          <KeepGoing />
         </div>
       ) : null}
     </div>

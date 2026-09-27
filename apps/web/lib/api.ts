@@ -573,6 +573,12 @@ export type SessionToday = {
   l1_language: string;
   current_block: number;
   completed: boolean;
+  /**
+   * **W24e.** Every work block that served something is done — derived by the
+   * server from the blocks, never from `completed` (which has no writer, #349).
+   * Keep going appears on this.
+   */
+  finished: boolean;
   blocks: SessionBlock[];
 };
 
@@ -584,6 +590,27 @@ export type SessionToday = {
  */
 export function getSessionToday(): Promise<SessionToday> {
   return request<SessionToday>("/session/today");
+}
+
+/**
+ * W24e — what *keep going* may offer. **Kinds only, never a count**: each cap
+ * and queue reaches the client as an option's presence or absence.
+ */
+export type KeepGoingOption = "watch" | "talk" | "cards" | "write";
+
+export function getKeepGoing(): Promise<{ options: KeepGoingOption[] }> {
+  return request<{ options: KeepGoingOption[] }>("/keep-going");
+}
+
+/**
+ * W24e — `POST /keep-going/watch`: today's open video, or one extra chosen by
+ * the selection score (never a library, R2). 404 → `ApiError` status 404 when
+ * there is nothing to watch.
+ */
+export function startWatch(): Promise<{ l1_language: string; video: VideoBlockPayload }> {
+  return request<{ l1_language: string; video: VideoBlockPayload }>("/keep-going/watch", {
+    method: "POST",
+  });
 }
 
 /**

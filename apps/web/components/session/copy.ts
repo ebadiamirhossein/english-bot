@@ -180,6 +180,34 @@ export const SESSION_DONE = {
 } as const;
 
 /**
+ * **W24e — keep going** (operator decision 1, 2026-09-27): an optional next
+ * thing after a finished session, and on Sunday. **The rules are the product's,
+ * not Duolingo's:** no count, no score, no backlog, nothing a learner *should*
+ * do, and nothing said when they do none of it. Each label names an activity,
+ * never an amount — *a few cards*, not *7 cards*.
+ */
+export const KEEP_GOING = {
+  lead: "If you\u2019d like a bit more:",
+  /** R1: Sunday offers only something to watch — PRD §4.2's free input. */
+  sundayLead: "If you feel like watching something:",
+  watch: "Watch something",
+  talk: "Talk for a bit",
+  cards: "A few cards",
+  write: "Write a few lines",
+} as const;
+
+/** W24e — `/watch`, keep going's video page. */
+export const WATCH = {
+  eyebrow: "Keep going",
+  title: "Something to watch.",
+  body: "Chosen for you, at your level. Stop whenever you like.",
+  finding: "Finding something to watch\u2026",
+  /** Nothing in band and unseen, or today's extra is watched. No count, no day promised. */
+  none: "Nothing more to watch here today \u2014 anything you enjoy watching in English counts just as much.",
+  back: "Back to today",
+} as const;
+
+/**
  * The typed-answer verdicts (#157).
  *
  * **Neither of them marks the learner.** A match is confirmed; a miss shows the

@@ -466,6 +466,10 @@ class SessionTodayOut(BaseModel):
     l1_language: str
     current_block: int
     completed: bool
+    #: **W24e.** Every work block that served something is done — derived at
+    #: hydration from the blocks (`core.sessions.blocks.finished`), never from
+    #: `completed`, which has no writer (#349). The client shows keep going on it.
+    finished: bool = False
     blocks: list[BlockOut]
 
 
@@ -911,3 +915,20 @@ class AdminActivityOut(BaseModel):
 
 
 CorrectionResult.model_rebuild()
+
+
+class KeepGoingOut(BaseModel):
+    """`GET /keep-going` (W24e). **Kinds only — never a count.** Each cap and
+    queue behind an option reaches the wire as the option's presence or absence,
+    so no client can render how many cards wait or how many turns are left."""
+
+    options: list[Literal["watch", "talk", "cards", "write"]]
+
+
+class WatchOut(BaseModel):
+    """`POST /keep-going/watch` (W24e). The player's payload — the SAME dict
+    block 2 carries, from `core.services.sessions.video_payload` (one producer,
+    #190) — and the learner's L1 for the player's contract."""
+
+    l1_language: str
+    video: dict[str, Any]

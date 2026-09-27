@@ -1092,6 +1092,7 @@ from core.sessions.blocks import (  # noqa: E402
     breakdown_of,
     Block,
     assemble,
+    finished,
     first_open_block,
     stored_state,
     visible_targets,
@@ -1111,6 +1112,9 @@ class DailySession:
     blocks: tuple[Block, ...]
     current_block: int
     completed: bool
+    #: **W24e.** `core.sessions.blocks.finished` over `blocks` -- derived at
+    #: hydration, never stored; keep going reads this, not `completed`.
+    finished: bool = False
 
 
 def _user_context(conn: Any, user_id: int) -> tuple[str, str] | None:
@@ -1273,12 +1277,22 @@ def _input_block(
     indistinguishable, which is why `video_coverage` stores its whole basis.
     """
     from core.services import video as video_service
-    from core.video.badge import band_for
 
     assigned = video_service.today_for(conn, user_id, on=local_date)
     if assigned is None:
         # `empty`, and empty is a FACT: the query ran and returned nothing.
         return "empty", {}
+    return "ready", video_payload(conn, user_id, assigned)
+
+
+def video_payload(conn: Any, user_id: int, assigned: Any) -> dict[str, Any]:
+    """The player's whole payload for one assigned video. **One producer.**
+
+    Extracted from `_input_block` by W24e so keep going's *watch another* page
+    hands the SAME shape to the SAME player -- a second assembly of this dict
+    would be #190's defect (two producers of one contract) the day either moved.
+    """
+    from core.video.badge import band_for
 
     payload: dict[str, Any] = {
         "video_id": assigned.video_id,
@@ -1304,7 +1318,7 @@ def _input_block(
         "coverage_band": None,
     }
     if assigned.transcript is None:
-        return "ready", payload
+        return payload
 
     from core.services import lexicon as lexicon_service
 
@@ -1317,7 +1331,7 @@ def _input_block(
         counted_tokens=report.counted_tokens,
         proper_nouns_detected=report.proper_nouns_detected,
     )
-    return "ready", payload
+    return payload
 
 
 def _session_payload(conn, session_id: int) -> dict:
@@ -2063,6 +2077,7 @@ def today(user_id: int, *, now: datetime) -> DailySession | None:
         blocks=blocks,
         current_block=first_open_block(blocks),
         completed=completed,
+        finished=finished(blocks),
     )
 
 

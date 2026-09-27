@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
+import { KeepGoing } from "@/components/keep-going/keep-going";
 import { PageHeader } from "@/components/page-header";
 import { WeekReport } from "@/components/week/report";
 import { getWeek } from "@/lib/api";
@@ -97,6 +98,11 @@ export function SundayHome({ children }: { children: ReactNode }) {
           </Link>
           .
         </p>
+
+        {/* W24e (R1, R3): Sunday's keep going is watch-only — the day's own
+            video first. Low emphasis, below the report and the link; nothing
+            here is asked of anyone. */}
+        <KeepGoing sunday />
       </section>
     </>
   );

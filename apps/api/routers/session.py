@@ -57,6 +57,7 @@ def _out(session: sessions_service.DailySession) -> SessionTodayOut:
         l1_language=session.l1_language,
         current_block=session.current_block,
         completed=session.completed,
+        finished=session.finished,
         blocks=[
             BlockOut(n=b.n, kind=b.kind, state=b.state, payload=b.payload)
             for b in session.blocks

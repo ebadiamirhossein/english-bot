@@ -342,3 +342,35 @@ export async function mockReview(
   });
   return pictureRequests;
 }
+
+/**
+ * W24e — keep going: `GET /keep-going`, `POST /keep-going/watch` and, for the
+ * Sunday home, `GET /week` — every body from `write.fixture.json` (the real
+ * serialisers, #190). `watch: null` answers the POST with the real 404.
+ * YouTube itself is refused so no test reaches the network.
+ */
+export async function mockKeepGoing(
+  page: Page,
+  {
+    options = fixture.keep_going_weekday,
+    watch = fixture.watch as unknown,
+    week = undefined as unknown,
+  } = {},
+) {
+  await page.route(/youtube(-nocookie)?\.com|ytimg\.com/, (route) => route.abort());
+  await page.route(`${API}/keep-going`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.fulfill({ status: 204, headers: cors(route) })
+      : json(route, 200, options),
+  );
+  await page.route(`${API}/keep-going/watch`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.fulfill({ status: 204, headers: cors(route) })
+      : watch === null
+        ? json(route, 404, { detail: "nothing_to_watch" })
+        : json(route, 200, watch),
+  );
+  if (week !== undefined) {
+    await page.route(`${API}/week`, (route) => json(route, 200, week));
+  }
+}

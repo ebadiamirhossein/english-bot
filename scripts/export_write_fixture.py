@@ -33,8 +33,17 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "packages"))
 
 from apps.api.routers.correct import result_out  # noqa: E402
-from apps.api.schemas import BlockOut, Session, SessionTodayOut, WriteTodayOut  # noqa: E402
+from apps.api.schemas import (  # noqa: E402
+    BlockOut,
+    KeepGoingOut,
+    Session,
+    SessionTodayOut,
+    WatchOut,
+    WeekOut,
+    WriteTodayOut,
+)
 from core.services import sessions  # noqa: E402
+from core.services.video import TodayVideo  # noqa: E402
 from core.services.writing import WritingOutcome  # noqa: E402
 from core.writing import gates, offers, rules  # noqa: E402
 
@@ -152,9 +161,17 @@ def _today(**over) -> dict:
     return WriteTodayOut(**spec).model_dump(mode="json")
 
 
-def _session(local_date: date = date(2026, 9, 15)) -> dict:
-    """A session whose block 4 is `_output_block`'s real ready payload."""
+def _session(local_date: date = date(2026, 9, 15), *, finished: bool = False) -> dict:
+    """A session whose block 4 is `_output_block`'s real ready payload.
+
+    **W24e: ``finished``** — block 4 written (`done`, as `_derive_done` marks it
+    from `writing_submissions`), every other work block empty, so
+    `core.sessions.blocks.finished` is True over the same blocks the wire
+    carries. Computed by that function here, never typed in.
+    """
     state, payload = sessions._output_block(SimpleNamespace(unit_number=1), local_date=local_date)
+    if finished:
+        state = "done"
     blocks = [
         BlockOut(n=1, kind="review", state="empty", payload={}),
         BlockOut(n=2, kind="input", state="empty", payload={}),
@@ -162,14 +179,30 @@ def _session(local_date: date = date(2026, 9, 15)) -> dict:
         BlockOut(n=4, kind="output", state=state, payload=payload),
         BlockOut(n=5, kind="close", state="empty", payload={}),
     ]
+    from core.sessions.blocks import Block, finished as finished_of
+
     return SessionTodayOut(
         session_id=90,
         date=local_date,
         l1_language="fa",
         current_block=4,
         completed=False,
+        finished=finished_of(tuple(Block(n=b.n, kind=b.kind, state=b.state) for b in blocks)),
         blocks=blocks,
     ).model_dump(mode="json")
+
+
+def _watch() -> dict:
+    """W24e: `POST /keep-going/watch`, the player's payload from the ONE
+    producer (`sessions.video_payload`). A purged-transcript video, so the
+    fixture needs no database: the third state the player already renders."""
+    video = TodayVideo(
+        assignment_id=1, video_id=41, youtube_id="aqz-KE-bpKQ", title="A short sitcom scene",
+        duration_s=212, accent="american", track="life", transcript=None,
+        transcript_cues=None, transcript_lang=None, captions_kind="generated",
+        resume_position_s=0, completed_at=None,
+    )
+    return WatchOut(l1_language="fa", video=sessions.video_payload(None, 3, video)).model_dump(mode="json")
 
 
 def bodies() -> dict:
@@ -178,6 +211,19 @@ def bodies() -> dict:
             user_id=3, name="Learner", expires_at=datetime(2026, 10, 15, tzinfo=timezone.utc)
         ).model_dump(mode="json"),
         "session": _session(),
+        # W24e — keep going.
+        "session_finished": _session(finished=True),
+        "keep_going_weekday": KeepGoingOut(options=["watch", "talk", "cards", "write"]).model_dump(mode="json"),
+        "keep_going_sunday": KeepGoingOut(options=["watch"]).model_dump(mode="json"),
+        "keep_going_none": KeepGoingOut(options=[]).model_dump(mode="json"),
+        "watch": _watch(),
+        # W24e — Sunday's home, week one: `empty`, so the report renders its one
+        # line and no number, and keep going is the only offer below it (R1).
+        "week_sunday": WeekOut(
+            week_ending=date(2026, 10, 4), sunday=True, days_with_a_session=0,
+            items_answered=0, items_right=0, cards_reviewed=0, words_now_known=0,
+            units_passed=0, empty=True,
+        ).model_dump(mode="json"),
         "today": _today(),
         "today_no_session": _today(session_id=None),
         "today_ceiling": _today(ceiling_reached=True),
