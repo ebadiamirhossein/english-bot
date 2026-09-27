@@ -92,6 +92,12 @@ _SENTENCE_END = re.compile(r"[.?!][\"'”’)\]]*\s*$")
 #: quote), or after the dash an inline speaker marker became.
 _SENTENCE_BREAK_BEFORE = re.compile(r"(?:[.?!][\"'”’)\]]*|—)\s+$")
 _I_FORMS = {"i", "i'm", "i'll", "i'd", "i've"}
+#: W31e: a title's full stop is not a sentence end, so the word after it is a
+#: name and not a sentence start — *"Thank you, Dr. Phillips."* (the first live
+#: `explain` run glossed *phillips*). Read by `proper_forms` only, so the line
+#: breaking and `_starts_sentence` are unchanged; the display gains the name
+#: where a shouted line holds it mid-sentence, which is C1's own intent.
+_TITLE_BEFORE = re.compile(r"(?:^|[\s(\"'“‘])(?:mr|mrs|ms|dr|prof)\.\s+$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -186,11 +192,32 @@ def proper_forms(texts: Iterable[str]) -> dict[str, str]:
                 continue
             letters = len(_LETTERS.findall(word))
             titled = word[0].isupper() and word[1:] == word[1:].lower()
-            if titled and _starts_sentence(masked, match.start()):
+            if (
+                titled
+                and _starts_sentence(masked, match.start())
+                and not _TITLE_BEFORE.search(masked[: match.start()])
+            ):
                 continue
             if titled or (_is_caps(word) and letters >= 2):
                 seen.setdefault(key, word)
     return {k: v for k, v in seen.items() if k not in lower}
+
+
+def names_for(raw_cues: Sequence[Mapping] | None, transcript: str | None) -> frozenset[str]:
+    """One video's names, casefolded — **the C1 set, from the text the lines use.**
+
+    The same `proper_forms` over the same text `lines_for` / `sentences_for`
+    read: the cues when there are usable ones, else the transcript. W31e: the
+    gloss planner and `WORD_GLOSS_JOB` skip these, so a name costs no call
+    (*phillips*, the first live run). One rule for the display and the planner,
+    never a second.
+    """
+    cues = normalise_cues(raw_cues) if raw_cues else None
+    if cues:
+        return frozenset(proper_forms(c["text"] for c in cues))
+    if transcript and transcript.strip():
+        return frozenset(proper_forms([transcript]))
+    return frozenset()
 
 
 def clean(text: str, proper: Mapping[str, str]) -> str:

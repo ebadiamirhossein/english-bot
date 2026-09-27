@@ -73,6 +73,7 @@ from typing import Any
 
 from core.copy_rules import BANNED_IN_CONTENT, offenders
 from core.db import connection
+from core.items.gates import THINKING_HEADROOM_TOKENS
 from core.llm import LLMError, chat
 from core.services import glosses as glosses_service
 
@@ -129,6 +130,25 @@ L1_NAMES: dict[str, str] = {"fa": "Persian (Farsi)", "lt": "Lithuanian", "es": "
 
 #: A translation longer than this is not a gloss. Refused, never trimmed.
 L1_MAX_CHARS = 200
+
+#: **W31e — THE BUDGET, AND WHY 400 FAILED ON ITS FIRST LIVE RUN (#473).**
+#: `max_tokens=400` was W13-ii's, set when the reply was the English object
+#: alone. W31c added two learner-language strings and did not raise it, and
+#: **adaptive thinking counts against `max_tokens`** (`core.items.gates`). The
+#: operator's run of 2026-09-27 refused 2 of 17 at 400: *shed*
+#: `blocks=['ThinkingBlock'] chars=0`, *dinosaur* cut off inside `fa`.
+#:
+#: The English object keeps W13-ii's 400 (successful live replies were 129–287
+#: output tokens, thinking included). Each language may add up to
+#: `L1_MAX_CHARS` characters (`validate` refuses a longer one), **counted at
+#: one token a character** — the ceiling Farsi script approaches. `L1_NAMES`
+#: holds three codes, so three are budgeted: a constant covers the most that
+#: can be asked. **`max_tokens` is a ceiling, not a spend**: thinking uses
+#: what it needs whatever the ceiling, so this stops the truncation and bills
+#: nothing a reply does not use.
+ENGLISH_REPLY_TOKENS = 400
+REPLY_TOKENS = ENGLISH_REPLY_TOKENS + len(L1_NAMES) * L1_MAX_CHARS
+MAX_TOKENS = THINKING_HEADROOM_TOKENS + REPLY_TOKENS
 
 
 class GlossRejected(Exception):
@@ -266,7 +286,7 @@ def explain_one(
         build_messages(word, line, l1),
         system=SYSTEM,
         json_mode=True,
-        max_tokens=400,
+        max_tokens=MAX_TOKENS,
         reject_truncation=True,
         settings=settings,
     )
@@ -296,6 +316,13 @@ def plan_for(conn: Any, video_id: int, user_id: int) -> Plan:
     `UNIQUE (video_id, word)` index is the second, exactly as `migrate_chunks`
     has both -- so a second run selects nothing before it spends anything.
 
+    **W31e: a name is never planned.** A word the transcript capitalises
+    mid-sentence and never writes in lowercase is a name by W31b's own rule
+    (`core.video.lines.names_for`, the C1 set that keeps *Ross* in a shouted
+    line) — the first live run spent a call on *phillips* from *"Thank you,
+    Dr. Phillips."* The limit is that rule's: a word seen only capitalised
+    (*Museum* in a place's name, never *museum*) is skipped too.
+
     **Each word carries the LINE it was found in and that line's start**, from
     `core.video.cues` over `videos.transcript_cues`. A video with no usable cues
     yields `None` offsets: the third state, and the gloss and the card it
@@ -303,6 +330,7 @@ def plan_for(conn: Any, video_id: int, user_id: int) -> Plan:
     """
     from core.services import lexicon as lexicon_service
     from core.video.cues import normalise_cues
+    from core.video.lines import names_for
 
     source = glosses_service.source_for(conn, video_id)
     if source is None or not source.transcript:
@@ -312,11 +340,12 @@ def plan_for(conn: Any, video_id: int, user_id: int) -> Plan:
     cues = normalise_cues(source.cues)
     report = lexicon_service.coverage_for(conn, user_id, transcript)
     held = glosses_service.words_with_a_gloss(conn, video_id)
+    names = names_for(source.cues, transcript)
 
     words: list[tuple[str, str, float | None]] = []
     for lemma in report.unknown_lemmas:
         folded = lemma.casefold()
-        if folded in held:
+        if folded in held or folded in names:
             continue
         line, start = _line_for(transcript, cues, folded)
         if line is None:

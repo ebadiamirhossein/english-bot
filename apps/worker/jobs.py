@@ -308,8 +308,9 @@ def fill_word_glosses() -> None:
 
     counts = words_service.fill_pending(_now())
     logger.info(
-        "fill_word_glosses ok carded=%s generated=%s refused=%s no_meaning=%s at_ceiling=%s",
-        counts.carded, counts.generated, counts.refused, counts.no_meaning,
+        "fill_word_glosses ok carded=%s generated=%s refused=%s no_meaning=%s names=%s "
+        "at_ceiling=%s",
+        counts.carded, counts.generated, counts.refused, counts.no_meaning, counts.names,
         counts.skipped_ceiling,
     )
 

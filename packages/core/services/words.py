@@ -339,6 +339,8 @@ class JobCounts:
     generated: int = 0
     refused: int = 0
     no_meaning: int = 0
+    #: W31e: of `no_meaning`, the names resolved without a call.
+    names: int = 0
     skipped_ceiling: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -352,13 +354,22 @@ def fill_pending(now: datetime, *, limit: int = TAP_PER_RUN) -> JobCounts:
     tap glosses)`. A refusal counts an attempt; the third marks the word
     `no_meaning`, which My words says plainly. **One call per word, no call
     driven by another's output** (#292).
+
+    **W31e: a name costs no call.** A word in its video's proper-noun set
+    (`core.video.lines.names_for`, W31b's C1 rule — the planner reads the same
+    one) is marked `no_meaning` at once, before the budget is touched: the
+    save went through today's path and the learner keeps the word and its
+    line, but there is no meaning to buy. A name that already has a gloss (the
+    first live run stored *phillips*) is carded as any gloss is.
     """
     from core.llm import LLMError
     from core.services import cards as cards_service
     from core.services import glosses as glosses_service
     from core.video import explain
+    from core.video.lines import names_for
 
     counts = JobCounts()
+    names: dict[int, frozenset[str]] = {}
     with connection() as conn:
         spent = glosses_service.generated_since(conn, source="tap", since=_utc_midnight(now))
         budget = max(0, min(limit, TAP_PER_RUN, TAP_PER_DAY - spent))
@@ -379,6 +390,20 @@ def fill_pending(now: datetime, *, limit: int = TAP_PER_RUN) -> JobCounts:
         for row_id, user_id, video_id, word, lemma, sentence, start, attempts in rows:
             gloss = glosses_service.gloss_for(conn, video_id, word)
             if gloss is None:
+                if video_id not in names:
+                    source = glosses_service.source_for(conn, video_id)
+                    names[video_id] = (
+                        names_for(source.cues, source.transcript) if source else frozenset()
+                    )
+                if word in names[video_id] or (lemma or word) in names[video_id]:
+                    conn.execute(
+                        "UPDATE word_saves_pending SET state = 'no_meaning', resolved_at = %s "
+                        "WHERE id = %s",
+                        (now, row_id),
+                    )
+                    counts.no_meaning += 1
+                    counts.names += 1
+                    continue
                 if budget <= 0:
                     counts.skipped_ceiling += 1
                     continue
