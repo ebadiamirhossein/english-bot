@@ -9,6 +9,13 @@ import { RequireSession } from "@/components/require-session";
  * on a phone; a layout that reflows into three columns on a desktop is a
  * second design to maintain for a screen nobody uses.
  *
+ * **W24c (R5, 2026-09-27) overrules that at ≥1024 px ONLY:** the operator
+ * does use a desktop, and a 32rem column of 16px type read as a narrow strip
+ * of very small text. The column widens to 42rem and the root type scales to
+ * 112.5% (`globals.css`) — still ONE column, so D12's refusal of a two-column
+ * grid stands. Below 1024 px nothing changes, and `e2e/layout.spec.ts` holds
+ * the phone to baselines committed before this edit.
+ *
  * W2 wraps it in `RequireSession`. That guard is a client component because the
  * session cookie is host-only on the API's origin and the Vercel edge never
  * sees it — see the component for why that is the right trade and why the API,
@@ -19,7 +26,7 @@ export default function AppLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <RequireSession>
-      <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col">
+      <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col lg:max-w-2xl">
         <div className="flex justify-end px-3 pt-3">
           <AppMenu />
         </div>

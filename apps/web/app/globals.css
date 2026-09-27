@@ -204,6 +204,15 @@
     @apply font-sans;
     -webkit-tap-highlight-color: transparent;
   }
+  /* W24c (R5): a desktop reads this app at 18px, not 16px. Every size in the
+     app is in rem, so this one line scales the type and the spacing together.
+     ≥1024 px only (a media query's rem is the browser's 16px, not this one's):
+     the phone is held to its pre-W24c baselines by e2e/layout.spec.ts. */
+  @media (min-width: 64rem) {
+    html {
+      font-size: 112.5%;
+    }
+  }
   h1,
   h2,
   h3 {

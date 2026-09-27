@@ -9,7 +9,7 @@ export default function AuthLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-5 py-12">
+    <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center lg:max-w-2xl px-5 py-12">
       <main className="space-y-8">{children}</main>
     </div>
   );

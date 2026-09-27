@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { mockApi } from "./support/api";
+import { expectInViewport, expectNoHorizontalOverflow, expectReachable } from "./support/assertions";
 
 /**
  * W24c — the shell's width and type scale, **and the proof that a phone does
@@ -58,4 +59,37 @@ test.describe("W24c — the phone does not move", () => {
     expect(maxWidth).toBe("512px");
     expect(rootFont).toBe("16px");
   });
+});
+
+/**
+ * **RED BEFORE THE CSS (2026-09-27):** the desktop half below failed on the
+ * shell's `512px` and the root's `16px` — W1b's phone-width column at every
+ * width, which R5 overrules at ≥1024 px only.
+ */
+test.describe("W24c — the desktop column is wider and the type larger (R5)", () => {
+  test("the shell is 42rem wide at a desktop's 18px, and nothing overflows", async ({ page }, info) => {
+    test.skip(PHONE.test(info.project.name), "the desktop half");
+    await open(page, "/", PAGES[0].ready);
+    const [maxWidth, rootFont] = await Promise.all([
+      shell(page).evaluate((el) => getComputedStyle(el).maxWidth),
+      page.evaluate(() => getComputedStyle(document.documentElement).fontSize),
+    ]);
+    // 42rem at an 18px root: 42 × 18. Hardcoded, not read from the CSS.
+    expect(maxWidth).toBe("756px");
+    expect(rootFont).toBe("18px");
+    await expectNoHorizontalOverflow(page);
+    await expectReachable(PAGES[0].ready(page));
+  });
+
+  for (const { name, path, ready } of PAGES) {
+    test(`${name}: screenshotted for the operator's read`, async ({ page }, info) => {
+      await open(page, path, ready);
+      await expectNoHorizontalOverflow(page);
+      await expectInViewport(page, page.getByRole("heading", { level: 1 }).first());
+      await page.screenshot({
+        path: `e2e/screenshots/W24c/${name}--${info.project.name}.png`,
+        fullPage: false,
+      });
+    });
+  }
 });

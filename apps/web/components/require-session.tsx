@@ -78,7 +78,7 @@ export function RequireSession({ children }: { children: React.ReactNode }) {
 
   if (state.kind === "unreachable") {
     return (
-      <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col items-center justify-center gap-4 px-5 text-center">
+      <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col items-center lg:max-w-2xl justify-center gap-4 px-5 text-center">
         <p className="font-heading text-lg">We can’t reach the app right now.</p>
         <p className="max-w-prose text-sm text-muted-foreground">
           Nothing is lost — this is a connection problem, not your account.
