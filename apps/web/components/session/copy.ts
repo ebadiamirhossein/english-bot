@@ -193,6 +193,8 @@ export const KEEP_GOING = {
   watch: "Watch something",
   talk: "Talk for a bit",
   cards: "A few cards",
+  /** W31d — the word drill. */
+  practice: "Practise your words",
   write: "Write a few lines",
 } as const;
 
@@ -907,6 +909,37 @@ export const MY_WORDS = {
   noMeaning: "no meaning found",
   more: "More",
   unavailable: "Couldn’t load your words. Try again in a moment.",
+  back: "Back to Review",
+} as const;
+
+/**
+ * **W31d — word practice** (W24f, un-deferred by C6). About five minutes from
+ * the learner's own words. **No score, no count, no running tally of how many are left** (CLAUDE.md §4,
+ * #160); a wrong answer is answered with the word and its line, never a
+ * verdict about the learner.
+ */
+export const PRACTICE = {
+  eyebrow: "Practice",
+  title: "Your words, a few at a time.",
+  intro: "A short round from the words you've saved.",
+  link: "Practise your words",
+  loading: "Getting your words ready…",
+  none: "Save a few words while watching and they'll turn up here.",
+  unavailable: "Couldn't load practice just now. Try again in a moment.",
+  pictureToWord: "Which word is this?",
+  wordToPicture: "Which picture is it?",
+  hearType: "Listen, then type the word.",
+  meaningType: "Type the word that means:",
+  play: "Play the word",
+  typeHere: "Type the word",
+  check: "Check",
+  yes: "Yes — that's it.",
+  itIs: "It's “{word}”.",
+  next: "Next",
+  /** A picture exercise whose picture could not load: skipped, nothing graded. */
+  pictureGone: "The picture didn't load, so this one is skipped.",
+  done: "That's the round.",
+  again: "Another round",
   back: "Back to Review",
 } as const;
 

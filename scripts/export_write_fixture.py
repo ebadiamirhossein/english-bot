@@ -37,6 +37,9 @@ from apps.api.schemas import (  # noqa: E402
     BlockOut,
     KeepGoingOut,
     MyWordsOut,
+    PracticeAnswerOutcomeOut,
+    PracticeExerciseOut,
+    PracticeOut,
     SavedWordOut,
     SaveWordOut,
     WordLookupOut,
@@ -325,6 +328,49 @@ def _word_bodies() -> dict:
     }
 
 
+#: W31d — a picture as the drill carries it (`lexeme_images.face_for`'s shape),
+#: with its credit. Illustrative values; the wire keys are held by
+#: `tests/test_practice.py`.
+def _pic(image_id: int, lemma: str) -> dict:
+    return {
+        "id": image_id, "ext": "jpg", "width": 330, "height": 220, "alt": lemma,
+        "author": "A. Photographer", "licence": "CC BY 4.0",
+        "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+        "source_url": f"https://commons.wikimedia.org/wiki/File:{lemma.title()}.jpg",
+    }
+
+
+def _practice_bodies() -> dict:
+    """W31d: the drill through the REAL response models (`exclude_none`)."""
+    dump = lambda m: m.model_dump(mode="json", exclude_none=True)  # noqa: E731
+    exercises = [
+        PracticeExerciseOut(card_id=501, kind="picture_to_word", image=_pic(11, "parrot"),
+                            sentence="there's a _____ on the balcony.",
+                            options=[{"value": w, "label": w} for w in ("ladder", "parrot", "spoon", "kettle")],
+                            graded=True),
+        PracticeExerciseOut(card_id=502, kind="word_to_picture", word="spoon",
+                            sentence="can you pass me a spoon?",
+                            options=[{"value": str(i), "image": _pic(i, w)}
+                                     for i, w in ((12, "spoon"), (13, "ladder"), (11, "parrot"), (14, "apple"))],
+                            graded=True),
+        PracticeExerciseOut(card_id=503, kind="meaning_type",
+                            definition="a group of musicians who play together",
+                            sentence="the _____ was loud.", graded=True),
+        PracticeExerciseOut(card_id=504, kind="hear_type",
+                            sentence="we found it in the museum's _____.", graded=False),
+    ]
+    return {
+        "practice_start": dump(PracticeOut(exercises=exercises)),
+        "practice_start_empty": dump(PracticeOut(exercises=[])),
+        "practice_right": dump(PracticeAnswerOutcomeOut(
+            correct=True, answer="parrot", sentence="there's a parrot on the balcony.",
+            meaning="a bright bird that can copy sounds", graded=True)),
+        "practice_wrong_typed": dump(PracticeAnswerOutcomeOut(
+            correct=False, answer="band", sentence="the band was loud.",
+            meaning="a group of musicians who play together", graded=True)),
+    }
+
+
 def bodies() -> dict:
     return {
         "auth": Session(
@@ -336,12 +382,18 @@ def bodies() -> dict:
         "keep_going_weekday": KeepGoingOut(options=["watch", "talk", "cards", "write"]).model_dump(mode="json"),
         "keep_going_sunday": KeepGoingOut(options=["watch"]).model_dump(mode="json"),
         "keep_going_none": KeepGoingOut(options=[]).model_dump(mode="json"),
+        # W31d — the word drill on offer (not on Sunday, R1).
+        "keep_going_with_practice": KeepGoingOut(
+            options=["watch", "talk", "cards", "practice", "write"]
+        ).model_dump(mode="json"),
         "watch": _watch(),
         # W31b — the study screen: timed lines, and the untimed third state.
         "watch_study": _watch_study(),
         "watch_untimed": _watch_untimed(),
         # W31c — the word sheet, Save and My words.
         **_word_bodies(),
+        # W31d — the word drill.
+        **_practice_bodies(),
         # W24e — Sunday's home, week one: `empty`, so the report renders its one
         # line and no number, and keep going is the only offer below it (R1).
         "week_sunday": WeekOut(

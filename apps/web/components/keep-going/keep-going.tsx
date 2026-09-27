@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Layers, MessageCircle, PenLine, Play } from "lucide-react";
+import { Layers, MessageCircle, PenLine, Play, Shapes } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { KEEP_GOING } from "@/components/session/copy";
@@ -12,10 +12,11 @@ const HREF: Record<KeepGoingOption, string> = {
   watch: "/watch",
   talk: "/talk",
   cards: "/review",
+  practice: "/practice/words",
   write: "/write",
 };
 
-const ICON = { watch: Play, talk: MessageCircle, cards: Layers, write: PenLine } as const;
+const ICON = { watch: Play, talk: MessageCircle, cards: Layers, practice: Shapes, write: PenLine } as const;
 
 /**
  * **W24e — keep going.** An optional next thing, drawn only from what is

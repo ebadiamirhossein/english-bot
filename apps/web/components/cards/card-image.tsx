@@ -23,7 +23,16 @@ import { lexemeImageUrl, type CardImage as CardImageData } from "@/lib/api";
  * card it was before W13d. `complete && naturalWidth === 0` covers an error
  * that fired before React attached its listener.
  */
-export function CardImage({ image }: { image: CardImageData }) {
+export function CardImage({
+  image,
+  onGone,
+}: {
+  image: CardImageData;
+  /** W31d: told when the picture could not load and was removed. A card is
+   * whole without its picture; a *picture → word* exercise is not, and the
+   * drill must say so rather than ask about a picture nobody can see. */
+  onGone?: () => void;
+}) {
   const [gone, setGone] = useState(false);
   const ref = useRef<HTMLImageElement>(null);
 
@@ -31,6 +40,10 @@ export function CardImage({ image }: { image: CardImageData }) {
     const element = ref.current;
     if (element && element.complete && element.naturalWidth === 0) setGone(true);
   }, []);
+
+  useEffect(() => {
+    if (gone) onGone?.();
+  }, [gone, onGone]);
 
   if (gone) return null;
 

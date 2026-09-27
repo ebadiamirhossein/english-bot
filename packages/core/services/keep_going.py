@@ -41,8 +41,13 @@ from core.config import Settings, load_settings
 from core.db import connection
 
 #: The order the choice is shown in: input first (decision 4 — input and
-#: speaking drive fluency), then speaking, then the two practice surfaces.
-KINDS = ("watch", "talk", "cards", "write")
+#: speaking drive fluency), then speaking, then the practice surfaces. **W31d
+#: adds `practice`** (the word drill, W24f un-deferred by C6), beside `cards`.
+KINDS = ("watch", "talk", "cards", "practice", "write")
+
+#: W31d: the drill is offered only when it has at least this many exercises —
+#: fewer is not five minutes of anything.
+PRACTICE_MIN_EXERCISES = 4
 
 SUNDAY = 6
 
@@ -120,6 +125,14 @@ def options(
                 available.add("write")
     if not sunday and cards_service.due_queue(user_id, now=now, limit=1):
         available.add("cards")
+    # W31d: the word drill, not on Sunday (R1). **Offered even when nothing is
+    # due** — the top-up is practice only and writes nothing (Q8), so R7's
+    # reason for keeping `cards` to due cards does not reach it.
+    if not sunday:
+        from core.services import practice as practice_service
+
+        if len(practice_service.start(user_id, now=now)) >= PRACTICE_MIN_EXERCISES:
+            available.add("practice")
     return tuple(k for k in KINDS if k in available)
 
 

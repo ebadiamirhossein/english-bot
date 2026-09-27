@@ -613,7 +613,7 @@ export function getSessionToday(): Promise<SessionToday> {
  * W24e — what *keep going* may offer. **Kinds only, never a count**: each cap
  * and queue reaches the client as an option's presence or absence.
  */
-export type KeepGoingOption = "watch" | "talk" | "cards" | "write";
+export type KeepGoingOption = "watch" | "talk" | "cards" | "practice" | "write";
 
 export function getKeepGoing(): Promise<{ options: KeepGoingOption[] }> {
   return request<{ options: KeepGoingOption[] }>("/keep-going");
@@ -1259,3 +1259,52 @@ export function finishPlacement(): Promise<PlacementResult> {
 export function placementAudioUrl(itemId: number): string {
   return `${API_BASE_URL}/placement/items/${itemId}/audio`;
 }
+
+// ── word practice: `/practice` (W31d, W24f un-deferred) ──────────────────────
+
+export type PracticeKind = "picture_to_word" | "word_to_picture" | "hear_type" | "meaning_type";
+
+/** One exercise. **The answer is not on it** — options hide it among three. */
+export type PracticeExercise = {
+  card_id: number;
+  kind: PracticeKind;
+  word?: string;
+  image?: CardImage;
+  definition?: string;
+  sentence?: string;
+  options: { value: string; label?: string; image?: CardImage }[];
+  graded: boolean;
+};
+
+export function startPractice(): Promise<{ exercises: PracticeExercise[] }> {
+  return request<{ exercises: PracticeExercise[] }>("/practice/start", {
+    method: "POST",
+    body: "{}",
+  });
+}
+
+export type PracticeOutcome = {
+  correct: boolean;
+  answer: string;
+  sentence?: string;
+  meaning?: string;
+  graded: boolean;
+};
+
+export function answerPractice(body: {
+  card_id: number;
+  kind: PracticeKind;
+  response: string;
+  duration_ms?: number;
+}): Promise<PracticeOutcome> {
+  return request<PracticeOutcome>("/practice/answer", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** The word, spoken — fetched by the audio element with credentials. */
+export function practiceAudioUrl(cardId: number): string {
+  return `${API_BASE_URL}/practice/${cardId}/audio`;
+}
+

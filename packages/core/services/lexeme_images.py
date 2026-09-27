@@ -72,6 +72,35 @@ def face_for(card_type: str, lexeme_id: int | None) -> dict | None:
     }
 
 
+def lemmas_for(lexeme_ids: Sequence[int]) -> dict[int, str]:
+    """`{lexeme_id: lemma}` for these ids. W31d's drill names its target word by
+    the card's lexeme, because card fronts differ by writer (a sentence, a gloss,
+    the word)."""
+    if not lexeme_ids:
+        return {}
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT id, lemma FROM lexemes WHERE id = ANY(%s)", (list(lexeme_ids),)
+        ).fetchall()
+    return {r["id"]: r["lemma"] for r in rows}
+
+
+def all_faces() -> dict[int, dict]:
+    """`{lexeme_id: image face}` for every approved picture. W31d's distractor
+    pool for *word → picture*: the other pictures a learner chooses among. Each
+    face carries its credit, as `face_for`'s does (R10)."""
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT lexeme_id FROM lexeme_images ORDER BY lexeme_id"
+        ).fetchall()
+    faces: dict[int, dict] = {}
+    for row in rows:
+        face = face_for("recognition", row["lexeme_id"])
+        if face is not None:
+            faces[row["lexeme_id"]] = face
+    return faces
+
+
 def image_file(image_id: int) -> tuple[bytes, str] | None:
     """The stored thumbnail and its media type, or None."""
     with connection() as conn:
@@ -103,8 +132,19 @@ def proposal_lemmas(limit: int) -> list[str]:
                     EXISTS (SELECT 1 FROM cards c
                              WHERE c.lexeme_id = l.id AND c.card_type <> 'collocation')
                  OR EXISTS (SELECT 1 FROM syllabus_unit_lexemes s WHERE s.lexeme_id = l.id)
+                 OR EXISTS (SELECT 1 FROM word_saves_pending p
+                             WHERE p.lemma = l.lemma OR p.word = l.lemma)
                )
-             ORDER BY l.freq_rank NULLS LAST, l.lemma
+             -- **W31d, ruling Q9 (B): words the learners SAVED come first** —
+             -- captured from a video, or waiting for a meaning — because a
+             -- picture on a word nobody saved reaches nobody (the 18 of W24b).
+             ORDER BY (
+                    EXISTS (SELECT 1 FROM cards c
+                             WHERE c.lexeme_id = l.id AND c.source_ref LIKE 'video:%%')
+                 OR EXISTS (SELECT 1 FROM word_saves_pending p
+                             WHERE p.lemma = l.lemma OR p.word = l.lemma)
+               ) DESC,
+               l.freq_rank NULLS LAST, l.lemma
              LIMIT %s
             """,
             (limit,),

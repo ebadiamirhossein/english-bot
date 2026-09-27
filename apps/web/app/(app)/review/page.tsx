@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { Reviewer } from "@/components/cards/reviewer";
 import { PageHeader } from "@/components/page-header";
-import { MY_WORDS } from "@/components/session/copy";
+import { MY_WORDS, PRACTICE } from "@/components/session/copy";
 
 /**
  * The deck. Replaces W2's `ComingLater` placeholder, whose bullets were this
@@ -30,6 +30,14 @@ export default function ReviewPage() {
           data-testid="review-my-words"
         >
           {MY_WORDS.link}
+        </Link>
+        {/* W31d: the word drill (W24f, un-deferred). */}
+        <Link
+          href="/practice/words"
+          className="inline-flex min-h-11 items-center underline underline-offset-4"
+          data-testid="review-practice"
+        >
+          {PRACTICE.link}
         </Link>
       </nav>
 

@@ -980,7 +980,7 @@ class KeepGoingOut(BaseModel):
     queue behind an option reaches the wire as the option's presence or absence,
     so no client can render how many cards wait or how many turns are left."""
 
-    options: list[Literal["watch", "talk", "cards", "write"]]
+    options: list[Literal["watch", "talk", "cards", "practice", "write"]]
 
 
 class WatchOut(BaseModel):
@@ -990,3 +990,44 @@ class WatchOut(BaseModel):
 
     l1_language: str
     video: dict[str, Any]
+
+
+class PracticeExerciseOut(BaseModel):
+    """W31d: one exercise of the word drill. **The answer is not on it** — the
+    options include it among three others, and a typed exercise carries none."""
+
+    card_id: int
+    kind: Literal["picture_to_word", "word_to_picture", "hear_type", "meaning_type"]
+    word: str | None = None
+    image: dict | None = None
+    definition: str | None = None
+    #: The card's line — gapped where showing it would give the answer away.
+    sentence: str | None = None
+    options: list[dict] = Field(default_factory=list)
+    #: Whether this answer is graded (a due card). Not shown as a count.
+    graded: bool = False
+
+
+class PracticeOut(BaseModel):
+    """W31d: `POST /practice/start`. No count, no score, no total (#160)."""
+
+    exercises: list[PracticeExerciseOut]
+
+
+class PracticeAnswerIn(BaseModel):
+    card_id: int = Field(ge=1)
+    kind: Literal["picture_to_word", "word_to_picture", "hear_type", "meaning_type"]
+    response: str = Field(min_length=1, max_length=80)
+    duration_ms: int | None = Field(default=None, ge=0, le=600_000)
+
+
+class PracticeAnswerOutcomeOut(BaseModel):
+    """W31d: what an answer came to. **No score** — right or not, the word, and
+    its whole line, which is what the learner learns from."""
+
+    correct: bool
+    answer: str
+    sentence: str | None = None
+    meaning: str | None = None
+    graded: bool
+

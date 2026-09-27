@@ -411,6 +411,41 @@ def counts_today(user_id: int, *, now: datetime) -> DeckCounts:
     )
 
 
+def cards_not_due(user_id: int, *, now: datetime, limit: int = 40) -> list[Card]:
+    """This learner's cards that are NOT due, least recently seen first.
+
+    **W31d's top-up and nothing else**: a practice drill with too few due cards
+    fills from these, and **grades none of them** — reviewing early moves FSRS
+    stability, which is R7's reason, kept by ruling Q8. Reads only.
+    """
+    if limit <= 0:
+        return []
+    with connection() as conn, conn.cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            f"""
+            SELECT {_CARD_COLUMNS} FROM cards
+             WHERE cards.user_id = %s AND cards.due > %s
+             ORDER BY cards.last_review NULLS FIRST, cards.id
+             LIMIT %s
+            """,
+            (user_id, now, limit),
+        )
+        return [_to_card(row) for row in cur.fetchall()]
+
+
+def card_for(user_id: int, card_id: int) -> Card | None:
+    """One of this learner's cards, or None. Reads only."""
+    with connection() as conn, conn.cursor() as cur:
+        cur.row_factory = tuple_row
+        cur.execute(
+            f"SELECT {_CARD_COLUMNS} FROM cards WHERE cards.id = %s AND cards.user_id = %s",
+            (card_id, user_id),
+        )
+        row = cur.fetchone()
+    return None if row is None else _to_card(row)
+
+
 def due_queue(user_id: int, *, now: datetime, limit: int = 20) -> list[Card]:
     """Due cards, soonest first, **capped**.
 

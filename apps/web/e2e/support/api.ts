@@ -487,3 +487,44 @@ export async function fakeYouTube(page: Page) {
     };
   });
 }
+
+/**
+ * W31d — the word drill: `POST /practice/start`, `POST /practice/answer` and the
+ * word's audio, from `write.fixture.json`. Returns the answers it saw.
+ */
+export async function mockPractice(
+  page: Page,
+  {
+    start = fixture.practice_start as unknown,
+    outcome = fixture.practice_right as unknown,
+    /** False: every picture's bytes 404, as offline — the drill must say so. */
+    pictures = true,
+  } = {},
+) {
+  const answers: unknown[] = [];
+  await page.route(`${API}/practice/start`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.fulfill({ status: 204, headers: cors(route) })
+      : json(route, 200, start),
+  );
+  await page.route(`${API}/practice/answer`, (route) => {
+    if (route.request().method() === "OPTIONS") {
+      return route.fulfill({ status: 204, headers: cors(route) });
+    }
+    answers.push(route.request().postDataJSON());
+    return json(route, 200, outcome);
+  });
+  await page.route(`${API}/practice/*/audio`, (route) =>
+    route.fulfill({ status: 200, contentType: "audio/mpeg", headers: cors(route), body: Buffer.alloc(8) }),
+  );
+  await page.route(`${API}/lexeme-images/**`, (route) =>
+    pictures
+      ? route.fulfill({ status: 200, contentType: "image/png", headers: cors(route), body: PICTURE })
+      : route.fulfill({ status: 404, headers: cors(route) }),
+  );
+  return answers;
+}
+
+/** A 120×80 solid PNG: a stand-in picture, so the drill's layout is real. */
+const PICTURE = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAHgAAABQCAIAAABd+SbeAAAAqUlEQVR4nO3QAQkAIADAMPsHMIkhjGULhTt4gLMx19aFxvODTwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVgf8VaeECfwysgAAAABJRU5ErkJggg==", "base64");
+

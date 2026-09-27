@@ -104,6 +104,15 @@
   "keep_going_none": {
     "options": []
   },
+  "keep_going_with_practice": {
+    "options": [
+      "watch",
+      "talk",
+      "cards",
+      "practice",
+      "write"
+    ]
+  },
   "watch": {
     "l1_language": "fa",
     "video": {
@@ -448,6 +457,142 @@
   },
   "my_words_empty": {
     "words": []
+  },
+  "practice_start": {
+    "exercises": [
+      {
+        "card_id": 501,
+        "kind": "picture_to_word",
+        "image": {
+          "id": 11,
+          "ext": "jpg",
+          "width": 330,
+          "height": 220,
+          "alt": "parrot",
+          "author": "A. Photographer",
+          "licence": "CC BY 4.0",
+          "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+          "source_url": "https://commons.wikimedia.org/wiki/File:Parrot.jpg"
+        },
+        "sentence": "there's a _____ on the balcony.",
+        "options": [
+          {
+            "value": "ladder",
+            "label": "ladder"
+          },
+          {
+            "value": "parrot",
+            "label": "parrot"
+          },
+          {
+            "value": "spoon",
+            "label": "spoon"
+          },
+          {
+            "value": "kettle",
+            "label": "kettle"
+          }
+        ],
+        "graded": true
+      },
+      {
+        "card_id": 502,
+        "kind": "word_to_picture",
+        "word": "spoon",
+        "sentence": "can you pass me a spoon?",
+        "options": [
+          {
+            "value": "12",
+            "image": {
+              "id": 12,
+              "ext": "jpg",
+              "width": 330,
+              "height": 220,
+              "alt": "spoon",
+              "author": "A. Photographer",
+              "licence": "CC BY 4.0",
+              "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+              "source_url": "https://commons.wikimedia.org/wiki/File:Spoon.jpg"
+            }
+          },
+          {
+            "value": "13",
+            "image": {
+              "id": 13,
+              "ext": "jpg",
+              "width": 330,
+              "height": 220,
+              "alt": "ladder",
+              "author": "A. Photographer",
+              "licence": "CC BY 4.0",
+              "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+              "source_url": "https://commons.wikimedia.org/wiki/File:Ladder.jpg"
+            }
+          },
+          {
+            "value": "11",
+            "image": {
+              "id": 11,
+              "ext": "jpg",
+              "width": 330,
+              "height": 220,
+              "alt": "parrot",
+              "author": "A. Photographer",
+              "licence": "CC BY 4.0",
+              "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+              "source_url": "https://commons.wikimedia.org/wiki/File:Parrot.jpg"
+            }
+          },
+          {
+            "value": "14",
+            "image": {
+              "id": 14,
+              "ext": "jpg",
+              "width": 330,
+              "height": 220,
+              "alt": "apple",
+              "author": "A. Photographer",
+              "licence": "CC BY 4.0",
+              "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+              "source_url": "https://commons.wikimedia.org/wiki/File:Apple.jpg"
+            }
+          }
+        ],
+        "graded": true
+      },
+      {
+        "card_id": 503,
+        "kind": "meaning_type",
+        "definition": "a group of musicians who play together",
+        "sentence": "the _____ was loud.",
+        "options": [],
+        "graded": true
+      },
+      {
+        "card_id": 504,
+        "kind": "hear_type",
+        "sentence": "we found it in the museum's _____.",
+        "options": [],
+        "graded": false
+      }
+    ]
+  },
+  "practice_start_empty": {
+    "exercises": []
+  },
+  "practice_right": {
+    "correct": true,
+    "answer": "parrot",
+    "sentence": "there's a parrot on the balcony.",
+    "meaning": "a bright bird that can copy sounds",
+    "graded": true
+  },
+  "practice_wrong_typed": {
+    "correct": false,
+    "answer": "band",
+    "sentence": "the band was loud.",
+    "meaning": "a group of musicians who play together",
+    "graded": true
   },
   "week_sunday": {
     "week_ending": "2026-10-04",
