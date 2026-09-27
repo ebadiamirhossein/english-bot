@@ -186,7 +186,7 @@ Upload this file plus `docs/PRD.md`, `docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 | W24d | Keep going — a daily video | 🟡 code-complete — **DEPLOYED 2026-09-27 (host `eed40b3`); MIGRATION 034 APPLIED TO PRODUCTION** (`Applying migration 034 (034_video_assignment_kind.sql)`, `Applied: 001 … 034`; the operator's paste, recorded by W24r) *(read "on `main`; not deployed; migration 034 applied to the Mac dev database only, not applied to production" until the W24r record)* | 2026-09-27 | **A video every day (operator decision 2, R3)**: `core.video.assign.WEEKDAYS` is all seven days; `assign_day` assigns one date's video **if one is in band and unseen — daily when available, never a repeat, never below band** (`choose` takes fewer rather than widening either rule); the worker's new **`assign_video`** job (hourly) does each learner's LOCAL today (`Scheduler built jobs=push_poll,assign_video`, rehearsed). **Migration 034**: `video_assignments.kind` (`daily`/`extra`) and one of each per date — W24e's second video. The CLI gains `--date`; a short week now assigns what it can and prints SHORT instead of refusing. Block 2's empty line names no day. **PRD §4.2, §7 and §7.4 amended** (old text kept). Tests red first; `apps/web` copy changed, so **Vercel must rebuild**. |
 | W24e | Keep going — the choice after the session | 🟡 code-complete — **DEPLOYED 2026-09-27 (host `eed40b3`, `schema_version` 34; the operator's paste, recorded by W24r)** *(read "on `main`; not deployed" until the W24r record)* — **Vercel redeployed, on the operator's report** | 2026-09-27 | **Operator decision 1 built under R1, R2, R4, R7.** `/session`'s done state renders for the first time — on **`finished`, derived from the blocks** (`core.sessions.blocks.finished`: every work block that served something is `done`), never from `sessions.completed`, which stays unwritten (#259, #361 untouched) — and below it **keep going**: *Watch something* · *Talk for a bit* · *A few cards* · *Write a few lines*, **only the ones actually available** (`GET /keep-going`, kinds only, no count). **Sunday is watch-only** and opens the day's own video first (R1, R3). *Watch something* opens **`/watch`**: one video, assigned by the selection score (never browsed, R2), in block 2's own player from block 2's own payload producer (`sessions.video_payload`, #190). **0 billed calls added; no new journal writer.** **FOUND AND FILED, NOT PAPERED OVER: block 4 is `done` only from `/write`, so a learner who talks instead of writing never sees keep going (#462).** No migration (034 is W24d's); `apps/web` touched, so **Vercel must rebuild**. |
 | W24f | Keep going — picture drill | ⬜ **deferred (R8)** | | Filed with its plan text in `docs/TASKS-v3-web.md`; reconsidered after pictures are loaded and used for a week. |
-| W24r | W24 follow-up — the launch record, #462, listening C1 dropped from placement, the video pool, the pictures proposed | 🟡 in progress — **(A) the launch recorded · (B) #462 built · (C) listening C1 dropped · (D) the video pool: `@ModernFamily` removed, the weekly `refresh_videos` behind `VIDEO_AUTO_REFRESH`; B–D on `main`, not deployed · (E) the pictures proposed (0 billed)** | 2026-09-27 | **(A)** W24 deployed 2026-09-27 on the operator's paste: host `eed40b3`, migration 034 applied, `schema_version` 34, the worker builds `push_poll,assign_video`, Vercel redeployed. **Listening C1 still 0** (all 6 slots discarded, #463) and the video pool refreshed to 50 `ok` (#464 filed). **(B)** #462 (operator ruling): **three learner turns on `/talk` in a local day finish block 4**, as a writing submission does — derived from `conversation_usage.turns_learner`, no journal write; `finished` and keep going follow. **#462 closed.** **(C)** listening C1 dropped (operator ruling, #463): no C1 target, cohort, readiness minimum or `--only` cell; **a sitting serves 5 clips, A2 → B2, and listening reports at most B2**. On the host's counts the whole-bank dry run now reads **yes**. **(D)** `@ModernFamily` removed (the channel is empty — #464 closed); **`refresh_videos`**, a worker job **Monday ~04:00 Europe/Vilnius**, runs `refresh --live --apply`'s own code with **at most 40 transcripts** and the same purge, **only while `VIDEO_AUTO_REFRESH=1`** — a billed scheduled job on the operator's ruling, **an exception to #196 for this job only**; the band finding (38 of 50) filed under #329. **(E)** W24b's pictures proposed on the Mac, 0 billed: **47 chosen of the 135 candidates — below the asked 60–100, reported rather than padded** (the rest are abstract, generic people-as-roles, or misreadable per lemma, #450); the proposer returned **25 proposals, 22 refused** (`refused.tsv`: 22 lines); `sheet.html` at `/private/tmp/claude-501/-Users-amirhossein-Desktop-english-bot/80071f00-e10f-4b06-b4d6-c1dbc03cc26f/scratchpad/w24b-pictures/sheet.html`. **Nothing written to `data/lexeme_images.tsv`.** |
+| W24r | W24 follow-up — the launch record, #462, listening C1 dropped from placement, the video pool, the pictures proposed | 🟡 in progress — **(A) the launch recorded · (B) #462 built · (C) listening C1 dropped · (D) the video pool: `@ModernFamily` removed, the weekly `refresh_videos` behind `VIDEO_AUTO_REFRESH`; B–D on `main`, not deployed · (E) the pictures proposed (0 billed) · (F) Next action rewritten as W24r's launch block** | 2026-09-27 | **(A)** W24 deployed 2026-09-27 on the operator's paste: host `eed40b3`, migration 034 applied, `schema_version` 34, the worker builds `push_poll,assign_video`, Vercel redeployed. **Listening C1 still 0** (all 6 slots discarded, #463) and the video pool refreshed to 50 `ok` (#464 filed). **(B)** #462 (operator ruling): **three learner turns on `/talk` in a local day finish block 4**, as a writing submission does — derived from `conversation_usage.turns_learner`, no journal write; `finished` and keep going follow. **#462 closed.** **(C)** listening C1 dropped (operator ruling, #463): no C1 target, cohort, readiness minimum or `--only` cell; **a sitting serves 5 clips, A2 → B2, and listening reports at most B2**. On the host's counts the whole-bank dry run now reads **yes**. **(D)** `@ModernFamily` removed (the channel is empty — #464 closed); **`refresh_videos`**, a worker job **Monday ~04:00 Europe/Vilnius**, runs `refresh --live --apply`'s own code with **at most 40 transcripts** and the same purge, **only while `VIDEO_AUTO_REFRESH=1`** — a billed scheduled job on the operator's ruling, **an exception to #196 for this job only**; the band finding (38 of 50) filed under #329. **(E)** W24b's pictures proposed on the Mac, 0 billed: **47 chosen of the 135 candidates — below the asked 60–100, reported rather than padded** (the rest are abstract, generic people-as-roles, or misreadable per lemma, #450); the proposer returned **25 proposals, 22 refused** (`refused.tsv`: 22 lines); `sheet.html` at `/private/tmp/claude-501/-Users-amirhossein-Desktop-english-bot/80071f00-e10f-4b06-b4d6-c1dbc03cc26f/scratchpad/w24b-pictures/sheet.html`. **Nothing written to `data/lexeme_images.tsv`.** **(F)** Next action rewritten, one block per role (#422); suites on the tree: pytest **3363 passed, 6 skipped, 0 failed**, Vitest 361, `tsc` clean, `next build` OK, e2e 448 passed / 26 skipped. **Then the W22 branch rebased onto the (F) commit, not merged** (the session report gives its tip and count). |
 | W25 | Web settings (#454) | ⬜ not started | | R12: after W24, before W22's deploy. |
 Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & verified · ⚠️ done but has known issues
 
@@ -248,6 +248,7 @@ Status key: ⬜ not started · 🟡 in progress / code-complete · ✅ done & ve
 | 7 | **W24r (C)** — listening C1 dropped from the placement check | **built 2026-09-27; not deployed** | the *W24r (C)* commit | #463 closed on the ruling; #459 closed. PRD §6 amended (5 clips). |
 | 8 | **W24r (D)** — the video pool: `@ModernFamily`, the weekly refresh, the band finding | **built 2026-09-27; not deployed** | the *W24r (D)* commit | #464 closed; #196's exception recorded; #329 carries the numbers. No migration. |
 | 9 | **W24r (E)** — W24b's pictures proposed | **proposed 2026-09-27 (Mac, 0 billed)** | the *W24r (E)* commit (record only) | 47 chosen (below 60, reported); 25 proposed, 22 refused. The approval is the operator's. |
+| 10 | **W24r (F)** — Next action: W24r's launch block | **written 2026-09-27; NOT RUN** | the *W24r (F)* commit | Then `w22-bot-reduction` rebased onto it, pushed `--force-with-lease`, not merged. |
 | — | **W24f** — picture drill | **deferred (R8)** | | |
 
 ## Launch pass — human checks
@@ -421,6 +422,16 @@ Every one is also in Next action's W24 launch block, by ID; the wording here is 
 - **W24e-R1 [reading]** — does keep going feel optional and inviting, or naggy? One line in the decisions log.
 - **W24b-1…5 [operator, then Claude Code, then host]** — the pictures: the candidate list, the proposer (`--contact "https://app.foundgrant.com"`, R9), the operator's approval lines, `--load` / `--load --apply`, then **W13d-P1**. **Closes #449; #451 closes on R10.**
 
+### Added by W24r (2026-09-27)
+
+Every one is also in Next action's W24r launch block, by ID.
+
+- **W24r-G1 [host, as `bot`]** — after the pull, `core.placement.bank` (dry) reads *"a first sitting can be offered now: yes"*, with no listening C1 row.
+- **W24r-J1 [host, as root]** — `Scheduler built jobs=push_poll,assign_video,refresh_videos`; then the first Monday's one-line `refresh_videos ok …` and the Apify console's charge for it, written into the decisions log (the ruling is under $1 a run).
+- **W24r-P1 [phone]** — #462: three turns on `/talk` instead of writing finish block 4 — the done line and keep going appear; two turns do not.
+- **W24r-A1 [operator]** — the picture approval: open the sheet, append the approved lines to `data/lexeme_images.tsv`, commit, push; the host's `--load` then `--load --apply`; then W13d-P1.
+
+
 ## Launch pass — probes
 
 **THE OPERATOR RAN THE MAC PROBES AND THE PUSH PROBE ON 2026-09-25 — 6 billed calls, no shape mismatch; W20-G1 passed. What each printed is in the decisions log (*Launch 2026-09-25*).** **Ruling 0.5: every probe here is dry by default, and none has been run live by Claude Code.** The operator runs them in one sitting on the Mac, **before** the deploy block. A response whose shape differs from what the slice was built against is a fix and a re-probe, not a rebuild. Each entry gives the dry command, the live command, the exact billed call count, and what to read.
@@ -589,6 +600,7 @@ Dry: read the evidenced patterns (the count is operator-only), the payloads and 
 | LLM provider + key | 🟡 | `LLM_PROVIDER`/`LLM_MODEL`/`ANTHROPIC_API_KEY` in config; real key on server `.env` |
 | Whisper/TTS key | 🟡 | `OPENAI_API_KEY` + STT/TTS model env in config; optional at boot, required before first voice message |
 | YouTube Data API key (S9b) | ⬜ | — |
+| `VIDEO_AUTO_REFRESH` (W24r) | ⬜ owed | `VIDEO_AUTO_REFRESH=1` in `/home/bot/english-bot/.env` registers the worker's weekly `refresh_videos` (Monday 04:00 Europe/Vilnius, BILLED on Apify, ≤40 transcripts). Unset = the job does not exist. Added by W24r's launch block §2. |
 | systemd unit (bot) | ✅ | `/etc/systemd/system/english-bot.service` — `User=bot`, `Restart=always`, `RestartSec=10`, journal, enabled at boot. **`ExecStart` corrected to `python -m apps.bot.main` on 2026-08-23**; the pre-W1 `app.main` line failed `status=1/FAILURE` until it was changed and `daemon-reload` run. |
 | Service user + code | ✅ | User `bot`, home `/home/bot`, code `/home/bot/english-bot`, venv `.venv` |
 | GitHub deploy key | ✅ | Read-only deploy key generated on the server; clone over SSH |
@@ -622,6 +634,7 @@ Dry: read the evidenced patterns (the count is operator-only), the payloads and 
 
 Record every decision that deviates from or resolves ambiguity in the spec. Newest first.
 
+| 2026-09-27 | **W24r (F) — NEXT ACTION REWRITTEN AS W24r's LAUNCH BLOCK, ONE BLOCK PER ROLE (#422); THE FULL SUITES COUNTED ON THE FINISHED `main`; THE W22 BRANCH REBASED, NOT MERGED.** | **(1) THE BLOCK.** Mac (push; the hash) → host as `bot` (backup, pull, `pip`, `migrate`, `status`, **the flag appended idempotently**, the whole-bank dry run expecting *yes*, the dry refresh expecting 12 channels) → host as root (restart all three; `…jobs=push_poll,assign_video,refresh_videos`; the two carried `401`s; `/health` 34; later, the first Monday's `refresh_videos ok` line and **its Apify charge**) → Sentry (`LLMSpendLimit`, carried) → Vercel (**nothing: `apps/web` has no diff since `eed40b3`**) → the picture approval → W18-R2, then W18-P1 → every earlier check → W22 on its gate. **W24's launch block moves to *earlier heads*, marked superseded, with every unrun line carried into the new §8** (W24's §6 checks as §8B; W24's §8 verbatim as §8C, with one annotation: listening's rows now read A2 → B2). **(2) REHEARSED (§5c).** The flag's three lines on a scratch copy of an `.env` (first `grep` prints nothing; the append is idempotent on a second run; mode stays 600); `git diff --stat eed40b3 HEAD -- apps/web` (empty); `core.placement.bank` dry and `--only listening:C1` (refused) on the dev database; `core.video.refresh` dry (12 usable, 0 refused); the worker's scheduler built without and with `VIDEO_AUTO_REFRESH=1` exported; `core.images.bank --load` dry. **Not rehearsable, and said so at each line:** the push, the restarts, `journalctl`, the live curls, `--load --apply`. **Two expected numbers are derived, not run, and marked so:** `cohorts: 9` and `at most: 128` (2026-09-27's 10 and 148, less the listening C1 cohort's 1 and 20). **(3) THE SUITES ON THIS TREE.** pytest **3363 passed, 6 skipped, 0 failed** (serial; both W10c journals `chmod a-w` for the run and `shasum`-identical after it, #416/#420); Vitest **361 passed** across 29 files; `tsc --noEmit` clean; `next build` (with `NEXT_PUBLIC_API_URL` set) OK; `pnpm test:e2e` with `E2E_PORT=3190` **448 passed, 26 skipped** — W24e's count exactly, as expected with no web change; **the review screenshots the run re-wrote (77 files) were restored**, because no screen changed. **(4) THE W22 BRANCH (R-A).** After this commit `w22-bot-reduction` is rebased onto it, the full suite runs on the tip, and it is pushed with `--force-with-lease`; **it is not merged, and `main` holds no W22 commit** (R-A re-verified). Its tip and count are in the session report, not here — this line is inside the commit the branch will sit on. |
 | 2026-09-27 | **W24r (E) — W24b'S PICTURES PROPOSED ON THE MAC, 0 BILLED. 47 LEMMAS CHOSEN — BELOW THE ASKED 60–100, AND REPORTED RATHER THAN PADDED. 25 PROPOSED, 22 REFUSED. NOTHING WRITTEN TO `data/lexeme_images.tsv`.** | **(1) THE NUMBER IS 47, NOT 60–100, AND THE BAR IS NOT QUIETLY MET (CLAUDE.md §3 rule 7).** The operator's candidate paste holds **135** nouns. Held to the three stated exclusions — **no abstract nouns, no people-as-roles where the picture would be generic, nothing a learner could misread** — 47 qualify. Reaching 60 would mean admitting words whose picture shows a different word (*keyboard* the instrument, *trunk* the car's, *cone* the ice cream's) or a generic person; **a picture is per lemma and sense-blind (#450)**, so a misreadable one is wrong on every card of that word. **If the operator wants more, the borderline group below is the place to look, word by word.** **(2) CHOSEN (47):** flower, engine, sugar, traffic, cab, flag, passport, jungle, beef, steak, cheek, soda, medal, cinema, rib, bicycle, fork, hike, shrimp, fountain, fabric, balcony, swan, gown, runner, wheelchair, globe, parrot, spaceship, mustache, wheat, lemonade, cafeteria, keyboard, notch, mist, cocoa, mango, cucumber, heater, bookstore, handshake, drugstore, carton, motor, lab, bartender. *Two roles are in because their picture is specific, not generic:* **bartender** (a person mixing drinks behind a bar) and **runner** (a person running a race). **notch** is one of the two card words in the list (*psychosis*, the other, is abstract). **(3) EXCLUDED (88), BY REASON.** *Abstract:* difference, energy, century, compromise, relief, encounter, strain, economy, rhythm, democracy, sympathy, publicity, prospect, batch, comparison, distribution, convenience, frustration, tendency, withdrawal, bravery, superstition, shortage, enquiry, refund, distinction, interruption, implication, goodwill, similarity, attendance, publication, concession, teamwork, psychosis, pain, area, report, masterpiece, caption, interior, sparkle. *People as roles, generic in a picture:* man, friend, enemy, commander, princess, customer, winner, actress, celebrity, clerk, tutor, researcher, defender, listener, examiner, chemist, interpreter, partisan. *Misreadable — the picture would show another sense or another word:* till (*until*), class, row, sheet (bed / paper), trunk (tree / car / elephant / luggage), weed (garden / cannabis), acid, circuit (electric / racing), platform (station / software), racket (tennis / noise), cone (ice cream / traffic / shape), canteen (dining room / water bottle), mortar (building / weapon / pestle), relay, navy (colour / fleet), coach (bus / trainer), outfit (reads *clothes*), wildlife (reads *animals*), belongings, seminar, workplace, interview (read as *meeting*). *An action or state, not a thing:* throw, burn, dig, chase, flu. *Kept off a learner's card deliberately:* battlefield (Commons' historical photographs of it can be graphic). **(4) THE RUN, AS PRINTED.** `python -m core.images.bank --propose --live --lemmas <the 47> --limit 100 --contact "https://app.foundgrant.com" --out <scratch>/w24b-pictures` → *"47 lemma(s), up to 188 requests to Wikidata/Commons, none billed"*, then **`25 proposed, 22 refused, 126 requests.`** (the dry run first confirmed all 47 are in the lexicon). **`refused.tsv`: 22 lines** — no Wikidata item labelled exactly the lemma (cab, soda, cinema, hike, fabric, motor, lab); an item with no image (runner, spaceship, mustache, notch, cocoa); a GIF or SVG (flower, engine, passport); a licence the gate does not admit (beef, medal, fork, balcony, handshake: CC BY-SA 2.0/2.5 and ported 3.0 variants); an author's own credit line (traffic, fountain). **Proposed (25):** sugar, flag, jungle, steak, cheek, rib, bicycle, shrimp, swan, gown, wheelchair, globe, parrot, wheat, lemonade, cafeteria, keyboard, mist, mango, cucumber, heater, bookstore, drugstore, carton, bartender. **`sheet.html`: `/private/tmp/claude-501/-Users-amirhossein-Desktop-english-bot/80071f00-e10f-4b06-b4d6-c1dbc03cc26f/scratchpad/w24b-pictures/sheet.html`** (with `proposals.tsv` beside it). **(5) THE PICTURES WERE LOOKED AT, NOT INFERRED FROM FILENAMES (§1a's lesson)** — every one of the 25 thumbnails was fetched and viewed. **This reading is advice; the approval is the operator's (#271).** *Show the word clearly (18):* sugar, flag, jungle, steak, rib (a drawn rib cage), bicycle, shrimp, swan, gown, wheelchair, globe, wheat, mango, cucumber, heater, bookstore, bartender, mist. *Borderline (4):* **cafeteria** (a 1940s black-and-white school lunch room — readable), **carton** (branded cereal and food boxes — reads *box*), **drugstore** (a shopper at a shelf of toiletries — could read *supermarket*), **lemonade** (two garnished stemmed glasses — reads *cocktail*). ***Recommend NOT approving (3):* keyboard** — the picture is **a typewriter's keys**; **cheek** — **an anatomical diagram of the face's muscles**, not a cheek; **parrot** — **a kākāpō on the forest floor**, owl-faced and green, not the parrot a learner pictures. **(6) WHAT WAS NOT DONE.** No line was written to `data/lexeme_images.tsv` (the approval is the operator's — the line in the committed file *is* the approval), and nothing was loaded. The Wikidata/Commons requests are free (W13d); the thumbnail reads for (5) were free public fetches. **The (A6) finding stands:** almost none of these are the learners' card words, so W24f's drill is where they would be seen. |
 | 2026-09-27 | **W24r (D) — THE VIDEO POOL: `@ModernFamily` REMOVED (EMPTY, NOT MOVED), A WEEKLY AUTOMATIC REFRESH BEHIND `VIDEO_AUTO_REFRESH`, AND THE BAND FINDING FILED UNDER #329. ON `main`, NOT DEPLOYED. NO MIGRATION.** | **(1) `@ModernFamily` IS EMPTY, SO IT IS REMOVED RATHER THAN CORRECTED (#464).** The refresh's `resolve_handle` succeeded — so the handle resolved — and `playlistItems` 404'd. Read from the Mac with free, keyless public requests (no key, nothing billed): the channel page answers 200 with **`externalId` `UCv-nYBrZesbMKctb8hWFeMA`, the id already in the file**, and reads *"This channel doesn't have any content"*; its feed has **zero entries**; the uploads playlist's feed is **404**. **The handle did not change; the channel holds nothing.** The entry is quoted whole in `_REMOVED_2026_09_27` with that evidence; `_POOL_BALANCE` gains the new split (**12 channels: life 7 / curiosity 4 / work 1 = 58.3 / 33.3 / 8.3**). No replacement is added: a channel comes back with a handle somebody looked up and a title the operator read (the 2026-09-01 two-check rule), never as a guess. **(2) THE WEEKLY REFRESH, `refresh_videos` — WHAT IT IS.** A worker job on a **crontab trigger, `0 4 * * mon` in Europe/Vilnius** (01:00 UTC in summer, 02:00 in winter — asserted both ways). It calls **`core.video.refresh.run_scheduled`, which calls `_live` — the function `--live --apply` calls** — so the poll, the free caption listing, the terminal-verdict skip, the per-video query plan, the fetch, the coverage recompute and **the same `purge_stale`** are one code path, not a copy. **The ceiling is hard: `AUTO_TRANSCRIPT_CEILING = 40`, applied with `min()` whatever the caller asks** (asserted: asked for 500 on a 48-video listing, it fetches 40). `now` is a parameter: every row is stamped with it and the purge is measured from it (asserted with a clock fixed in 2030, where a wall-clock run would stamp 2026 and purge nothing). **The CLI's printout is captured and dropped**; the worker logs **one line** — `refresh_videos ok ok=… pending=… failed=… unavailable=… channels_failed=… stored=… purged=…` — **counts only, never a title** (CLAUDE.md §5; asserted with a probe title that must not appear). **A run that cannot start** (no keys, no usable channel, a non-zero exit) **raises `RefreshFailed`, so `run_job` sends it to Sentry as `job:refresh_videos`** with the type only (W23's scrubber); a failed channel is not an exception and is counted as `channels_failed`. **(3) OFF UNLESS `VIDEO_AUTO_REFRESH=1` IS IN `.env` — AND THE TABLE IS DATA, SO THE GATE IS TOO.** `Settings.video_auto_refresh` (default False, parsed like every boolean); `jobs_for(settings)` returns `JOBS` plus `REFRESH_VIDEOS` only when it is set; `main()` builds from `jobs_for(load_settings())`. **`JOBS` itself is unchanged**, so `tests/test_worker.py`'s hand-written table still describes what a worker without the flag registers. Asserted from a real `.env` file (§3 rule 3) and through `main()` with only `start`/`shutdown` stubbed (§5b: no loop runs). **Rehearsed:** the scheduler built on the Mac without the flag prints `Scheduler built jobs=push_poll,assign_video`, and with `VIDEO_AUTO_REFRESH=1` exported `Scheduler built jobs=push_poll,assign_video,refresh_videos`; the dry `core.video.refresh` lists **12 usable, 0 refused**. **(4) THE RULING, AND WHY IT IS AN EXCEPTION AND NOT A REVERSAL OF #196.** The operator asked for no manual weekly step and ruled the billed job explicitly (2026-09-27): **cost measured under $1 a run** (the first billed run was $0.58, #321; 2026-09-27's printed floor `$0.0009` is a floor, not the bill). Recorded on **#196** as **an exception scoped to this job only**: #196 keeps *generation* human-run because it writes learner-facing English no gate can certify; this job fetches transcripts of published videos and generates nothing. **Every other billed run is still operator-run.** *The bill is read on Apify's console, not by this code: the floor it prints is still a floor (#321).* **(5) WHY A CRON TRIGGER AND NOT A POLL.** Every other job here polls because it fires on a *learner's* local date; the pool is shared, so one calendar slot is right, and a Monday-04:00 poll would have needed a *has this week run* marker the crontab makes unnecessary. A worker down at 04:00 on a Monday skips that week (`coalesce`, the scheduler holds nothing across restarts) — **the next Monday runs, and nothing piles up** (the same *never a backlog* rule as the learners'). **(6) THE BAND FINDING IS FILED UNDER #329 WITH THE NUMBERS AND THE BAND IS NOT TOUCHED.** 38 of 50 outside 93–98% for both learners; user 3 selectable 8, user 2 11; 12 of 50 in band against 1 of 6 on 2026-09-01. *Which side the 38 fall on is not in the paste.* #289 stays closed with a pointer. **(7) THE TESTS, RED FIRST.** Nine in `tests/test_video_auto_refresh.py`, **all red before the code** (the flag, `jobs_for`, `refresh_videos` and `run_scheduled` did not exist); four also shown red by mutation (`python -B`, caches cleared): `min(limit, 40)` → `limit` turns the ceiling test red (**48 == 40**); ignoring `now` turns the fixed-now test red (the wall-clock stamp); `jobs_for` ignoring the flag turns *not registered without the flag* red; dropping the stdout capture turns the one-line log test red. **One in `tests/test_video_channels.py`** — *an empty channel is not polled and its removal is recorded* — **red against the file as committed before this part** (`@ModernFamily` loaded), green after. **Targeted run: 346 passed** (every `test_video_*` file, the worker, monitoring, R2 backup, keep going and writing config); the full suites are counted in W24r (F). |
 | 2026-09-27 | **W24r (C) — LISTENING C1 IS DROPPED FROM THE PLACEMENT CHECK (OPERATOR RULING, 2026-09-27). LISTENING STOPS AT B2. ON `main`, NOT DEPLOYED. NO MIGRATION. PRD §6 AMENDED.** | **(1) THE REASON IS A FINDING, NOT A SHORTAGE (#463).** The host's fill of 2026-09-27 discarded all six slots with `answer_not_in_transcript` + `stem_transcript_mismatch`; the journal's explanations say the transcript renders the reduced form — *"'might have' often sounds like 'mighta'"*, *"'Could have' is often pronounced 'coulda'"* — while `answer` is `might have` / `could have`. The target *"hearing could have or might have in fast speech"* **invites phonetic spellings that no transcript check can match**: the point of the item is that the words are not said as written, and the check ties the answer to the written transcript. Another billed run would buy the same discard. **(2) WHAT WENT.** `targets.LISTENING_TARGETS` has no C1 entry (its text is quoted in a comment); `targets.LISTENING_BANDS = ("A2", "B1", "B2")` is new; `LISTENING_PER_BAND` has no C1; `bank._generated_plan` and the dry print skip a band a section has no targets for; `bank.GENERATED` is now per section, so **`--only listening:C1` is refused** (`argparse` names the cells that exist); `scoring.LISTENING_ORDER` is **`("A2", "B1", "B1", "B2", "B2")`**, and `readiness.minimums()` — which counts that order — therefore has **no listening C1 minimum**. The service's draw (`_draw_listening`) walks the same order and needed no edit. **(3) FIVE CLIPS, NOT SIX — THE LITERAL READING, CHOSEN OVER A THIRD B2 CLIP, AND WHY.** The ruling says the C1 target, cohort and readiness minimum go; it says nothing about the other bands. **Dropping the C1 clip leaves A2 1 · B1 2 · B2 2 exactly as they were**, and every bank size with them — no new cohort is planned and nothing new is billed. The alternative, a third B2 clip to keep PRD §6's *six*, would raise B2's readiness minimum to 3 and its bank size to 18, **planning a billed B2 top-up nobody asked for**. So PRD §6 reads **5 short clips, A2 → B2**, amended with the old text quoted (#82). **If six clips matter more than the extra cost, that is a one-line ruling** (`LISTENING_ORDER` plus `LISTENING_PER_BAND["B2"] = 18`). **(4) SCORING REPORTS AT MOST B2, AND IT WAS ALREADY BUILT TO.** `listening_band` caps at the highest band served (launch 2026-09-26, B2); with no C1 clip, that is B2. The share thresholds are unchanged — on five clips they read **0–1 A2, 2–3 B1, 4–5 B2** (five of five reaches the *every one* branch and the cap returns B2). Asserted: `listening_band([True] * 5, served=LISTENING_ORDER) == "B2"`. **The radar's other skills keep C1**; only listening is capped. **(5) THE TESTS, RED FIRST.** Five new: *the dry run on the host's counts offers a first sitting* (`dry_print` over a `Plan` whose `held` is the 2026-09-27 paste — grammar A2 27 · B1 26 · B2 26 · C1 27; listening A2 6 · B1 12 · B2 10 · C1 0; 6 speaking; 240 words at 24 per frequency band; 120 pseudo — **red: it printed *"NO — short listening C1 by 1"***); *no C1 listening cohort is planned* (on an empty bank the bands are A2, B1, B2; on the host's counts the only listening cohort is **B2, 2 slots**, and no candidate text names C1 — red: C1 was planned); *listening C1 is no longer a cell `--only` may name* (red: accepted); *listening reports at most B2* (red: the order ended in C1); *listening C1 has no minimum* (red). **Eleven existing tests changed, each noted at the test**: the W24a `--only` tests name **listening A2** (the same one-cohort, 20-call shape) where they named C1; the readiness file's C1 cases name **B2**, the new top band (an empty B2 is not offered; a B2 emptied under a sitting reads B1, never B2; two B2 clips served, two removed, the re-run not offered); the 2026-09-26 counts, which read *not ready — short listening C1 by 1*, now read ready; the route's whole sitting serves five clips. **The per-code split of the host's counts is not in the paste**; the fixture spreads each band's total round-robin over its targets, as the build fills them, and the readiness line sums a band anyway. **(6) REHEARSED ON THE DEV DATABASE (§5c).** `python -m core.placement.bank` (dry, empty dev bank) prints listening **A2, B1, B2 only** and a shortfall with no listening C1; `--only listening:C1` exits with *"'listening:C1' is not a generated cell: grammar:A2|B1|B2|C1; listening:A2|B1|B2"*. **On the host, after the deploy, the whole-bank dry run should read *yes***, and — by subtraction from the 2026-09-27 re-read (`cohorts: 10`, `at most: 148`, on counts the C1 run left unchanged) — **`cohorts: 9` and `at most: 128`**: the listening C1 cohort's 20 calls gone. *That pair is derived, not run; the host's print settles it.* **(7) WHAT DOES NOT CHANGE.** **W18-R2 and then W18-P1 are unchanged, and nobody sits the placement check before W18-R2** (the operator's ruling of 2026-09-26). #445 (the generator's B1→B2 prompt asked for A2 and C1 through the target text) still stands for grammar C1. **#459 is closed with its stated condition unmet**, because the cell it named is gone; what it was about is evidenced (A2). |
@@ -5412,9 +5425,262 @@ Migration **019** (renumbered from 018, which W11 took) — `videos`,
 
 ## Next action
 
-> **W24r (A), 2026-09-27: §1–§3 OF THIS BLOCK RAN** (the operator's paste — decisions log, *W24r (A)*): host at `eed40b3`, 034 applied, `/health` 34, the pool refreshed, **listening C1 still 0 (#463)**. §4 (the alert rule), §6–§8 and the unpasted lines of §3 are still owed. **W24r (F) rewrites this section as the follow-up's launch block**; until then this block stands as written, with that status.
+### W24r — THE FOLLOW-UP'S LAUNCH BLOCK, written 2026-09-27. **NOT RUN.** It deploys `main` at the W24r (F) record commit: **(B)** #462 — three learner turns on `/talk` finish block 4; **(C)** listening C1 dropped from the placement check; **(D)** `@ModernFamily` removed and the weekly **`refresh_videos`** behind `VIDEO_AUTO_REFRESH`. (A) and (E) are record only. **No migration** (`status` stays at 034). **`apps/web` is unchanged since `eed40b3`, so Vercel does not rebuild.** **W22 stays on its branch and GATED (§9).**
 
-### W24 — THE LAUNCH BLOCK, written 2026-09-27. **NOT RUN.** It deploys `main` at the W24e record commit: **W24a** (the bank fix, `--only`, the spend-limit alarm), **W24c** (the desktop column), **W24d** (a video every day, **migration 034**) and **W24e** (keep going). **W22 stays on its branch and GATED (§9).**
+**Where things stand (W24r (A), the operator's paste of 2026-09-27):** production at **`eed40b3`**, `schema_version` **34**; the pool **50 `ok` / 133 pending / 2 unavailable**; listening C1 **0**, so the placement check reads *not ready* until this deploy. **Nobody sits the placement check before W18-R2** (the operator's ruling of 2026-09-26, unchanged).
+
+**The order is fixed:** 1. the Mac → 2. the host, as `bot` → 3. the host, as root → 4. Sentry → 5. Vercel (nothing to do) → 6. the picture approval → 7. W18-R2, then W18-P1 → 8. every earlier check still owed → 9. W22, only on its gate. **Every block is for ONE role; never paste two blocks as one (#422).** **Nothing is retired by a green test (CLAUDE.md §3a).** Every command below was run on the Mac first, except where a line says it cannot be (§5c).
+
+**The suites on this commit's tree (2026-09-27):** pytest **3363 passed, 6 skipped, 0 failed** (serial; both W10c journals `chmod a-w` and `shasum`-identical after); Vitest **361 passed** (29 files); `tsc --noEmit` clean; `next build` OK; `pnpm test:e2e` (`E2E_PORT=3190`) **448 passed, 26 skipped** — the screenshots it re-wrote were restored, since no screen changed.
+
+#### 1. On the Mac, repo root — push, and write down the hash
+
+```bash
+git checkout main
+git status --short
+git log --oneline -7
+git push origin main
+git rev-parse --short HEAD
+```
+
+**Expect** an empty status; the top seven, newest first: *"W24r (F): …"*, *"W24r (E): …"*, *"W24r (D): …"*, *"W24r (C): …"*, *"W24r (B): …"*, *"W24r (A): …"* and *"W24e: …"* (**`eed40b3`**, the host's commit); the push fast-forwards `eed40b3..` to the top. **The last line is the hash the host's pull must end on — write it down.** *(No sha for the top commit is printed here: this line is inside the commit it would name; the session's report gives it. Its parent, W24r (E), is `c7194e5`.)* *Rehearsed: `status`, `log` and `rev-parse` on the Mac; the push is the operator's.*
+
+#### 2. The host, as `bot` — pull, the flag, the two dry runs
+
+**Host, as root: switch to `bot` — this line alone:**
+
+```bash
+sudo -u bot -i
+```
+
+**Host, as `bot`.** No `set -e`; read each line's output by eye. **`set +H` first.**
+
+```bash
+set +H
+cd /home/bot/english-bot
+git rev-parse --short HEAD
+scripts/backup.sh
+git pull
+git rev-parse --short HEAD
+.venv/bin/pip install -e packages/core
+.venv/bin/python -m core.db migrate
+.venv/bin/python -m core.db status
+grep -n '^VIDEO_AUTO_REFRESH=' .env
+grep -q '^VIDEO_AUTO_REFRESH=' .env || echo 'VIDEO_AUTO_REFRESH=1' >> .env
+grep -n '^VIDEO_AUTO_REFRESH=' .env
+ls -l .env
+.venv/bin/python -m core.placement.bank
+.venv/bin/python -m core.video.refresh
+```
+
+**Read, line by line:**
+1. the first `rev-parse` — **`eed40b3`**.
+2. `backup.sh` — a dump line and an R2 upload.
+3. **the second `rev-parse` — the hash written on the Mac. Anything else: stop; nothing has changed yet.**
+4. `pip` — no new dependency.
+5. `migrate` — nothing to apply (**no migration in W24r**). 6. `status` — **`Applied: 001 … 034`**, `Pending: (none)`.
+7. the first `grep` — **nothing** (the flag is new). **If it prints a line, stop and read it**: the next line will not add a second one, and a value other than `1` is yours to edit.
+8. the `grep -q … || echo …` — silent; it appends `VIDEO_AUTO_REFRESH=1` only when no such line exists (rehearsed on a scratch copy: idempotent, mode kept at 600).
+9. the second `grep` — **exactly one line, `N:VIDEO_AUTO_REFRESH=1`**. 10. `ls -l .env` — **`-rw-------`, owner `bot`** (appending as `bot` keeps both).
+11. **the whole-bank dry run** — the held table shows **listening A2, B1, B2 only (no C1 row)** and **`a first sitting can be offered now: yes`** (**W24r-G1**). By subtraction from 2026-09-27's re-read (`cohorts: 10`, `at most: 148`, on counts the C1 run left unchanged) it should also print **`cohorts: 9`** and **`calls --live will make, at most: 128`** — *derived, not run; if either differs, paste it — the `yes` is the check.* **Do not `--apply` anything here.** *Rehearsed on the dev database (empty bank): listening A2/B1/B2 only; `--only listening:C1` is refused by name.*
+12. the dry refresh — **`Channel pool: 12 usable, 0 refused`**, no `@ModernFamily` line (#464), then the pool counts. **Free: no network.** *Rehearsed on the Mac: 12 usable, 0 refused.*
+
+**Back to root — this line alone:**
+
+```bash
+exit
+```
+
+#### 3. The host, as root — restart and read
+
+```bash
+systemctl restart english-api
+systemctl restart english-bot
+systemctl restart english-worker
+sleep 5
+journalctl -u english-worker --since "2 min ago" --no-pager | grep -E "Scheduler built|Monitoring"
+curl -s -o /dev/null -w '%{http_code}\n' https://api.foundgrant.com/keep-going
+curl -s -o /dev/null -w '%{http_code}\n' https://api.foundgrant.com/placement
+curl -s https://api.foundgrant.com/health
+```
+
+**Expect:** all three restart (**core changed, so `english-bot` restarts too — #433's rule**); **`Scheduler built jobs=push_poll,assign_video,refresh_videos`** and `Monitoring on component=worker region=eu` (**W24r-J1's first half**; without `refresh_videos` the flag was not read — check §2's line 9); **`401`, `401`** (both routes exist and are gated — **carried from W24's §3, which was not pasted**); `/health` → **`{"ok":true,"schema_version":34}`**. *Rehearsed: the scheduler built on the Mac without the flag prints `…jobs=push_poll,assign_video` and with `VIDEO_AUTO_REFRESH=1` exported `…jobs=push_poll,assign_video,refresh_videos`. **Not rehearsable:** the restarts, `journalctl`, the live curls.*
+
+**Later, as root — the first automatic refresh (W24r-J1's second half), Monday 04:00 Vilnius (01:00 UTC in summer time; the daily `backup.sh` cron is 04:00 UTC, so they do not overlap).** If the deploy lands before Monday 2026-09-28 04:00 Vilnius, that is the first run; otherwise the next Monday:
+
+```bash
+journalctl -u english-worker --since "2026-09-28 00:55 UTC" --no-pager | grep -E "refresh_videos|Scheduled job failed name=refresh_videos"
+```
+
+**Expect one line:** `refresh_videos ok ok=… pending=… failed=… unavailable=… channels_failed=0 stored=… purged=…` — **counts only**; `stored` at most **40**. **Then read the Apify console's charge for that run and write it into the decisions log** (the ruling is *under $1 a run*; the printed floor is not the bill, #321). A `Scheduled job failed name=refresh_videos` line instead is also a Sentry issue (`job:refresh_videos`) — paste it. **Then, the same day, the hourly `assign_video ok …` line** (W24d-J1's second half, carried): `journalctl -u english-worker --since "70 min ago" --no-pager | grep "assign_video ok"`.
+
+#### 4. Sentry — the spend-limit alarm (#458, carried)
+
+In Sentry: **Alerts → Create Alert → Issues**, project **`english-api`** (the API, the worker and the probe share it; `english-web` never calls the model): **when** *a new issue is created*, **if** *the event's `exception.type` attribute equals `LLMSpendLimit`*, **then** *send a notification to you*; name it *LLM spend limit*. **Closes #458.** It cannot be tested on demand — it needs a real refusal. **Also note:** a failed weekly refresh now arrives in the same project as a `RefreshFailed` issue tagged `job:refresh_videos`.
+
+#### 5. Vercel — nothing to rebuild
+
+`git diff --stat eed40b3 HEAD -- apps/web` prints **nothing** (rehearsed on the Mac): W24r changes no file under `apps/web`, and Vercel was redeployed at W24 (W24r (A)). **No rebuild.**
+
+#### 6. The picture approval — W24b (operator, then host)
+
+1. **Open the sheet** (on the Mac, in a browser): **`/private/tmp/claude-501/-Users-amirhossein-Desktop-english-bot/80071f00-e10f-4b06-b4d6-c1dbc03cc26f/scratchpad/w24b-pictures/sheet.html`**. *It sits in a session scratch directory under `/private/tmp`, which a reboot clears; if it is gone, any Claude Code session re-runs the proposer (0 billed) on the 47 lemmas in the decisions log, W24r (E).* **The session's reading, as advice** (W24r (E) (5)): 18 show the word clearly; **cafeteria, carton, drugstore, lemonade** are borderline; **keyboard (a typewriter), cheek (a face-muscle diagram) and parrot (a kākāpō) are recommended against.**
+2. **Append the lines you approve** from `proposals.tsv` (beside the sheet) to **`data/lexeme_images.tsv`** — that line is the approval — then commit and push from the Mac.
+3. **Host, as root: `sudo -u bot -i` (this line alone); as `bot`:**
+
+```bash
+set +H
+cd /home/bot/english-bot
+git pull
+.venv/bin/python -m core.images.bank --load
+.venv/bin/python -m core.images.bank --load --apply --contact "https://app.foundgrant.com"
+```
+
+**Read:** the dry `--load` — **`add: N`** with N your approved lines, `withdraw: 0`; `--load --apply` re-checks each file on Commons, downloads, and asks you to type the confirmation; a line refused now (a re-upload, a changed licence) is named with its reason and nothing about that lemma changes. **Closes #449 (a).** *Rehearsed: `--load` dry on the Mac against the header-only file (`add: 0 … withdraw: 0`). **Not rehearsable:** `--apply` (it writes production rows).* **Back to root (`exit`, this line alone).**
+4. **W13d-P1 [phone]** — review a card of an approved word: the picture after the reveal, **the credit visible: author · licence · Wikimedia Commons** (R10; **#451 closes on R10**). *(A6: few of these are the learners' card words, so few cards will show one; W24f is deferred under R8.)*
+
+#### 7. W18-R2, then W18-P1 — unchanged, and in this order
+
+**W18-R2 = L2-R1 — every generated item, per band, BEFORE ANY LEARNER SITS IT** — the `psql` read in §8C-A (a) below; **then W18-R1's remainder** (§8C-A (b)); **only then W18-P1** (the phone, the whole sitting, user 3), **and only if `GET /placement` reads ready** — which, after this deploy, it should (W24r-G1). **Nobody sits the placement check before W18-R2.** Then **W18-Q1**.
+
+#### 8. Every earlier check still owed — **nothing dropped**
+
+##### 8A. Added by W24r
+
+- **W24r-G1 [host, as `bot`]** — the whole-bank dry run reads *yes* (§2, line 11).
+- **W24r-J1 [host, as root]** — `…jobs=push_poll,assign_video,refresh_videos` (§3), then the first Monday's `refresh_videos ok …` line **and the Apify charge for it** (§3, later).
+- **W24r-P1 [phone]** — **#462:** on a weekday with nothing else open, talk **three turns** on `/talk` instead of writing, then *Back to today*: **block 4 reads done, "Done for today." and keep going appear.** Two turns must not.
+- **W24r-A1 [operator]** — the picture approval (§6).
+
+##### 8B. W24's own checks, carried from its §6 and §7 (not run at W24's launch)
+
+- **W24c-P1 [desktop]** — open `/session` on a laptop: **one column, wider, larger type; does it read well now?**
+- **W24c-P2 [phone]** — nothing moved (the baselines say so; the phone confirms).
+- **W24d-P1 [phone]** — block 2 shows a video **now that the pool has one for each learner** (user 3 selectable 8, user 2 11, W24r (A)); with none, block 2 reads *"No video today — anything you enjoy watching in English counts just as much."* and names no day.
+- **W24e-P1 [phone]** — finish a session **including block 4** (writing, or — after this deploy — three turns of talk): **"Done for today."**, then *If you'd like a bit more:* and the choices actually available; tap each — *Watch something* opens `/watch` with **one** video, *Talk for a bit* `/talk`, *A few cards* `/review` (only when a card is due), *Write a few lines* `/write`. No number anywhere.
+- **W24e-P2 [phone, Sunday 2026-10-04]** — the Sunday home: the report, *practise anyway*, and **only** *Watch something*, which opens Sunday's own video.
+- **W24e-R1 [reading]** — **does the choice feel inviting and optional, or naggy?** Not automatable (CLAUDE.md §3a); one line in the decisions log either way.
+- **W24d-J1's second half** — the hourly `assign_video ok … failed=0` line (§3, later).
+
+##### 8C. W24's §8, carried verbatim from the W24 launch block *(inside it, "§5" means §8A, "§7" means §9, "§2" means W24's host block; W24r (C) changed only listening's top band — the W18 reading below now reads listening **A2 → B2**)*
+
+###### 8C-A. Launch 2's §5 — the reading, then the placement check, in this order *(carried verbatim; W24 read "**the reading now includes the listening C1 rows §2 writes**" — **there are none: the fill wrote 0 and W24r (C) dropped the cell**)*
+
+**(a) W18-R2 = L2-R1 — every generated item, per band, BEFORE ANY LEARNER SITS IT.** As `bot` (`sudo -u bot -i`, `set +H`, `cd /home/bot/english-bot`):
+
+```bash
+psql english_bot -x -c "SELECT id, section, cefr, error_type, item->>'item_type' AS type, item->>'prompt_text' AS prompt, item->>'cue_text' AS cue, item->>'answer' AS answer, item->>'transcript' AS transcript, item->'accepted_variants' AS accepted, COALESCE(item->'tiles', item->'bank') AS parts FROM placement_bank WHERE section IN ('grammar', 'listening') ORDER BY section, cefr, id;"
+```
+
+Read by band (the rows come A2 → C1 for grammar and **A2 → B2 for listening since W24r (C)**): **does each item test its target at its band — is an A2 item easier than a C1 item (#445's second half)?** For listening: is the answer what the clip says, and **where the stem spells out what the audio contracts, does `accepted` hold both spellings?** Delete a bad row by id **only while `placement_run_items` is 0**. *Rehearsed 2026-09-26 on the dev database: it parses and runs (0 rows there); the JSON keys were checked against `core.items.schema`.*
+
+**(b) W18-R1's remainder** — the operator's own read of the real words after the prune: `psql english_bot -c "SELECT id, word, is_word, freq_rank, cefr FROM placement_bank WHERE section = 'vocabulary' ORDER BY is_word, freq_rank NULLS FIRST;"`
+
+**(c) Only then: W18-P1** (the phone, the whole sitting, user 3) — and only if `GET /placement` reads ready (the web shows *Where to start* with a Start button, not the not-ready line). Then **W18-Q1** (`psql`).
+
+###### 8C-B. Launch 2's §6 — every check still owed, grouped by sitting *(carried verbatim; W24's own checks are §6 and §7 above. **Inside it, "§5" now means §8A and "§7" means §9**; W13d-A1 is W24's §7; #454 is W25's, R12.)*
+
+**Done at launch 2 and not repeated:** W18-G1 · W23-A1 (except #446) · W23-E1 · **W23-G1 · G2 · W1 · W2** · the probes (speaking, the sample, the bank build, the Sentry probe). **Answered by rulings earlier:** W20-P3 · W20-R2 · #431 · #435 · #437.
+
+**A. The phone sitting.**
+- **After this deploy:** **W18-P1** (only after §5) · **#114-P1** (the console after the rebuild) · **W23-P1 on the phone** (the desktop half is read) · **#441** in dark (the OFF switch, on the phone as well as the folder) · **W13d-P1** (after W13d-A1 and its `--load --apply`).
+- **Carried:** W20-P1 · **W20-P2 — the acceptance** (the first automatic reminder) · W19-P1 · W19-P2 · W15-P1 · **W15-P2 — #409** · **W15-P3 — #430** · **W15-P4 — #413** · **W15-P5 — #427**, voice, operator only (#364) · **W15-P6 — #408/#419** · **W17-P2 — #421** · **W17-P1 after the W17 drill run's `--apply`** · HW2 (**#407**) · HW3 · HW4 · HW5 · HW7 · HW8 · HP5 · HP1's phone half · W13-i's four phone checks · **H4 — #388** (`high`, the oldest unmet acceptance criterion).
+
+**B. The reading sitting.**
+- **Before any learner sits the check:** **W18-R2 = L2-R1** and **W18-R1's remainder** (§5).
+- **This launch's:** **L2-R2 — #457 (b), a ruling:** does a run of days without practice end a streak, silently? · W18-R3 · W23-R1 · W13d-R1 · **W13d-A2** (#451) · #441-R1.
+- **Carried:** **W17-R1 with the W17 host drill run, BEFORE `--apply`** (#440, #425) · W17-R2 · W17-R3 · W15-R1 · **W15-R2 — #428** · W15-R3 · W15-R4 · HP2 · HW3's reading half · W19-R1 · W19-R2 · W13c-R1 · W20-R1 · W20-R3 · #435-R1.
+
+**C. The `psql` sitting — as `bot`, `set +H` first.**
+- **L2-Q1 — #457 (a): is it true that nobody has practised?** Three reads:
+
+```bash
+psql english_bot -c "SELECT u.id, u.name, s.current_streak, s.freeze_tokens, s.last_active_date, s.last_evaluated_date, u.paused_until FROM users u JOIN streaks s ON s.user_id = u.id WHERE u.onboarded ORDER BY u.id;"
+psql english_bot -c "SELECT user_id, count(DISTINCT d) AS days, max(d) AS last FROM (SELECT user_id, (attempted_at AT TIME ZONE 'Europe/Vilnius')::date AS d FROM item_attempts UNION ALL SELECT user_id, (reviewed_at AT TIME ZONE 'Europe/Vilnius')::date FROM card_reviews UNION ALL SELECT user_id, local_date FROM conversation_usage WHERE turns_learner > 0 UNION ALL SELECT user_id, local_date FROM writing_submissions WHERE is_english UNION ALL SELECT user_id, (completed_at AT TIME ZONE 'Europe/Vilnius')::date FROM video_assignments WHERE completed_at IS NOT NULL) x WHERE d >= DATE '2026-08-31' GROUP BY 1 ORDER BY 1;"
+psql english_bot -c "SELECT user_id, task_type, completed, count(*) AS n, max(date) AS last FROM sessions WHERE date >= DATE '2026-08-31' GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;"
+```
+
+**Read:** every `last_evaluated_date` **yesterday** means the rollover runs, and then the second read's rows (none, if the panel is right) are the whole story; a `last_evaluated_date` stuck near 30 Aug means **the rollover stopped** — a new defect, filed, and *last practised* on `/admin` is stale for that reason. The third read says whether the bot still delivers quizzes (an untouched `quiz` row is the only thing that breaks a streak today). *Rehearsed 2026-09-26 on the dev database: all three parse and run; dev has no production rows.*
+- **After this deploy:** **W18-Q1** (after W18-P1) · **#452-Q1** (the fossil-sweep rows, any time).
+- **A month on:** **W18-M1** — the second sitting draws no bank row twice (`0 rows`); **it is offered only if every cell still holds its minimum for that learner** (the readiness rule) — *not ready* then is the rule working, not a fault.
+- **Carried:** W13c-Q1's after-half · W20-Q1 · W20-Q2 · W19-Q1 · **W19-Q2 — #259 in the bot process** · W20-J1's remainder · W17-Q1 · W17-P2's count · W15-Q1 · W15-Q2 · W15-Q3 · HP3 · HW3's two queries.
+
+**D. Sentry, the Mac and the operator's settings.**
+- **W23-G3 — closes #438:** Sentry → Crons → the monitor **`english-worker`**, `OK` check-ins about five minutes apart. **Also W22's third gate.**
+- **#456-S1:** *Security & Privacy* → **Prevent Storing of IP Addresses**.
+- **W13d-A1 [Mac]** — the pictures (skipped at launch 2): propose, approve, commit `data/lexeme_images.tsv`; then, after that pull, the host's `core.images.bank --load` dry and `--load --apply --contact "C"` (under `## Launch pass — probes`, *W13d*).
+- **#448-P1 [Mac] — the dev database's debris**, yours to run: the count, then the DELETE — **both exactly as written in the head below, *THE LAUNCH PASS — BUILD RUN 2*, §5D** (expected `n` will have grown: every full pytest run on `main` adds 27 until W22 merges).
+
+**E. Not a sitting — conversations and billed runs.** **#364** (the second learner's voice) · **#446** (Sentry's terms and DPA, read and one line recorded) · **#423** (the second learner on the web — W22's first gate) · **#454** (W22's second gate) · **#29** (the couple challenge set-up) · **billed:** the W17 host drill run (≤66; W17-R1 before `--apply`) · **H3** (#299, journal aside first, #309) · **#352's 33 calls** · **T1** · #401 · #378's interim · T2 (#333) · T4 (#332) · Unit 2's generation (held on #299/#249) · **the ✅ column** — every 🟡 row, W11c, W14, both build runs and L2; only you mark ✅.
+
+**F. Blocked on the second learner (#423):** W17-B1 · W19-B1 · W13c-B1 · W20-B1 · W15-B1 · W18-B1.
+
+**What stays open after this pass** (every row of `## Known issues` is carried as it stands): **new — #456, #457**; **#114** closes at #114-P1; **#438** at W23-G3; **#440** at W17-R1; **#441** at the phone read and #441-R1; **#445** at W18-R2; **#446** on the operator's read. **#65 closed.** W22's branch-closing list is unchanged: #436 · #410 · #186 · #58 · #86 close at its gated deploy.
+
+
+#### 9. W22 — GATED: #423, #454 (**now W25, R12**), W23-G3, AND THE OPERATOR'S EXPLICIT GO. **A SEPARATE BLOCK.** *(Carried from W24's §9 with W24r's expectations: **the branch was rebased onto the W24r (F) record commit on 2026-09-27**; the host is at W24r's deploy; `status` reads 034; the worker also runs `assign_video` and, with the flag, `refresh_videos`; `/health` reads 34.)*
+
+**Do not run any line of this section until all four hold, and write the go into the decisions log first:**
+1. **#423** — the second learner has started the web session: `psql english_bot -c "SELECT user_id, unit_number, state FROM user_unit_state ORDER BY 1;"` shows **her** row, not only user 3's.
+2. **#454** — (a)–(e) have a web equivalent, or each is ruled accepted; (f) is ruled.
+3. **W23-G3** — Sentry's `english-worker` monitor shows `OK` check-ins.
+4. **Your explicit go** — ruling 0.4: the deploy deletes the Telegram teaching handlers.
+
+**What it changes, so the go is informed:** unchanged from the head below (§8 there) — the bot answers `/start`, `/help`, `/ping` and `/here`, runs the couple challenge, and answers everything else with one pointer to the app; the worker takes `streak_rollover`, `monthly_freeze_reset`, `heartbeat`, `backup_freshness`; M13's fossil re-tests stop (#452); nothing watches the bot itself (#455).
+
+**Mac, repo root — merge the branch into `main`:**
+
+```bash
+git checkout main
+git pull
+git fetch origin
+git log --oneline -3 origin/w22-bot-reduction
+git merge --ff-only origin/w22-bot-reduction
+git log --oneline -4
+.venv/bin/python -m pytest -q -p no:cacheprovider
+git push origin main
+git rev-parse --short HEAD
+```
+
+**Expect:** the branch's top two are *"W22: every retired Telegram path answers with the pointer, never silence (#86)"* and *"W22: bot reduction — …"*, **directly above the W24r (F) record commit named in §1** (rebased onto it on 2026-09-27; the suite count on that tip is in W24r's session report); **the merge fast-forwards**; pytest **0 failed** (the count on the rebased tip is in launch 2's session report); **write the last line down.** **If `--ff-only` refuses**, `main` has moved past the branch's base: **stop — nothing is merged**; a Claude Code session rebases `w22-bot-reduction` onto `main`, reruns the suites and pushes it; then this block again.
+
+**Then the host — as root, switch to `bot` (`sudo -u bot -i`, this line alone); as `bot`:**
+
+```bash
+set +H
+cd /home/bot/english-bot
+git rev-parse --short HEAD
+scripts/backup.sh
+git pull
+git rev-parse --short HEAD
+.venv/bin/pip install -e packages/core
+.venv/bin/python -m core.db status
+cat /home/bot/english-bot-runtime/last_job_fire
+```
+
+**Expect:** the first `rev-parse` — **the hash written in §1** (W24r's deploy); **the second — the hash written on the Mac just above; anything else, stop**; `status` — `Applied: 001 … 034`, `Pending: (none)` (W22 has no migration); the heartbeat file — the old bot's last write, **write the time down**. **Back to root (`exit`, this line alone).**
+
+**Host, as root — THE ORDER IS THE POINT: the bot first, so the old bot process (which still holds the four jobs in memory) is gone before the worker starts running them (#69):**
+
+```bash
+systemctl restart english-bot
+sleep 5
+journalctl -u english-bot --since "2 min ago" --no-pager | grep "Scheduler started"
+systemctl restart english-worker
+sleep 5
+journalctl -u english-worker --since "2 min ago" --no-pager | grep -E "Scheduler built|Monitoring"
+systemctl restart english-api
+curl -s https://api.foundgrant.com/health
+```
+
+**Expect, exactly:** `Scheduler started jobs=couple_poll (poll every 300s; first=60s)`; **`Scheduler built jobs=streak_rollover,monthly_freeze_reset,push_poll,heartbeat,backup_freshness,assign_video,refresh_videos`** (with `VIDEO_AUTO_REFRESH=1`; without it, the same line without `,refresh_videos`) and `Monitoring on component=worker region=eu`; `/health` → `schema_version` **34**. *Rehearsed 2026-09-25 (both scheduler lines printed by building each scheduler on the Mac without starting it); the worker's line with `refresh_videos` re-rehearsed on the rebased branch 2026-09-27 (W24r). **Not rehearsable:** the restarts and `journalctl`.*
+
+**Then the W22 checks** (full wording under `## Launch pass — human checks`, *W22*): **W22-J1** · **W22-H1** · **W22-P1 [phone]** · **W22-Q1** · **#448-P1** if it has not run.
+
+
+## Next action — earlier heads, kept as history
+
+### W24 — THE LAUNCH BLOCK, written 2026-09-27. **§1–§3 RAN 2026-09-27 (W24r (A)); SUPERSEDED THE SAME DAY BY W24r's LAUNCH BLOCK (the head above), which carries every unrun line of it; kept as written (#82's shape).** *(It read "**NOT RUN.**" until then.)* It deploys `main` at the W24e record commit: **W24a** (the bank fix, `--only`, the spend-limit alarm), **W24c** (the desktop column), **W24d** (a video every day, **migration 034**) and **W24e** (keep going). **W22 stays on its branch and GATED (§9).**
 
 **Where things stand, from the operator's paste of 2026-09-27:** production at **`0f1ef32`**, `schema_version` **33**; `/health` answered `{"ok":true,"schema_version":33}`; the placement bank is short only in **listening C1 (0)**, so the placement check reads *not ready*. **Nobody sits the placement check until §2's C1 fill and §8A's reading are done** (the operator's ruling of 2026-09-26, unchanged).
 
@@ -5668,8 +5934,6 @@ curl -s https://api.foundgrant.com/health
 **Expect, exactly:** `Scheduler started jobs=couple_poll (poll every 300s; first=60s)`; **`Scheduler built jobs=streak_rollover,monthly_freeze_reset,push_poll,heartbeat,backup_freshness,assign_video`** and `Monitoring on component=worker region=eu`; `/health` → `schema_version` **34**. *Rehearsed 2026-09-25 (both scheduler lines printed by building each scheduler on the Mac without starting it). **Not rehearsable:** the restarts and `journalctl`.*
 
 **Then the W22 checks** (full wording under `## Launch pass — human checks`, *W22*): **W22-J1** · **W22-H1** · **W22-P1 [phone]** · **W22-Q1** · **#448-P1** if it has not run.
-
-## Next action — earlier heads, kept as history
 
 ### W24 — BUILDING, 2026-09-27. **SUPERSEDED THE SAME DAY BY W24's LAUNCH BLOCK (the head above), which carries every line of it; kept as written (#82's shape).** *(It read "**NOT A LAUNCH BLOCK YET.**" until the W24e record.)* W24a is built on `main`; W24c, W24d and W24e follow in this session, and **W24e's record rewrites this whole section as one launch block for W24** (one block per role, #422). Until then, what W24a adds:
 
