@@ -4,6 +4,20 @@
     "method": "POST",
     "path": "/video/{video_id}/save-word",
     "content_type": "application/json",
-    "body": { "word": "mastodon" }
+    "body": { "word": "mastodon", "line": 0 }
+  },
+  {
+    "name": "word_lookup",
+    "method": "GET",
+    "path": "/video/{video_id}/word?w=mastodon&line=0",
+    "content_type": null,
+    "body": null
+  },
+  {
+    "name": "my_words",
+    "method": "GET",
+    "path": "/words",
+    "content_type": null,
+    "body": null
   }
 ]

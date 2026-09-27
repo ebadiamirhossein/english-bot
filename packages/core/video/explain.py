@@ -107,6 +107,10 @@ Return ONE JSON object and nothing else:
   register            exactly one of: {", ".join(REGISTERS)}
   neutral_equivalent  a word or phrase that is safe in any situation, or null
   who_says_this       who says it to whom, one short phrase, or null
+  l1                  an object: for each language code the request lists after
+                      "Meaning in:", a short plain translation of what the word
+                      means IN THIS LINE, written in that language. {{}} if none
+                      are listed.
 
 Rules for the text you write:
 - Everyday English. Contractions are fine. No textbook phrasing.
@@ -115,7 +119,16 @@ Rules for the text you write:
 - If register is informal or slang, neutral_equivalent and who_says_this are
   REQUIRED and must not be null.
 - Never address the learner's performance. You are describing a word.
+- In l1, give the meaning a native speaker would use, not a word-for-word gloss.
 """
+
+#: W31c (ruling Q7): the learners' own languages, asked for in the SAME call as
+#: the English. Only codes named here are ever requested; an unknown code is
+#: skipped rather than guessed at. `users.native_language` holds `fa` / `lt`.
+L1_NAMES: dict[str, str] = {"fa": "Persian (Farsi)", "lt": "Lithuanian", "es": "Spanish"}
+
+#: A translation longer than this is not a gloss. Refused, never trimmed.
+L1_MAX_CHARS = 200
 
 
 class GlossRejected(Exception):
@@ -129,9 +142,16 @@ class Draft:
     register: str
     neutral_equivalent: str | None
     who_says_this: str | None
+    #: W31c: `{code: meaning}` for the languages that were asked for and came
+    #: back usable. Empty when none were asked for.
+    l1: dict | None = None
 
 
-def build_messages(word: str, line: str) -> list[dict]:
+def _requested(l1: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    return tuple(code for code in l1 if code in L1_NAMES)
+
+
+def build_messages(word: str, line: str, l1: tuple[str, ...] = ()) -> list[dict]:
     """The one request shape. **The line goes in delimited and nowhere else.**
 
     Returned rather than sent, so the injection test can inspect exactly what
@@ -142,14 +162,23 @@ def build_messages(word: str, line: str) -> list[dict]:
         {
             "role": "user",
             "content": (
-                f"Word to explain: {word}\n\n"
-                f"{OPEN}\n{line}\n{CLOSE}\n"
+                f"Word to explain: {word}\n"
+                # W31c: the languages go OUTSIDE the delimited block, like the
+                # word — only the transcript line is material.
+                + (
+                    "Meaning in: "
+                    + ", ".join(f"{c} ({L1_NAMES[c]})" for c in _requested(l1))
+                    + "\n"
+                    if _requested(l1)
+                    else ""
+                )
+                + f"\n{OPEN}\n{line}\n{CLOSE}\n"
             ),
         }
     ]
 
 
-def validate(word: str, raw: Any) -> Draft:
+def validate(word: str, raw: Any, l1: tuple[str, ...] = ()) -> Draft:
     """A reply → a `Draft`, or `GlossRejected`. **Discarded, never repaired.**
 
     Repairing a malformed reply is how a model's output starts choosing what is
@@ -191,16 +220,37 @@ def validate(word: str, raw: Any) -> Draft:
     if guilty:
         raise GlossRejected("no-guilt gate: " + "; ".join(guilty))
 
+    # **W31c — THE L1 OBJECT (Q7).** Not an object → the whole draft is
+    # refused, like any malformed reply. A language that was asked for and did
+    # not come back usable (missing, empty, not a string, over-long) is simply
+    # ABSENT from the stored object — the sheet then shows the English alone.
+    # That is an absence, not a repair: nothing the model wrote is edited.
+    translations: dict[str, str] = {}
+    wanted = _requested(l1)
+    if wanted:
+        raw_l1 = raw.get("l1", {})
+        if raw_l1 is None:
+            raw_l1 = {}
+        if not isinstance(raw_l1, dict):
+            raise GlossRejected(f"l1 is {type(raw_l1).__name__}, not an object")
+        for code in wanted:
+            value = raw_l1.get(code)
+            if isinstance(value, str) and value.strip() and len(value.strip()) <= L1_MAX_CHARS:
+                translations[code] = value.strip()
+
     return Draft(
         word=word,
         definition=definition.strip(),
         register=register,
         neutral_equivalent=neutral.strip() if neutral else None,
         who_says_this=who.strip() if who else None,
+        l1=translations,
     )
 
 
-def explain_one(word: str, line: str, *, settings: Any = None) -> Draft:
+def explain_one(
+    word: str, line: str, *, l1: tuple[str, ...] = (), settings: Any = None
+) -> Draft:
     """One billed call, one validated draft. **`--apply` only.**
 
     `json_mode=True` and `reject_truncation=True`: a truncated object is
@@ -213,14 +263,14 @@ def explain_one(word: str, line: str, *, settings: Any = None) -> Draft:
     conversation.
     """
     reply = chat(
-        build_messages(word, line),
+        build_messages(word, line, l1),
         system=SYSTEM,
         json_mode=True,
         max_tokens=400,
         reject_truncation=True,
         settings=settings,
     )
-    return validate(word, reply)
+    return validate(word, reply, l1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -285,23 +335,30 @@ def plan_for(conn: Any, video_id: int, user_id: int) -> Plan:
 def _line_for(
     transcript: str, cues: list[dict] | None, word: str
 ) -> tuple[str | None, float | None]:
-    """The cue containing `word`, and that cue's start.
+    """The display line containing `word`, and that line's start.
 
-    **With no cues there is no line boundary, and R12 says why**: a generated
-    track is a rolling window, ~92% of consecutive pairs overlap, and all three
-    assigned videos are generated. So without cues the whole transcript is the
-    only honest "line" -- and the offset is `None`, never a zero.
+    **W31c: the line is `core.video.lines`' display line**, the same one the
+    learner sees under the player and the same one a tap saves — so a card's
+    sentence is one function's output whichever path wrote it. It read the raw
+    cue before: a ~2.4 s rolling window that begins mid-clause (R12). With no
+    cues the lines are untimed sentences and the offset is `None`, never zero.
 
-    **This is a lookup, not a tokeniser.** `core.lexicon` already decided what a
-    word is; this only finds where it sits.
+    **A word matches by token, not substring** (#468's neighbour): `word` is a
+    coverage lemma, and a substring test never found *party* in *parties* while
+    it did find *part* in *party*. A token matches when its casefold or its
+    coverage lemma equals `word`.
     """
-    if not cues:
-        return (transcript, None) if word in transcript.casefold() else (None, None)
-    for cue in cues:
-        text = str(cue.get("text") or "")
-        if word in text.casefold():
-            start = cue.get("start")
-            return text, float(start) if isinstance(start, (int, float)) else None
+    import re
+
+    from core.lexicon.normalize import lemmatize
+    from core.video.lines import lines_for, sentences_for
+
+    lines = lines_for(cues) or sentences_for(transcript)
+    for line in lines:
+        for token in re.findall(r"[A-Za-z][A-Za-z']*", line.text):
+            folded = token.casefold()
+            if folded == word or lemmatize(folded) == word:
+                return line.text, line.start
     return None, None
 
 
@@ -316,11 +373,14 @@ def run(video_id: int, user_id: int, *, apply: bool, limit: int) -> int:
     written = 0
     with connection() as conn:
         plan = plan_for(conn, video_id, user_id)
+        languages = glosses_service.learner_languages(conn)
         chosen = plan.words[:limit]
         logger.info(
-            "video=%s title=%r below_floor=%s planned=%s already_held=%s cues=%s",
+            "video=%s title=%r below_floor=%s planned=%s already_held=%s cues=%s "
+            "l1=%s calls_at_most=%s",
             plan.video_id, plan.title, len(plan.words), len(chosen),
-            plan.already_held, plan.has_cues,
+            plan.already_held, plan.has_cues, ",".join(languages) or "none",
+            len(chosen),
         )
         if not apply:
             for word, line, start in chosen:
@@ -330,7 +390,7 @@ def run(video_id: int, user_id: int, *, apply: bool, limit: int) -> int:
 
         for word, line, start in chosen:
             try:
-                draft = explain_one(word, line)
+                draft = explain_one(word, line, l1=languages)
             except (LLMError, GlossRejected) as exc:
                 # **Reported and dropped. Nothing retries with the model's own
                 # complaint fed back in** (#292): that is the shape that turns
@@ -348,6 +408,8 @@ def run(video_id: int, user_id: int, *, apply: bool, limit: int) -> int:
                 neutral_equivalent=draft.neutral_equivalent,
                 who_says_this=draft.who_says_this,
                 model=_model_id(),
+                l1=draft.l1,
+                source="manual",
             )
             if gloss_id is not None:
                 written += 1

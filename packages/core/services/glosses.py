@@ -44,6 +44,7 @@ from decimal import Decimal
 from typing import Any
 
 from psycopg.rows import tuple_row
+from psycopg.types.json import Jsonb
 
 from core.db import connection
 
@@ -71,6 +72,11 @@ class Gloss:
     register: str
     neutral_equivalent: str | None
     who_says_this: str | None
+    #: W31c (035): the meaning in the learners' languages, `{"fa": …, "lt": …}`,
+    #: from the same `explain` call. Shown in the word sheet only.
+    l1: dict
+    #: W31c (035): `manual` | `pregen` | `tap` — who asked for it.
+    source: str
 
 
 def _row(row: tuple) -> Gloss:
@@ -93,29 +99,84 @@ def _row(row: tuple) -> Gloss:
         register=str(row[6]),
         neutral_equivalent=row[7],
         who_says_this=row[8],
+        l1=dict(row[9] or {}),
+        source=str(row[10]),
     )
 
 
-def gloss_for(conn: Any, video_id: int, word: str) -> Gloss | None:
-    """One video's gloss for one word, or `None`.
+_COLUMNS = """
+    id, video_id, word, context_sentence, cue_start_s, definition,
+    register, neutral_equivalent, who_says_this, l1, source
+"""
 
-    **The fold is the caller's and it is `casefold`, applied on write and on
-    read.** `resolve_capture_lemma`'s docstring is the reason no lemmatiser is
-    involved: `lemmatize("tier")` returns `"ti"`, and a captured word is a
-    surface form, not an inflection to fold onto a lemma (#162).
+
+def gloss_key(word: str) -> str:
+    """The key a gloss for this tapped word is WRITTEN under (#468, 035).
+
+    **The coverage lemma when it resolves, else the casefolded surface** — what
+    `core.video.explain` has always written (it iterates
+    `coverage.unknown_lemmas`), stated at last rather than implied. The same
+    function the writer used, so the two cannot disagree; #162's hazard
+    (`tier` → `ti`) was a ledger write through `lexeme_id`, W12a removed the
+    `-er`/`-est` rules that produced it, and a key misread here shows a meaning
+    — it never writes a ledger row.
+    """
+    from core.lexicon.normalize import lemmatize
+
+    folded = word.casefold()
+    return lemmatize(folded) or folded
+
+
+def gloss_for(conn: Any, video_id: int, word: str) -> Gloss | None:
+    """One video's gloss for one tapped word, or `None`.
+
+    **Surface first, then the lemma (#468).** `explain` writes the coverage
+    lemma, so a tap on *parties* against a gloss stored as *party* used to answer
+    `no_gloss` even after generation. The surface is tried first so a gloss
+    written under the exact form (a pending save whose word has no lemma) is
+    found without a lemmatiser at all.
+    """
+    folded = word.casefold()
+    keys = [folded]
+    lemma = gloss_key(folded)
+    if lemma != folded:
+        keys.append(lemma)
+    with conn.cursor(row_factory=tuple_row) as cur:
+        for key in keys:
+            cur.execute(
+                f"SELECT {_COLUMNS} FROM video_glosses WHERE video_id = %s AND word = %s",
+                (video_id, key),
+            )
+            row = cur.fetchone()
+            if row is not None:
+                return _row(row)
+    return None
+
+
+def generated_since(conn: Any, *, source: str, since: Any) -> int:
+    """How many glosses of one `source` were written since `since`.
+
+    **The two jobs' daily ceilings read this (C2)**, by source, so the
+    pre-generation job's count can never use up a learner's own taps.
     """
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
-            """
-            SELECT id, video_id, word, context_sentence, cue_start_s, definition,
-                   register, neutral_equivalent, who_says_this
-              FROM video_glosses
-             WHERE video_id = %s AND word = %s
-            """,
-            (video_id, word.casefold()),
+            "SELECT count(*) FROM video_glosses WHERE source = %s AND generated_at >= %s",
+            (source, since),
         )
         row = cur.fetchone()
-    return None if row is None else _row(row)
+    return int(row[0])
+
+
+def learner_languages(conn: Any) -> tuple[str, ...]:
+    """The native languages of onboarded learners — what `explain` is asked
+    for alongside the English (ruling Q7). Sorted, so a request is stable."""
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            "SELECT DISTINCT native_language FROM users WHERE onboarded AND native_language IS NOT NULL"
+        )
+        rows = cur.fetchall()
+    return tuple(sorted(str(r[0]) for r in rows if r[0]))
 
 
 def words_with_a_gloss(conn: Any, video_id: int) -> frozenset[str]:
@@ -145,6 +206,8 @@ def insert_gloss(
     neutral_equivalent: str | None,
     who_says_this: str | None,
     model: str,
+    l1: dict | None = None,
+    source: str = "manual",
 ) -> int | None:
     """Store one gloss. `None` when this video already has one for this word.
 
@@ -163,8 +226,8 @@ def insert_gloss(
             """
             INSERT INTO video_glosses
                 (video_id, word, context_sentence, cue_start_s, definition,
-                 register, neutral_equivalent, who_says_this, model)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 register, neutral_equivalent, who_says_this, model, l1, source)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (video_id, word) DO NOTHING
             RETURNING id
             """,
@@ -178,6 +241,8 @@ def insert_gloss(
                 neutral_equivalent,
                 who_says_this,
                 model,
+                Jsonb(l1 or {}),
+                source,
             ),
         )
         row = cur.fetchone()

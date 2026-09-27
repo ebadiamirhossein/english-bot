@@ -140,6 +140,15 @@ class Settings:
     # never start because a deploy happened (the operator's ruling of
     # 2026-09-27, an exception to #196 scoped to this job).
     video_auto_refresh: bool = False
+    # W31c. Two more BILLED worker jobs, each registered only when its flag is
+    # set in `.env` — off by default, for `video_auto_refresh`'s reason (a deploy
+    # must never start spending). `WORD_GLOSS_JOB=1` fills the meaning of words
+    # learners saved with none (≤20 per run, ≤60 per UTC day);
+    # `VIDEO_PREGEN_GLOSSES=1` pre-explains today's assigned video (≤20 lemmas
+    # per learner, ≤40 per UTC day). Rulings Q5, Q6, C2 (2026-09-27): switched
+    # on only after the operator has read the first manual `explain --apply`.
+    word_gloss_job: bool = False
+    video_pregen_glosses: bool = False
     # W14 — Azure Speech pronunciation assessment. **Neither is required at
     # load**, for the reason the video keys carry: apps/api and every pure test
     # must boot without them, and the surface that needs them refuses to run
@@ -457,6 +466,18 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         default=False,
         errors=errors,
     )
+    word_gloss_job = _parse_bool(
+        "WORD_GLOSS_JOB",
+        os.environ.get("WORD_GLOSS_JOB", ""),
+        default=False,
+        errors=errors,
+    )
+    video_pregen_glosses = _parse_bool(
+        "VIDEO_PREGEN_GLOSSES",
+        os.environ.get("VIDEO_PREGEN_GLOSSES", ""),
+        default=False,
+        errors=errors,
+    )
 
     operator_telegram_id = _parse_optional_int(
         "OPERATOR_TELEGRAM_ID",
@@ -759,6 +780,8 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         apify_token=apify_token,
         apify_transcript_actor=apify_transcript_actor,
         video_auto_refresh=bool(video_auto_refresh),
+        word_gloss_job=bool(word_gloss_job),
+        video_pregen_glosses=bool(video_pregen_glosses),
         operator_telegram_id=operator_telegram_id,
         runtime_dir=runtime_dir,
         log_file=log_file,

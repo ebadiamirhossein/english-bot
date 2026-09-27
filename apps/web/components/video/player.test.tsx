@@ -2,11 +2,11 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SaveWordResult, VideoBlockPayload } from "@/lib/api";
+import type { SaveWordResult, VideoBlockPayload, WordLookup } from "@/lib/api";
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return { ...actual, reportVideoProgress: vi.fn(), saveWord: vi.fn() };
+  return { ...actual, reportVideoProgress: vi.fn(), saveWord: vi.fn(), lookupWord: vi.fn() };
 });
 
 const api = await import("@/lib/api");
@@ -409,7 +409,7 @@ describe("the synced line", () => {
 
   it("a word tap pauses a playing video", () => {
     const fake = watchAt(1.0);
-    vi.mocked(api.saveWord).mockReturnValue(new Promise(() => {}));
+    vi.mocked(api.lookupWord).mockReturnValue(new Promise(() => {}));
     act(() => {
       screen.getAllByTestId("known-word")[0].click();
     });
@@ -468,6 +468,23 @@ describe("pause to read, on a desktop pointer (C5)", () => {
     expect(fake.playVideo).not.toHaveBeenCalled();
   });
 
+  it("while the word sheet is open, leaving the line does not resume; closing it does", async () => {
+    desktop(true);
+    vi.mocked(api.lookupWord).mockResolvedValue({ ...RENT, word: "doing", lemma: "do" });
+    const fake = watching();
+    vi.useRealTimers();
+    fireEvent.mouseEnter(screen.getByTestId("subtitle-block"));
+    expect(fake.pauseVideo).toHaveBeenCalledTimes(1);
+    act(() => {
+      screen.getByTestId("subtitle-now").querySelector("button")!.click();
+    });
+    await screen.findByTestId("word-sheet");
+    fireEvent.mouseLeave(screen.getByTestId("subtitle-block"));
+    expect(fake.playVideo).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("word-sheet-close"));
+    expect(fake.playVideo).toHaveBeenCalledTimes(1);
+  });
+
   it("does nothing on hover without a hovering pointer (a phone)", () => {
     desktop(false);
     const fake = watching();
@@ -508,99 +525,176 @@ describe("Focus", () => {
 });
 
 /**
- * W13-ii — the tap. **#178's three states on a screen.**
+ * W13-ii → **W31c — the tap opens the WORD SHEET, and Save is in it.**
  *
- * The route's own tests cover the states on the wire; these cover that the
- * learner is told three different things, and that none of them reads as a
- * failure they caused.
+ * W13-ii saved on the tap and printed one line; the operator's reference
+ * (Trancy / Language Reactor) is *tap, see what it is, keep it*. The W13-ii and
+ * W31a assertions below are carried into the sheet, not dropped: #178's
+ * *already saved is not an error*, the anti-optimistic Save, and every refused
+ * outcome's own sentence.
  */
-describe("saving a tapped word", () => {
+const RENT: WordLookup = {
+  word: "rent",
+  lemma: "rent",
+  line: "we were talking about the rent again",
+  meaning: {
+    definition: "money you pay to live somewhere",
+    register: "neutral",
+    l1: "اجاره",
+    l1_language: "fa",
+  },
+  saved: "none",
+};
+
+describe("the word sheet", () => {
   beforeEach(() => {
     vi.mocked(api.saveWord).mockReset();
+    vi.mocked(api.lookupWord).mockReset();
+    vi.mocked(api.lookupWord).mockResolvedValue(RENT);
   });
 
-  async function tap(state: SaveWordResult["state"]) {
-    vi.mocked(api.saveWord).mockResolvedValue({ state, card_ids: [1, 2] });
+  async function openSheet(lookup: WordLookup = RENT) {
+    vi.mocked(api.lookupWord).mockResolvedValue(lookup);
     render(<VideoPlayer payload={payload()} l1Language="fa" />);
     await userEvent.click(screen.getByText("rent"));
+    await screen.findByTestId("word-sheet");
+  }
+
+  async function save(result: SaveWordResult | Error) {
+    if (result instanceof Error) vi.mocked(api.saveWord).mockRejectedValue(result);
+    else vi.mocked(api.saveWord).mockResolvedValue(result);
+    await userEvent.click(await screen.findByTestId("word-sheet-save"));
     return screen.findByTestId("save-word-result");
   }
 
-  it("says nothing at all until a word is tapped", () => {
-    render(<VideoPlayer payload={payload()} l1Language="fa" />);
+  it("opens on a tap with the word, its line, the meaning and the learner's own language", async () => {
+    await openSheet();
+    expect(screen.getByTestId("word-sheet-word")).toHaveTextContent("rent");
+    expect(await screen.findByTestId("word-sheet-line")).toHaveTextContent(
+      "we were talking about the rent again",
+    );
+    expect(screen.getByTestId("word-sheet-meaning")).toHaveTextContent(
+      "money you pay to live somewhere",
+    );
+    const l1 = screen.getByTestId("word-sheet-l1");
+    expect(l1).toHaveTextContent("اجاره");
+    expect(l1.getAttribute("dir")).toBe("rtl");
+    expect(l1.getAttribute("lang")).toBe("fa");
+  });
+
+  it("asks with the line's INDEX, and never sends the line's text", async () => {
+    await openSheet();
+    expect(vi.mocked(api.lookupWord)).toHaveBeenCalledWith(11, "rent", 0);
+    await save({ state: "saved", card_ids: [1, 2] });
+    expect(vi.mocked(api.saveWord)).toHaveBeenCalledWith(11, "rent", 0);
+  });
+
+  it("saves nothing until Save is pressed", async () => {
+    await openSheet();
+    await screen.findByTestId("word-sheet-save");
+    expect(vi.mocked(api.saveWord)).not.toHaveBeenCalled();
     expect(screen.queryByTestId("save-word-result")).toBeNull();
-    // The positive control: the transcript rendered, so there WAS something to
-    // tap and the silence above is the initial state (#345).
-    expect(screen.getByText("rent")).toBeInTheDocument();
   });
 
   it("confirms a save", async () => {
-    expect(await tap("saved")).toHaveTextContent("Added to your deck.");
-  });
-
-  it("says already saved without saying anything went wrong (#178)", async () => {
-    const message = await tap("already_saved");
-    expect(message).toHaveTextContent("Already in your deck.");
-    // Same element, same styling as the success line — a second tap is a normal
-    // thing to do and is not an error state.
-    expect(message.className).not.toMatch(/destructive|error|red/);
-  });
-
-  it("says a word has no definition yet without blaming anyone (§1a)", async () => {
-    expect(await tap("no_gloss")).toHaveTextContent(
-      "No definition for that one yet.",
+    await openSheet();
+    expect(await save({ state: "saved", card_ids: [1, 2] })).toHaveTextContent(
+      "Added to your deck.",
     );
   });
 
-  /**
-   * **W31a: every outcome that is not `saved` says what actually happened.**
-   * Until 2026-09-27 every refusal — a 422 from a malformed request, a 404, a
-   * rate limit, a dropped connection — read *"Could not add that just now."*,
-   * which is how sixteen 422s looked like a flaky network to the operator.
-   */
-  async function refuse(error: unknown) {
-    vi.mocked(api.saveWord).mockRejectedValue(error);
-    render(<VideoPlayer payload={payload()} l1Language="fa" />);
-    await userEvent.click(screen.getByText("rent"));
-    return screen.findByTestId("save-word-result");
-  }
+  it("says already saved without saying anything went wrong (#178)", async () => {
+    await openSheet();
+    const message = await save({ state: "already_saved", card_ids: [] });
+    expect(message).toHaveTextContent("Already in your deck.");
+    expect(message.className).not.toMatch(/destructive|error|red/);
+  });
+
+  it("offers Save for a word nobody has explained yet — the operator's finding", async () => {
+    await openSheet({ ...RENT, meaning: undefined });
+    expect(await screen.findByTestId("word-sheet-no-meaning")).toHaveTextContent(
+      "No meaning for this one yet — you can still save it.",
+    );
+    expect(await save({ state: "pending", card_ids: [], meaning_soon: true })).toHaveTextContent(
+      "Saved. The meaning will be ready soon.",
+    );
+  });
+
+  it("does not promise a meaning while nothing will fill it (C4)", async () => {
+    await openSheet({ ...RENT, meaning: undefined });
+    expect(await save({ state: "pending", card_ids: [], meaning_soon: false })).toHaveTextContent(
+      "Saved to your words. Its meaning isn’t ready yet.",
+    );
+  });
+
+  it("shows a word that is already kept as kept, with no Save", async () => {
+    await openSheet({ ...RENT, saved: "in_deck" });
+    expect(await screen.findByTestId("word-sheet-kept")).toHaveTextContent("In your words.");
+    expect(screen.queryByTestId("word-sheet-save")).toBeNull();
+  });
 
   it.each([
-    [404, "This video isn’t in your list any more."],
-    [429, "That’s a lot of words at once — try again in a minute."],
-    [422, "That didn’t go through on our side — not yours. Try again in a moment."],
-    [500, "That didn’t go through on our side — not yours. Try again in a moment."],
-  ])("says what a %i means", async (status, copy) => {
-    const message = await refuse(new api.ApiError("x", status));
+    [404, "This video isn’t in your list any more.", false],
+    [429, "That’s a lot of words at once — try again in a minute.", true],
+    [422, "That didn’t go through on our side — not yours. Try again in a moment.", true],
+    [500, "That didn’t go through on our side — not yours. Try again in a moment.", true],
+  ])("says what a %i means, and keeps Save only where trying again helps", async (status, copy, retry) => {
+    await openSheet();
+    const message = await save(new api.ApiError("x", status));
     expect(message).toHaveTextContent(copy);
-    expect(message.dataset.outcome).toBeTruthy();
+    expect(Boolean(screen.queryByTestId("word-sheet-save"))).toBe(retry);
   });
 
   it("says a dropped connection is a connection, not a refusal", async () => {
-    const message = await refuse(new api.ApiError("Could not reach the API"));
-    expect(message).toHaveTextContent(
+    await openSheet();
+    expect(await save(new api.ApiError("Could not reach the API"))).toHaveTextContent(
       "Couldn’t reach the server. Check your connection and tap again.",
     );
   });
 
-  it("never shows the old catch-all line", async () => {
+  it("never shows W13-ii's old catch-all line", async () => {
     for (const status of [404, 422, 429, 500, undefined]) {
       const { unmount } = render(<VideoPlayer payload={payload()} l1Language="fa" />);
-      vi.mocked(api.saveWord).mockRejectedValue(new api.ApiError("x", status));
       await userEvent.click(screen.getByText("rent"));
-      const message = await screen.findByTestId("save-word-result");
-      expect(message).not.toHaveTextContent("Could not add that just now.");
+      vi.mocked(api.saveWord).mockRejectedValue(new api.ApiError("x", status));
+      await userEvent.click(await screen.findByTestId("word-sheet-save"));
+      expect(await screen.findByTestId("save-word-result")).not.toHaveTextContent(
+        "Could not add that just now.",
+      );
       unmount();
     }
   });
 
   it("does not claim a save before the server has answered", async () => {
-    // **The anti-optimistic assertion, and it is the one a screenshot cannot
-    // make.** A promise that never settles: the message must not appear.
+    await openSheet();
     vi.mocked(api.saveWord).mockReturnValue(new Promise(() => {}));
-    render(<VideoPlayer payload={payload()} l1Language="fa" />);
-    await userEvent.click(screen.getByText("rent"));
+    await userEvent.click(await screen.findByTestId("word-sheet-save"));
     expect(screen.queryByTestId("save-word-result")).toBeNull();
+  });
+
+  it("shows an approved picture with its credit (Q9 (C))", async () => {
+    await openSheet({
+      ...RENT,
+      image: {
+        id: 7, ext: "jpg", width: 330, height: 220, alt: "rent",
+        author: "A. Photographer", licence: "CC BY 4.0",
+        licence_url: "https://creativecommons.org/licenses/by/4.0/",
+        source_url: "https://commons.wikimedia.org/wiki/File:Example.jpg",
+      },
+    });
+    const figure = await screen.findByTestId("card-image");
+    expect(figure).toHaveTextContent("A. Photographer");
+    expect(figure).toHaveTextContent("CC BY 4.0");
+  });
+
+  it("closes on Escape and on the backdrop", async () => {
+    await openSheet();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByTestId("word-sheet")).toBeNull();
+    await userEvent.click(screen.getByText("rent"));
+    await screen.findByTestId("word-sheet");
+    await userEvent.click(screen.getByTestId("word-sheet-backdrop"));
+    expect(screen.queryByTestId("word-sheet")).toBeNull();
   });
 });
 

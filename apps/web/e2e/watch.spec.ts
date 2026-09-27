@@ -174,7 +174,7 @@ test.describe("W31b — study mode", () => {
     expect((await yt(page)).pauses).toBe(1);
   });
 
-  test("a word tap pauses the video and saves the word as JSON (#465)", async ({ page }, info) => {
+  test("a word tap pauses the video; Save posts the word as JSON (#465)", async ({ page }) => {
     const saves = await openStudy(page);
     await at(page, 0.5);
     await page.evaluate(() => {
@@ -183,12 +183,16 @@ test.describe("W31b — study mode", () => {
     const word = page.getByTestId("line-list").getByRole("button", { name: "mastodon" }).first();
     await centre(word);
     await word.click();
-    await expect(page.getByTestId("save-word-result")).toHaveText("No definition for that one yet.");
     expect((await yt(page)).pauses).toBe(1);
+    // W31c: the tap opens the word sheet; Save is in it.
+    await page.getByTestId("word-sheet-save").click();
+    await expect(page.getByTestId("save-word-result")).toHaveText(
+      "Saved. The meaning will be ready soon.",
+    );
     expect(saves).toHaveLength(1);
     expect(saves[0].contentType).toContain("application/json");
-    expect(saves[0].body).toEqual({ word: "mastodon" });
-    await shot(page, info, "6-word-tapped");
+    // The line's INDEX travels, never its text.
+    expect(saves[0].body).toEqual({ word: "mastodon", line: 0 });
   });
 
   test("no cues: the transcript as untimed lines, no current line, no loop", async ({ page }, info) => {

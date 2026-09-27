@@ -24,7 +24,8 @@ export function SubtitleBlock({
   lines: VideoLine[];
   active: number | null;
   unknown: Set<string>;
-  onWordTap?: (word: string) => void;
+  /** W31c: the word and the INDEX of the line it was tapped in. */
+  onWordTap?: (word: string, line: number | null) => void;
   onHoverStart?: () => void;
   onHoverEnd?: () => void;
   /** Focus mode: bigger type, same structure. */
@@ -56,7 +57,14 @@ export function SubtitleBlock({
           (large ? "text-2xl sm:text-3xl" : "text-lg sm:text-xl")
         }
       >
-        {now ? <LineText text={now.text} unknown={unknown} onWordTap={onWordTap} wordTestId={false} /> : null}
+        {now ? (
+          <LineText
+            text={now.text}
+            unknown={unknown}
+            onWordTap={onWordTap ? (word) => onWordTap(word, active) : undefined}
+            wordTestId={false}
+          />
+        ) : null}
       </p>
       <p
         data-testid="subtitle-next"

@@ -81,44 +81,9 @@ import { LineList } from "@/components/video/line-list";
 import { activeLineIndex } from "@/components/video/lines";
 import { SubtitleBlock } from "@/components/video/subtitle-block";
 import { Button } from "@/components/ui/button";
-import {
-  ApiError,
-  reportVideoProgress,
-  saveWord,
-  type SaveWordResult,
-  type VideoBlockPayload,
-} from "@/lib/api";
+import { WordSheet, type SheetTarget } from "@/components/video/word-sheet";
+import { reportVideoProgress, type VideoBlockPayload } from "@/lib/api";
 
-/**
- * What a tap came to. The server's three states, plus **the four ways a request
- * can come back refused**, each with its own sentence (W31a). Before, all four
- * were one catch-all line, which is how a malformed request (#465) read to the
- * operator as a dropped connection.
- */
-type TapOutcome =
-  | SaveWordResult["state"]
-  | "not_assigned"
-  | "rate_limited"
-  | "offline"
-  | "server";
-
-function refusal(error: unknown): TapOutcome {
-  if (!(error instanceof ApiError)) return "server";
-  if (error.status === undefined) return "offline";
-  if (error.status === 404) return "not_assigned";
-  if (error.status === 429) return "rate_limited";
-  return "server";
-}
-
-const TAP_COPY: Record<TapOutcome, string> = {
-  saved: VIDEO.saveWord.saved,
-  already_saved: VIDEO.saveWord.already,
-  no_gloss: VIDEO.saveWord.notReady,
-  not_assigned: VIDEO.saveWord.notAssigned,
-  rate_limited: VIDEO.saveWord.rateLimited,
-  offline: VIDEO.saveWord.offline,
-  server: VIDEO.saveWord.server,
-};
 
 /**
  * How often the position is reported. **Fifteen seconds, and the number is a
@@ -254,32 +219,18 @@ export function VideoPlayer({
   const [positionS, setPositionS] = useState(payload.resume_position_s);
 
   /**
-   * W13-ii. What the last tap did, or `null` for "nothing tapped yet".
-   *
-   * **ONE MESSAGE, REPLACED, NEVER A LIST.** A tapped-word history that grew
-   * down the screen would be a counter of work done, and the one place this
-   * product has never allowed one is beside the thing the learner is doing.
-   *
-   * **`already_saved` IS NOT AN ERROR AND IS NOT STYLED AS ONE** (#178): the
-   * learner tapped a word they had already saved, which is a normal thing to do
-   * and, on a second viewing, the expected thing.
+   * **W31c: a tap opens the word sheet**, which shows the word and saves it.
+   * (W13-ii saved on the tap itself and showed one line of result here; the
+   * result now lives in the sheet, with W31a's honest copy for every outcome.)
+   * `sheetOpen` is a ref too, for the hover handlers (C5: leaving the line
+   * never resumes while a sheet is open).
    */
-  const [tapped, setTapped] = useState<
-    { word: string; state: TapOutcome } | null
-  >(null);
-
-  const onWordTap = useCallback(
-    (word: string) => {
-      // **Optimistic nothing.** The message appears when the server answers,
-      // because "Added to your deck" before the write lands is a claim the app
-      // cannot make -- the same reason `item-card.tsx` shows no verdict while a
-      // grade is in flight.
-      void saveWord(payload.video_id, word)
-        .then((result) => setTapped({ word, state: result.state }))
-        .catch((error: unknown) => setTapped({ word, state: refusal(error) }));
-    },
-    [payload.video_id],
-  );
+  const [sheet, setSheet] = useState<SheetTarget | null>(null);
+  const sheetOpen = useRef(false);
+  sheetOpen.current = sheet !== null;
+  /** The sheet's pause, so closing it resumes only what the tap (or a hover
+   * that led to the tap) paused. */
+  const pausedForSheet = useRef(false);
 
   const ping = useCallback(async () => {
     const current = player.current;
@@ -431,18 +382,28 @@ export function VideoPlayer({
   }, [pauseIfPlaying]);
   const onHoverEnd = useCallback(() => {
     if (!canHoverPause()) return;
+    // **Unless a word sheet is open** (C5): the learner is reading it. The
+    // hover's pause is handed to the sheet, which resumes it on close.
+    if (sheetOpen.current) return;
     if (pausedByHover.current && readyRef.current) player.current?.playVideo();
     pausedByHover.current = false;
   }, []);
   const onLineWordTap = useCallback(
-    (word: string) => {
+    (word: string, line: number | null) => {
       // **A tap pauses, on every device** — the learner stopped to look at a
-      // word. On a desktop the hover has usually paused already.
-      pauseIfPlaying();
-      onWordTap(word);
+      // word. On a desktop the hover has usually paused already, and that
+      // pause becomes the sheet's.
+      pausedForSheet.current = pauseIfPlaying() || pausedByHover.current;
+      pausedByHover.current = false;
+      setSheet({ word, line });
     },
-    [onWordTap, pauseIfPlaying],
+    [pauseIfPlaying],
   );
+  const closeSheet = useCallback(() => {
+    setSheet(null);
+    if (pausedForSheet.current && readyRef.current) player.current?.playVideo();
+    pausedForSheet.current = false;
+  }, []);
 
   // ── Focus (W31b) ──────────────────────────────────────────────────────────
   const root = useRef<HTMLDivElement | null>(null);
@@ -606,16 +567,7 @@ export function VideoPlayer({
         </p>
       ) : null}
 
-      {tapped ? (
-        <p
-          className="text-sm text-muted-foreground"
-          data-testid="save-word-result"
-          data-outcome={tapped.state}
-          aria-live="polite"
-        >
-          {TAP_COPY[tapped.state]}
-        </p>
-      ) : null}
+      <WordSheet videoId={payload.video_id} target={sheet} onClose={closeSheet} />
 
       {focused ? null : hasText ? (
         <LineList

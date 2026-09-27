@@ -56,8 +56,9 @@ CONTRACT = REPO_ROOT / "apps" / "web" / "lib" / "web-requests.contract.json"
 
 #: The request model each contract entry must satisfy. A new entry with no model
 #: here fails `test_every_entry_names_a_model`, so the contract cannot grow a
-#: call the API side never checks.
-MODELS = {"save_word": SaveWordIn}
+#: call the API side never checks. `None` for a GET: it has no body — its query
+#: is held by the replay below instead.
+MODELS = {"save_word": SaveWordIn, "word_lookup": None, "my_words": None}
 
 
 def _entries() -> list[dict]:
@@ -72,6 +73,8 @@ def _replay(app, entry: dict, path: str, cookies: dict) -> httpx.Response:
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver", cookies=cookies
         ) as http:
+            if entry["body"] is None:
+                return await http.request(entry["method"], path)
             return await http.request(
                 entry["method"],
                 path,
@@ -92,7 +95,7 @@ def test_every_entry_names_a_model() -> None:
     assert {e["name"] for e in _entries()} <= set(MODELS)
 
 
-@pytest.mark.parametrize("name", sorted(MODELS))
+@pytest.mark.parametrize("name", sorted(n for n, m in MODELS.items() if m is not None))
 def test_the_body_the_web_sends_fits_the_api_model(name: str) -> None:
     entry = next(e for e in _entries() if e["name"] == name)
     MODELS[name].model_validate(entry["body"])
@@ -117,4 +120,20 @@ def test_the_save_word_request_the_web_sends_is_accepted(app, db, learner) -> No
     )
     assert response.status_code != 422, response.text
     assert response.status_code == 200, response.text
-    assert response.json()["state"] in {"saved", "already_saved", "no_gloss"}
+    # W31c adds `pending` (no gloss yet — kept, and filled later) and `no_line`.
+    assert response.json()["state"] in {"saved", "already_saved", "no_gloss", "pending", "no_line"}
+
+
+@pytest.mark.parametrize("name", ["word_lookup", "my_words"])
+def test_the_reads_the_web_makes_are_accepted(app, db, learner, name: str) -> None:
+    """W31c: the sheet's lookup and My words, replayed exactly — a query the
+    API refused (a renamed parameter) would be a 422 here."""
+    import secrets
+
+    video_id = _assign_today(
+        db, learner, transcript="so this is a mastodon",
+        youtube_id=f"{ID_PREFIX}{secrets.token_hex(3)}",
+    )
+    entry = next(e for e in _entries() if e["name"] == name)
+    response = _replay(app, entry, entry["path"].format(video_id=video_id), _as(learner))
+    assert response.status_code == 200, response.text

@@ -29,6 +29,15 @@ a schedule. The operator ruled it on 2026-09-27 (cost measured under $1 a run) -
 only** -- and it registers only while `VIDEO_AUTO_REFRESH=1` is in `.env`, so no
 deploy can start spending by itself.
 
+**W31c ADDS TWO MORE BILLED JOBS, EACH BEHIND ITS OWN FLAG** (`OPTIONAL_JOBS`):
+`fill_word_glosses` (`WORD_GLOSS_JOB`, every 15 min, ≤20 a run and ≤60 a UTC
+day) explains the words learners saved with no meaning and only then writes
+their cards; `pregen_glosses` (`VIDEO_PREGEN_GLOSSES`, hourly, ≤20 per learner
+and ≤40 a UTC day) explains today's assigned video ahead of the taps. Rulings
+Q5, Q6 and C2 of 2026-09-27: both are switched on only after the operator has
+read the first manual `explain --apply`, and the ceilings live in
+`core.services.words`, not here.
+
 **TWO JOBS THAT HAVE NEVER RUN ON PRODUCTION ARE HELD, NOT SWITCHED ON AS A
 SIDE EFFECT OF INSTALLING THE UNIT** (``HELD_JOBS``): ``assign_daily`` would
 start pre-creating tomorrow's session at night, and ``monthly_reset`` would run
@@ -287,6 +296,40 @@ def refresh_videos() -> None:
     )
 
 
+def fill_word_glosses() -> None:
+    """W31c: explain the words learners saved with no meaning, then card them.
+
+    **BILLED** (one model call per word), registered only behind
+    `WORD_GLOSS_JOB`. Every 15 min; at most 20 calls a run and 60 a UTC day,
+    enforced inside `core.services.words.fill_pending` whatever this passes.
+    **One line of counts, never a word** (CLAUDE.md §5).
+    """
+    from core.services import words as words_service
+
+    counts = words_service.fill_pending(_now())
+    logger.info(
+        "fill_word_glosses ok carded=%s generated=%s refused=%s no_meaning=%s at_ceiling=%s",
+        counts.carded, counts.generated, counts.refused, counts.no_meaning,
+        counts.skipped_ceiling,
+    )
+
+
+def pregen_glosses() -> None:
+    """W31c: explain today's assigned video ahead of the taps (ruling Q5 (b)).
+
+    **BILLED**, registered only behind `VIDEO_PREGEN_GLOSSES`. Hourly, after
+    `assign_video`; at most 20 lemmas per learner and 40 a UTC day, enforced
+    inside `core.services.words.pregen_today`. One line of counts.
+    """
+    from core.services import words as words_service
+
+    counts = words_service.pregen_today(_now())
+    logger.info(
+        "pregen_glosses ok generated=%s refused=%s at_ceiling=%s",
+        counts.generated, counts.refused, counts.skipped_ceiling,
+    )
+
+
 def push_poll() -> None:
     """W20: advance every learner's reminder ladder by at most one step.
 
@@ -317,10 +360,25 @@ REFRESH_VIDEOS = Job(
 )
 
 
+#: W31c. The pending-word job, every 15 minutes (ruling Q6).
+FILL_WORD_GLOSSES = Job("fill_word_glosses", fill_word_glosses, 15 * 60, 120)
+#: W31c. Pre-generation for today's video, hourly, after `assign_video` (150 s).
+PREGEN_GLOSSES = Job("pregen_glosses", pregen_glosses, MAINTENANCE_POLL_SECONDS, 210)
+
+#: **The billed jobs, each behind its own `.env` flag and none on by default**
+#: (W24r's shape, extended by W31c). `(Settings attribute, Job)`.
+OPTIONAL_JOBS: tuple[tuple[str, Job], ...] = (
+    ("video_auto_refresh", REFRESH_VIDEOS),
+    ("word_gloss_job", FILL_WORD_GLOSSES),
+    ("video_pregen_glosses", PREGEN_GLOSSES),
+)
+
+
 def jobs_for(settings: Settings) -> tuple[Job, ...]:
-    """What this worker registers: `JOBS`, plus `refresh_videos` when
-    `VIDEO_AUTO_REFRESH` is set -- the billed job is never on by default."""
-    return JOBS + ((REFRESH_VIDEOS,) if settings.video_auto_refresh else ())
+    """What this worker registers: `JOBS`, plus each billed job whose flag is
+    set (`VIDEO_AUTO_REFRESH`, `WORD_GLOSS_JOB`, `VIDEO_PREGEN_GLOSSES`) --
+    a billed job is never on by default."""
+    return JOBS + tuple(job for flag, job in OPTIONAL_JOBS if getattr(settings, flag))
 
 
 #: Built, kept, tested — and NOT registered. Each needs something before it runs

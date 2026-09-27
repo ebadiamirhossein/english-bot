@@ -791,8 +791,62 @@ class SaveWordOut(BaseModel):
     definition on this response would be a second surface for the same content.
     """
 
-    state: Literal["saved", "already_saved", "no_gloss"]
+    state: Literal["saved", "already_saved", "no_gloss", "pending", "no_line"]
     card_ids: list[int] = Field(default_factory=list)
+    #: W31c, `pending` only: whether a meaning is coming (`WORD_GLOSS_JOB` on).
+    meaning_soon: bool | None = None
+
+
+class WordMeaningOut(BaseModel):
+    """W31c: a stored gloss, as the word sheet shows it. **Read, never generated.**
+
+    **THIS REVERSES W13-ii's *"no definition crosses this boundary"* — ON A
+    SEPARATE, READ-ONLY ROUTE, AND BY THE OPERATOR'S REQUEST (2026-09-27).**
+    The reference is Trancy / Language Reactor: tap a word, see what it means,
+    then decide to keep it. The save route still returns no definition, and the
+    card face is still the deck's single producer (#190) — this is the sheet's
+    preview of a candidate, not a second card face.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    definition: str
+    #: Aliased, not renamed — the card schema's precedent above: `register` is
+    #: PRD §8.5.1's word on the wire, and pydantic warns on the attribute name.
+    register_tag: str = Field(validation_alias="register", serialization_alias="register")
+    neutral_equivalent: str | None = None
+    who_says_this: str | None = None
+    #: The learner's own language (`users.native_language`), when `explain`
+    #: produced it (ruling Q7). Shown in the sheet only; card backs stay English.
+    l1: str | None = None
+    l1_language: str | None = None
+
+
+class WordLookupOut(BaseModel):
+    """W31c: `GET /video/{id}/word` — everything the word sheet shows."""
+
+    word: str
+    lemma: str
+    line: str | None = None
+    meaning: WordMeaningOut | None = None
+    image: dict | None = None
+    saved: Literal["none", "in_deck", "pending", "no_meaning"]
+
+
+class SavedWordOut(BaseModel):
+    word: str
+    sentence: str | None = None
+    source_title: str | None = None
+    state: Literal["in_deck", "pending", "no_meaning"]
+    saved_at: datetime
+
+
+class MyWordsOut(BaseModel):
+    """W31c: `GET /words` — one page, newest first. **No count and no total**
+    (CLAUDE.md §4, #160); `next_before` asks for the page after, or is absent."""
+
+    words: list[SavedWordOut]
+    next_before: datetime | None = None
 
 
 class SaveWordIn(BaseModel):
@@ -805,6 +859,10 @@ class SaveWordIn(BaseModel):
     """
 
     word: str = Field(min_length=1, max_length=80)
+    #: W31c: the index of the display line the word was tapped in. **An index,
+    #: never text**: the server reads the line from its own `core.video.lines`
+    #: and trusts the index only if that line holds the word.
+    line: int | None = Field(default=None, ge=0, le=100_000)
 
 
 class ShadowWordOut(BaseModel):

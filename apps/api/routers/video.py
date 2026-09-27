@@ -39,11 +39,18 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from apps.api.deps import rate_limit, require_current_user
-from apps.api.schemas import SaveWordIn, SaveWordOut, VideoProgressIn, VideoTodayOut
+from apps.api.schemas import (
+    SaveWordIn,
+    SaveWordOut,
+    VideoProgressIn,
+    VideoTodayOut,
+    WordLookupOut,
+)
 from core.services import cards as cards_service
+from core.services import words as words_service
 from core.services import video as video_service
 from core.services.auth import AuthenticatedUser
 
@@ -190,10 +197,55 @@ def save_word(
     `already_saved` and this route serialises it; the `UNIQUE` index stays the
     guarantee underneath.
     """
-    result = cards_service.save_captured_word(
+    # **W31c: through `core.services.words.save`.** A word with a stored gloss
+    # is saved as two cards (W13-ii's path); a word without one is written as
+    # PENDING and a worker job explains it later — this request still reaches
+    # no model. A video that is not this learner's is a 404, which W31a's copy
+    # says plainly.
+    result = words_service.save(
         session.id,
         video_id=video_id,
         word=body.word,
+        line=body.line,
         now=datetime.now(timezone.utc),
     )
-    return SaveWordOut(state=result.state, card_ids=list(result.card_ids))
+    if result is None:
+        raise HTTPException(status_code=404, detail="not_assigned")
+    return SaveWordOut(
+        state=result.state, card_ids=list(result.card_ids), meaning_soon=result.meaning_soon
+    )
+
+
+@router.get(
+    "/{video_id}/word",
+    response_model=WordLookupOut,
+    response_model_exclude_none=True,
+    dependencies=[
+        # Every tap opens the sheet, so this sits well above save-word's limit
+        # and still far below anything a stolen session could use. A read.
+        Depends(rate_limit("word_lookup", per_client=600, overall=2000, window_seconds=3600))
+    ],
+)
+def word_lookup(
+    video_id: int,
+    w: str = Query(min_length=1, max_length=80),
+    line: int | None = Query(default=None, ge=0, le=100_000),
+    session: AuthenticatedUser = Depends(require_current_user),
+) -> WordLookupOut:
+    """W31c: what the word sheet shows. **Reads; reaches no model.**
+
+    Parses, authorises, calls **one** service function, serialises. Plain `def`
+    (#7). The netguard fixture is armed for its tests, so a model call here
+    would fail them rather than pass silently.
+    """
+    found = words_service.lookup(session.id, video_id=video_id, word=w, line=line)
+    if found is None:
+        raise HTTPException(status_code=404, detail="not_assigned")
+    return WordLookupOut(
+        word=found.word,
+        lemma=found.lemma,
+        line=found.line,
+        meaning=found.meaning,
+        image=found.image,
+        saved=found.saved,
+    )

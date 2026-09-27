@@ -335,6 +335,12 @@ export const VIDEO = {
     // was not a 200 — so sixteen 422s from a malformed request (#465) read to the
     // operator like a flaky connection. Each refusal now says what it is. The old
     // line is quoted here and nowhere else; `player.test.tsx` refuses it.
+    /** W31c: saved with no meaning yet. `pendingSoon` only while the worker
+     * job is on; otherwise the plainer line — never a promise nothing keeps. */
+    pendingSoon: "Saved. The meaning will be ready soon.",
+    pendingHeld: "Saved to your words. Its meaning isn’t ready yet.",
+    /** W31c: the transcript is gone (#335), so there is no sentence to keep. */
+    noLine: "This one can’t be kept — the text for this video isn’t here any more.",
     notAssigned: "This video isn’t in your list any more.",
     rateLimited: "That’s a lot of words at once — try again in a minute.",
     offline: "Couldn’t reach the server. Check your connection and tap again.",
@@ -351,6 +357,23 @@ export const VIDEO = {
    * `noTimed` is Focus mode's one line for a video with no timings — it says
    * what is there (the video) and not what went missing.
    */
+  /**
+   * **W31c — the word sheet.** A tap opens it: the word, its line, the meaning
+   * when there is one, and Save. Nothing here counts or scores.
+   */
+  sheet: {
+    save: "Save",
+    saving: "Saving…",
+    close: "Close",
+    fromLemma: "from “{lemma}”",
+    noMeaning: "No meaning for this one yet — you can still save it.",
+    inDeck: "In your words.",
+    pending: "Saved — waiting for its meaning.",
+    noMeaningFound: "No meaning could be found for this one.",
+    safer: "Safer:",
+    loading: "Looking it up…",
+    unavailable: "Couldn’t load this word. Close and tap it again.",
+  },
   study: {
     focus: "Focus",
     focusExit: "Exit focus",
@@ -866,3 +889,24 @@ export const ADMIN = {
   trouble: "That didn’t load. Try again in a moment.",
   retry: "Try again",
 } as const;
+
+/**
+ * **W31c — My words.** *"I didn't find vocabulary flashcards"* (the operator,
+ * 2026-09-27). Every word saved from a video, newest first. **No count, no
+ * total, no "N left", nothing that reads as a pile to clear** (CLAUDE.md §4,
+ * #160): a list, and *More* for the next page.
+ */
+export const MY_WORDS = {
+  link: "Your words",
+  eyebrow: "Review",
+  title: "Your words.",
+  intro: "Words you saved while watching.",
+  empty: "Words you save from videos will appear here.",
+  inDeck: "in your cards",
+  pending: "meaning coming",
+  noMeaning: "no meaning found",
+  more: "More",
+  unavailable: "Couldn’t load your words. Try again in a moment.",
+  back: "Back to Review",
+} as const;
+

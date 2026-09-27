@@ -119,6 +119,12 @@ def test_the_gloss_has_exactly_these_columns(conn) -> None:
         "who_says_this",
         "model",
         "generated_at",
+        # W31c, migration 035: the learners' own languages from the same call
+        # (Q7), and who asked for the gloss — `manual` / `pregen` / `tap` — so
+        # the two jobs' daily ceilings are counted apart (C2). Still no `due`,
+        # no fsrs field and no `user_id`: a gloss is still not a card (below).
+        "l1",
+        "source",
     ]
 
 

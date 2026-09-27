@@ -36,6 +36,10 @@ from apps.api.routers.correct import result_out  # noqa: E402
 from apps.api.schemas import (  # noqa: E402
     BlockOut,
     KeepGoingOut,
+    MyWordsOut,
+    SavedWordOut,
+    SaveWordOut,
+    WordLookupOut,
     Session,
     SessionTodayOut,
     WatchOut,
@@ -282,6 +286,45 @@ def _watch_untimed() -> dict:
     ).model_dump(mode="json")
 
 
+def _word_bodies() -> dict:
+    """W31c: the word sheet, Save and My words — through the REAL response
+    models with each route's own serialisation (`exclude_none` where the route
+    sets it, by alias). `tests/test_word_saves.py` holds the keys to the wire.
+    The words are the study fixture's; the meanings are illustrative text."""
+    dump = lambda m: m.model_dump(mode="json", by_alias=True, exclude_none=True)  # noqa: E731
+    return {
+        "word_lookup_meaning": dump(WordLookupOut(
+            word="mastodon", lemma="mastodon", line="Hey, Ross! Is that a mastodon? [laughter]",
+            meaning={"definition": "a huge animal like an elephant that died out long ago",
+                     "register": "neutral", "l1": "ماموت", "l1_language": "fa"},
+            image=None, saved="none",
+        )),
+        "word_lookup_none": dump(WordLookupOut(
+            word="basement", lemma="basement", line="it's a model of one. we found it in the museum's basement.",
+            meaning=None, image=None, saved="none",
+        )),
+        "word_lookup_pending": dump(WordLookupOut(
+            word="basement", lemma="basement", line="it's a model of one. we found it in the museum's basement.",
+            meaning=None, image=None, saved="pending",
+        )),
+        "save_saved": SaveWordOut(state="saved", card_ids=[901, 902]).model_dump(mode="json"),
+        "save_pending_soon": SaveWordOut(state="pending", meaning_soon=True).model_dump(mode="json"),
+        "save_pending_held": SaveWordOut(state="pending", meaning_soon=False).model_dump(mode="json"),
+        "my_words": dump(MyWordsOut(words=[
+            SavedWordOut(word="basement", sentence="we found it in the museum's basement.",
+                         source_title="A sitcom scene", state="pending",
+                         saved_at=datetime(2026, 9, 27, 18, 5, tzinfo=timezone.utc)),
+            SavedWordOut(word="mastodon", sentence="Hey, Ross! Is that a mastodon? [laughter]",
+                         source_title="A sitcom scene", state="in_deck",
+                         saved_at=datetime(2026, 9, 27, 18, 2, tzinfo=timezone.utc)),
+            SavedWordOut(word="epoch", sentence="[laughter] we call it Epoch.",
+                         source_title="A sitcom scene", state="no_meaning",
+                         saved_at=datetime(2026, 9, 26, 20, 40, tzinfo=timezone.utc)),
+        ])),
+        "my_words_empty": dump(MyWordsOut(words=[])),
+    }
+
+
 def bodies() -> dict:
     return {
         "auth": Session(
@@ -297,6 +340,8 @@ def bodies() -> dict:
         # W31b — the study screen: timed lines, and the untimed third state.
         "watch_study": _watch_study(),
         "watch_untimed": _watch_untimed(),
+        # W31c — the word sheet, Save and My words.
+        **_word_bodies(),
         # W24e — Sunday's home, week one: `empty`, so the report renders its one
         # line and no number, and keep going is the only offer below it (R1).
         "week_sunday": WeekOut(

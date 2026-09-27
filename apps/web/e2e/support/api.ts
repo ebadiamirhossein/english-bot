@@ -406,8 +406,20 @@ export async function mockKeepGoing(
  * word tap. Returns the save-word requests it saw, so a spec can assert what
  * the web actually sent (#465). `saveState` is the body's `state`.
  */
-export async function mockVideo(page: Page, { saveState = "no_gloss" } = {}) {
+export async function mockVideo(
+  page: Page,
+  {
+    save = fixture.save_pending_soon as unknown,
+    lookup = fixture.word_lookup_meaning as unknown,
+  } = {},
+) {
   const saves: { contentType: string; body: unknown }[] = [];
+  // W31c — the word sheet's read, from `write.fixture.json` (the real model).
+  await page.route(`${API}/video/*/word?*`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.fulfill({ status: 204, headers: cors(route) })
+      : json(route, 200, lookup),
+  );
   await page.route(`${API}/video/*/progress`, (route) =>
     route.request().method() === "OPTIONS"
       ? route.fulfill({ status: 204, headers: cors(route) })
@@ -424,9 +436,18 @@ export async function mockVideo(page: Page, { saveState = "no_gloss" } = {}) {
       contentType: route.request().headers()["content-type"] ?? "",
       body: route.request().postDataJSON(),
     });
-    return json(route, 200, { state: saveState, card_ids: [] });
+    return json(route, 200, save);
   });
   return saves;
+}
+
+/** W31c — `GET /words`, My words, from `write.fixture.json`. */
+export async function mockMyWords(page: Page, body: unknown = fixture.my_words) {
+  await page.route(`${API}/words*`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.fulfill({ status: 204, headers: cors(route) })
+      : json(route, 200, body),
+  );
 }
 
 /**

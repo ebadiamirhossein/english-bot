@@ -35,6 +35,7 @@ from apps.api.routers import conversation as conversation_router
 # a test rather than rot unnoticed.
 from apps.api.routers import week as week_router
 from apps.api.routers import keep_going as keep_going_router
+from apps.api.routers import words as words_router
 from apps.api.routers import progress as progress_router
 from apps.api.routers import push as push_router
 from apps.api.routers import placement as placement_router
@@ -261,6 +262,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(lexeme_images_router.router)
     # W24e. Added to BOTH lists in the same commit (#255).
     app.include_router(keep_going_router.router)
+    # W31c: My words.
+    app.include_router(words_router.router)
     logger.info(
         "API built origins=%s routes=%s",
         ",".join(allowed_origins(cfg)),
@@ -301,6 +304,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     admin_router.router,
                     lexeme_images_router.router,
                     keep_going_router.router,
+                    words_router.router,
                 )
                 for route in router.routes
             )

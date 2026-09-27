@@ -1,5 +1,8 @@
+import Link from "next/link";
+
 import { Reviewer } from "@/components/cards/reviewer";
 import { PageHeader } from "@/components/page-header";
+import { MY_WORDS } from "@/components/session/copy";
 
 /**
  * The deck. Replaces W2's `ComingLater` placeholder, whose bullets were this
@@ -17,6 +20,18 @@ export default function ReviewPage() {
         Your cards, scheduled so they come back just before you would forget
         them.
       </PageHeader>
+
+      {/* W31c: the saved words, reachable from the deck. A quiet link, no
+          count beside it (#160). */}
+      <nav className="-mt-2 mb-4 flex flex-wrap gap-4 text-sm" data-testid="review-links">
+        <Link
+          href="/review/words"
+          className="inline-flex min-h-11 items-center underline underline-offset-4"
+          data-testid="review-my-words"
+        >
+          {MY_WORDS.link}
+        </Link>
+      </nav>
 
       <Reviewer />
     </>

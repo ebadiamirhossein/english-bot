@@ -379,6 +379,76 @@
       "coverage_band": "in"
     }
   },
+  "word_lookup_meaning": {
+    "word": "mastodon",
+    "lemma": "mastodon",
+    "line": "Hey, Ross! Is that a mastodon? [laughter]",
+    "meaning": {
+      "definition": "a huge animal like an elephant that died out long ago",
+      "register": "neutral",
+      "l1": "ماموت",
+      "l1_language": "fa"
+    },
+    "saved": "none"
+  },
+  "word_lookup_none": {
+    "word": "basement",
+    "lemma": "basement",
+    "line": "it's a model of one. we found it in the museum's basement.",
+    "saved": "none"
+  },
+  "word_lookup_pending": {
+    "word": "basement",
+    "lemma": "basement",
+    "line": "it's a model of one. we found it in the museum's basement.",
+    "saved": "pending"
+  },
+  "save_saved": {
+    "state": "saved",
+    "card_ids": [
+      901,
+      902
+    ],
+    "meaning_soon": null
+  },
+  "save_pending_soon": {
+    "state": "pending",
+    "card_ids": [],
+    "meaning_soon": true
+  },
+  "save_pending_held": {
+    "state": "pending",
+    "card_ids": [],
+    "meaning_soon": false
+  },
+  "my_words": {
+    "words": [
+      {
+        "word": "basement",
+        "sentence": "we found it in the museum's basement.",
+        "source_title": "A sitcom scene",
+        "state": "pending",
+        "saved_at": "2026-09-27T18:05:00Z"
+      },
+      {
+        "word": "mastodon",
+        "sentence": "Hey, Ross! Is that a mastodon? [laughter]",
+        "source_title": "A sitcom scene",
+        "state": "in_deck",
+        "saved_at": "2026-09-27T18:02:00Z"
+      },
+      {
+        "word": "epoch",
+        "sentence": "[laughter] we call it Epoch.",
+        "source_title": "A sitcom scene",
+        "state": "no_meaning",
+        "saved_at": "2026-09-26T20:40:00Z"
+      }
+    ]
+  },
+  "my_words_empty": {
+    "words": []
+  },
   "week_sunday": {
     "week_ending": "2026-10-04",
     "sunday": true,

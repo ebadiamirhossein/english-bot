@@ -808,21 +808,79 @@ export function getWeek(): Promise<Week> {
  * `card_face` is the single producer (#190).
  */
 export type SaveWordResult = {
-  state: "saved" | "already_saved" | "no_gloss";
+  /** W31c adds `pending` (saved with no meaning yet — the worker fills it) and
+   * `no_line` (the transcript is gone, so there is no sentence to keep). */
+  state: "saved" | "already_saved" | "no_gloss" | "pending" | "no_line";
   card_ids: number[];
+  /** `pending` only: is a meaning coming? True only while the job is on. */
+  meaning_soon?: boolean | null;
 };
 
+/**
+ * `POST /video/{id}/save-word`. **W31c sends the INDEX of the line the word was
+ * tapped in, never its text** — the server reads the sentence from its own
+ * lines and trusts the index only if that line holds the word.
+ */
 export function saveWord(
   videoId: number,
   word: string,
+  line: number | null = null,
 ): Promise<SaveWordResult> {
   return request<SaveWordResult>(`/video/${videoId}/save-word`, {
     method: "POST",
     // Explicit as well as defaulted by `request()`: this is the call that
     // shipped without it (#465), and `web-requests.contract.json` names it.
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ word }),
+    body: JSON.stringify(line === null ? { word } : { word, line }),
   });
+}
+
+/** W31c: a stored gloss, as the word sheet shows it. */
+export type WordMeaning = {
+  definition: string;
+  register: string;
+  neutral_equivalent?: string;
+  who_says_this?: string;
+  /** The learner's own language, when `explain` produced it (ruling Q7). */
+  l1?: string;
+  l1_language?: string;
+};
+
+/** W31c: `GET /video/{id}/word` — everything the word sheet shows. */
+export type WordLookup = {
+  word: string;
+  lemma: string;
+  line?: string;
+  /** Absent when no gloss exists yet: the sheet still offers Save. */
+  meaning?: WordMeaning;
+  image?: CardImage;
+  saved: "none" | "in_deck" | "pending" | "no_meaning";
+};
+
+export function lookupWord(
+  videoId: number,
+  word: string,
+  line: number | null = null,
+): Promise<WordLookup> {
+  const query = new URLSearchParams({ w: word });
+  if (line !== null) query.set("line", String(line));
+  return request<WordLookup>(`/video/${videoId}/word?${query.toString()}`);
+}
+
+/** W31c: one saved word in My words. **No count anywhere** (#160). */
+export type SavedWord = {
+  word: string;
+  sentence?: string;
+  source_title?: string;
+  state: "in_deck" | "pending" | "no_meaning";
+  saved_at: string;
+};
+
+export type MyWords = { words: SavedWord[]; next_before?: string };
+
+export function getMyWords(before: string | null = null): Promise<MyWords> {
+  const query = before ? `?${new URLSearchParams({ before }).toString()}` : "";
+  return request<MyWords>(`/words${query}`);
 }
 
 // ── the conversation surface: `/talk` (W13b) and its two rungs (W15) ─────────

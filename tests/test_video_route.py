@@ -102,6 +102,12 @@ def learner(db):
     )
     db.commit()
     yield type("L", (), {"user_id": user_id, "cookie": raw})()
+    # W31c: a pending save references its video `ON DELETE RESTRICT` (035), so
+    # it goes before the videos do — or the whole teardown aborts and leaves
+    # this learner's rows behind for every later test to trip on (found when it
+    # did exactly that).
+    db.rollback()
+    db.execute("DELETE FROM word_saves_pending WHERE user_id = %s", (user_id,))
     db.execute(
         "DELETE FROM video_assignments WHERE user_id = %s", (user_id,)
     )
@@ -647,12 +653,17 @@ def test_an_ungiossed_word_is_a_state_and_never_a_generation(
     call on this path would raise inside the request rather than pass silently —
     which is how we know this route generates nothing, rather than by reading
     it."""
+    # **W31c: an ungiossed word is now KEPT, as `pending`, and still nothing is
+    # generated on this path** — the worker fills it later. This asserted
+    # `no_gloss` for a word that is not in the transcript at all; that word is
+    # now `no_line` (nothing to keep it with), so the test taps one that IS in
+    # the line — the case the operator hit on 2026-09-27.
     response = request(
         app, "POST", f"/video/{assigned}/save-word",
-        json_body={"word": "nothinghasbeengeneratedforthis"}, cookies=_as(learner),
+        json_body={"word": "honestly"}, cookies=_as(learner),
     )
     assert response.status_code == 200
-    assert response.json()["state"] == "no_gloss"
+    assert response.json()["state"] == "pending"
 
 
 def test_no_definition_crosses_the_route_boundary(app, db, learner, assigned) -> None:

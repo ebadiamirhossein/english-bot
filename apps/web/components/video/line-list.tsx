@@ -26,7 +26,8 @@ export function LineList({
   lines: VideoLine[];
   active: number | null;
   unknown: Set<string>;
-  onWordTap?: (word: string) => void;
+  /** W31c: the word and the INDEX of the line it was tapped in. */
+  onWordTap?: (word: string, line: number | null) => void;
   onSeek?: (seconds: number) => void;
 }) {
   const box = useRef<HTMLOListElement | null>(null);
@@ -88,7 +89,11 @@ export function LineList({
               </button>
             ) : null}
             <span className="min-w-0">
-              <LineText text={line.text} unknown={unknown} onWordTap={onWordTap} />
+              <LineText
+                text={line.text}
+                unknown={unknown}
+                onWordTap={onWordTap ? (word) => onWordTap(word, index) : undefined}
+              />
             </span>
           </li>
         );

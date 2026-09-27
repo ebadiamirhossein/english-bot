@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import contract from "./web-requests.contract.json";
-import { request, saveWord } from "./api";
+import { getMyWords, lookupWord, request, saveWord } from "./api";
 
 /**
  * W31a — the web half of `web-requests.contract.json`.
@@ -31,10 +31,10 @@ function wire(init: RequestInit) {
   const headers = new Headers(init.headers);
   const explicit = headers.get("content-type");
   return {
-    method: init.method,
+    method: init.method ?? "GET",
     content_type:
       explicit ?? (typeof init.body === "string" ? BROWSER_DEFAULT_FOR_STRING : null),
-    body: typeof init.body === "string" ? JSON.parse(init.body) : init.body,
+    body: typeof init.body === "string" ? JSON.parse(init.body) : (init.body ?? null),
   };
 }
 
@@ -62,9 +62,9 @@ const entry = (name: string): Entry => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("the web sends what the contract says", () => {
-  it("save_word: POST, JSON, and only the word", async () => {
+  it("save_word: POST, JSON, the word and the line's index — never its text", async () => {
     const calls = capture();
-    await saveWord(44, "mastodon");
+    await saveWord(44, "mastodon", 0);
     const expected = entry("save_word");
     expect(calls).toHaveLength(1);
     expect(calls[0].url.endsWith(expected.path.replace("{video_id}", "44"))).toBe(true);
@@ -73,6 +73,25 @@ describe("the web sends what the contract says", () => {
       content_type: expected.content_type,
       body: expected.body,
     });
+  });
+  it("word_lookup: GET, the word and the line's index in the query", async () => {
+    const calls = capture();
+    await lookupWord(44, "mastodon", 0);
+    const expected = entry("word_lookup");
+    expect(calls[0].url.endsWith(expected.path.replace("{video_id}", "44"))).toBe(true);
+    expect(wire(calls[0].init)).toEqual({
+      method: expected.method,
+      content_type: expected.content_type,
+      body: expected.body,
+    });
+  });
+
+  it("my_words: GET, no query on the first page", async () => {
+    const calls = capture();
+    await getMyWords();
+    const expected = entry("my_words");
+    expect(calls[0].url.endsWith(expected.path)).toBe(true);
+    expect(wire(calls[0].init).method).toBe("GET");
   });
 });
 
