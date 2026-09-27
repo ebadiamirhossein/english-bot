@@ -276,3 +276,150 @@ def test_the_session_says_finished_and_never_writes_completed(app, db, learner) 
     ).fetchone()[0] is False
     db.execute("DELETE FROM sessions WHERE user_id = %s", (learner.user_id,))
     db.commit()
+
+
+# ── #462: a conversation counts as block 4 (operator ruling, 2026-09-27) ────
+#
+# **The user action:** a learner talks on `/talk` instead of writing. With three
+# or more learner turns (typed or voice) on their local day, block 4 is done for
+# that day exactly as a writing submission makes it, so the session can read
+# finished and keep going appears. Derived from `conversation_usage.turns_learner`
+# — the metering row the conversation already writes — and **no journal write
+# is added.**
+#
+# **RED BEFORE THE CODE (2026-09-27):** `_derive_done`'s output branch read only
+# `writing_submissions`, so the 3-turn cases below read `ready` / `finished is
+# False`; the 2-turn case and the Sunday case were green before and are shown
+# red by mutation (recorded in the decisions log, W24r (B)).
+
+TUESDAY_LOCAL = date(2026, 9, 29)
+SUNDAY_LOCAL = date(2026, 10, 4)
+
+
+def _talked(db, learner, local: date, turns: int) -> None:
+    db.execute(
+        "INSERT INTO conversation_usage (user_id, local_date, turns_learner, turns_app) "
+        "VALUES (%s, %s, %s, %s)",
+        (learner.user_id, local, turns, turns),
+    )
+    db.commit()
+
+
+def _clear_sessions(db, learner) -> None:
+    db.execute("DELETE FROM sessions WHERE user_id = %s", (learner.user_id,))
+    db.commit()
+
+
+def _state(session, kind: str) -> str:
+    return next(b.state for b in session.blocks if b.kind == kind)
+
+
+def _block_three_done(db, learner) -> None:
+    """The dev database holds no items, so block 3 serves the unit's teaching
+    and stays `ready`. A learner who finished it has `focus: done` in the stored
+    breakdown — the resume state `today` honours (a stored `done` wins) — so
+    that is what is written, rather than a builder being stubbed."""
+    db.execute(
+        "UPDATE sessions SET block_breakdown = COALESCE(block_breakdown, '{}'::jsonb) "
+        "|| '{\"focus\": \"done\"}'::jsonb WHERE user_id = %s AND task_type = 'daily'",
+        (learner.user_id,),
+    )
+    db.commit()
+
+
+def test_two_learner_turns_do_not_finish_block_four(db, learner) -> None:
+    from core.services import sessions as sessions_svc
+
+    _talked(db, learner, TUESDAY_LOCAL, 2)
+    try:
+        session = sessions_svc.today(learner.user_id, now=TUESDAY)
+        assert _state(session, "output") == "ready"
+        assert session.finished is False
+    finally:
+        _clear_sessions(db, learner)
+
+
+def test_three_learner_turns_finish_block_four_and_the_session(db, learner) -> None:
+    """No card is due, no video is assigned and block 3 is done, so block 4 is
+    the only block still open: three turns make it `done` and the session
+    `finished`."""
+    from core.services import sessions as sessions_svc
+
+    sessions_svc.today(learner.user_id, now=TUESDAY)
+    _block_three_done(db, learner)
+    before = sessions_svc.today(learner.user_id, now=TUESDAY)
+    assert [(b.kind, b.state) for b in before.blocks if b.kind != "close"] == [
+        ("review", "empty"), ("input", "empty"), ("focus", "done"), ("output", "ready"),
+    ], "the premise: block 4 is the only block still open"
+    assert before.finished is False
+    _talked(db, learner, TUESDAY_LOCAL, 3)
+    try:
+        session = sessions_svc.today(learner.user_id, now=TUESDAY)
+        assert _state(session, "output") == "done"
+        assert session.finished is True
+    finally:
+        _clear_sessions(db, learner)
+
+
+def test_turns_on_another_day_do_not_count(db, learner) -> None:
+    """The learner's LOCAL date keys both tables: yesterday's conversation is
+    not today's block 4."""
+    from core.services import sessions as sessions_svc
+
+    _talked(db, learner, TUESDAY_LOCAL - timedelta(days=1), 5)
+    try:
+        assert _state(sessions_svc.today(learner.user_id, now=TUESDAY), "output") == "ready"
+    finally:
+        _clear_sessions(db, learner)
+
+
+def test_talking_writes_no_journal_row(db, learner) -> None:
+    """Deriving block 4 from the conversation adds no writer: `errors` and
+    `writing_submissions` are untouched by the hydration."""
+    from core.services import sessions as sessions_svc
+
+    _talked(db, learner, TUESDAY_LOCAL, 3)
+    try:
+        sessions_svc.today(learner.user_id, now=TUESDAY)
+        for table in ("errors", "writing_submissions"):
+            assert db.execute(f"SELECT count(*) FROM {table} WHERE user_id = %s",
+                              (learner.user_id,)).fetchone()[0] == 0, table
+    finally:
+        _clear_sessions(db, learner)
+
+
+def test_after_three_turns_the_route_says_finished_and_keep_going_appears(
+    app, db, learner, monkeypatch
+) -> None:
+    """Through the ASGI transport: `/session/today` carries `finished: true`
+    (the client's gate for the done state and keep going, W24e R2) and
+    `/keep-going` offers the choices for that same day."""
+    import apps.api.routers.session as session_router
+
+    class _Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return TUESDAY
+
+    monkeypatch.setattr(session_router, "datetime", _Clock)
+    cookies = {SESSION_COOKIE_SECURE: learner.cookie}
+    try:
+        _request(app, "GET", "/session/today", cookies=cookies)
+        _block_three_done(db, learner)
+        assert _request(app, "GET", "/session/today", cookies=cookies).json()["finished"] is False
+        _talked(db, learner, TUESDAY_LOCAL, 3)
+        body = _request(app, "GET", "/session/today", cookies=cookies).json()
+        assert body["finished"] is True
+        output = next(b for b in body["blocks"] if b["kind"] == "output")
+        assert output["state"] == "done"
+        options = _request(app, "GET", "/keep-going", cookies=cookies).json()["options"]
+        assert options == ["talk", "write"]
+    finally:
+        _clear_sessions(db, learner)
+
+
+def test_sunday_is_unaffected_by_a_conversation(db, learner) -> None:
+    """R1 stands: however much the learner talked, Sunday offers nothing but
+    *watch* (and the pool is empty here, so nothing)."""
+    _talked(db, learner, SUNDAY_LOCAL, 3)
+    assert keep_going.options(learner.user_id, now=SUNDAY) == ()

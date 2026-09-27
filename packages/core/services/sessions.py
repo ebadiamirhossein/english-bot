@@ -1782,6 +1782,11 @@ def _answered_ids(conn, table: str, column: str, session_id: int) -> set[int]:
     return set(row["array_agg"] or []) if row else set()
 
 
+#: #462 (operator ruling, 2026-09-27): learner turns on `/talk` in one local day
+#: that count as block 4 done, as a writing submission does.
+TALK_TURNS_FOR_OUTPUT = 3
+
+
 def _derive_done(conn, session_id: int, built: dict, stored_payload: dict) -> dict:
     """**#258: a block records itself done. The manual button is gone.**
 
@@ -1816,7 +1821,9 @@ def _derive_done(conn, session_id: int, built: dict, stored_payload: dict) -> di
     * ``focus`` -- every item it served has an `item_attempts` row for this
       session.
     * ``output`` -- **W16a: `done` when `writing_submissions` holds a row for
-      this session with `is_english`.** The old clause is quoted rather than
+      this session with `is_english`** -- **or, since #462 (operator ruling
+      2026-09-27), when the learner sent at least `TALK_TURNS_FOR_OUTPUT` turns
+      on `/talk` that local day** (`conversation_usage.turns_learner`). The old clause is quoted rather than
       deleted (#82's shape): *"``output`` -- **cannot self-report.** `POST
       /correct` records no `session_id`, so nothing links a correction to the
       sitting it happened in. It stays `ready`, and that is why
@@ -1888,17 +1895,30 @@ def _derive_done(conn, session_id: int, built: dict, stored_payload: dict) -> di
 
     # W16a. A non-English submission spent a call and counts toward the ceiling,
     # but it is not the learner's English, so it does not finish the block.
+    #
+    # #462 (operator ruling, 2026-09-27): a day with at least
+    # `TALK_TURNS_FOR_OUTPUT` learner turns on `/talk`, typed or voice, finishes
+    # block 4 exactly as a writing submission does. Read from
+    # `conversation_usage` -- the metering row every turn already bumps, keyed
+    # on the same local date as `sessions.date` -- so no writer is added and
+    # nothing reaches the journal. `day_in_unit` reads only `focus`, so pacing
+    # does not move.
     output_state, output_payload = built.get("output", ("empty", {}))
     if output_state == "ready":
-        wrote = conn.execute(
+        did = conn.execute(
             """
             SELECT 1 FROM writing_submissions
              WHERE session_id = %s AND is_english
+            UNION ALL
+            SELECT 1 FROM sessions s
+              JOIN conversation_usage u
+                ON u.user_id = s.user_id AND u.local_date = s.date
+             WHERE s.id = %s AND u.turns_learner >= %s
              LIMIT 1
             """,
-            (session_id,),
+            (session_id, session_id, TALK_TURNS_FOR_OUTPUT),
         ).fetchone()
-        if wrote is not None:
+        if did is not None:
             out["output"] = ("done", output_payload)
 
     return out

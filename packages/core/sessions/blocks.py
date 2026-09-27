@@ -116,9 +116,11 @@ def finished(blocks: tuple[Block, ...]) -> bool:
     told not to make. Keep going reads THIS, computed from the blocks the
     learner can see, at hydration.
 
-    **Block 4 is `done` only from `writing_submissions` (W16a).** A learner who
-    talks on `/talk` instead of writing leaves block 4 `ready`, so their session
-    never reads finished -- filed, not papered over (#463).
+    **Block 4 is `done` from `writing_submissions` (W16a) or, since #462's
+    ruling (2026-09-27), from three learner turns on `/talk` that local day**
+    (`core.services.sessions.TALK_TURNS_FOR_OUTPUT`). Before it, a learner who
+    talked instead of writing never read finished. *(This line cited #463 until
+    W24r; the issue is #462.)*
     """
     work = [b for b in blocks if b.kind in _WORK_KINDS]
     return any(b.state == "done" for b in work) and all(
