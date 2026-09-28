@@ -43,6 +43,8 @@ describe("KeepGoing", () => {
     vi.mocked(api.getKeepGoing).mockResolvedValue({ options: ["watch"] });
     render(<KeepGoing sunday />);
     expect(await screen.findByText("If you feel like watching something:")).toBeInTheDocument();
-    expect(screen.getByTestId("keep-going-watch")).toHaveAttribute("href", "/watch");
+    // W32f: `?extra=1` — keep going's watch-another; the nav's plain `/watch`
+    // only opens today's video and never assigns (was `"/watch"` until W32f).
+    expect(screen.getByTestId("keep-going-watch")).toHaveAttribute("href", "/watch?extra=1");
   });
 });

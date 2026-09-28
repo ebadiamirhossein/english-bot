@@ -49,46 +49,48 @@ async function openStudy(page: Page) {
   await expect(page.getByTestId("subtitle-now")).toContainText("model");
 }
 
-async function captionInsideVideo(page: Page) {
+/**
+ * **W32f (#487): REPLACED.** Until W32f this was `captionInsideVideo` — the
+ * caption's box inside the video's, in its bottom half — and
+ * `clickReachesTheVideo` proved a click beside the caption still reached the
+ * picture. **The operator ruled on 2026-09-28 that the caption moves to a strip
+ * BELOW the video** (YouTube's Required Minimum Functionality forbids overlays
+ * on the embedded player), so both are inverted: the caption is wholly below
+ * the video, and nothing of ours is on the picture at all.
+ */
+async function captionBelowVideo(page: Page) {
   const video = (await page.getByTestId("video-box").boundingBox())!;
   const caption = (await page.getByTestId("subtitle-now").boundingBox())!;
-  expect(caption.x).toBeGreaterThanOrEqual(video.x - 1);
-  expect(caption.y).toBeGreaterThanOrEqual(video.y - 1);
-  expect(caption.x + caption.width).toBeLessThanOrEqual(video.x + video.width + 1);
-  expect(caption.y + caption.height).toBeLessThanOrEqual(video.y + video.height + 1);
-  // In the bottom half, as captions are.
-  expect(caption.y).toBeGreaterThan(video.y + video.height / 2);
+  expect(caption.y).toBeGreaterThanOrEqual(video.y + video.height - 0.5);
   return { video, caption };
 }
 
 type Box = { x: number; y: number; width: number; height: number };
 
-async function clickReachesTheVideo(page: Page, video: Box, caption: Box) {
-  // Two points on the picture: well above the caption, and BESIDE it on the
-  // caption's own row — the layer spans the video's width there, so this is
-  // the point a layer that caught the pointer would steal (the first version
-  // tested only the first point, and a mutation that made the layer catch the
-  // pointer passed it).
-  const at = async (x: number, y: number) =>
-    page.evaluate(
-      ({ x, y }) => (document.elementFromPoint(x, y) as HTMLElement | null)?.dataset.testid ?? null,
-      { x, y },
-    );
-  expect(await at(video.x + video.width / 2, video.y + video.height * 0.3)).toBe("fake-yt");
-  const beside = Math.max(video.x + 4, caption.x - 12);
-  expect(beside).toBeLessThan(caption.x);
-  expect(await at(beside, caption.y + caption.height / 2)).toBe("fake-yt");
+/** A 7×5 grid over the video: every point is YouTube's, none is ours. */
+async function nothingOnThePicture(page: Page, video: Box) {
+  const hits = await page.evaluate((v) => {
+    const out: (string | null)[] = [];
+    for (let i = 1; i <= 7; i += 1) {
+      for (let j = 1; j <= 5; j += 1) {
+        const el = document.elementFromPoint(v.x + (v.width * i) / 8, v.y + (v.height * j) / 6) as HTMLElement | null;
+        out.push(el?.closest("[data-testid]")?.getAttribute("data-testid") ?? null);
+      }
+    }
+    return out;
+  }, video);
+  expect(new Set(hits)).toEqual(new Set(["fake-yt"]));
 }
 
-test("desktop Focus: the line is on the video, readable, and a word in it shows its meaning", async ({ page }, info) => {
+test("desktop Focus: the line is under the video (W32f), readable, and a word in it shows its meaning", async ({ page }, info) => {
   test.skip(!desktop(info), "the phone projects are turned sideways below");
   await openStudy(page);
   await page.getByTestId("focus-enter").click();
   await expect(page.getByTestId("video-player")).not.toHaveAttribute("data-focus", "off");
-  const { video, caption } = await captionInsideVideo(page);
+  const { video } = await captionBelowVideo(page);
   await expectInViewport(page, page.getByTestId("subtitle-now"));
   expect(await contrastOf(page.getByTestId("subtitle-now"))).toBeGreaterThanOrEqual(4.5);
-  await clickReachesTheVideo(page, video, caption);
+  await nothingOnThePicture(page, video);
   await expectNoHorizontalOverflow(page);
   await shot(page, info, "focus-caption");
   // Playing, then the pointer onto the caption: it pauses, as W31b's block
@@ -118,17 +120,17 @@ test("desktop Focus: the line is on the video, readable, and a word in it shows 
   expect([vars.fs, vars.cc_load_policy]).toEqual([0, 0]);
 });
 
-test("a phone turned sideways enters Focus, the line is on the video, and turning back exits", async ({ page }, info) => {
+test("a phone turned sideways enters Focus, the line is under the video (W32f), and turning back exits", async ({ page }, info) => {
   test.skip(desktop(info), "a desktop window made wide is not a phone turned");
   await openStudy(page);
   const root = page.getByTestId("video-player");
   await expect(root).toHaveAttribute("data-focus", "off");
   await page.setViewportSize({ width: 844, height: 390 });
   await expect(root).not.toHaveAttribute("data-focus", "off");
-  const { video, caption } = await captionInsideVideo(page);
+  const { video } = await captionBelowVideo(page);
   await expectInViewport(page, page.getByTestId("subtitle-now"));
   await expectInViewport(page, page.getByTestId("focus-exit"));
-  await clickReachesTheVideo(page, video, caption);
+  await nothingOnThePicture(page, video);
   await expectNoHorizontalOverflow(page);
   await shot(page, info, "landscape-caption");
   await page.getByTestId("subtitle-now").getByRole("button", { name: "model", exact: true }).click();

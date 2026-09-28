@@ -141,12 +141,15 @@ test.describe("W31c — My words", () => {
           }),
     );
     await mockMyWords(page);
+    // W32f: `/review` is an alias of Words, whose third part is My words (a
+    // tab). Until W32f this followed Review's *Your words* link to
+    // `/review/words` — a page that is kept, and still tested below.
     await page.goto("/review");
-    const link = page.getByTestId("review-my-words");
+    const link = page.getByTestId("words-tab-mine");
     await expectReachable(link);
     if (phone(info)) await expectTapTarget(link);
     await link.click();
-    await expect(page).toHaveURL(/\/review\/words$/);
+    await expect(link).toHaveAttribute("aria-selected", "true");
     const rows = page.getByTestId("my-word");
     await expect(rows).toHaveCount(3);
     await expect(rows.nth(0)).toContainText("meaning coming");

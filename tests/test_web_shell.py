@@ -209,19 +209,30 @@ def test_every_manifest_icon_file_exists() -> None:
         assert icon.stat().st_size > 0
 
 
-def test_bottom_nav_has_the_four_places_the_app_has() -> None:
-    """Today · Map · Review · Progress — and a page behind each one."""
+def test_bottom_nav_has_the_five_places_the_app_has() -> None:
+    """Today · Watch · Words · Map · Progress — and a page behind each one.
+
+    **W32f, operator ruling 2026-09-28, superseding the four-item nav.** This
+    test was `test_bottom_nav_has_the_four_places_the_app_has` and asserted
+    *"Today · Map · Review · Progress"* until then: today's video and the saved
+    words were reachable only through *keep going* and Review. **Words replaces
+    Review** (one page: Review, word practice, My words); `/review` stays a
+    working route — an alias of that page.
+    """
     source = (WEB / "components" / "bottom-nav.tsx").read_text(encoding="utf-8")
     entries = re.findall(r'href:\s*"([^"]+)",\s*label:\s*"([^"]+)"', source)
     assert entries == [
         ("/", "Today"),
+        ("/watch", "Watch"),
+        ("/words", "Words"),
         ("/map", "Map"),
-        ("/review", "Review"),
         ("/progress", "Progress"),
     ]
     for href, _ in entries:
         page = (WEB / "app" / "(app)" / href.lstrip("/") / "page.tsx")
         assert page.is_file(), f"nav points at {href} with no page"
+    # `/review` is kept as a working route (W32f: an alias of Words).
+    assert (WEB / "app" / "(app)" / "review" / "page.tsx").is_file()
 
 
 def test_today_offers_exactly_one_action() -> None:

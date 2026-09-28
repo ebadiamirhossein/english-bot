@@ -84,7 +84,9 @@ test.describe("W24e — keep going", () => {
     const watch = page.getByTestId("keep-going-watch");
     await usable(page, watch);
     await watch.click();
-    await expect(page).toHaveURL(/\/watch$/);
+    // W32f: keep going's watch-another is `?extra=1` (it may assign); the
+    // nav's plain `/watch` only opens today's video.
+    await expect(page).toHaveURL(/\/watch\?extra=1$/);
     await expect(page.getByTestId("watch-player")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Something to watch.");
     await expectNoHorizontalOverflow(page);
@@ -94,7 +96,9 @@ test.describe("W24e — keep going", () => {
   test("nothing to watch: a quiet line and a way back", async ({ page }, info) => {
     await mockApi(page);
     await mockKeepGoing(page, { watch: null });
-    await page.goto("/watch");
+    // W32f: keep going's door (`?extra=1`); the nav's `/watch` has its own
+    // empty line (e2e/nav.spec.ts).
+    await page.goto("/watch?extra=1");
     await expect(page.getByTestId("watch-none")).toBeVisible();
     await expect(page.getByTestId("watch-none")).not.toContainText(/[0-9]/);
     await usable(page, page.getByTestId("watch-back"));

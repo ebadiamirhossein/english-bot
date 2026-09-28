@@ -207,6 +207,14 @@ export const WATCH = {
   /** Nothing in band and unseen, or today's extra is watched. No count, no day promised. */
   none: "Nothing more to watch here today \u2014 anything you enjoy watching in English counts just as much.",
   back: "Back to today",
+  /** W32f — the nav's Watch: today's assigned video, not keep going's extra.
+   * One video, never a list (R2). */
+  todayEyebrow: "Watch",
+  todayTitle: "Today’s video.",
+  todayBody: "Chosen for you, at your level. Stop whenever you like.",
+  /** Nothing assigned for today (nothing in band and unseen). No count, no day
+   * promised, and nothing the learner did. */
+  noneToday: "There’s no video for today. Anything you enjoy watching in English counts just as much.",
 } as const;
 
 /**
@@ -403,6 +411,10 @@ export const VIDEO = {
      * saying what to tap. */
     ytCaptions: "YouTube subtitles are on. Tap CC on the video to turn them off — ours are below.",
     ytCaptionsDismiss: "Dismiss",
+    /** W32f (B1): where the player cannot say whether YouTube's captions are
+     * on — shown once, the first time the learner enters full screen. The
+     * operator's sentence. */
+    ytCaptionsTip: "Seeing two subtitles? Turn off CC on the video.",
     loop: "Loop line",
     loopOn: "Looping this line",
     noTimed: "This video has no timed subtitles.",
@@ -922,6 +934,23 @@ export const ADMIN = {
  * total, no "N left", nothing that reads as a pile to clear** (CLAUDE.md §4,
  * #160): a list, and *More* for the next page.
  */
+/**
+ * **W32f — Words**, the nav's place for Review, word practice and My words
+ * (operator ruling 2026-09-28). No count on a tab or anywhere on the page.
+ */
+export const WORDS = {
+  eyebrow: "Words",
+  title: "The words you’re learning.",
+  intro: "Cards that are due, a few minutes of practice, and everything you’ve saved.",
+  tablist: "Words",
+  review: "Review",
+  /** The drill's part (W31d, "word practice"). **"Practice", not "Practice
+   * words"**: three tabs across a 320 px phone leave ~90 px each, and the
+   * longer name wrapped to two lines at 390 px in the first build. */
+  practice: "Practice",
+  mine: "My words",
+} as const;
+
 export const MY_WORDS = {
   link: "Your words",
   eyebrow: "Review",

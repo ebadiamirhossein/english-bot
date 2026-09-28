@@ -186,19 +186,21 @@ describe("B1 — full screen, where people look for it", () => {
     expect(exit.querySelector("svg")).not.toBeNull();
   });
 
-  it("a second button on the video's corner, in our layer above the iframe, enters Focus", async () => {
+  // **W32f (#486): MOVED.** This test asserted the icon ON the video's
+  // bottom-right corner, in our layer above the iframe. YouTube draws its own
+  // logo and settings there, and the Required Minimum Functionality allows a
+  // full-screen control on the player only where it does not conflict with
+  // YouTube's UI — so the icon moved to the right end of the line under the
+  // player, off the picture. Its placement is `focus-strip.test.tsx`'s.
+  it("a second, icon-only button enters Focus — beside the line under the video, not on it (W32f)", async () => {
     webkitMedia({ landscape: false, coarse: true }, true);
     render(<VideoPlayer payload={payload()} l1Language="fa" />);
     const corner = screen.getByTestId("focus-corner");
     expect(corner).toHaveAccessibleName("Full screen");
-    expect(screen.getByTestId("video-box").contains(corner)).toBe(true);
-    expect(screen.getByTestId("player-mount").contains(corner)).toBe(false);
-    expect(corner.className).toMatch(/absolute/);
-    expect(corner.className).toMatch(/bottom-/);
-    expect(corner.className).toMatch(/right-/);
+    expect(screen.getByTestId("video-box").contains(corner)).toBe(false);
     await userEvent.click(corner);
     expect(root().dataset.focus).not.toBe("off");
-    // In Focus the picture stays clear; the exit is the row's.
+    // In Focus the exit is the row's.
     expect(screen.queryByTestId("focus-corner")).toBeNull();
   });
 });
@@ -340,13 +342,17 @@ describe("B3 — YouTube's own captions (the module is undocumented; every call 
     expect(root().dataset.ytCaptions).toBe("on");
   });
 
-  it("no hint in Focus, where ours are on the picture rather than below", async () => {
+  // **W32f: INVERTED.** Until W32f the hint was hidden in Focus (*"no hint in
+  // Focus, where ours are on the picture rather than below"*). Ours are below
+  // the video in Focus now (#487), and Focus is where two tracks were seen on
+  // the iPhone (Finding 1) — so the hint shows there too.
+  it("the hint shows in Focus too — ours are below the video there as well (W32f)", async () => {
     const made = fakePlayer({ sticks: true });
     render(<VideoPlayer payload={payload()} l1Language="fa" />);
     made[0].ready();
     expect(screen.getByTestId("yt-captions-hint")).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("focus-enter"));
-    expect(screen.queryByTestId("yt-captions-hint")).toBeNull();
+    expect(screen.getByTestId("yt-captions-hint")).toBeInTheDocument();
   });
 });
 

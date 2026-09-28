@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { CardImage } from "@/components/cards/card-image";
+import { L1Text } from "@/components/l1-text";
 import { VIDEO } from "@/components/session/copy";
 import { resolve, type Resolved } from "@/components/video/meanings";
 import { Button } from "@/components/ui/button";
@@ -58,10 +59,6 @@ function outcomeOf(result: SaveWordResult): TapOutcome {
 /** Refusals the learner can simply try again: Save stays under the line. */
 const RETRYABLE = new Set<TapOutcome>(["offline", "server", "rate_limited"]);
 
-/** Right-to-left scripts among the learners' languages (#159: keyed on the
- * language, never guessed from the characters). */
-const RTL = new Set(["fa"]);
-
 export type SheetTarget = { word: string; line: number | null };
 
 function RegisterChip({ register }: { register: string | null }) {
@@ -75,16 +72,8 @@ function RegisterChip({ register }: { register: string | null }) {
 
 function L1({ text, language }: { text: string | null | undefined; language: string | null | undefined }) {
   if (!text || !language) return null;
-  return (
-    <p
-      data-testid="word-sheet-l1"
-      lang={language}
-      dir={RTL.has(language) ? "rtl" : "ltr"}
-      className="text-base"
-    >
-      {text}
-    </p>
-  );
+  // W32f (B3): lang, dir and — for Farsi — Vazirmatn (`components/l1-text.tsx`).
+  return <L1Text testId="word-sheet-l1" text={text} language={language} className="text-base" />;
 }
 
 /**

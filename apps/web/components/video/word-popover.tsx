@@ -1,14 +1,28 @@
 "use client";
 
+import { useLayoutEffect, useRef, useState } from "react";
+
+import { L1Text } from "@/components/l1-text";
 import { VIDEO } from "@/components/session/copy";
 import { firstMeaning, type Resolved } from "@/components/video/meanings";
 
-/** Right-to-left scripts among the learners' languages (#159: keyed on the
- * language, never guessed from the characters). */
-const RTL = new Set(["fa"]);
-
-/** Where the word is, measured from the player's own box. */
-export type Anchor = { x: number; top: number; bottom: number; width: number };
+/**
+ * Where the word is, measured from the player's own box. **`floor` (W32f):**
+ * nothing of the popover may sit above this line — the video's bottom edge,
+ * when the word is below the video — so it is never drawn on the picture
+ * (#487). `height`: the player box's, so a popover below the word stays inside.
+ */
+export type Anchor = {
+  x: number;
+  top: number;
+  bottom: number;
+  width: number;
+  floor?: number;
+  height?: number;
+  /** W32f: the word's own left and right edges, for placing beside it. */
+  left?: number;
+  right?: number;
+};
 
 /**
  * **W32b — the hover popover.** Desktop only (the player decides): after
@@ -33,25 +47,57 @@ export function WordPopover({
   l1Language: string | null;
 }) {
   const meaning = firstMeaning(found);
-  // Above the word when there is room, below it when the word is near the top.
-  const below = anchor.top < 96;
+  // **Measured, then placed** (W32f). In order: ABOVE the word — when it is
+  // not near the top and would not reach up onto the video; else BELOW it —
+  // when that fits inside the player's box; else BESIDE it, level with it,
+  // on whichever side has room. **Never on the picture (#487), never over the
+  // word it describes** (Focus on a desktop: the video above, the screen's
+  // edge below — the first build clamped it up over the word, found in the
+  // W32f screenshots). Hidden for the one frame before it is measured.
+  const box = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    setSize({ w: box.current?.offsetWidth ?? 0, h: box.current?.offsetHeight ?? 0 });
+  }, [anchor.top, anchor.bottom, anchor.x, found]);
+  const gap = 8;
+  const { w, h } = size ?? { w: 0, h: 0 };
+  const floor = anchor.floor ?? 0;
+  const aboveTop = anchor.top - gap - h;
+  const belowTop = anchor.bottom + gap;
+  const fitsAbove = anchor.top >= 96 && aboveTop >= floor;
+  const fitsBelow = anchor.height === undefined || belowTop + h <= anchor.height - 4;
   // Centred on the word, and kept inside the player's box: the popover is at
   // most 18rem (288px) wide, so its centre stays 144px + a gutter from each
   // edge — no horizontal overflow at a phone's width (§3a).
   const half = 144 + 8;
-  const x =
+  const centred =
     anchor.width <= 2 * half
       ? anchor.width / 2
       : Math.min(Math.max(anchor.x, half), anchor.width - half);
+  let top: number;
+  let left: number;
+  let transform = "translateX(-50%)";
+  if (fitsAbove || fitsBelow || anchor.left === undefined || anchor.right === undefined) {
+    top = fitsAbove ? aboveTop : belowTop;
+    left = centred;
+  } else {
+    const middle = (anchor.top + anchor.bottom) / 2 - h / 2;
+    top = Math.max(floor, Math.min(middle, (anchor.height ?? middle + h + 4) - h - 4));
+    const roomRight = anchor.width - anchor.right - gap >= w + 4;
+    left = roomRight ? anchor.right + gap : Math.max(4, anchor.left - gap - w);
+    transform = "none";
+  }
   return (
     <div
+      ref={box}
       role="tooltip"
       data-testid="word-popover"
       className="pointer-events-none absolute z-[55] w-max max-w-[min(18rem,calc(100%-1rem))] rounded-lg border bg-popover px-3 py-2 text-popover-foreground shadow-lg"
       style={{
-        left: x,
-        top: below ? anchor.bottom + 8 : anchor.top - 8,
-        transform: below ? "translateX(-50%)" : "translate(-50%, -100%)",
+        left,
+        top,
+        transform,
+        visibility: size === null ? "hidden" : undefined,
       }}
     >
       <p className="flex items-baseline gap-2">
@@ -75,14 +121,7 @@ export function WordPopover({
             {meaning.definition}
           </p>
           {meaning.l1 && l1Language ? (
-            <p
-              data-testid="word-popover-l1"
-              lang={l1Language}
-              dir={RTL.has(l1Language) ? "rtl" : "ltr"}
-              className="text-sm"
-            >
-              {meaning.l1}
-            </p>
+            <L1Text testId="word-popover-l1" text={meaning.l1} language={l1Language} className="text-sm" />
           ) : null}
         </>
       ) : (

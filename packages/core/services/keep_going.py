@@ -165,3 +165,35 @@ def watch(user_id: int, *, now: datetime) -> Watch | None:
             conn.commit()
             target = video_service.today_for(conn, user_id, on=local_date, kind="extra")
         return Watch(video=video_payload(conn, user_id, target), l1_language=l1)
+
+
+def today_watch(user_id: int, *, now: datetime) -> Watch | None:
+    """`GET /keep-going/watch` (W32f): the bottom nav's **Watch** — today's video.
+
+    **A read, and it never assigns.** W24e's `watch` (the POST) is keep going's
+    *watch another*: on a weekday it reopens only today's extra and, with none,
+    assigns one — so a nav tap before the session would spend the day's one
+    extra and never show block 2's own video. This answers *what is today's
+    video*: the daily, then the day's extra — whichever is still open first,
+    else the one already watched (it can be watched again) — any day, Sunday
+    included (R3). None when nothing is assigned for the learner's date; the
+    route says *nothing today*. Not a library (PRD §7.4, R2): one video or none.
+    """
+    from core.services.sessions import local_today, video_payload
+    from core.services import video as video_service
+
+    with connection() as conn:
+        learner = _learner(conn, user_id)
+        if learner is None:
+            return None
+        tz, l1 = learner
+        local_date = local_today(tz, now)
+        today = [
+            video_service.today_for(conn, user_id, on=local_date, kind=kind)
+            for kind in ("daily", "extra")
+        ]
+        assigned = [v for v in today if v is not None]
+        if not assigned:
+            return None
+        target = next((v for v in assigned if v.completed_at is None), assigned[0])
+        return Watch(video=video_payload(conn, user_id, target), l1_language=l1)

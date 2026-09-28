@@ -20,6 +20,13 @@ import { expectInViewport, expectNoHorizontalOverflow, expectReachable } from ".
  *
  * **WHAT A GREEN RUN HERE DOES NOT MEAN:** that the desktop reads well. That is
  * the operator's check (CLAUDE.md §3a's boundary).
+ *
+ * **UPDATED ONCE, BY W32f (2026-09-28), AND ONLY IN THE NAV BAND.** The bottom
+ * nav went from four items to five (operator ruling: Today · Watch · Words ·
+ * Map · Progress), so all twelve baselines changed. Each diff image was read
+ * before the update (W24d's precedent): every changed pixel lies in the nav's
+ * rows (709–751 at 768 px tall, 418–460 at 477), and the page above it is
+ * pixel-identical — so "the phone does not move" still holds for every page.
  */
 
 const PHONE = /^phone-/;

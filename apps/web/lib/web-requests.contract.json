@@ -39,5 +39,12 @@
       "word": "basement",
       "line": 0
     }
+  },
+  {
+    "name": "watch_today",
+    "method": "GET",
+    "path": "/keep-going/watch",
+    "content_type": null,
+    "body": null
   }
 ]

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import contract from "./web-requests.contract.json";
-import { defineWord, getMyWords, lookupWord, request, saveWord, videoMeanings } from "./api";
+import { defineWord, getMyWords, lookupWord, request, saveWord, todayWatch, videoMeanings } from "./api";
 
 /**
  * W31a — the web half of `web-requests.contract.json`.
@@ -91,6 +91,19 @@ describe("the web sends what the contract says", () => {
     await videoMeanings(44);
     const expected = entry("meanings");
     expect(calls[0].url.endsWith(expected.path.replace("{video_id}", "44"))).toBe(true);
+    expect(wire(calls[0].init)).toEqual({
+      method: expected.method,
+      content_type: expected.content_type,
+      body: expected.body,
+    });
+  });
+
+  it("watch_today: GET, no body — the nav's Watch never assigns (W32f)", async () => {
+    const calls = capture();
+    await todayWatch().catch(() => undefined);
+    const expected = entry("watch_today");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url.endsWith(expected.path)).toBe(true);
     expect(wire(calls[0].init)).toEqual({
       method: expected.method,
       content_type: expected.content_type,

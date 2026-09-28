@@ -89,22 +89,24 @@ afterEach(() => {
 
 const root = () => screen.getByTestId("video-player");
 
-describe("the caption, on the video", () => {
-  it("is drawn inside the video's own box in Focus, and the layer lets the pointer through", async () => {
+describe("the caption in Focus (W32d on the video; W32f in a strip below it)", () => {
+  // **W32f (#487): REPLACED.** This test asserted W32d's caption INSIDE the
+  // video's box, in a layer that let the pointer through (*"is drawn inside
+  // the video's own box in Focus, and the layer lets the pointer through"*).
+  // The operator ruled on 2026-09-28 that the caption moves to a strip BELOW
+  // the video — YouTube's Required Minimum Functionality forbids overlays on
+  // the embedded player — so the assertion is inverted here, and the strip's
+  // own rules are `focus-strip.test.tsx`'s.
+  it("is drawn in a strip under the video in Focus, never inside the video's box (W32f)", async () => {
     media({ landscape: false, coarse: false });
     render(<VideoPlayer payload={payload()} l1Language="fa" />);
     await userEvent.click(screen.getByTestId("focus-enter"));
     const box = screen.getByTestId("video-box");
-    const layer = screen.getByTestId("caption-layer");
-    expect(box.contains(layer)).toBe(true);
-    expect(box.contains(screen.getByTestId("subtitle-now"))).toBe(true);
-    expect(layer.className).toMatch(/pointer-events-none/);
-    // Only the visible caption takes the pointer — never its (full-width when
-    // wrapped) line box.
-    expect(screen.getByTestId("subtitle-block").className).toMatch(/pointer-events-none/);
-    expect(screen.getByTestId("subtitle-now").className).toMatch(/pointer-events-auto/);
+    expect(screen.queryByTestId("caption-layer")).toBeNull();
+    expect(box.contains(screen.getByTestId("subtitle-now"))).toBe(false);
+    expect(screen.getByTestId("caption-strip").contains(screen.getByTestId("subtitle-now"))).toBe(true);
     expect(screen.getByTestId("subtitle-now")).toHaveTextContent("hey how are you");
-    // No previous or next line on the picture — the plan's stated choice.
+    // No previous or next line in the strip — it would take the video's height.
     expect(screen.queryByTestId("subtitle-prev")).toBeNull();
   });
 

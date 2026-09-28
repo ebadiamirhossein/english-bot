@@ -1,4 +1,5 @@
 """W24e — *keep going*: `GET /keep-going` and `POST /keep-going/watch`.
+W32f adds `GET /keep-going/watch`: the bottom nav's Watch, today's video.
 
 Both plain `def` (TASKS standing rule 6): `options` may rank the video pool —
 local CPU over stored transcripts, ~10 ms each — and a blocking call in an
@@ -6,9 +7,9 @@ local CPU over stored transcripts, ~10 ms each — and a blocking call in an
 service function and serialises (CLAUDE.md §2); everything else is in
 `core.services.keep_going`.
 
-**No model is called by either route**, and neither writes to the error
+**No model is called by any route here**, and none writes to the error
 journal. `watch` writes at most one `extra` video assignment per learner per
-day (migration 034).
+day (migration 034); `today` (W32f) writes nothing.
 """
 
 from __future__ import annotations
@@ -60,4 +61,20 @@ def watch(session: AuthenticatedUser = Depends(require_current_user)) -> WatchOu
     chosen = keep_going_service.watch(session.id, now=_now())
     if chosen is None:
         raise HTTPException(status_code=404, detail="nothing_to_watch")
+    return WatchOut(l1_language=chosen.l1_language, video=chosen.video)
+
+
+@router.get(
+    "/watch",
+    response_model=WatchOut,
+    dependencies=[Depends(rate_limit("watch_today", per_client=120, overall=480,
+                                     window_seconds=3600))],
+)
+def today(session: AuthenticatedUser = Depends(require_current_user)) -> WatchOut:
+    """W32f — the nav's Watch: today's assigned video, any day. **Never assigns**
+    (the POST above is keep going's, and may). 404 `nothing_today` when nothing
+    is assigned for the learner's date — a calm empty state, not an error."""
+    chosen = keep_going_service.today_watch(session.id, now=_now())
+    if chosen is None:
+        raise HTTPException(status_code=404, detail="nothing_today")
     return WatchOut(l1_language=chosen.l1_language, video=chosen.video)

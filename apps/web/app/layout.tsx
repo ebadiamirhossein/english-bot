@@ -32,6 +32,13 @@ const display = Fraunces({
 // nothing on screen says so. `--font-l1` in globals.css is where the ordering
 // lives; this call only makes the face available.
 //
+// **W32f (2026-09-28): the face now also carries every Farsi line on `/watch`
+// — the popover's and the word sheet's meanings — plus the Farsi→English
+// prompt and word practice** (`components/l1-text.tsx`), which had `lang` and
+// no face, and read in the phone's fallback (the operator's report). Licence
+// gate: `data/LICENCES.md`, *W32f's Farsi face*; the OFL text ships at
+// `/licences/Vazirmatn-OFL.txt`.
+//
 // `preload: false` is a cost decision, not an oversight. The variable sits on
 // <html>, so preloading would ship the Arabic subset to both learners on every
 // route for the sake of nine cards one of them sees. The cost is a swap flash

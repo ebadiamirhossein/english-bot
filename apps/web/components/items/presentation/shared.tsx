@@ -14,9 +14,15 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-export function Stem({ children }: { children: ReactNode }) {
+/**
+ * The item's prompt, in the display face. **`face` (W32f, B3)** replaces that
+ * face for a Farsi prompt: Fraunces has no Arabic, and a face set ON this
+ * element beats one inherited from the wrapper — so `font-l1` on the wrapper
+ * alone left the Farsi prompt in the phone's fallback.
+ */
+export function Stem({ children, face = "font-heading" }: { children: ReactNode; face?: string }) {
   return (
-    <p className="font-heading text-xl leading-snug">{children}</p>
+    <p className={`${face} text-xl leading-snug`}>{children}</p>
   );
 }
 

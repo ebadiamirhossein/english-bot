@@ -65,6 +65,8 @@ MODELS = {
     # W32b's map (a GET) and W32c's miss lookup (the save's body shape).
     "meanings": None,
     "word_define": SaveWordIn,
+    # W32f: the nav's Watch — today's video, a GET with no body and no query.
+    "watch_today": None,
 }
 
 
@@ -131,7 +133,7 @@ def test_the_save_word_request_the_web_sends_is_accepted(app, db, learner) -> No
     assert response.json()["state"] in {"saved", "already_saved", "no_gloss", "pending", "no_line"}
 
 
-@pytest.mark.parametrize("name", ["word_lookup", "my_words", "meanings"])
+@pytest.mark.parametrize("name", ["word_lookup", "my_words", "meanings", "watch_today"])
 def test_the_reads_the_web_makes_are_accepted(app, db, learner, name: str) -> None:
     """W31c: the sheet's lookup and My words, replayed exactly — a query the
     API refused (a renamed parameter) would be a 422 here."""

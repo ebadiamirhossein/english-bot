@@ -241,3 +241,56 @@ html[data-video-focus] [data-bottom-nav] {
     display: none;
   }
 }
+
+/*
+ * W32f (B2), #487 — Focus: the video as large as fits at 16:9, with the
+ * caption strip and the controls BELOW it (nothing of ours on the picture).
+ *
+ * Wide screens (a phone held sideways, a desktop): the video's height is what
+ * runs out. The area above the strip takes every pixel the strip, a note and
+ * the row leave (`flex-1`), it is a size container, and the box takes the
+ * smaller of its width and its height × 16/9 — so the strip sits directly
+ * under the picture whatever the strip, the note and the row measure.
+ *
+ * Tall screens (a phone upright, a tablet — the Focus root no wider than 5:4):
+ * the WIDTH runs out first, and a flex-1 area would leave a band of empty
+ * space between the video and the strip. There the area is only as tall as
+ * the video and the root centres the group (found by e2e/focus-strip.spec.ts:
+ * a 45 px gap at 390 × 477).
+ *
+ * The first `width` is for a browser without container units (before Safari
+ * 16): it reserves the strip's and the row's height by estimate instead.
+ * Unlayered, so it beats the box's `w-full`.
+ */
+.focus-root {
+  container: focus / size;
+}
+.focus-video-area {
+  container-type: size;
+}
+.focus-video-box {
+  width: min(100%, calc((100dvh - 8rem) * 16 / 9));
+  width: min(100cqw, calc(100cqh * 16 / 9));
+}
+@container focus (max-aspect-ratio: 5 / 4) {
+  .focus-video-area {
+    container-type: normal;
+    flex: none;
+  }
+  .focus-video-box {
+    width: 100%;
+  }
+}
+
+/*
+ * W32f (B2) — the strip's type follows the viewport: ~16px on a phone held
+ * sideways (844×390, 667×375), ~24px on a desktop. Finding 2 was W32d's fixed
+ * `text-lg sm:text-2xl` — 24px on a phone turned, two large lines. The
+ * `min-height` keeps one line's room when no line is being spoken, so the video
+ * does not jump.
+ */
+.caption-strip-text {
+  font-size: clamp(0.95rem, 0.6rem + 1.6vmin, 1.75rem);
+  line-height: 1.4;
+  min-height: 1.4em;
+}

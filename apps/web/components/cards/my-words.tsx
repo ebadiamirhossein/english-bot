@@ -21,7 +21,8 @@ const MARKER: Record<SavedWord["state"], string> = {
  * on its way to it; the marker is a state of that word, not a number about the
  * list.
  */
-export function MyWords() {
+/** `back` (W32f): false inside Words, which is where the link goes. */
+export function MyWords({ back = true }: { back?: boolean }) {
   const [words, setWords] = useState<SavedWord[] | null>(null);
   const [next, setNext] = useState<string | null>(null);
   const [problem, setProblem] = useState(false);
@@ -93,11 +94,13 @@ export function MyWords() {
           {MY_WORDS.more}
         </Button>
       ) : null}
-      <p>
-        <Link href="/review" className="text-sm underline underline-offset-4" data-testid="my-words-back">
-          {MY_WORDS.back}
-        </Link>
-      </p>
+      {back ? (
+        <p>
+          <Link href="/review" className="text-sm underline underline-offset-4" data-testid="my-words-back">
+            {MY_WORDS.back}
+          </Link>
+        </p>
+      ) : null}
     </div>
   );
 }

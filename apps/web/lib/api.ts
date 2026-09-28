@@ -631,6 +631,17 @@ export function startWatch(): Promise<{ l1_language: string; video: VideoBlockPa
 }
 
 /**
+ * **W32f — `GET /keep-going/watch`: the bottom nav's Watch.** Today's assigned
+ * video, any day (Sunday's included, R3) — **a read that never assigns**: the
+ * POST above is keep going's *watch another*, and on a weekday it would spend
+ * the day's one extra instead of opening block 2's own video. 404 →
+ * `ApiError` status 404 when nothing is assigned for today.
+ */
+export function todayWatch(): Promise<{ l1_language: string; video: VideoBlockPayload }> {
+  return request<{ l1_language: string; video: VideoBlockPayload }>("/keep-going/watch");
+}
+
+/**
  * Block 2's payload. **W13-i.**
  *
  * **There is no coverage percentage on this type and the server cannot send

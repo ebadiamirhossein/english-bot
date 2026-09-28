@@ -38,15 +38,19 @@ export function SubtitleBlock({
   /** Focus mode: bigger type, same structure. */
   large?: boolean;
   /**
-   * **W32d — the line ON the video, as YouTube draws captions.** Focus draws it
-   * in a layer over the bottom of the video's own box (inside the element that
-   * goes fullscreen), on a dark translucent backing that reads on a bright
-   * frame in either theme. **The layer passes the pointer through; only the
-   * caption box takes it**, so a click on the picture still reaches the video,
-   * and the caption is this Focus's current-line block — hovering it pauses,
-   * as W31b's block does (C5). **No previous line**: it would cover more of the
-   * picture, and a phone held sideways leaves the video ~300 px tall; loop-line
-   * and seeking cover "what was that?" (the plan's choice, stated).
+   * **W32f (B2), #487 — the caption STRIP, directly under the video in Focus.**
+   * *(W32d drew this line ON the picture, in a layer over the video's box;
+   * the operator ruled on 2026-09-28 that it moves below: YouTube's Required
+   * Minimum Functionality forbids overlays on the embedded player except
+   * playback controls, and on an iPhone held sideways it was two lines of
+   * large type over the picture — Finding 2.)*
+   *
+   * The current line only, on the same dark backing, white, the words
+   * hoverable and tappable, **the type sized by the viewport**
+   * (`.caption-strip-text`, a `clamp()` in `globals.css`), so a typical line
+   * fits on one or two normal lines on a phone held sideways. The whole strip
+   * is this Focus's current-line block: hovering it pauses (C5). **No previous
+   * line** — it would take height from the video.
    */
   caption?: boolean;
 }) {
@@ -54,41 +58,31 @@ export function SubtitleBlock({
   if (caption) {
     return (
       <div
-        data-testid="caption-layer"
-        className="pointer-events-none absolute inset-x-0 bottom-[6%] z-10 flex justify-center px-[4%]"
+        data-testid="subtitle-block"
+        onMouseEnter={onHoverStart}
+        onMouseLeave={onHoverEnd}
+        className="rounded-md bg-black/80 px-3 py-1 text-center text-white"
       >
-        {now ? (
-          <p
-            data-testid="subtitle-block"
-            onMouseEnter={onHoverStart}
-            onMouseLeave={onHoverEnd}
-            // **Only the visible caption takes the pointer, not its line box.**
-            // A wrapped caption makes this flex item as wide as the video, and
-            // it caught clicks beside the text (found by Playwright at phone-
-            // landscape size, where the line wraps). The hover-pause still
-            // fires: `mouseenter` reaches an ancestor through its descendant.
-            className="pointer-events-none max-w-full text-center"
-          >
-            <span
-              data-testid="subtitle-now"
-              lang="en"
-              aria-live="off"
-              className="pointer-events-auto rounded-md bg-black/75 px-2 py-0.5 text-lg font-medium leading-relaxed text-white [box-decoration-break:clone] [-webkit-box-decoration-break:clone] sm:text-2xl"
-            >
-              <LineText
-                text={now.text}
-                unknown={unknown}
-                onWordTap={onWordTap ? (word) => onWordTap(word, active) : undefined}
-                onWordHover={
-                  onWordHover ? (word, el, at) => onWordHover(word, active, el, at) : undefined
-                }
-                onWordHoverEnd={onWordHoverEnd}
-                wordTestId={false}
-                onVideo
-              />
-            </span>
-          </p>
-        ) : null}
+        <p
+          data-testid="subtitle-now"
+          lang="en"
+          aria-live="off"
+          className="caption-strip-text font-medium"
+        >
+          {now ? (
+            <LineText
+              text={now.text}
+              unknown={unknown}
+              onWordTap={onWordTap ? (word) => onWordTap(word, active) : undefined}
+              onWordHover={
+                onWordHover ? (word, el, at) => onWordHover(word, active, el, at) : undefined
+              }
+              onWordHoverEnd={onWordHoverEnd}
+              wordTestId={false}
+              onVideo
+            />
+          ) : null}
+        </p>
       </div>
     );
   }

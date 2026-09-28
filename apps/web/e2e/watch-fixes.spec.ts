@@ -113,13 +113,14 @@ test("both full-screen buttons are visible, reachable and enter Focus", async ({
     await expect(row).toHaveText("Full screen");
     await expect(row.locator("svg")).toHaveCount(1);
     await expect(corner).toHaveAccessibleName("Full screen");
-    // The corner is the video's own bottom-right, drawn above the picture.
+    // **W32f (#486): MOVED OFF THE PICTURE.** This asserted the icon inside
+    // the video's bottom-right corner; YouTube draws its logo and settings
+    // there. It is now at the right end of the line under the video: below
+    // the picture, its right edge at the video's.
     const video = (await page.getByTestId("video-box").boundingBox())!;
     const box = (await corner.boundingBox())!;
-    expect(box.x + box.width).toBeLessThanOrEqual(video.x + video.width + 0.5);
-    expect(box.y + box.height).toBeLessThanOrEqual(video.y + video.height + 0.5);
-    expect(box.x).toBeGreaterThan(video.x + video.width / 2);
-    expect(box.y).toBeGreaterThan(video.y + video.height / 2);
+    expect(box.y).toBeGreaterThanOrEqual(video.y + video.height - 0.5);
+    expect(Math.abs(box.x + box.width - (video.x + video.width))).toBeLessThanOrEqual(1);
     for (const control of [row, corner]) {
       await centre(control);
       await expectInViewport(page, control);

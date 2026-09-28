@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { L1Text, scriptLanguage } from "@/components/l1-text";
 import { CardImage } from "@/components/cards/card-image";
 import { PRACTICE } from "@/components/session/copy";
 import { Button } from "@/components/ui/button";
@@ -32,7 +33,8 @@ const PROMPT: Record<PracticeExercise["kind"], string> = {
  * **Grading is the server's**: a due card is graded through FSRS, a top-up
  * card is practice only (Q8). The client never decides which.
  */
-export function Drill() {
+/** `back` (W32f): false inside Words, which is where the link goes. */
+export function Drill({ back = true }: { back?: boolean }) {
   const [exercises, setExercises] = useState<PracticeExercise[] | "loading" | "unavailable">(
     "loading",
   );
@@ -73,7 +75,7 @@ export function Drill() {
     return (
       <div className="space-y-4" data-testid="drill-none">
         <p className="text-sm text-muted-foreground">{PRACTICE.none}</p>
-        <BackLink />
+        {back ? <BackLink /> : null}
       </div>
     );
   }
@@ -85,7 +87,7 @@ export function Drill() {
           <Button className="min-h-11" data-testid="drill-again" onClick={load}>
             {PRACTICE.again}
           </Button>
-          <BackLink />
+          {back ? <BackLink /> : null}
         </div>
       </div>
     );
@@ -117,7 +119,14 @@ export function Drill() {
         <p lang="en" className="text-3xl font-semibold" data-testid="drill-word">{ex.word}</p>
       ) : null}
       {ex.kind === "meaning_type" ? (
-        <p lang="en" className="text-lg leading-relaxed" data-testid="drill-definition">{ex.definition}</p>
+        // W32f (B3): a card's meaning can be a Farsi gloss (#142) — its lang,
+        // dir and Vazirmatn, from the script (this payload has no language, #488).
+        <L1Text
+          testId="drill-definition"
+          text={ex.definition ?? ""}
+          language={scriptLanguage(ex.definition ?? "")}
+          className="text-lg leading-relaxed"
+        />
       ) : null}
       {ex.kind === "hear_type" ? (
         <audio
@@ -216,7 +225,7 @@ export function Drill() {
             </p>
           ) : null}
           {outcome.meaning && ex.kind !== "meaning_type" ? (
-            <p lang="en" className="text-sm text-muted-foreground">{outcome.meaning}</p>
+            <L1Text text={outcome.meaning} language={scriptLanguage(outcome.meaning)} className="text-sm text-muted-foreground" />
           ) : null}
           <Button className="min-h-11" data-testid="drill-next" onClick={() => { setOutcome(null); setIndex((i) => i + 1); }}>
             {PRACTICE.next}

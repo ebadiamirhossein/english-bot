@@ -1000,7 +1000,8 @@ class KeepGoingOut(BaseModel):
 
 
 class WatchOut(BaseModel):
-    """`POST /keep-going/watch` (W24e). The player's payload — the SAME dict
+    """`POST /keep-going/watch` (W24e) and `GET /keep-going/watch` (W32f, the
+    nav's Watch). The player's payload — the SAME dict
     block 2 carries, from `core.services.sessions.video_payload` (one producer,
     #190) — and the learner's L1 for the player's contract."""
 

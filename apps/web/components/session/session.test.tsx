@@ -639,7 +639,9 @@ describe("keep going appears only once the session is finished (R2)", () => {
     render(<SessionRunner />);
     expect(await screen.findByText("Done for today.")).toBeInTheDocument();
     const panel = await screen.findByTestId("keep-going");
-    expect(screen.getByTestId("keep-going-watch")).toHaveAttribute("href", "/watch");
+    // W32f: `?extra=1` — keep going's watch-another; the nav's plain `/watch`
+    // only opens today's video and never assigns (was `"/watch"` until W32f).
+    expect(screen.getByTestId("keep-going-watch")).toHaveAttribute("href", "/watch?extra=1");
     expect(screen.getByTestId("keep-going-talk")).toHaveAttribute("href", "/talk");
     expect(screen.getByTestId("keep-going-cards")).toHaveAttribute("href", "/review");
     expect(screen.getByTestId("keep-going-write")).toHaveAttribute("href", "/write");

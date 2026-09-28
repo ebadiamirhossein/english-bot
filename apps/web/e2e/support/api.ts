@@ -381,24 +381,35 @@ export async function mockKeepGoing(
     options = fixture.keep_going_weekday,
     watch = fixture.watch as unknown,
     week = undefined as unknown,
+    /**
+     * W32f — what `GET /keep-going/watch` (the nav's Watch, today's video)
+     * answers; `null` is its 404. Defaults to `watch`, so every spec written
+     * before W32f sees the same video through either door.
+     */
+    today = undefined as unknown,
   } = {},
 ) {
+  /** The methods `/keep-going/watch` was called with — the nav must GET. */
+  const methods: string[] = [];
   await page.route(/youtube(-nocookie)?\.com|ytimg\.com/, (route) => route.abort());
   await page.route(`${API}/keep-going`, (route) =>
     route.request().method() === "OPTIONS"
       ? route.fulfill({ status: 204, headers: cors(route) })
       : json(route, 200, options),
   );
-  await page.route(`${API}/keep-going/watch`, (route) =>
-    route.request().method() === "OPTIONS"
-      ? route.fulfill({ status: 204, headers: cors(route) })
-      : watch === null
-        ? json(route, 404, { detail: "nothing_to_watch" })
-        : json(route, 200, watch),
-  );
+  await page.route(`${API}/keep-going/watch`, (route) => {
+    const method = route.request().method();
+    if (method === "OPTIONS") return route.fulfill({ status: 204, headers: cors(route) });
+    methods.push(method);
+    const body = method === "GET" && today !== undefined ? today : watch;
+    return body === null
+      ? json(route, 404, { detail: method === "GET" ? "nothing_today" : "nothing_to_watch" })
+      : json(route, 200, body);
+  });
   if (week !== undefined) {
     await page.route(`${API}/week`, (route) => json(route, 200, week));
   }
+  return methods;
 }
 
 /**
@@ -503,6 +514,13 @@ export async function fakeYouTube(
       time: 0, state: 2, options: null as unknown, seeks: [] as number[], pauses: 0, plays: 0,
       unloaded: [] as string[],
       track: (captions === "absent" ? {} : { languageCode: "en" }) as Record<string, unknown>,
+      /** W32f — set the state and tell the page, as YouTube's
+       * `onStateChange` does (the captions poll runs only while playing). */
+      setState(state: number) {
+        yt.state = state;
+        (yt.options as { events?: { onStateChange?: (e: { data: number }) => void } } | null)
+          ?.events?.onStateChange?.({ data: state });
+      },
     };
     (window as unknown as { __yt: typeof yt }).__yt = yt;
     const captionsModule =
@@ -534,8 +552,8 @@ export async function fakeYouTube(
         getCurrentTime() { return yt.time; }
         setPlaybackRate() {}
         destroy() {}
-        pauseVideo() { yt.pauses += 1; yt.state = 2; }
-        playVideo() { yt.plays += 1; yt.state = 1; }
+        pauseVideo() { yt.pauses += 1; yt.setState(2); }
+        playVideo() { yt.plays += 1; yt.setState(1); }
         seekTo(seconds: number) { yt.seeks.push(seconds); yt.time = seconds; }
         getPlayerState() { return yt.state; }
       },

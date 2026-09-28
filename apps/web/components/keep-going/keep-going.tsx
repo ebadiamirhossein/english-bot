@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { getKeepGoing, type KeepGoingOption } from "@/lib/api";
 
 const HREF: Record<KeepGoingOption, string> = {
-  watch: "/watch",
+  // W32f: `extra` — keep going's watch-another (the POST, which may assign
+  // one); the nav's plain `/watch` only opens today's video.
+  watch: "/watch?extra=1",
   talk: "/talk",
   cards: "/review",
   practice: "/practice/words",

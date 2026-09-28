@@ -227,6 +227,43 @@ export function youtubeCaptions(player: CaptionsModule): "on" | "off" | null {
   return "off";
 }
 
+/**
+ * **W32f (B1) — whether the player ANSWERS about captions at all.** A
+ * `getOption('captions','track')` that returns an object (`{}` or a track) can
+ * say; one that is missing, or returns nothing, cannot — and "cannot say" is
+ * never read as "off". Once a player has answered it counts as able to say for
+ * the rest of this video.
+ */
+export function youtubeCaptionsAnswer(player: CaptionsModule): boolean {
+  if (typeof player.getOption !== "function") return false;
+  const track = player.getOption("captions", "track");
+  return typeof track === "object" && track !== null;
+}
+
+/**
+ * **W32f (B1) — YouTube's CC, turned on MID-PLAY.** W32e switched YouTube's
+ * captions off once, at ready; a learner can turn them back on at any time
+ * (the operator did, on desktop, 2026-09-28: both tracks, no hint), and the
+ * IFrame API has no event for it. **So while the video plays and the page is
+ * visible, the player asks every two seconds** — the guarded, undocumented
+ * `getOption` — and the hint follows the answer both ways. Paused, hidden or
+ * gone, nothing asks.
+ */
+export const CAPTIONS_POLL_MS = 2000;
+
+/**
+ * **W32f (B1) — the fallback tip, once a session, IN MEMORY.** Where the player
+ * cannot say (above), the first full screen of the session shows *"Seeing two
+ * subtitles?"* once. **A module variable, never browser storage** (CLAUDE.md
+ * §5): it lives as long as the page's JavaScript — a reload is a new session.
+ */
+let captionsTipShown = false;
+
+/** For tests: a fresh session. */
+export function forgetCaptionsTip(): void {
+  captionsTipShown = false;
+}
+
 /** A desktop pointer: hover means something. Touch screens pause on tap. */
 function canHoverPause(): boolean {
   return (
@@ -315,6 +352,9 @@ export function VideoPlayer({
 }) {
   const ready = useIframeApi();
   const mount = useRef<HTMLDivElement | null>(null);
+  /** The video's own box: nothing of ours is drawn on it (W32f), and the
+   * popover keeps below it when the word is under it. */
+  const videoBox = useRef<HTMLDivElement | null>(null);
   const player = useRef<Player | null>(null);
   /** The player's own box: Focus puts it in fullscreen, and the popover and
    * the sheet are placed inside it (W32b). */
@@ -342,6 +382,16 @@ export function VideoPlayer({
   const [ytCaptions, setYtCaptions] = useState<"on" | "off" | "unknown">("unknown");
   const captionsDone = useRef(false);
   const [hintDismissed, setHintDismissed] = useState(false);
+  /** W32f (B1): the player has answered about captions at least once. */
+  const captionsAnswered = useRef(false);
+  /** W32f (B1): playing (from `onStateChange`) and the page visible — the
+   * only time the captions poll runs. */
+  const [playing, setPlaying] = useState(false);
+  const [visible, setVisible] = useState(
+    () => typeof document === "undefined" || document.visibilityState !== "hidden",
+  );
+  /** W32f (B1): the one-time full-screen tip, open. */
+  const [tipOpen, setTipOpen] = useState(false);
   const [rate, setRate] = useState<number>(1);
   const [completed, setCompleted] = useState(payload.completed);
   /**
@@ -462,6 +512,10 @@ export function VideoPlayer({
         const box = root.current?.getBoundingClientRect();
         const at = el.getBoundingClientRect();
         if (!box) return;
+        // W32f: a word below the video keeps its popover below the video's
+        // bottom edge — nothing of ours on the picture (#487).
+        const video = videoBox.current?.getBoundingClientRect();
+        const floor = video && at.top >= video.bottom - 1 ? video.bottom - box.top : 0;
         setPopover({
           word,
           anchor: {
@@ -469,6 +523,10 @@ export function VideoPlayer({
             top: at.top - box.top,
             bottom: at.bottom - box.top,
             width: box.width,
+            floor,
+            height: box.height,
+            left: at.left - box.left,
+            right: at.right - box.left,
           },
         });
       };
@@ -524,12 +582,15 @@ export function VideoPlayer({
     mount.current.appendChild(host);
     const wrapper = mount.current;
     captionsDone.current = false;
+    captionsAnswered.current = false;
     setYtCaptions("unknown");
+    setPlaying(false);
     /** W32e: at ready, and at every module change (the captions module loads
      * when a saved preference asks for it, usually as playback starts). */
     const settleCaptions = (moduleChange: boolean) => {
       const current = player.current;
       if (!current) return;
+      if (youtubeCaptionsAnswer(current)) captionsAnswered.current = true;
       if (!captionsDone.current) {
         const seen = youtubeCaptions(current);
         if (seen === "on") {
@@ -553,6 +614,8 @@ export function VideoPlayer({
         onApiChange: () => {
           if (readyRef.current) settleCaptions(true);
         },
+        // W32f (B1): the captions poll runs only while playing.
+        onStateChange: (event: { data: number }) => setPlaying(event.data === PLAYING),
       },
       // **The resume position, honoured on the embed itself** — the learner
       // picks up where they stopped rather than restarting. #335's purged case
@@ -596,6 +659,26 @@ export function VideoPlayer({
     };
   }, [ready, payload.youtube_id, payload.resume_position_s, ping]);
 
+
+  useEffect(() => {
+    const onVisibility = () => setVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  useEffect(() => {
+    // **W32f (B1): ask while playing and visible, and only then.** The hint
+    // follows the answer both ways — on when a track appears, gone when it
+    // clears. Never switches YouTube's captions off again (W32e: once).
+    if (!playerReady || !playing || !visible) return;
+    const timer = setInterval(() => {
+      const current = player.current;
+      if (!current || !readyRef.current) return;
+      if (youtubeCaptionsAnswer(current)) captionsAnswered.current = true;
+      setYtCaptions(youtubeCaptions(current) ?? "unknown");
+    }, CAPTIONS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [playerReady, playing, visible]);
 
   const lines = payload.lines;
   const timed = payload.lines_timed && lines.length > 0;
@@ -801,9 +884,42 @@ export function VideoPlayer({
     };
   }, [focus]);
 
+  useEffect(() => {
+    // **W32f (B1): the first full screen of the session, where the player
+    // cannot say whether YouTube's captions are on** — a one-time tip.
+    if (focus === "off" || captionsTipShown || captionsAnswered.current) return;
+    captionsTipShown = true;
+    setTipOpen(true);
+  }, [focus]);
+
   const focused = focus !== "off";
   const band = payload.coverage_band;
   const hasText = payload.transcript_available && lines.length > 0;
+
+  /**
+   * **YouTube's captions, said where they double ours.** The hint (W32e, B3)
+   * only when the player SAYS a track is on — now in Focus too, since ours are
+   * below the video there as well (W32f) — and the one-time tip (W32f, B1)
+   * where the player cannot say. Both dismissible; neither is a guess.
+   */
+  const captionNotes = (
+    <>
+      {ytCaptions === "on" && !hintDismissed ? (
+        <Note
+          testId="yt-captions-hint"
+          text={VIDEO.study.ytCaptions}
+          onDismiss={() => setHintDismissed(true)}
+        />
+      ) : null}
+      {tipOpen ? (
+        <Note
+          testId="yt-captions-tip"
+          text={VIDEO.study.ytCaptionsTip}
+          onDismiss={() => setTipOpen(false)}
+        />
+      ) : null}
+    </>
+  );
 
   return (
     <div
@@ -814,7 +930,7 @@ export function VideoPlayer({
       data-yt-captions={ytCaptions}
       className={
         focused
-          ? "fixed inset-0 z-[70] flex h-[100dvh] w-full flex-col justify-center gap-3 overflow-hidden bg-background p-3"
+          ? "focus-root fixed inset-0 z-[70] flex h-[100dvh] w-full flex-col justify-center gap-2 overflow-hidden bg-background p-3"
           : "relative space-y-4"
       }
     >
@@ -832,14 +948,29 @@ export function VideoPlayer({
         </p>
       ) : null}
 
-      <div className={focused ? "flex min-h-0 shrink items-center justify-center" : ""}>
+      {/*
+        **W32f (B2), #487 — NOTHING OF OURS IS DRAWN ON THE PICTURE.** YouTube's
+        Required Minimum Functionality forbids overlays on the embedded player
+        except playback controls; the operator ruled (2026-09-28) that the
+        caption goes in a strip BELOW the video in Focus. The video's box holds
+        the player and nothing else — in Focus and out of it (the full-screen
+        icon moved beside the line under the player, #486).
+
+        In Focus the video area is a size container and the box takes
+        `min(100cqw, 100cqh × 16/9)` (`globals.css`): as large as fits at 16:9
+        above the strip and the controls, whatever they measure.
+      */}
+      <div
+        className={focused ? "focus-video-area flex min-h-0 flex-1 items-center justify-center" : ""}
+        data-testid="video-area"
+      >
         <div
+          ref={videoBox}
           data-testid="video-box"
-          className="relative mx-auto aspect-video w-full overflow-hidden rounded-lg bg-muted"
-          // W32d: the caption is on the video now, so Focus gives the video
-          // everything but the controls row (~3.5rem with its gap) — W31b's
-          // 14rem was the line's room under it.
-          style={focused ? { width: "min(100%, calc((100dvh - 4.5rem) * 16 / 9))" } : undefined}
+          className={
+            "relative mx-auto aspect-video w-full overflow-hidden rounded-lg bg-muted" +
+            (focused ? " focus-video-box" : "")
+          }
         >
           <div
             ref={mount}
@@ -847,76 +978,72 @@ export function VideoPlayer({
             data-testid="player-mount"
             data-player-ready={playerReady ? "true" : "false"}
           />
-          {focused ? null : (
-            // **W32e (B1) — full screen where people look for it**: the video's
-            // bottom-right corner, drawn in our layer above the iframe. Focus
-            // has its exit in the row under the picture, which stays clear.
-            <button
+        </div>
+      </div>
+
+      {focused && timed ? (
+        // **W32f (B2): the caption strip, directly under the video** — our
+        // current line on the same dark backing W32d drew on the picture,
+        // hoverable and tappable as before, its type sized by the viewport.
+        <div className="shrink-0" data-testid="caption-strip">
+          <SubtitleBlock
+            lines={lines}
+            active={active}
+            unknown={unknown}
+            onWordTap={onLineWordTap}
+            onWordHover={onWordHover}
+            onWordHoverEnd={onWordHoverEnd}
+            onHoverStart={onHoverStart}
+            onHoverEnd={onHoverEnd}
+            caption
+          />
+        </div>
+      ) : null}
+
+      {focused ? captionNotes : null}
+
+      {timed && !focused ? (
+        <>
+          {captionNotes}
+          {/* **W32f (#486): the full-screen icon, at the right end of the line
+              under the player** — directly below the video's bottom-right
+              corner, and off the picture, where YouTube draws its own logo and
+              settings. Beside the line block, not inside it, so pointing at it
+              never pauses the video (C5 is the block's). */}
+          <div className="flex items-center gap-2" data-testid="line-row">
+            <div className="min-w-0 flex-1">
+              <SubtitleBlock
+                lines={lines}
+                active={active}
+                unknown={unknown}
+                onWordTap={onLineWordTap}
+                onWordHover={onWordHover}
+                onWordHoverEnd={onWordHoverEnd}
+                onHoverStart={onHoverStart}
+                onHoverEnd={onHoverEnd}
+              />
+            </div>
+            <Button
               type="button"
+              variant="outline"
+              size="icon"
               aria-label={VIDEO.study.focus}
               title={VIDEO.study.focus}
               data-testid="focus-corner"
               onClick={enterFocus}
-              className="absolute bottom-2 right-2 z-10 flex h-11 w-11 items-center justify-center rounded-md bg-black/60 text-white transition-colors hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white lg:h-9 lg:w-9"
+              className="h-11 w-11 shrink-0 lg:h-9 lg:w-9"
             >
               <Maximize className="h-5 w-5" aria-hidden />
-            </button>
-          )}
-          {focused && timed ? (
-            <SubtitleBlock
-              lines={lines}
-              active={active}
-              unknown={unknown}
-              onWordTap={onLineWordTap}
-              onWordHover={onWordHover}
-              onWordHoverEnd={onWordHoverEnd}
-              onHoverStart={onHoverStart}
-              onHoverEnd={onHoverEnd}
-              caption
-            />
-          ) : null}
-        </div>
-      </div>
-
-      {ytCaptions === "on" && !hintDismissed && !focused ? (
-        // **W32e (B3) — only when the player SAYS a YouTube track is on**, and
-        // switching it off did not take. Dismissible; never shown on a guess.
-        // Not in Focus, where ours are on the picture rather than below it.
-        <div
-          className="flex items-center gap-2 rounded-lg bg-muted/40 py-1 pl-3 pr-1 text-sm text-muted-foreground"
-          data-testid="yt-captions-hint"
-          role="note"
-        >
-          <p className="min-w-0 flex-1">{VIDEO.study.ytCaptions}</p>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="min-h-11 min-w-11 shrink-0 lg:min-h-8 lg:min-w-8"
-            aria-label={VIDEO.study.ytCaptionsDismiss}
-            data-testid="yt-captions-hint-dismiss"
-            onClick={() => setHintDismissed(true)}
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </Button>
-        </div>
-      ) : null}
-
-      {timed && !focused ? (
-        <SubtitleBlock
-          lines={lines}
-          active={active}
-          unknown={unknown}
-          onWordTap={onLineWordTap}
-          onWordHover={onWordHover}
-          onWordHoverEnd={onWordHoverEnd}
-          onHoverStart={onHoverStart}
-          onHoverEnd={onHoverEnd}
-        />
+            </Button>
+          </div>
+        </>
       ) : focused && !timed ? (
         <p className="text-center text-sm text-muted-foreground" data-testid="no-timed">
           {VIDEO.study.noTimed}
         </p>
-      ) : null}
+      ) : focused ? null : (
+        captionNotes
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         {RATES.map((option) => (
@@ -1000,6 +1127,29 @@ export function VideoPlayer({
           {VIDEO.noTranscript}
         </p>
       )}
+    </div>
+  );
+}
+
+/** A dismissible line about YouTube's own captions (W32e's hint, W32f's tip). */
+function Note({ testId, text, onDismiss }: { testId: string; text: string; onDismiss: () => void }) {
+  return (
+    <div
+      className="flex shrink-0 items-center gap-2 rounded-lg bg-muted/40 py-1 pl-3 pr-1 text-sm text-muted-foreground"
+      data-testid={testId}
+      role="note"
+    >
+      <p className="min-w-0 flex-1">{text}</p>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="min-h-11 min-w-11 shrink-0 lg:min-h-8 lg:min-w-8"
+        aria-label={VIDEO.study.ytCaptionsDismiss}
+        data-testid={`${testId}-dismiss`}
+        onClick={onDismiss}
+      >
+        <X className="h-4 w-4" aria-hidden />
+      </Button>
     </div>
   );
 }

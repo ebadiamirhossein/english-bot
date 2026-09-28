@@ -584,6 +584,60 @@ item id and a file name are used, and neither is stored beyond the operator's
 proposals file. **The picture's licence is always the Commons file's own**,
 never Wikidata's.
 
+## W32f's Farsi face — Vazirmatn, the licence gate (2026-09-28)
+
+**The gate PASSED.** Run before the slice's code (PRODUCT-PRINCIPLES §3). The
+operator asked for Vazirmatn (the Farsi on `/watch` read poorly in the phone's
+fallback face). **The face was already in the build** — W8a declared it for
+#142 through `next/font/google` in `apps/web/app/layout.tsx` — but no licence
+gate was ever recorded for it; this is that record, and it covers the file the
+app has been serving since W8a as well as the new places it is used.
+
+**Source and date.** `OFL.txt` in the Vazirmatn project's own repository,
+<https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/OFL.txt>, read
+**2026-09-28** (93 lines, SHA-256
+`17e355067c8284f47743a1ee3b1ef7ff684ff0601eda357f9353b10b3016ab31`). Its first
+line: *"Copyright 2015 The Vazirmatn Project Authors
+(https://github.com/rastikerdar/vazirmatn)"*; its third: *"This Font Software
+is licensed under the SIL Open Font License, Version 1.1."*
+
+**The clauses that allow a commercial product to bundle it, verbatim:**
+
+> Permission is hereby granted, free of charge, to any person obtaining
+> a copy of the Font Software, to use, study, copy, merge, embed, modify,
+> redistribute, and sell modified and unmodified copies of the Font
+> Software, subject to the following conditions:
+>
+> 1) Neither the Font Software nor any of its individual components,
+> in Original or Modified Versions, may be sold by itself.
+>
+> 2) Original or Modified Versions of the Font Software may be bundled,
+> redistributed and/or sold with any software, provided that each copy
+> contains the above copyright notice and this license. These can be
+> included either as stand-alone text files, human-readable headers or
+> in the appropriate machine-readable metadata fields within text or
+> binary files as long as those fields can be easily viewed by the user.
+
+**What that asks of this product, and what was checked rather than assumed.**
+The font is never sold by itself (1). For (2), **the file the build ships was
+read**: `next/font/google` downloads the Google Fonts subset at build time and
+serves it from the app's own origin (`/_next/static/media/…woff2`; no new CDN
+origin — the CSS and the font come from the app). Its `name` table, read from
+the built WOFF2 on 2026-09-28, carries **nameID 0, the copyright notice**
+(*"Copyright 2015 The Vazirmatn Project Authors (https://github.com/rastikerdar/vazirmatn)"*)
+and **nameID 14, the licence URL** (`https://scripts.sil.org/OFL`) — **but not
+nameID 13, the licence text.** A URL is not the licence, so **the licence
+travels as a stand-alone text file**: `apps/web/public/licences/Vazirmatn-OFL.txt`,
+the file above byte for byte, served at `/licences/Vazirmatn-OFL.txt` beside
+the font. Conditions 3–5 concern Modified Versions and the Reserved Font Name;
+a Google Fonts subset used under its own name is not relabelled here.
+
+**The other three faces are filed, not gated here (#489):** Geist, Geist Mono
+and Fraunces also reach the app through `next/font/google` (W1b), and no
+licence gate or stand-alone licence file was ever recorded for them. **Neither
+their terms nor their built files were read in this slice** — so this record
+does not say what their licences are.
+
 ## If the share-alike condition has to go
 
 Replace **source 1** — the frequency half is what carries BY-SA. Candidates to
