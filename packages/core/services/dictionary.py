@@ -49,6 +49,8 @@ logger = logging.getLogger(__name__)
 
 #: The client's word regex, verbatim (`lines.ts` `PIECES`, the word group).
 TOKEN = re.compile(r"[A-Za-zÀ-ɏ0-9][A-Za-zÀ-ɏ0-9']*")
+#: `PIECES`' other group: a sound tag is one piece and never a word.
+SOUND_TAG = re.compile(r"\[[^\]]*\]")
 
 #: Ruling C1 (2026-09-28): the backfill buys the pool's words plus the most
 #: frequent TAGGED lexemes, by `lexemes.freq_rank`. Untagged rows — names and
@@ -79,6 +81,7 @@ TYPICAL_OUTPUT_PER_WORD = 200
 TRANSIENT_WAITS_S = (30.0, 60.0, 120.0, 240.0, 480.0, 600.0)
 
 
+
 # ── the key ──────────────────────────────────────────────────────────────────
 
 
@@ -98,17 +101,24 @@ def _lines(source: Any) -> list[Any]:
     return lines_for(source.cues) or sentences_for(source.transcript)
 
 
+def page_tokens(text: str) -> list[str]:
+    """The words the page makes tappable in one line, lower-cased as the client
+    lower-cases them (`toLowerCase`, which `str.lower` matches and `casefold`
+    does not: *straße*). **Pinned against the client by
+    `apps/web/lib/meaning-keys.contract.json`**, read by both suites."""
+    return [t.lower() for t in TOKEN.findall(SOUND_TAG.sub(" ", text))]
+
+
 def keys_of_lines(texts: Iterable[str], names: frozenset[str]) -> dict[str, str]:
-    """`{casefolded token: key}` for every token the page shows, names left out."""
+    """`{page token: key}` for every token the page shows, names left out."""
     forms: dict[str, str] = {}
     for text in texts:
-        for token in TOKEN.findall(text):
-            folded = token.casefold()
-            if folded in forms or folded in names:
+        for token in page_tokens(text):
+            if token in forms or token in names:
                 continue
-            key = key_for(folded)
+            key = key_for(token)
             if key is not None:
-                forms[folded] = key
+                forms[token] = key
     return forms
 
 
@@ -202,6 +212,195 @@ def entries_for(conn: Any, keys: Iterable[str]) -> dict[str, dict]:
         }
         for r in rows
     }
+
+
+def entry_for(conn: Any, key: str) -> dict | None:
+    """One stored entry, or `None`."""
+    return entries_for(conn, [key]).get(key)
+
+
+@dataclass(frozen=True)
+class DictionaryGloss:
+    """A dictionary entry in the shape `cards.capture_from_gloss` reads.
+
+    **W32b (§D): ONE CARD WRITER, NOT TWO** (#190). A Save of a word the video
+    never glossed but the dictionary holds goes through the same function a
+    gloss does — so the register pairs, `lexeme_id` (#469) and the
+    already-saved rules are the ones already measured, not a copy of them.
+
+    **The sense on the card is the FIRST** — the model is asked for the most
+    common first. The video's own gloss, when there is one, never reaches here:
+    it wins before the dictionary is read (context beats dictionary, §C).
+    """
+
+    word: str
+    definition: str
+    register: str
+    neutral_equivalent: str | None
+    who_says_this: str | None
+
+
+def as_gloss(key: str, entry: dict) -> DictionaryGloss | None:
+    """A stored entry → the capture's input, or `None` for a name (no meaning
+    to keep: the save stays pending, W31e's rule)."""
+    if entry.get("kind") != "word" or not entry.get("senses"):
+        return None
+    return DictionaryGloss(
+        word=key,
+        definition=str(entry["senses"][0]["definition"]),
+        register=str(entry["register"]),
+        neutral_equivalent=entry.get("neutral_equivalent"),
+        who_says_this=entry.get("who_says_this"),
+    )
+
+
+def meanings_for(user_id: int, video_id: int) -> dict | None:
+    """**W32b — THE MAP: everything hover and tap need, in one request.** `None`
+    when the video is not this learner's (the route answers 404). The reads;
+    `assemble_meanings` is the shape."""
+    from core.db import connection
+    from core.services import glosses as glosses_service
+    from core.services import lexeme_images as images_service
+
+    with connection() as conn:
+        found = _assigned_video(conn, user_id, video_id)
+        if found is None:
+            return None
+        forms, names, native = found
+        stored = entries_for(conn, forms.values())
+        here = glosses_service.glosses_for_video(conn, video_id)
+        saved = _saved_words(conn, user_id, video_id)
+
+    keys = sorted(set(forms.values()))
+    images: dict[str, dict] = {}
+    ids = images_service.lexeme_ids(keys) if keys else {}
+    if ids:
+        faces = images_service.all_faces()
+        images = {key: faces[i] for key, i in ids.items() if i in faces}
+    return assemble_meanings(
+        forms=forms, names=names, stored=stored, here=here, saved=saved,
+        images=images, lang=native or None,
+    )
+
+
+def _assigned_video(
+    conn: Any, user_id: int, video_id: int
+) -> tuple[dict[str, str], frozenset[str], str | None] | None:
+    """This learner's video, as `(forms, names, native language)` — or `None`
+    when it is not assigned to them (any date, any kind: the 404 W31a's copy
+    already says plainly)."""
+    from types import SimpleNamespace
+
+    from core.video.lines import names_for
+
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT v.transcript, v.transcript_cues, u.native_language
+              FROM videos v JOIN users u ON u.id = %s
+             WHERE v.id = %s
+               AND EXISTS (SELECT 1 FROM video_assignments va
+                            WHERE va.video_id = v.id AND va.user_id = u.id)
+            """,
+            (user_id, video_id),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    transcript, cues, native = row
+    if not transcript:
+        return {}, frozenset(), native
+    names = names_for(cues, transcript)
+    texts = [line.text for line in _lines(SimpleNamespace(cues=cues, transcript=transcript))]
+    return keys_of_lines(texts, names), names, native
+
+
+def assemble_meanings(
+    *,
+    forms: dict[str, str],
+    names: frozenset[str],
+    stored: dict[str, dict],
+    here: list[Any],
+    saved: dict[str, str],
+    images: dict[str, dict],
+    lang: str | None,
+) -> dict:
+    """The map's wire shape, from what `meanings_for` read. **Pure**, so the web
+    fixture is built by this function and not by hand (#190's shape).
+
+    Compact on purpose — it is the largest response the app sends:
+    `entries` `{key: {k: "w"|"n", r, s: [[pos, definition, l1]], n?, w?}}` in
+    the learner's own language only; `forms` `{page token: key}` where they
+    differ, so the client does no lemmatising (`key = forms[t] ?? t`); `here`
+    this video's own glosses (context beats dictionary); `names` the video's
+    C1 set; `saved` what this learner already kept from this video; `images`
+    the approved pictures' faces, by key.
+    """
+    entries = {key: wire_entry(entry, lang) for key, entry in sorted(stored.items())}
+
+    here_wire: dict[str, dict] = {}
+    for gloss in here:
+        item: dict[str, Any] = {"d": gloss.definition, "r": gloss.register}
+        if gloss.neutral_equivalent:
+            item["n"] = gloss.neutral_equivalent
+        if gloss.who_says_this:
+            item["w"] = gloss.who_says_this
+        l1 = gloss.l1.get(lang) if lang else None
+        if l1:
+            item["l1"] = l1
+        here_wire[gloss.word] = item
+
+    return {
+        "l1": lang,
+        "entries": entries,
+        "forms": {t: k for t, k in sorted(forms.items()) if t != k},
+        "here": here_wire,
+        "names": sorted(names),
+        "saved": dict(sorted(saved.items())),
+        "images": images,
+    }
+
+
+def wire_entry(entry: dict, lang: str | None) -> dict:
+    """One stored entry → the map's compact shape, in ONE language."""
+    if entry["kind"] == "name":
+        return {"k": "n"}
+    wire: dict[str, Any] = {
+        "k": "w",
+        "r": entry["register"],
+        "s": [
+            [s.get("pos"), s.get("definition"), (s.get("l1") or {}).get(lang) if lang else None]
+            for s in entry["senses"]
+        ],
+    }
+    if entry.get("neutral_equivalent"):
+        wire["n"] = entry["neutral_equivalent"]
+    if entry.get("who_says_this"):
+        wire["w"] = entry["who_says_this"]
+    return wire
+
+
+def _saved_words(conn: Any, user_id: int, video_id: int) -> dict[str, str]:
+    """`{word: in_deck | pending | no_meaning}` for this learner and video —
+    card fronts (a gloss's or an entry's key) and pending surfaces."""
+    saved: dict[str, str] = {}
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            # `video:<id>` or `video:<id>@<s>` — never a bare LIKE on the id,
+            # which would let video 4 match video 44 (W31c's rule).
+            "SELECT DISTINCT front FROM cards WHERE user_id = %s "
+            "AND (source_ref = %s OR source_ref LIKE %s)",
+            (user_id, f"video:{video_id}", f"video:{video_id}@%"),
+        )
+        for (front,) in cur.fetchall():
+            saved[str(front)] = "in_deck"
+        cur.execute(
+            "SELECT word, state FROM word_saves_pending WHERE user_id = %s AND video_id = %s",
+            (user_id, video_id),
+        )
+        for word, state in cur.fetchall():
+            saved.setdefault(str(word), "in_deck" if state == "carded" else str(state))
+    return saved
 
 
 # ── the plan (C1) ────────────────────────────────────────────────────────────
@@ -564,3 +763,4 @@ def _pilot_row(entry: Any, model: str) -> dict:
         "senses": [s.wire() for s in entry.senses],
         "model": model,
     }
+

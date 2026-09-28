@@ -36,10 +36,12 @@ sides since #465.)*
 
 from __future__ import annotations
 
+import gzip
+import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from apps.api.deps import rate_limit, require_current_user
 from apps.api.schemas import (
@@ -50,6 +52,7 @@ from apps.api.schemas import (
     WordLookupOut,
 )
 from core.services import cards as cards_service
+from core.services import dictionary as dictionary_service
 from core.services import words as words_service
 from core.services import video as video_service
 from core.services.auth import AuthenticatedUser
@@ -249,3 +252,41 @@ def word_lookup(
         image=found.image,
         saved=found.saved,
     )
+
+
+@router.get(
+    "/{video_id}/meanings",
+    dependencies=[
+        # Once per page load, and a reload is the only repeat. Far above that,
+        # far below anything a stolen session could use. A read.
+        Depends(rate_limit("meanings", per_client=300, overall=1000, window_seconds=3600))
+    ],
+)
+def meanings(
+    video_id: int,
+    request: Request,
+    session: AuthenticatedUser = Depends(require_current_user),
+) -> Response:
+    """**W32b: every meaning `/watch` can show, in one request.** Hover and tap
+    then need no network at all (the operator's *under a second*, 2026-09-27).
+
+    Parses, authorises, calls **one** service function, serialises. Plain `def`
+    (#7). **Reaches no model** — the map is stored rows; the netguard is armed
+    for its tests.
+
+    **IT GZIPS ITS OWN BODY** when the browser accepts it: the API has no
+    compression layer and Caddy's config is not this repo's, and the map is the
+    largest response the app sends (hundreds of KB raw for a long video). **Here
+    and not app-wide**, so no other response — streaming ones included — changes.
+    **`no-store`**, because the map carries this learner's saved words and a
+    cached copy would show a word as unsaved after a Save.
+    """
+    body = dictionary_service.meanings_for(session.id, video_id)
+    if body is None:
+        raise HTTPException(status_code=404, detail="not_assigned")
+    raw = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    headers = {"Cache-Control": "private, no-store", "Vary": "Accept-Encoding"}
+    if "gzip" in request.headers.get("accept-encoding", "").lower():
+        headers["Content-Encoding"] = "gzip"
+        raw = gzip.compress(raw, mtime=0)
+    return Response(content=raw, media_type="application/json", headers=headers)

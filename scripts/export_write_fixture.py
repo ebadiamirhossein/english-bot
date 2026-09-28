@@ -289,6 +289,63 @@ def _watch_untimed() -> dict:
     ).model_dump(mode="json")
 
 
+#: W32b — the dictionary entries the study video's map carries. **Illustrative
+#: text written for the fixture**, stored-row shaped (036's columns); every key
+#: and form beside them is computed by the real `core.services.dictionary`.
+#: *van* has no entry on purpose: the page's miss.
+STUDY_ENTRIES: dict[str, dict] = {
+    "mastodon": {"kind": "word", "register": "neutral", "senses": [
+        {"pos": "noun", "definition": "a huge hairy animal like an elephant that lived long ago",
+         "l1": {"fa": "ماموت", "lt": "mastodontas"}}]},
+    "basement": {"kind": "word", "register": "neutral", "senses": [
+        {"pos": "noun", "definition": "a room or floor under a building, below the ground",
+         "l1": {"fa": "زیرزمین", "lt": "rūsys"}}]},
+    "nickname": {"kind": "word", "register": "neutral", "senses": [
+        {"pos": "noun", "definition": "a funny or friendly name people call you instead of your real one",
+         "l1": {"fa": "لقب", "lt": "pravardė"}}]},
+    "model": {"kind": "word", "register": "neutral", "senses": [
+        {"pos": "noun", "definition": "a small copy of something bigger",
+         "l1": {"fa": "ماکت", "lt": "modelis"}},
+        {"pos": "noun", "definition": "a person whose job is to wear clothes for photos",
+         "l1": {"fa": "مدل", "lt": "modelis"}}]},
+    "move": {"kind": "word", "register": "neutral", "senses": [
+        {"pos": "verb", "definition": "to take something to a different place",
+         "l1": {"fa": "جابه‌جا کردن", "lt": "perkelti"}}]},
+    "relax": {"kind": "word", "register": "neutral", "senses": [
+        {"pos": "verb", "definition": "to stop worrying and feel calm",
+         "l1": {"fa": "آرام شدن", "lt": "atsipalaiduoti"}}]},
+    "suit": {"kind": "word", "register": "neutral", "senses": [
+        {"pos": "verb", "definition": "to look right on someone or be good for them",
+         "l1": {"fa": "برازنده بودن", "lt": "tikti"}}]},
+    "okay": {"kind": "word", "register": "informal", "neutral_equivalent": "all right",
+             "who_says_this": "anyone, in everyday talk", "senses": [
+        {"pos": "interjection", "definition": "used to say you agree or that something is fine",
+         "l1": {"fa": "باشه", "lt": "gerai"}}]},
+}
+
+
+def _watch_meanings() -> dict:
+    """W32b: `GET /video/{id}/meanings` for the study video, through the real
+    `assemble_meanings` over the real lines, keys and names — only the stored
+    entries and the one gloss are fixed inputs. *mastodon* has the video's own
+    gloss ("here") as well as its entry; *van* is a miss; *Ross* is a name."""
+    from core.services.dictionary import assemble_meanings, keys_of_lines
+    from core.video.lines import lines_for, names_for
+
+    cues = [{"text": t, "start": a, "duration": d} for t, a, d in STUDY_CUES]
+    text = " ".join(c["text"] for c in cues)
+    names = names_for(cues, text)
+    forms = keys_of_lines([line.text for line in lines_for(cues)], names)
+    stored = {k: v for k, v in STUDY_ENTRIES.items() if k in set(forms.values())}
+    here = [SimpleNamespace(
+        word="mastodon", definition="a big model of an ancient elephant-like animal, in the museum",
+        register="neutral", neutral_equivalent=None, who_says_this=None,
+        l1={"fa": "ماکت ماموت", "lt": "mastodonto modelis"},
+    )]
+    return assemble_meanings(forms=forms, names=names, stored=stored, here=here,
+                             saved={}, images={}, lang="fa")
+
+
 def _word_bodies() -> dict:
     """W31c: the word sheet, Save and My words — through the REAL response
     models with each route's own serialisation (`exclude_none` where the route
@@ -390,6 +447,8 @@ def bodies() -> dict:
         # W31b — the study screen: timed lines, and the untimed third state.
         "watch_study": _watch_study(),
         "watch_untimed": _watch_untimed(),
+        # W32b — the meanings map for the study video.
+        "watch_meanings": _watch_meanings(),
         # W31c — the word sheet, Save and My words.
         **_word_bodies(),
         # W31d — the word drill.

@@ -388,6 +388,131 @@
       "coverage_band": "in"
     }
   },
+  "watch_meanings": {
+    "l1": "fa",
+    "entries": {
+      "basement": {
+        "k": "w",
+        "r": "neutral",
+        "s": [
+          [
+            "noun",
+            "a room or floor under a building, below the ground",
+            "زیرزمین"
+          ]
+        ]
+      },
+      "mastodon": {
+        "k": "w",
+        "r": "neutral",
+        "s": [
+          [
+            "noun",
+            "a huge hairy animal like an elephant that lived long ago",
+            "ماموت"
+          ]
+        ]
+      },
+      "model": {
+        "k": "w",
+        "r": "neutral",
+        "s": [
+          [
+            "noun",
+            "a small copy of something bigger",
+            "ماکت"
+          ],
+          [
+            "noun",
+            "a person whose job is to wear clothes for photos",
+            "مدل"
+          ]
+        ]
+      },
+      "move": {
+        "k": "w",
+        "r": "neutral",
+        "s": [
+          [
+            "verb",
+            "to take something to a different place",
+            "جابه‌جا کردن"
+          ]
+        ]
+      },
+      "nickname": {
+        "k": "w",
+        "r": "neutral",
+        "s": [
+          [
+            "noun",
+            "a funny or friendly name people call you instead of your real one",
+            "لقب"
+          ]
+        ]
+      },
+      "okay": {
+        "k": "w",
+        "r": "informal",
+        "s": [
+          [
+            "interjection",
+            "used to say you agree or that something is fine",
+            "باشه"
+          ]
+        ],
+        "n": "all right",
+        "w": "anyone, in everyday talk"
+      },
+      "relax": {
+        "k": "w",
+        "r": "neutral",
+        "s": [
+          [
+            "verb",
+            "to stop worrying and feel calm",
+            "آرام شدن"
+          ]
+        ]
+      },
+      "suit": {
+        "k": "w",
+        "r": "neutral",
+        "s": [
+          [
+            "verb",
+            "to look right on someone or be good for them",
+            "برازنده بودن"
+          ]
+        ]
+      }
+    },
+    "forms": {
+      "been": "be",
+      "found": "find",
+      "is": "be",
+      "least": "less",
+      "relaxed": "relax",
+      "standing": "stand",
+      "suits": "suit",
+      "told": "tell",
+      "was": "be",
+      "would": "will"
+    },
+    "here": {
+      "mastodon": {
+        "d": "a big model of an ancient elephant-like animal, in the museum",
+        "r": "neutral",
+        "l1": "ماکت ماموت"
+      }
+    },
+    "names": [
+      "epoch",
+      "ross"
+    ],
+    "saved": {},
+    "images": {}
+  },
   "word_lookup_meaning": {
     "word": "mastodon",
     "lemma": "mastodon",

@@ -867,6 +867,36 @@ export function lookupWord(
   return request<WordLookup>(`/video/${videoId}/word?${query.toString()}`);
 }
 
+/**
+ * **W32b — `GET /video/{id}/meanings`: every meaning `/watch` can show, in one
+ * request.** Hover and tap then need no network at all — the operator's *under
+ * a second* (2026-09-27). Compact keys because it is the largest body the app
+ * receives; built by `core.services.dictionary.assemble_meanings`.
+ *
+ * A sense is `[pos, definition, l1]`, the L1 in this learner's language only.
+ * `forms` maps a page token to its key where they differ (`moving` → `move`),
+ * so the client never lemmatises: `key = forms[t] ?? t`.
+ */
+export type MeaningSense = [pos: string, definition: string, l1: string | null];
+export type MeaningEntry =
+  | { k: "w"; r: string; s: MeaningSense[]; n?: string; w?: string }
+  | { k: "n" };
+/** The video's own gloss — the meaning IN THIS VIDEO, shown before the dictionary's. */
+export type HereMeaning = { d: string; r: string; n?: string; w?: string; l1?: string };
+export type MeaningsMap = {
+  l1: string | null;
+  entries: Record<string, MeaningEntry>;
+  forms: Record<string, string>;
+  here: Record<string, HereMeaning>;
+  names: string[];
+  saved: Record<string, "in_deck" | "pending" | "no_meaning">;
+  images: Record<string, CardImage>;
+};
+
+export function videoMeanings(videoId: number): Promise<MeaningsMap> {
+  return request<MeaningsMap>(`/video/${videoId}/meanings`);
+}
+
 /** W31c: one saved word in My words. **No count anywhere** (#160). */
 export type SavedWord = {
   word: string;

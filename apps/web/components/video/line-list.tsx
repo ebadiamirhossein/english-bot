@@ -21,6 +21,8 @@ export function LineList({
   active,
   unknown,
   onWordTap,
+  onWordHover,
+  onWordHoverEnd,
   onSeek,
 }: {
   lines: VideoLine[];
@@ -28,6 +30,9 @@ export function LineList({
   unknown: Set<string>;
   /** W31c: the word and the INDEX of the line it was tapped in. */
   onWordTap?: (word: string, line: number | null) => void;
+  /** W32b: the popover's hover — never a pause here (C5). */
+  onWordHover?: (word: string, line: number | null, el: HTMLElement, immediate: boolean) => void;
+  onWordHoverEnd?: () => void;
   onSeek?: (seconds: number) => void;
 }) {
   const box = useRef<HTMLOListElement | null>(null);
@@ -62,6 +67,9 @@ export function LineList({
       data-testid="line-list"
       onWheel={handsOn}
       onTouchMove={handsOn}
+      // W32b: the popover is placed where the word WAS; a scrolled list has
+      // moved the word, so the popover goes.
+      onScroll={onWordHoverEnd}
       className="relative max-h-[45vh] space-y-1 overflow-y-auto overscroll-contain rounded-lg border p-2 text-base leading-relaxed"
     >
       {lines.map((line, index) => {
@@ -93,6 +101,10 @@ export function LineList({
                 text={line.text}
                 unknown={unknown}
                 onWordTap={onWordTap ? (word) => onWordTap(word, index) : undefined}
+                onWordHover={
+                  onWordHover ? (word, el, now) => onWordHover(word, index, el, now) : undefined
+                }
+                onWordHoverEnd={onWordHoverEnd}
               />
             </span>
           </li>

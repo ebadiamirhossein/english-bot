@@ -165,6 +165,8 @@ def lookup(user_id: int, *, video_id: int, word: str, line: int | None) -> Looku
     from core.services import glosses as glosses_service
     from core.services import lexeme_images as images_service
 
+    from core.services import dictionary as dictionary_service
+
     folded = word.casefold()
     with connection() as conn:
         text = _video_text(conn, user_id, video_id)
@@ -174,6 +176,7 @@ def lookup(user_id: int, *, video_id: int, word: str, line: int | None) -> Looku
         tapped = tapped_line(transcript, cues, folded, line)
         key = glosses_service.gloss_key(folded)
         gloss = glosses_service.gloss_for(conn, video_id, folded)
+        entry = dictionary_service.entry_for(conn, key) if gloss is None else None
         native = _native_language(conn, user_id)
         saved = _saved_state(conn, user_id, video_id, folded, key)
     lexeme = images_service.lexeme_ids([key]).get(key)
@@ -187,6 +190,20 @@ def lookup(user_id: int, *, video_id: int, word: str, line: int | None) -> Looku
             "who_says_this": gloss.who_says_this,
             "l1": gloss.l1.get(native) if native else None,
             "l1_language": native if native and gloss.l1.get(native) else None,
+        }
+    elif entry is not None and dictionary_service.as_gloss(key, entry) is not None:
+        # **W32b: the sheet's FALLBACK** (the page reads the map; this route
+        # answers only when the map failed to load) shows the dictionary's
+        # first sense when the video has no gloss of its own.
+        first = entry["senses"][0]
+        l1 = (first.get("l1") or {}).get(native) if native else None
+        meaning = {
+            "definition": first["definition"],
+            "register": entry["register"],
+            "neutral_equivalent": entry.get("neutral_equivalent"),
+            "who_says_this": entry.get("who_says_this"),
+            "l1": l1,
+            "l1_language": native if l1 else None,
         }
     image = images_service.face_for("recognition", lexeme) if lexeme else None
     return Lookup(
@@ -226,6 +243,7 @@ def save(user_id: int, *, video_id: int, word: str, line: int | None, now: datet
     what PRD §2.6.3 forbids.
     """
     from core.services import cards as cards_service
+    from core.services import dictionary as dictionary_service
     from core.services import glosses as glosses_service
 
     folded = word.casefold()
@@ -236,6 +254,16 @@ def save(user_id: int, *, video_id: int, word: str, line: int | None, now: datet
         transcript, cues = text
         gloss = glosses_service.gloss_for(conn, video_id, folded)
         tapped = tapped_line(transcript, cues, folded, line)
+
+        # **W32b (§D): A WORD THE DICTIONARY HOLDS IS SAVED AT ONCE** — through
+        # the same card writer, with the tapped line and the entry's first
+        # sense. The video's own gloss is read FIRST and wins (context beats
+        # dictionary); a name, or a word with no entry at all, falls through
+        # to the pending path below, unchanged. No model is reached here.
+        if gloss is None and tapped is not None:
+            key = glosses_service.gloss_key(folded)
+            entry = dictionary_service.entry_for(conn, key)
+            gloss = dictionary_service.as_gloss(key, entry) if entry else None
 
         if gloss is not None:
             sentence = tapped.text if tapped else gloss.context_sentence

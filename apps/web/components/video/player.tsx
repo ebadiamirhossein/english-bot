@@ -79,10 +79,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VIDEO } from "@/components/session/copy";
 import { LineList } from "@/components/video/line-list";
 import { activeLineIndex } from "@/components/video/lines";
+import { keyOf, resolve } from "@/components/video/meanings";
 import { SubtitleBlock } from "@/components/video/subtitle-block";
 import { Button } from "@/components/ui/button";
+import { WordPopover, type Anchor } from "@/components/video/word-popover";
 import { WordSheet, type SheetTarget } from "@/components/video/word-sheet";
-import { reportVideoProgress, type VideoBlockPayload } from "@/lib/api";
+import {
+  reportVideoProgress,
+  videoMeanings,
+  type MeaningsMap,
+  type VideoBlockPayload,
+} from "@/lib/api";
 
 
 /**
@@ -103,6 +110,16 @@ const RATES = [1, 0.75] as const;
 
 /** `YT.PlayerState.PLAYING`. */
 const PLAYING = 1;
+
+/**
+ * **W32b — the hover popover's delay.** About a quarter of a second on one
+ * word before it shows, so a pointer passing over a line does not flicker a
+ * popover under every word it crosses (the operator's spec). **Once one has
+ * shown, the next word's shows at once** for `SKIP_MS` after it closed — the
+ * standard tooltip skip delay — so reading along a line never waits twice.
+ */
+const HOVER_MS = 250;
+const SKIP_MS = 300;
 
 /** A desktop pointer: hover means something. Touch screens pause on tap. */
 function canHoverPause(): boolean {
@@ -193,6 +210,9 @@ export function VideoPlayer({
   const ready = useIframeApi();
   const mount = useRef<HTMLDivElement | null>(null);
   const player = useRef<Player | null>(null);
+  /** The player's own box: Focus puts it in fullscreen, and the popover and
+   * the sheet are placed inside it (W32b). */
+  const root = useRef<HTMLDivElement | null>(null);
   /**
    * **W31a — `ENGLISH-WEB-2`.** True from the player's `onReady` until its
    * teardown. The clocks below start only when it is true, because a
@@ -228,6 +248,89 @@ export function VideoPlayer({
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
   const sheetOpen = useRef(false);
   sheetOpen.current = sheet !== null;
+
+  /**
+   * **W32b — every meaning this video can show, fetched ONCE when the page
+   * opens.** After that a hover or a tap is a lookup in memory: no request, so
+   * under a second (the operator, 2026-09-27). `unavailable` keeps today’s path —
+   * the sheet asks the server per word — so a lost map costs speed, not words.
+   */
+  const [meanings, setMeanings] = useState<MeaningsMap | "loading" | "unavailable" | "none">("none");
+  const hasLines = payload.transcript_available && payload.lines.length > 0;
+  useEffect(() => {
+    if (!hasLines) {
+      setMeanings("none");
+      return;
+    }
+    let live = true;
+    setMeanings("loading");
+    videoMeanings(payload.video_id)
+      .then((map) => live && setMeanings(map))
+      .catch(() => live && setMeanings("unavailable"));
+    return () => {
+      live = false;
+    };
+  }, [payload.video_id, hasLines]);
+  const map = typeof meanings === "object" ? meanings : null;
+
+  /** A Save the sheet made: the map learns it, so the next tap says *kept*. */
+  const onKept = useCallback((word: string, state: "in_deck" | "pending") => {
+    setMeanings((current) =>
+      typeof current === "object"
+        ? { ...current, saved: { ...current.saved, [keyOf(current, word)]: state } }
+        : current,
+    );
+  }, []);
+
+  // ── the hover popover (W32b) ─────────────────────────────────────────────
+  const [popover, setPopover] = useState<{ word: string; anchor: Anchor } | null>(null);
+  const popoverShown = useRef(false);
+  popoverShown.current = popover !== null;
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const warmUntil = useRef(0);
+  const clearHover = useCallback(() => {
+    if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+  }, []);
+  const onWordHover = useCallback(
+    (word: string, _line: number | null, el: HTMLElement, immediate: boolean) => {
+      // A desktop pointer only — a phone's tap opens the sheet instead, and a
+      // tap's focus must not also raise a popover under the learner's finger.
+      if (!canHoverPause()) return;
+      clearHover();
+      const show = () => {
+        const box = root.current?.getBoundingClientRect();
+        const at = el.getBoundingClientRect();
+        if (!box) return;
+        setPopover({
+          word,
+          anchor: {
+            x: at.left - box.left + at.width / 2,
+            top: at.top - box.top,
+            bottom: at.bottom - box.top,
+            width: box.width,
+          },
+        });
+      };
+      if (immediate || Date.now() < warmUntil.current) show();
+      else hoverTimer.current = setTimeout(show, HOVER_MS);
+    },
+    [clearHover],
+  );
+  const onWordHoverEnd = useCallback(() => {
+    clearHover();
+    if (popoverShown.current) warmUntil.current = Date.now() + SKIP_MS;
+    setPopover(null);
+  }, [clearHover]);
+  useEffect(() => clearHover, [clearHover]);
+  useEffect(() => {
+    if (!popover) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPopover(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [popover]);
   /** The sheet's pause, so closing it resumes only what the tap (or a hover
    * that led to the tap) paused. */
   const pausedForSheet = useRef(false);
@@ -395,9 +498,11 @@ export function VideoPlayer({
       // pause becomes the sheet's.
       pausedForSheet.current = pauseIfPlaying() || pausedByHover.current;
       pausedByHover.current = false;
+      clearHover();
+      setPopover(null);
       setSheet({ word, line });
     },
-    [pauseIfPlaying],
+    [pauseIfPlaying, clearHover],
   );
   const closeSheet = useCallback(() => {
     setSheet(null);
@@ -406,7 +511,6 @@ export function VideoPlayer({
   }, []);
 
   // ── Focus (W31b) ──────────────────────────────────────────────────────────
-  const root = useRef<HTMLDivElement | null>(null);
   /** `native`: the Fullscreen API on our wrapper. `fixed`: a full-viewport
    * layout, where the browser has no element fullscreen (iPhone Safari). */
   const [focus, setFocus] = useState<"off" | "native" | "fixed">("off");
@@ -472,10 +576,11 @@ export function VideoPlayer({
       ref={root}
       data-testid="video-player"
       data-focus={focus}
+      data-meanings={meanings === "loading" || meanings === "unavailable" || meanings === "none" ? meanings : "ready"}
       className={
         focused
           ? "fixed inset-0 z-50 flex h-[100dvh] w-full flex-col justify-center gap-3 overflow-hidden bg-background p-3"
-          : "space-y-4"
+          : "relative space-y-4"
       }
     >
       {/* **The chip is BEFORE the player** — the row's criterion is "coverage
@@ -512,6 +617,8 @@ export function VideoPlayer({
           active={active}
           unknown={unknown}
           onWordTap={onLineWordTap}
+          onWordHover={onWordHover}
+          onWordHoverEnd={onWordHoverEnd}
           onHoverStart={onHoverStart}
           onHoverEnd={onHoverEnd}
           large={focused}
@@ -567,7 +674,18 @@ export function VideoPlayer({
         </p>
       ) : null}
 
-      <WordSheet videoId={payload.video_id} target={sheet} onClose={closeSheet} />
+      <WordSheet
+        videoId={payload.video_id}
+        target={sheet}
+        onClose={closeSheet}
+        map={map}
+        lineText={sheet && sheet.line !== null ? lines[sheet.line]?.text ?? null : null}
+        onKept={onKept}
+      />
+
+      {popover && map ? (
+        <WordPopover anchor={popover.anchor} found={resolve(map, popover.word)} l1Language={map.l1} />
+      ) : null}
 
       {focused ? null : hasText ? (
         <LineList
@@ -575,6 +693,8 @@ export function VideoPlayer({
           active={active}
           unknown={unknown}
           onWordTap={onLineWordTap}
+          onWordHover={onWordHover}
+          onWordHoverEnd={onWordHoverEnd}
           onSeek={timed ? seek : undefined}
         />
       ) : (

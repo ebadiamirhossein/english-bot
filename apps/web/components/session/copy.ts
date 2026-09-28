@@ -375,6 +375,18 @@ export const VIDEO = {
     safer: "Safer:",
     loading: "Looking it up…",
     unavailable: "Couldn’t load this word. Close and tap it again.",
+    /** W32b: the video's own meaning, shown before the dictionary's. */
+    here: "here",
+    /** W32b: a person or a place — nothing to learn, said plainly. */
+    aName: "A name.",
+  },
+  /**
+   * **W32b — the hover popover** (desktop). The word, its first meaning and the
+   * learner's own language; a click opens the sheet with Save.
+   */
+  popover: {
+    name: "a name",
+    miss: "No meaning stored yet — click to save it.",
   },
   study: {
     focus: "Focus",

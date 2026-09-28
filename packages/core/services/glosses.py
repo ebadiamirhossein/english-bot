@@ -153,6 +153,18 @@ def gloss_for(conn: Any, video_id: int, word: str) -> Gloss | None:
     return None
 
 
+def glosses_for_video(conn: Any, video_id: int) -> list[Gloss]:
+    """Every gloss this video holds — W32b's map carries them as "here", the
+    meaning IN THIS VIDEO, shown before the dictionary's (context beats
+    dictionary)."""
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            f"SELECT {_COLUMNS} FROM video_glosses WHERE video_id = %s ORDER BY word",
+            (video_id,),
+        )
+        return [_row(r) for r in cur.fetchall()]
+
+
 def generated_since(conn: Any, *, source: str, since: Any) -> int:
     """How many glosses of one `source` were written since `since`.
 

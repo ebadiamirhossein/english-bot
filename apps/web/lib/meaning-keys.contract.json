@@ -1,0 +1,11 @@
+{
+  "_what": "W32b. The words the page makes tappable in one line, lower-cased. Read by tests/test_word_meanings.py (core.services.dictionary.page_tokens) AND apps/web/components/video/meanings.test.ts (pieces() + toLowerCase), so the server keys exactly the tokens a learner can hover or tap. W31a's contract-file pattern (#465).",
+  "lines": [
+    { "text": "They're moving the parties over here.", "tokens": ["they're", "moving", "the", "parties", "over", "here"] },
+    { "text": "Thank you, Dr. Phillips.", "tokens": ["thank", "you", "dr", "phillips"] },
+    { "text": "[laughter] I'm gonna grab it — 1990, right?", "tokens": ["i'm", "gonna", "grab", "it", "1990", "right"] },
+    { "text": "Café au lait, SO GOOD", "tokens": ["café", "au", "lait", "so", "good"] },
+    { "text": "a t-shirt, rock'n'roll and it’s fine", "tokens": ["a", "t", "shirt", "rock'n'roll", "and", "it", "s", "fine"] },
+    { "text": "[Music]", "tokens": [] }
+  ]
+}

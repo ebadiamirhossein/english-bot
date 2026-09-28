@@ -411,9 +411,19 @@ export async function mockVideo(
   {
     save = fixture.save_pending_soon as unknown,
     lookup = fixture.word_lookup_meaning as unknown,
+    /** W32b: the meanings map. Absent → the catch-all 404, so the page takes
+     * the sheet's fallback (per-word lookup) — W31c's specs run unchanged. */
+    meanings = undefined as unknown,
   } = {},
 ) {
   const saves: { contentType: string; body: unknown }[] = [];
+  if (meanings !== undefined) {
+    await page.route(`${API}/video/*/meanings`, (route) =>
+      route.request().method() === "OPTIONS"
+        ? route.fulfill({ status: 204, headers: cors(route) })
+        : json(route, 200, meanings),
+    );
+  }
   // W31c — the word sheet's read, from `write.fixture.json` (the real model).
   await page.route(`${API}/video/*/word?*`, (route) =>
     route.request().method() === "OPTIONS"

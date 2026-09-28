@@ -19,6 +19,8 @@ export function SubtitleBlock({
   onWordTap,
   onHoverStart,
   onHoverEnd,
+  onWordHover,
+  onWordHoverEnd,
   large = false,
 }: {
   lines: VideoLine[];
@@ -28,6 +30,10 @@ export function SubtitleBlock({
   onWordTap?: (word: string, line: number | null) => void;
   onHoverStart?: () => void;
   onHoverEnd?: () => void;
+  /** W32b: the popover's hover, per word. The BLOCK's hover above is what
+   * pauses; a word's hover never touches playback. */
+  onWordHover?: (word: string, line: number | null, el: HTMLElement, immediate: boolean) => void;
+  onWordHoverEnd?: () => void;
   /** Focus mode: bigger type, same structure. */
   large?: boolean;
 }) {
@@ -62,6 +68,10 @@ export function SubtitleBlock({
             text={now.text}
             unknown={unknown}
             onWordTap={onWordTap ? (word) => onWordTap(word, active) : undefined}
+            onWordHover={
+              onWordHover ? (word, el, now) => onWordHover(word, active, el, now) : undefined
+            }
+            onWordHoverEnd={onWordHoverEnd}
             wordTestId={false}
           />
         ) : null}

@@ -15,11 +15,17 @@ export function LineText({
   text,
   unknown,
   onWordTap,
+  onWordHover,
+  onWordHoverEnd,
   wordTestId = true,
 }: {
   text: string;
   unknown: Set<string>;
   onWordTap?: (word: string) => void;
+  /** W32b: the pointer (or keyboard focus) arrived on a word. The player owns
+   * the delay and the popover; this only reports where. */
+  onWordHover?: (word: string, el: HTMLElement, immediate: boolean) => void;
+  onWordHoverEnd?: () => void;
   /** The list and the current line both render words; only one set carries
    * the test ids the component tests count. */
   wordTestId?: boolean;
@@ -47,6 +53,14 @@ export function LineText({
             type="button"
             data-unknown={isUnknown ? "true" : undefined}
             data-testid={wordTestId ? (isUnknown ? "unknown-word" : "known-word") : undefined}
+            onMouseEnter={
+              onWordHover ? (event) => onWordHover(part.text, event.currentTarget, false) : undefined
+            }
+            onMouseLeave={onWordHoverEnd}
+            onFocus={
+              onWordHover ? (event) => onWordHover(part.text, event.currentTarget, true) : undefined
+            }
+            onBlur={onWordHoverEnd}
             onClick={
               onWordTap
                 ? (event) => {

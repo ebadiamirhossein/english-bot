@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 
 import { CardImage } from "@/components/cards/card-image";
 import { VIDEO } from "@/components/session/copy";
+import { resolve, type Resolved } from "@/components/video/meanings";
 import { Button } from "@/components/ui/button";
 import {
   ApiError,
   lookupWord,
   saveWord,
+  type MeaningsMap,
   type SaveWordResult,
   type WordLookup,
 } from "@/lib/api";
@@ -62,44 +64,84 @@ const RTL = new Set(["fa"]);
 
 export type SheetTarget = { word: string; line: number | null };
 
+function RegisterChip({ register }: { register: string | null }) {
+  if (!register || register === "neutral" || register === "formal") return null;
+  return (
+    <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+      {register}
+    </span>
+  );
+}
+
+function L1({ text, language }: { text: string | null | undefined; language: string | null | undefined }) {
+  if (!text || !language) return null;
+  return (
+    <p
+      data-testid="word-sheet-l1"
+      lang={language}
+      dir={RTL.has(language) ? "rtl" : "ltr"}
+      className="text-base"
+    >
+      {text}
+    </p>
+  );
+}
+
 /**
  * The word sheet. **W31c.** The operator's reference is Trancy / Language
  * Reactor: tap any word, see what it is, keep it.
  *
- * **IT READS AND SAVES; IT NEVER GENERATES.** The meaning is a stored gloss or
- * nothing — and *nothing* still offers Save, because a learner must be able to
- * keep a word nobody has explained yet (the operator's finding, 2026-09-27).
- * The worker explains it later; the card enters the deck only then.
+ * **W32b — FROM THE MAP, WITH NO REQUEST.** When the page's meanings map has
+ * loaded, the sheet renders straight from it: the video's own meaning first,
+ * labelled *here*; the dictionary's senses under it, each with the learner's
+ * language; a name said plainly; and Save. **`lookupWord` is now only the
+ * fallback** for a map that could not load — today's W31c path, unchanged.
  *
- * **No definition is invented here and nothing counts.** A bottom sheet on a
- * phone, a panel near the bottom on a desktop; above Focus mode, so a word
- * tapped in Focus opens here too.
+ * **IT READS AND SAVES; IT NEVER GENERATES.** *Nothing* still offers Save,
+ * because a learner must be able to keep a word nobody has explained yet (the
+ * operator's finding, 2026-09-27). **No definition is invented here and
+ * nothing counts.** A bottom sheet on a phone, a panel near the bottom on a
+ * desktop; above Focus mode, so a word tapped in Focus opens here too.
  */
 export function WordSheet({
   videoId,
   target,
   onClose,
+  map = null,
+  lineText = null,
+  onKept,
 }: {
   videoId: number;
   target: SheetTarget | null;
   onClose: () => void;
+  /** W32b: the page's meanings; `null` while loading or when it could not load. */
+  map?: MeaningsMap | null;
+  /** W32b: the tapped line's text, which the page already shows. */
+  lineText?: string | null;
+  /** W32b: a Save landed — the page's map learns the word is kept. */
+  onKept?: (word: string, state: "in_deck" | "pending") => void;
 }) {
   const [found, setFound] = useState<WordLookup | "loading" | "unavailable">("loading");
   const [outcome, setOutcome] = useState<TapOutcome | null>(null);
   const [saving, setSaving] = useState(false);
+  const fromMap = map !== null;
 
   useEffect(() => {
-    if (!target) return;
+    setOutcome(null);
+  }, [target]);
+
+  useEffect(() => {
+    // **The fallback only.** With the map, the sheet already has everything.
+    if (!target || fromMap) return;
     let live = true;
     setFound("loading");
-    setOutcome(null);
     lookupWord(videoId, target.word, target.line)
       .then((result) => live && setFound(result))
       .catch(() => live && setFound("unavailable"));
     return () => {
       live = false;
     };
-  }, [videoId, target]);
+  }, [videoId, target, fromMap]);
 
   useEffect(() => {
     if (!target) return;
@@ -116,13 +158,23 @@ export function WordSheet({
     setSaving(true);
     // **Optimistic nothing** (W13-ii): the line appears when the server answers.
     saveWord(videoId, target.word, target.line)
-      .then((result) => setOutcome(outcomeOf(result)))
+      .then((result) => {
+        setOutcome(outcomeOf(result));
+        if (result.state === "saved" || result.state === "already_saved") onKept?.(target.word, "in_deck");
+        if (result.state === "pending") onKept?.(target.word, "pending");
+      })
       .catch((error: unknown) => setOutcome(refusal(error)))
       .finally(() => setSaving(false));
   };
 
-  const lookup = typeof found === "object" ? found : null;
-  const kept = lookup && lookup.saved !== "none";
+  const resolved = map ? resolve(map, target.word) : null;
+  const lookup = !map && typeof found === "object" ? found : null;
+  const lemma = resolved ? resolved.key : lookup?.lemma;
+  const line = resolved ? lineText : lookup?.line;
+  const saved = resolved ? resolved.saved : lookup?.saved;
+  const image = resolved ? resolved.image : lookup?.image;
+  const kept = saved !== undefined && saved !== "none";
+  const ready = resolved !== null || lookup !== null;
 
   return (
     <div className="fixed inset-0 z-[60]" data-testid="word-sheet-layer">
@@ -145,9 +197,9 @@ export function WordSheet({
             <h2 id="word-sheet-word" lang="en" className="text-2xl font-semibold" data-testid="word-sheet-word">
               {target.word}
             </h2>
-            {lookup && lookup.lemma !== lookup.word ? (
+            {ready && lemma && lemma !== target.word.toLowerCase() ? (
               <p className="text-sm text-muted-foreground" data-testid="word-sheet-lemma">
-                {VIDEO.sheet.fromLemma.replace("{lemma}", lookup.lemma)}
+                {VIDEO.sheet.fromLemma.replace("{lemma}", lemma)}
               </p>
             ) : null}
           </div>
@@ -162,47 +214,36 @@ export function WordSheet({
           </Button>
         </div>
 
-        {found === "loading" ? (
-          <p className="mt-3 text-sm text-muted-foreground" data-testid="word-sheet-loading">
-            {VIDEO.sheet.loading}
-          </p>
-        ) : found === "unavailable" ? (
+        {!ready && found === "unavailable" ? (
           <p className="mt-3 text-sm text-muted-foreground" data-testid="word-sheet-unavailable">
             {VIDEO.sheet.unavailable}
           </p>
+        ) : !ready ? (
+          <p className="mt-3 text-sm text-muted-foreground" data-testid="word-sheet-loading">
+            {VIDEO.sheet.loading}
+          </p>
         ) : (
           <div className="mt-3 space-y-3">
-            {lookup?.line ? (
+            {line ? (
               <p lang="en" className="text-sm italic leading-relaxed text-muted-foreground" data-testid="word-sheet-line">
-                {lookup.line}
+                {line}
               </p>
             ) : null}
 
-            {lookup?.meaning ? (
+            {resolved ? (
+              <FromMap found={resolved} language={map?.l1 ?? null} />
+            ) : lookup?.meaning ? (
               <div className="space-y-1" data-testid="word-sheet-meaning">
                 <p lang="en" className="text-base leading-relaxed">
                   {lookup.meaning.definition}
-                  {lookup.meaning.register !== "neutral" && lookup.meaning.register !== "formal" ? (
-                    <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                      {lookup.meaning.register}
-                    </span>
-                  ) : null}
+                  <RegisterChip register={lookup.meaning.register} />
                 </p>
                 {lookup.meaning.neutral_equivalent ? (
                   <p className="text-sm text-muted-foreground">
                     {VIDEO.sheet.safer} <span lang="en">{lookup.meaning.neutral_equivalent}</span>
                   </p>
                 ) : null}
-                {lookup.meaning.l1 ? (
-                  <p
-                    data-testid="word-sheet-l1"
-                    lang={lookup.meaning.l1_language}
-                    dir={RTL.has(lookup.meaning.l1_language ?? "") ? "rtl" : "ltr"}
-                    className="text-base"
-                  >
-                    {lookup.meaning.l1}
-                  </p>
-                ) : null}
+                <L1 text={lookup.meaning.l1} language={lookup.meaning.l1_language} />
               </div>
             ) : (
               <p className="text-sm text-muted-foreground" data-testid="word-sheet-no-meaning">
@@ -210,7 +251,7 @@ export function WordSheet({
               </p>
             )}
 
-            {lookup?.image ? <CardImage image={lookup.image} /> : null}
+            {image ? <CardImage image={image} /> : null}
 
             {outcome ? (
               <p
@@ -224,9 +265,9 @@ export function WordSheet({
             ) : null}
             {outcome && !RETRYABLE.has(outcome) ? null : kept ? (
               <p className="text-sm text-muted-foreground" data-testid="word-sheet-kept">
-                {lookup?.saved === "pending"
+                {saved === "pending"
                   ? VIDEO.sheet.pending
-                  : lookup?.saved === "no_meaning"
+                  : saved === "no_meaning"
                     ? VIDEO.sheet.noMeaningFound
                     : VIDEO.sheet.inDeck}
               </p>
@@ -243,6 +284,62 @@ export function WordSheet({
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/**
+ * W32b: the meaning, from the map. **The video's own meaning first, labelled
+ * *here*; the dictionary's senses under it** (context beats dictionary), each
+ * with the learner's language. A name is said plainly; a word with nothing
+ * stored says so and still offers Save.
+ */
+function FromMap({ found, language }: { found: Resolved; language: string | null }) {
+  if (found.kind === "name") {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="word-sheet-name">
+        {VIDEO.sheet.aName}
+      </p>
+    );
+  }
+  if (found.kind === "miss") {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="word-sheet-no-meaning">
+        {found.saved === "no_meaning" ? VIDEO.sheet.noMeaningFound : VIDEO.sheet.noMeaning}
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-3" data-testid="word-sheet-meaning">
+      {found.here ? (
+        <div className="space-y-1 rounded-lg bg-muted/40 p-2" data-testid="word-sheet-here">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{VIDEO.sheet.here}</p>
+          <p lang="en" className="text-base leading-relaxed">
+            {found.here.d}
+            <RegisterChip register={found.here.r} />
+          </p>
+          <L1 text={found.here.l1} language={language} />
+        </div>
+      ) : null}
+      {found.senses.length ? (
+        <ol className="space-y-2">
+          {found.senses.map((sense, index) => (
+            <li key={index} className="space-y-0.5" data-testid="word-sheet-sense">
+              <p lang="en" className="text-base leading-relaxed">
+                <span className="mr-1.5 text-sm text-muted-foreground">{sense.pos}</span>
+                {sense.definition}
+                {index === 0 && !found.here ? <RegisterChip register={found.register} /> : null}
+              </p>
+              <L1 text={sense.l1} language={language} />
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {found.neutral ? (
+        <p className="text-sm text-muted-foreground">
+          {VIDEO.sheet.safer} <span lang="en">{found.neutral}</span>
+        </p>
+      ) : null}
     </div>
   );
 }
