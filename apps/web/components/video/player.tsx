@@ -132,6 +132,30 @@ const SKIP_MS = 300;
  */
 const LOOKUP_TIMEOUT_MS = 20_000;
 
+/**
+ * **W32d, operator ruling Q2 — the Focus button locks landscape on Android.**
+ * The installed app's manifest keeps every screen portrait, so a phone cannot
+ * be turned into Focus there; the button turns the video instead. The Screen
+ * Orientation API allows a lock only in true fullscreen, and iPhone has neither
+ * (the lock is absent; nothing happens). Touch screens only — a desktop has
+ * nothing to lock. A refusal is silent: Focus still works, upright.
+ */
+function lockLandscape(): void {
+  if (!window.matchMedia?.("(pointer: coarse)").matches) return;
+  const orientation = screen.orientation as ScreenOrientation & {
+    lock?: (o: string) => Promise<void>;
+  };
+  orientation?.lock?.("landscape").catch(() => {});
+}
+
+function unlockOrientation(): void {
+  try {
+    screen.orientation?.unlock?.();
+  } catch {
+    // Not locked, or no API: nothing to undo.
+  }
+}
+
 /** A desktop pointer: hover means something. Touch screens pause on tap. */
 function canHoverPause(): boolean {
   return (
@@ -582,17 +606,54 @@ export function VideoPlayer({
       return;
     }
     Promise.resolve(request.call(el))
-      .then(() => setFocus("native"))
+      .then(() => {
+        setFocus("native");
+        lockLandscape();
+      })
       .catch(() => setFocus("fixed"));
   }, []);
 
   const exitFocus = useCallback(() => {
     const doc = document as Document & { webkitExitFullscreen?: () => void };
+    unlockOrientation();
     if (document.fullscreenElement) {
       void (document.exitFullscreen?.() ?? doc.webkitExitFullscreen?.());
     }
     setFocus("off");
   }, []);
+
+  // ── landscape → Focus (W32d) ────────────────────────────────────────────
+  /**
+   * **Turning a phone sideways on `/watch` enters Focus; turning it back exits
+   * — but only a Focus the rotation entered.** A Focus the learner chose stays.
+   * A rotation is not a user gesture, so the browser refuses the Fullscreen
+   * API and W31b's own fallback gives the full-viewport layout (`fixed`); the
+   * Focus button, a gesture, still gets true fullscreen where the browser has
+   * it. Touch screens only: a desktop window made wide is not a phone turned.
+   */
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
+  const rotated = useRef(false);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const sideways = window.matchMedia(
+      "(orientation: landscape) and (hover: none) and (pointer: coarse)",
+    );
+    const apply = () => {
+      if (sideways.matches) {
+        if (focusRef.current === "off") {
+          rotated.current = true;
+          enterFocus();
+        }
+      } else if (rotated.current) {
+        rotated.current = false;
+        exitFocus();
+      }
+    };
+    apply();
+    sideways.addEventListener?.("change", apply);
+    return () => sideways.removeEventListener?.("change", apply);
+  }, [enterFocus, exitFocus]);
 
   useEffect(() => {
     // The browser's own exit (Esc, a swipe) ends native focus too.
@@ -653,8 +714,12 @@ export function VideoPlayer({
 
       <div className={focused ? "flex min-h-0 shrink items-center justify-center" : ""}>
         <div
-          className="mx-auto aspect-video w-full overflow-hidden rounded-lg bg-muted"
-          style={focused ? { width: "min(100%, calc((100dvh - 14rem) * 16 / 9))" } : undefined}
+          data-testid="video-box"
+          className="relative mx-auto aspect-video w-full overflow-hidden rounded-lg bg-muted"
+          // W32d: the caption is on the video now, so Focus gives the video
+          // everything but the controls row (~3.5rem with its gap) — W31b's
+          // 14rem was the line's room under it.
+          style={focused ? { width: "min(100%, calc((100dvh - 4.5rem) * 16 / 9))" } : undefined}
         >
           <div
             ref={mount}
@@ -662,10 +727,23 @@ export function VideoPlayer({
             data-testid="player-mount"
             data-player-ready={playerReady ? "true" : "false"}
           />
+          {focused && timed ? (
+            <SubtitleBlock
+              lines={lines}
+              active={active}
+              unknown={unknown}
+              onWordTap={onLineWordTap}
+              onWordHover={onWordHover}
+              onWordHoverEnd={onWordHoverEnd}
+              onHoverStart={onHoverStart}
+              onHoverEnd={onHoverEnd}
+              caption
+            />
+          ) : null}
         </div>
       </div>
 
-      {timed ? (
+      {timed && !focused ? (
         <SubtitleBlock
           lines={lines}
           active={active}
@@ -675,9 +753,8 @@ export function VideoPlayer({
           onWordHoverEnd={onWordHoverEnd}
           onHoverStart={onHoverStart}
           onHoverEnd={onHoverEnd}
-          large={focused}
         />
-      ) : focused ? (
+      ) : focused && !timed ? (
         <p className="text-center text-sm text-muted-foreground" data-testid="no-timed">
           {VIDEO.study.noTimed}
         </p>

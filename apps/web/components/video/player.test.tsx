@@ -424,8 +424,9 @@ describe("pause to read, on a desktop pointer (C5)", () => {
   });
 
   function desktop(matches: boolean) {
+    // W32d: per QUERY — a hovering pointer is never a turned phone.
     vi.stubGlobal("matchMedia", (query: string) => ({
-      matches,
+      matches: query.includes("orientation") ? false : matches,
       media: query,
       addEventListener() {},
       removeEventListener() {},

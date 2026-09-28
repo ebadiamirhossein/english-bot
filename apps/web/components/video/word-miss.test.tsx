@@ -53,8 +53,9 @@ function payload(): VideoBlockPayload {
 }
 
 function pointer(hover: boolean) {
+  // W32d: the stub answers per QUERY — a hovering pointer is never a turned phone.
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: hover, media: query, addEventListener() {}, removeEventListener() {},
+    matches: query.includes("orientation") ? false : hover, media: query, addEventListener() {}, removeEventListener() {},
   }));
   (window as unknown as { matchMedia: unknown }).matchMedia = globalThis.matchMedia;
 }

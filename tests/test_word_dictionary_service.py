@@ -335,3 +335,40 @@ def test_the_pilot_words_are_sixty_fixed_keys() -> None:
     assert len(PILOT_WORDS) == len(set(PILOT_WORDS)) == 60
     assert all(explain.WORD_KEY.match(w) for w in PILOT_WORDS)
     assert {"over", "move", "shed", "dinosaur", "gonna"} <= set(PILOT_WORDS)
+
+
+# ── W32d: the launch block's two read-only lines ─────────────────────────────
+
+
+def test_payload_measures_any_video_without_a_learner(video, clean_dictionary, caplog) -> None:
+    """`--payload 25` on the host: video 25 need not be assigned to anyone —
+    the size of the map for a learner of that language is what is measured."""
+    from core.video import dictionary as command
+
+    with _db() as conn:
+        dictionary.insert_entry(
+            conn, explain.Entry("zqwmarker", "word", (explain.Sense("noun", "a marker", {"fa": "نشانگر"}),),
+                                "neutral", None, None),
+            model="w32a-test", source="backfill",
+        )
+        conn.commit()
+    caplog.set_level("INFO")
+    assert command.main(["--payload", str(video)]) == 0
+    line = next(r.message for r in caplog.records if r.message.startswith(f"video={video} "))
+    assert "l1=fa" in line and "entries=1" in line and "raw_bytes=" in line and "gzip_bytes=" in line
+
+
+def test_compare_prints_the_two_pilot_reports_side_by_side(tmp_path, capsys) -> None:
+    """Q1's read: the same word, each model's first sense and `fa`/`lt`."""
+    from core.video import dictionary as command
+
+    a = tmp_path / "a.jsonl"
+    b = tmp_path / "b.jsonl"
+    a.write_text(json.dumps({"word": "shed", "kind": "word", "register": "neutral", "model": "claude-sonnet-5",
+                             "senses": [{"pos": "noun", "definition": "a small hut", "l1": {"fa": "انباری", "lt": "pašiūrė"}}]},
+                            ensure_ascii=False) + "\n", encoding="utf-8")
+    b.write_text(json.dumps({"word": "shed", "refused": "register 'x' is not one of …"}) + "\n", encoding="utf-8")
+    assert command.main(["--compare", str(a), str(b)]) == 0
+    out = capsys.readouterr().out
+    assert "shed" in out and "a small hut" in out and "انباری" in out and "pašiūrė" in out
+    assert "REFUSED" in out

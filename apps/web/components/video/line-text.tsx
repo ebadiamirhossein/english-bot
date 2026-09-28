@@ -18,6 +18,7 @@ export function LineText({
   onWordHover,
   onWordHoverEnd,
   wordTestId = true,
+  onVideo = false,
 }: {
   text: string;
   unknown: Set<string>;
@@ -29,6 +30,10 @@ export function LineText({
   /** The list and the current line both render words; only one set carries
    * the test ids the component tests count. */
   wordTestId?: boolean;
+  /** W32d: the words sit on the video's caption backing (white on a dark
+   * box), so the unknown mark is an underline only and the hover a light wash —
+   * the page's accent fill would sink white text into a pale green. */
+  onVideo?: boolean;
 }) {
   const parts = useMemo(() => pieces(text), [text]);
   return (
@@ -72,9 +77,13 @@ export function LineText({
             }
             className={
               "rounded-sm px-px transition-colors " +
-              (isUnknown
-                ? "bg-accent/60 underline decoration-dotted underline-offset-4"
-                : "hover:bg-muted")
+              (onVideo
+                ? isUnknown
+                  ? "underline decoration-dotted underline-offset-4 hover:bg-white/20"
+                  : "hover:bg-white/20"
+                : isUnknown
+                  ? "bg-accent/60 underline decoration-dotted underline-offset-4"
+                  : "hover:bg-muted")
             }
           >
             {part.text}

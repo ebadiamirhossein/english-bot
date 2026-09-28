@@ -396,6 +396,25 @@ def wire_entry(entry: dict, lang: str | None) -> dict:
     return wire
 
 
+def measure_meanings(video_id: int, lang: str | None) -> dict | None:
+    """The map a learner of `lang` would get for this video, nothing saved —
+    for `--payload` on any video, assigned or not. **Read-only.** `None` when
+    the video does not exist."""
+    from core.db import connection
+    from core.services import glosses as glosses_service
+
+    with connection() as conn:
+        with conn.cursor(row_factory=tuple_row) as cur:
+            cur.execute("SELECT 1 FROM videos WHERE id = %s", (video_id,))
+            if cur.fetchone() is None:
+                return None
+        forms, names = video_keys(conn, video_id)
+        stored = entries_for(conn, forms.values())
+        here = glosses_service.glosses_for_video(conn, video_id)
+    return assemble_meanings(forms=forms, names=names, stored=stored, here=here,
+                             saved={}, images={}, lang=lang)
+
+
 def _saved_words(conn: Any, user_id: int, video_id: int) -> dict[str, str]:
     """`{word: in_deck | pending | no_meaning}` for this learner and video —
     card fronts (a gloss's or an entry's key) and pending surfaces."""
