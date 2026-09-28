@@ -110,6 +110,8 @@ export function WordSheet({
   map = null,
   lineText = null,
   onKept,
+  onMiss,
+  lookingUp = false,
 }: {
   videoId: number;
   target: SheetTarget | null;
@@ -120,6 +122,11 @@ export function WordSheet({
   lineText?: string | null;
   /** W32b: a Save landed — the page's map learns the word is kept. */
   onKept?: (word: string, state: "in_deck" | "pending") => void;
+  /** W32c: the sheet opened on a word the map has no entry for. The page
+   * looks it up once; the answer arrives through `map`. */
+  onMiss?: (word: string, line: number | null) => void;
+  /** W32c: that lookup is in flight. */
+  lookingUp?: boolean;
 }) {
   const [found, setFound] = useState<WordLookup | "loading" | "unavailable">("loading");
   const [outcome, setOutcome] = useState<TapOutcome | null>(null);
@@ -142,6 +149,20 @@ export function WordSheet({
       live = false;
     };
   }, [videoId, target, fromMap]);
+
+  // **W32c: a miss is looked up as the sheet opens** — never on a hover, and
+  // once per word per page (the page keeps the list). A word already known to
+  // have no meaning (`no_meaning`) is not asked about again.
+  const missing =
+    target !== null &&
+    map !== null &&
+    resolve(map, target.word).kind === "miss" &&
+    resolve(map, target.word).saved !== "no_meaning";
+  useEffect(() => {
+    if (target && missing) onMiss?.(target.word, target.line);
+    // Once per opening; `onMiss` itself refuses a word already asked about.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
 
   useEffect(() => {
     if (!target) return;
@@ -231,7 +252,7 @@ export function WordSheet({
             ) : null}
 
             {resolved ? (
-              <FromMap found={resolved} language={map?.l1 ?? null} />
+              <FromMap found={resolved} language={map?.l1 ?? null} lookingUp={lookingUp} />
             ) : lookup?.meaning ? (
               <div className="space-y-1" data-testid="word-sheet-meaning">
                 <p lang="en" className="text-base leading-relaxed">
@@ -294,11 +315,26 @@ export function WordSheet({
  * with the learner's language. A name is said plainly; a word with nothing
  * stored says so and still offers Save.
  */
-function FromMap({ found, language }: { found: Resolved; language: string | null }) {
+function FromMap({
+  found,
+  language,
+  lookingUp,
+}: {
+  found: Resolved;
+  language: string | null;
+  lookingUp: boolean;
+}) {
   if (found.kind === "name") {
     return (
       <p className="text-sm text-muted-foreground" data-testid="word-sheet-name">
         {VIDEO.sheet.aName}
+      </p>
+    );
+  }
+  if (found.kind === "miss" && lookingUp) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="word-sheet-looking" aria-live="polite">
+        {VIDEO.sheet.loading}
       </p>
     );
   }

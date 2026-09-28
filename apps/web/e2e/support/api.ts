@@ -451,6 +451,24 @@ export async function mockVideo(
   return saves;
 }
 
+/**
+ * W32c — `POST /video/{id}/word/define`, the miss lookup, answered with
+ * `body` after `delayMs` (so the sheet's *Looking it up…* can be seen). Returns
+ * the request bodies it saw — the word and the line's index, never its text.
+ */
+export async function mockDefine(page: Page, body: unknown, delayMs = 0) {
+  const asked: unknown[] = [];
+  await page.route(`${API}/video/*/word/define`, async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      return route.fulfill({ status: 204, headers: cors(route) });
+    }
+    asked.push(route.request().postDataJSON());
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return json(route, 200, body);
+  });
+  return asked;
+}
+
 /** W31c — `GET /words`, My words, from `write.fixture.json`. */
 export async function mockMyWords(page: Page, body: unknown = fixture.my_words) {
   await page.route(`${API}/words*`, (route) =>

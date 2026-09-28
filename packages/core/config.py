@@ -149,6 +149,12 @@ class Settings:
     # on only after the operator has read the first manual `explain --apply`.
     word_gloss_job: bool = False
     video_pregen_glosses: bool = False
+    # W32c. The dictionary top-up, BILLED, registered only when
+    # `WORD_DICTIONARY_JOB=1` is in `.env` — off by default for the same reason.
+    # It fills the words of assigned and newly pooled videos before anyone
+    # watches them (≤60 a run, ≤300 a UTC day). Switched on only after the
+    # operator's `fa` read of the backfill (W32's launch block).
+    word_dictionary_job: bool = False
     # W14 — Azure Speech pronunciation assessment. **Neither is required at
     # load**, for the reason the video keys carry: apps/api and every pure test
     # must boot without them, and the surface that needs them refuses to run
@@ -478,6 +484,12 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         default=False,
         errors=errors,
     )
+    word_dictionary_job = _parse_bool(
+        "WORD_DICTIONARY_JOB",
+        os.environ.get("WORD_DICTIONARY_JOB", ""),
+        default=False,
+        errors=errors,
+    )
 
     operator_telegram_id = _parse_optional_int(
         "OPERATOR_TELEGRAM_ID",
@@ -782,6 +794,7 @@ def load_settings(dotenv_path: str | Path | None = None) -> Settings:
         video_auto_refresh=bool(video_auto_refresh),
         word_gloss_job=bool(word_gloss_job),
         video_pregen_glosses=bool(video_pregen_glosses),
+        word_dictionary_job=bool(word_dictionary_job),
         operator_telegram_id=operator_telegram_id,
         runtime_dir=runtime_dir,
         log_file=log_file,

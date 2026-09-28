@@ -583,6 +583,23 @@
   "my_words_empty": {
     "words": []
   },
+  "word_define_defined": {
+    "state": "defined",
+    "entry": {
+      "k": "w",
+      "r": "neutral",
+      "s": [
+        [
+          "noun",
+          "a big vehicle for carrying things or people",
+          "ون"
+        ]
+      ]
+    }
+  },
+  "word_define_refused": {
+    "state": "refused"
+  },
   "practice_start": {
     "exercises": [
       {

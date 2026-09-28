@@ -1347,3 +1347,81 @@ def test_the_api_holds_no_scheduler_state_of_its_own() -> None:
         "apps/api must not write a schedule; grade_card is the only writer: "
         + "; ".join(offenders)
     )
+
+
+# ── W32c: the request path's one door to a model ─────────────────────────────
+
+
+def _router_service_calls() -> set[tuple[str, str]]:
+    """`(service module, function)` for every `core.services` function a route
+    module calls directly, through whatever alias it imported the module by."""
+    calls: set[tuple[str, str]] = set()
+    for path in sorted((REPO_ROOT / "apps" / "api" / "routers").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        alias: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "core.services":
+                for name in node.names:
+                    alias[name.asname or name.name] = name.name
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in alias
+            ):
+                calls.add((alias[node.func.value.id], node.func.attr))
+    return calls
+
+
+def _service_functions_calling_explain() -> set[tuple[str, str]]:
+    """`(service module, function)` for every top-level service function whose
+    body calls `explain.define_words` or `explain.explain_one` — the two
+    billed doors in `core/video/explain.py`."""
+    doors = {"define_words", "explain_one"}
+    found: set[tuple[str, str]] = set()
+    for path in sorted((CORE / "services").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for fn in tree.body:
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            for node in ast.walk(fn):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in doors
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "explain"
+                ):
+                    found.add((path.stem, fn.name))
+    return found
+
+
+def test_exactly_one_request_path_reaches_the_model_through_explain() -> None:
+    """**W32c — THE SCOPED EXCEPTION, PINNED LIKE #292's ALLOW-LIST.**
+
+    The 2026-08-27 ruling is *"the app never generates while a learner
+    waits"*. Operator ruling Q4 (2026-09-28) made ONE scoped exception, not a
+    repeal: a dictionary miss, `POST /video/{id}/word/define` →
+    `core.services.dictionary.define_miss`. **This pins that set at exactly
+    that member**, so the commit that lets a second route reach `explain` fails
+    here with the reason in the diff — #292's shape (*an allow-list with one
+    entry added later would read as normal*).
+
+    **WHAT IT DOES NOT SEE, STATED:** a route calling a service function that
+    itself calls ANOTHER service function which reaches `explain` — the scan is
+    one level deep. The netguard (armed for every route test) is the
+    behavioural backstop: a model call on a request path no test mocks raises.
+    """
+    reachable = _router_service_calls() & _service_functions_calling_explain()
+    assert reachable == {("dictionary", "define_miss")}, reachable
+
+
+def test_the_request_path_pin_can_see_what_it_pins() -> None:
+    """The positive control: both halves of the scan find their known members,
+    so an empty intersection could not pass by reading nothing."""
+    assert ("dictionary", "define_miss") in _router_service_calls()
+    assert ("words", "save") in _router_service_calls()
+    callers = _service_functions_calling_explain()
+    assert {("words", "fill_pending"), ("words", "pregen_today"),
+            ("dictionary", "define_miss")} <= callers

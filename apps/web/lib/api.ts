@@ -897,6 +897,32 @@ export function videoMeanings(videoId: number): Promise<MeaningsMap> {
   return request<MeaningsMap>(`/video/${videoId}/meanings`);
 }
 
+/**
+ * **W32c — a word the map has no entry for, looked up once.** The one request
+ * that may reach a model while a learner waits (operator ruling Q4, a scoped
+ * exception to the 2026-08-27 ruling). `defined` carries the entry in the map's
+ * shape; every other state carries none, and the sheet says *no meaning yet*
+ * and still offers Save. The body is the save's: the word and the line's INDEX.
+ */
+export type DefineWordResult = {
+  state: "defined" | "name" | "not_in_video" | "ceiling" | "refused";
+  entry?: MeaningEntry;
+};
+
+export function defineWord(
+  videoId: number,
+  word: string,
+  line: number | null = null,
+  signal?: AbortSignal,
+): Promise<DefineWordResult> {
+  return request<DefineWordResult>(`/video/${videoId}/word/define`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(line === null ? { word } : { word, line }),
+    signal,
+  });
+}
+
 /** W31c: one saved word in My words. **No count anywhere** (#160). */
 export type SavedWord = {
   word: string;

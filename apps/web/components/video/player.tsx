@@ -85,8 +85,10 @@ import { Button } from "@/components/ui/button";
 import { WordPopover, type Anchor } from "@/components/video/word-popover";
 import { WordSheet, type SheetTarget } from "@/components/video/word-sheet";
 import {
+  defineWord,
   reportVideoProgress,
   videoMeanings,
+  type MeaningEntry,
   type MeaningsMap,
   type VideoBlockPayload,
 } from "@/lib/api";
@@ -120,6 +122,15 @@ const PLAYING = 1;
  */
 const HOVER_MS = 250;
 const SKIP_MS = 300;
+
+/**
+ * **W32c — how long the sheet waits for a miss's lookup.** A live call took
+ * 4.4–8.0 s on the host (W31e); twenty seconds covers that and `chat()`'s own
+ * retries' first round, and then the sheet says *no meaning yet* and still
+ * offers Save. The server keeps going and stores what it gets, so the next
+ * hover of that word — by anyone — is instant.
+ */
+const LOOKUP_TIMEOUT_MS = 20_000;
 
 /** A desktop pointer: hover means something. Touch screens pause on tap. */
 function canHoverPause(): boolean {
@@ -281,6 +292,49 @@ export function VideoPlayer({
         : current,
     );
   }, []);
+
+  // ── a miss, looked up once (W32c) ────────────────────────────────────────
+  /** The map, for callbacks that must not re-bind on every merge. */
+  const mapRef = useRef<MeaningsMap | null>(null);
+  mapRef.current = map;
+  /** Words already asked about on this page: a miss is looked up ONCE, even
+   * when the answer was *no meaning* — reopening the sheet never spends again. */
+  const tried = useRef(new Set<string>());
+  const [lookingKey, setLookingKey] = useState<string | null>(null);
+  const lookUp = useCallback(
+    (word: string, line: number | null) => {
+      const current = mapRef.current;
+      if (!current) return;
+      const key = keyOf(current, word);
+      if (tried.current.has(key)) return;
+      tried.current.add(key);
+      setLookingKey(key);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
+      defineWord(payload.video_id, word, line, controller.signal)
+        .then((result) => {
+          const entry: MeaningEntry | null =
+            result.state === "defined" && result.entry
+              ? result.entry
+              : result.state === "name"
+                ? { k: "n" }
+                : null;
+          if (!entry) return;
+          setMeanings((now) =>
+            typeof now === "object" ? { ...now, entries: { ...now.entries, [key]: entry } } : now,
+          );
+        })
+        .catch(() => {
+          // **A refusal is silent here and said in the sheet**: the word stays
+          // a miss, which reads *no meaning yet* and still offers Save.
+        })
+        .finally(() => {
+          clearTimeout(timer);
+          setLookingKey((k) => (k === key ? null : k));
+        });
+    },
+    [payload.video_id],
+  );
 
   // ── the hover popover (W32b) ─────────────────────────────────────────────
   const [popover, setPopover] = useState<{ word: string; anchor: Anchor } | null>(null);
@@ -681,6 +735,8 @@ export function VideoPlayer({
         map={map}
         lineText={sheet && sheet.line !== null ? lines[sheet.line]?.text ?? null : null}
         onKept={onKept}
+        onMiss={lookUp}
+        lookingUp={Boolean(sheet && map && lookingKey === keyOf(map, sheet.word))}
       />
 
       {popover && map ? (

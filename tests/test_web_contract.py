@@ -58,7 +58,14 @@ CONTRACT = REPO_ROOT / "apps" / "web" / "lib" / "web-requests.contract.json"
 #: here fails `test_every_entry_names_a_model`, so the contract cannot grow a
 #: call the API side never checks. `None` for a GET: it has no body — its query
 #: is held by the replay below instead.
-MODELS = {"save_word": SaveWordIn, "word_lookup": None, "my_words": None}
+MODELS = {
+    "save_word": SaveWordIn,
+    "word_lookup": None,
+    "my_words": None,
+    # W32b's map (a GET) and W32c's miss lookup (the save's body shape).
+    "meanings": None,
+    "word_define": SaveWordIn,
+}
 
 
 def _entries() -> list[dict]:
@@ -124,7 +131,7 @@ def test_the_save_word_request_the_web_sends_is_accepted(app, db, learner) -> No
     assert response.json()["state"] in {"saved", "already_saved", "no_gloss", "pending", "no_line"}
 
 
-@pytest.mark.parametrize("name", ["word_lookup", "my_words"])
+@pytest.mark.parametrize("name", ["word_lookup", "my_words", "meanings"])
 def test_the_reads_the_web_makes_are_accepted(app, db, learner, name: str) -> None:
     """W31c: the sheet's lookup and My words, replayed exactly — a query the
     API refused (a renamed parameter) would be a 422 here."""
@@ -137,3 +144,19 @@ def test_the_reads_the_web_makes_are_accepted(app, db, learner, name: str) -> No
     entry = next(e for e in _entries() if e["name"] == name)
     response = _replay(app, entry, entry["path"].format(video_id=video_id), _as(learner))
     assert response.status_code == 200, response.text
+
+
+def test_the_define_request_the_web_sends_is_accepted(app, db, learner) -> None:
+    """W32c: the miss lookup, replayed exactly. **The word is not in the replay's
+    video, so the answer is `not_in_video` and nothing is spent** — the point is
+    that the API parsed the request, as for Save."""
+    import secrets
+
+    video_id = _assign_today(
+        db, learner, transcript="so this is a mastodon",
+        youtube_id=f"{ID_PREFIX}{secrets.token_hex(3)}",
+    )
+    entry = next(e for e in _entries() if e["name"] == "word_define")
+    response = _replay(app, entry, entry["path"].format(video_id=video_id), _as(learner))
+    assert response.status_code == 200, response.text
+    assert response.json()["state"] == "not_in_video"

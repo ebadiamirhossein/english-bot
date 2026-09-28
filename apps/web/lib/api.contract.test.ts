@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import contract from "./web-requests.contract.json";
-import { getMyWords, lookupWord, request, saveWord } from "./api";
+import { defineWord, getMyWords, lookupWord, request, saveWord, videoMeanings } from "./api";
 
 /**
  * W31a — the web half of `web-requests.contract.json`.
@@ -78,6 +78,30 @@ describe("the web sends what the contract says", () => {
     const calls = capture();
     await lookupWord(44, "mastodon", 0);
     const expected = entry("word_lookup");
+    expect(calls[0].url.endsWith(expected.path.replace("{video_id}", "44"))).toBe(true);
+    expect(wire(calls[0].init)).toEqual({
+      method: expected.method,
+      content_type: expected.content_type,
+      body: expected.body,
+    });
+  });
+
+  it("meanings: GET, one request for the whole video (W32b)", async () => {
+    const calls = capture();
+    await videoMeanings(44);
+    const expected = entry("meanings");
+    expect(calls[0].url.endsWith(expected.path.replace("{video_id}", "44"))).toBe(true);
+    expect(wire(calls[0].init)).toEqual({
+      method: expected.method,
+      content_type: expected.content_type,
+      body: expected.body,
+    });
+  });
+
+  it("word_define: POST, JSON, the word and the line's index (W32c)", async () => {
+    const calls = capture();
+    await defineWord(44, "basement", 0);
+    const expected = entry("word_define");
     expect(calls[0].url.endsWith(expected.path.replace("{video_id}", "44"))).toBe(true);
     expect(wire(calls[0].init)).toEqual({
       method: expected.method,

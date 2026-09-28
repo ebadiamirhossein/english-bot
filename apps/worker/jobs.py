@@ -331,6 +331,24 @@ def pregen_glosses() -> None:
     )
 
 
+def fill_word_dictionary() -> None:
+    """W32c: fill the dictionary for the videos learners are about to watch.
+
+    **BILLED**, registered only behind `WORD_DICTIONARY_JOB`. Hourly; at most
+    60 words a run and 300 a UTC day, enforced inside
+    `core.services.dictionary.topup` whatever this passes; it never waits on a
+    busy provider (the next hour takes the words). **One line of counts, never
+    a word** (CLAUDE.md §5).
+    """
+    from core.services import dictionary as dictionary_service
+
+    report = dictionary_service.topup(_now())
+    logger.info(
+        "fill_word_dictionary ok planned=%s written=%s refused=%s deferred=%s at_ceiling=%s",
+        report.planned, report.written, report.refused, report.deferred, report.at_ceiling,
+    )
+
+
 def push_poll() -> None:
     """W20: advance every learner's reminder ladder by at most one step.
 
@@ -366,18 +384,25 @@ FILL_WORD_GLOSSES = Job("fill_word_glosses", fill_word_glosses, 15 * 60, 120)
 #: W31c. Pre-generation for today's video, hourly, after `assign_video` (150 s).
 PREGEN_GLOSSES = Job("pregen_glosses", pregen_glosses, MAINTENANCE_POLL_SECONDS, 210)
 
+#: W32c. The dictionary top-up, hourly, after `assign_video` (150 s).
+FILL_WORD_DICTIONARY = Job(
+    "fill_word_dictionary", fill_word_dictionary, MAINTENANCE_POLL_SECONDS, 270
+)
+
 #: **The billed jobs, each behind its own `.env` flag and none on by default**
 #: (W24r's shape, extended by W31c). `(Settings attribute, Job)`.
 OPTIONAL_JOBS: tuple[tuple[str, Job], ...] = (
     ("video_auto_refresh", REFRESH_VIDEOS),
     ("word_gloss_job", FILL_WORD_GLOSSES),
     ("video_pregen_glosses", PREGEN_GLOSSES),
+    ("word_dictionary_job", FILL_WORD_DICTIONARY),
 )
 
 
 def jobs_for(settings: Settings) -> tuple[Job, ...]:
     """What this worker registers: `JOBS`, plus each billed job whose flag is
-    set (`VIDEO_AUTO_REFRESH`, `WORD_GLOSS_JOB`, `VIDEO_PREGEN_GLOSSES`) --
+    set (`VIDEO_AUTO_REFRESH`, `WORD_GLOSS_JOB`, `VIDEO_PREGEN_GLOSSES`,
+    `WORD_DICTIONARY_JOB`) --
     a billed job is never on by default."""
     return JOBS + tuple(job for flag, job in OPTIONAL_JOBS if getattr(settings, flag))
 

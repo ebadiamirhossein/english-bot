@@ -4,7 +4,10 @@
     "method": "POST",
     "path": "/video/{video_id}/save-word",
     "content_type": "application/json",
-    "body": { "word": "mastodon", "line": 0 }
+    "body": {
+      "word": "mastodon",
+      "line": 0
+    }
   },
   {
     "name": "word_lookup",
@@ -19,5 +22,22 @@
     "path": "/words",
     "content_type": null,
     "body": null
+  },
+  {
+    "name": "meanings",
+    "method": "GET",
+    "path": "/video/{video_id}/meanings",
+    "content_type": null,
+    "body": null
+  },
+  {
+    "name": "word_define",
+    "method": "POST",
+    "path": "/video/{video_id}/word/define",
+    "content_type": "application/json",
+    "body": {
+      "word": "basement",
+      "line": 0
+    }
   }
 ]

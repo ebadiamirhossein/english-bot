@@ -37,6 +37,7 @@ import re
 import threading
 import time
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -80,6 +81,17 @@ TYPICAL_OUTPUT_PER_WORD = 200
 #: stops, since every other batch would meet the same weather.
 TRANSIENT_WAITS_S = (30.0, 60.0, 120.0, 240.0, 480.0, 600.0)
 
+#: W32c — the miss path's two limits (operator ruling Q4, the plan's §E): per
+#: learner an hour (the route's limiter), and all learners a UTC day (counted
+#: from `word_dictionary` rows of source `miss`, enforced with `min()` here).
+MISS_PER_USER_HOUR = 20
+MISS_PER_DAY = 60
+
+#: W32c — the top-up job's ceilings, enforced inside `topup` whatever the
+#: caller passes (W31c's shape). 60 words is three calls a run; 300 a day is at
+#: most ≈ $2.85 on Sonnet 5 if every call hit its ceiling (≈ $0.60 typical).
+TOPUP_PER_RUN = 60
+TOPUP_PER_DAY = 300
 
 
 # ── the key ──────────────────────────────────────────────────────────────────
@@ -150,7 +162,7 @@ def held(conn: Any, keys: Iterable[str]) -> frozenset[str]:
         return frozenset(str(r[0]) for r in cur.fetchall())
 
 
-def insert_entry(conn: Any, entry: Any, *, model: str, source: str) -> bool:
+def insert_entry(conn: Any, entry: Any, *, model: str, source: str, now: Any = None) -> bool:
     """Store one validated entry. `False` when the word already has one.
 
     **No gate here, deliberately** — `explain.validate_entry` refused anything
@@ -160,8 +172,9 @@ def insert_entry(conn: Any, entry: Any, *, model: str, source: str) -> bool:
         cur.execute(
             """
             INSERT INTO word_dictionary
-                (lemma, kind, senses, register, neutral_equivalent, who_says_this, model, source)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                (lemma, kind, senses, register, neutral_equivalent, who_says_this, model, source,
+                 generated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()))
             ON CONFLICT (lemma) DO NOTHING
             RETURNING id
             """,
@@ -174,6 +187,9 @@ def insert_entry(conn: Any, entry: Any, *, model: str, source: str) -> bool:
                 entry.who_says_this,
                 model,
                 source,
+                # The ceilings count by `generated_at`; a job passes its own
+                # clock so the count and the rows share one instant (rule 6).
+                now,
             ),
         )
         return cur.fetchone() is not None
@@ -595,13 +611,14 @@ def _attempt(
     languages: tuple[str, ...],
     sleep: Callable[[float], None],
     stopping: threading.Event,
+    waits: tuple[float, ...] = TRANSIENT_WAITS_S,
 ) -> _Outcome:
     """One batch: call, and on the provider's weather WAIT and call again (C3)."""
     from core.llm import LLMError, LLMSpendLimit
     from core.video import explain
 
     outcome = _Outcome(batch)
-    for attempt in range(len(TRANSIENT_WAITS_S) + 1):
+    for attempt in range(len(waits) + 1):
         if stopping.is_set():
             outcome.deferred = True
             return outcome
@@ -618,11 +635,11 @@ def _attempt(
             if not explain.is_transient(exc):
                 outcome.refused_all = str(exc)
                 return outcome
-            if attempt == len(TRANSIENT_WAITS_S):
+            if attempt == len(waits):
                 outcome.deferred = True
                 outcome.stop = "provider unavailable"
                 return outcome
-            wait_s = TRANSIENT_WAITS_S[attempt]
+            wait_s = waits[attempt]
             logger.warning(
                 "provider busy (%s); waiting %.0fs before asking again for %s word(s)",
                 type(exc.__cause__).__name__ if exc.__cause__ else "error", wait_s, len(batch),
@@ -642,6 +659,8 @@ def run_backfill(
     sleep: Callable[[float], None] = time.sleep,
     pilot_out: Path | None = None,
     conn_factory: Callable[[], Any] | None = None,
+    waits: tuple[float, ...] = TRANSIENT_WAITS_S,
+    now: Any = None,
 ) -> RunReport:
     """Buy these words' entries, `DICT_BATCH` a call. **A DRY RUN MAKES NO CALL.**
 
@@ -675,7 +694,7 @@ def run_backfill(
             if queue and not stopping.is_set():
                 batch = queue.pop(0)
                 running.add(pool.submit(_attempt, batch, languages=languages,
-                                        sleep=sleep, stopping=stopping))
+                                        sleep=sleep, stopping=stopping, waits=waits))
 
         for _ in range(max(1, concurrency)):
             submit_next()
@@ -708,7 +727,7 @@ def run_backfill(
                         if pilot_out is not None:
                             pilot_rows[word] = _pilot_row(entry, model)
                             continue
-                        if insert_entry(conn, entry, model=model, source=source):
+                        if insert_entry(conn, entry, model=model, source=source, now=now):
                             wrote += 1
                         else:
                             report.already_held += 1
@@ -764,3 +783,158 @@ def _pilot_row(entry: Any, model: str) -> dict:
         "model": model,
     }
 
+
+# ── W32c: the miss, and the top-up ───────────────────────────────────────────
+
+
+def _utc_midnight(now: datetime) -> datetime:
+    at = now.astimezone(timezone.utc)
+    return at.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _model_id() -> str:
+    from core.config import load_settings
+
+    return str(load_settings().llm_model)
+
+
+@dataclass(frozen=True)
+class Miss:
+    #: `defined` | `name` | `not_in_video` | `ceiling` | `refused`
+    state: str
+    entry: dict | None = None
+
+
+def define_miss(user_id: int, *, video_id: int, word: str, now: datetime) -> Miss | None:
+    """**W32c — THE ONE PLACE THE APP GENERATES WHILE A LEARNER WAITS.**
+
+    A scoped exception to the 2026-08-27 ruling (*"the app never generates while
+    a learner waits"*), recorded as the operator's ruling Q4 (2026-09-28) and
+    **not a repeal**: a word with no dictionary entry, looked up once, stored
+    for every learner so no one waits for it again. `None` → 404.
+
+    **Each edge of the exception makes NO call:** a word that is not in this
+    video's lines (a client cannot spend the budget on arbitrary words); a name
+    (W31e); a word the dictionary already holds; the global ceiling
+    (`MISS_PER_DAY` a UTC day, counted from `source='miss'` rows). The per-
+    learner limit (`MISS_PER_USER_HOUR`) is the route's.
+
+    **No wait on the provider's weather here** — the learner is waiting:
+    `chat()`'s own three attempts, then `refused`, and the sheet says *no
+    meaning yet* and still offers Save. No connection is held during the call.
+    `tests/test_core_boundary.py` pins this as the only request-path function
+    that reaches `explain`.
+    """
+    from core.db import connection
+    from core.llm import LLMError
+    from core.services import glosses as glosses_service
+    from core.video import explain
+
+    token = word.lower()
+    with connection() as conn:
+        found = _assigned_video(conn, user_id, video_id)
+        if found is None:
+            return None
+        forms, names, native = found
+        if token in names:
+            return Miss("name")
+        key = forms.get(token)
+        if key is None:
+            return Miss("not_in_video")
+        held_entry = entry_for(conn, key)
+        if held_entry is not None:
+            return Miss("name" if held_entry["kind"] == "name" else "defined",
+                        wire_entry(held_entry, native))
+        if generated_since(conn, source="miss", since=_utc_midnight(now)) >= MISS_PER_DAY:
+            return Miss("ceiling")
+        languages = glosses_service.learner_languages(conn)
+
+    try:
+        defined = explain.define_words([key], l1=languages)
+    except LLMError as exc:
+        logger.warning("dictionary miss user=%s refused: %s", user_id, type(exc).__name__)
+        return Miss("refused")
+    entry = defined.entries.get(key)
+    if entry is None:
+        logger.info("dictionary miss user=%s refused by the validator", user_id)
+        return Miss("refused")
+    with connection() as conn:
+        insert_entry(conn, entry, model=_model_id(), source="miss", now=now)
+        conn.commit()
+        stored = entry_for(conn, key)
+    if stored is None:  # pragma: no cover - the insert just wrote it, or a twin did
+        return Miss("refused")
+    return Miss("name" if stored["kind"] == "name" else "defined", wire_entry(stored, native))
+
+
+@dataclass
+class TopupReport:
+    planned: int = 0
+    written: int = 0
+    refused: int = 0
+    deferred: int = 0
+    at_ceiling: bool = False
+
+
+def _topup_video_ids(conn: Any, now: datetime) -> list[int]:
+    """The videos a learner is about to watch: assigned from yesterday on (a
+    learner's *today* can be yesterday in UTC), soonest first, then the pool's
+    newest (created in the last 7 days)."""
+    today = (now.astimezone(timezone.utc) - timedelta(days=1)).date()
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            """
+            SELECT v.id
+              FROM videos v
+              LEFT JOIN LATERAL (
+                   SELECT min(va.assigned_for) AS soonest FROM video_assignments va
+                    WHERE va.video_id = v.id AND va.assigned_for >= %(today)s) a ON TRUE
+             WHERE v.transcript_status = 'ok'
+               AND (a.soonest IS NOT NULL OR v.created_at >= %(since)s)
+             ORDER BY a.soonest NULLS LAST, v.created_at DESC, v.id
+            """,
+            {"today": today, "since": now - timedelta(days=7)},
+        )
+        return [int(r[0]) for r in cur.fetchall()]
+
+
+def topup(
+    now: datetime,
+    *,
+    limit: int = TOPUP_PER_RUN,
+    video_ids: list[int] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> TopupReport:
+    """`WORD_DICTIONARY_JOB`: fill the words of the videos learners are about to
+    watch, **before anyone watches them.** BILLED. Capped at `min(limit,
+    TOPUP_PER_RUN, TOPUP_PER_DAY − today's top-up rows)` whatever the caller
+    passes. **It never waits on the provider** (`waits=()`): a busy provider
+    defers the words to the next hour's run. Names are never bought (W31e)."""
+    from core.db import connection
+    from core.services import glosses as glosses_service
+
+    report = TopupReport()
+    with connection() as conn:
+        spent = generated_since(conn, source="topup", since=_utc_midnight(now))
+        budget = max(0, min(limit, TOPUP_PER_RUN, TOPUP_PER_DAY - spent))
+        ids = video_ids if video_ids is not None else _topup_video_ids(conn, now)
+        wanted: dict[str, None] = {}
+        for vid in ids:
+            forms, _names = video_keys(conn, vid)
+            for key in forms.values():
+                wanted.setdefault(key, None)
+        have = held(conn, wanted)
+        to_buy = [k for k in wanted if k not in have]
+        languages = glosses_service.learner_languages(conn)
+    report.planned = len(to_buy)
+    report.at_ceiling = budget < len(to_buy)
+    if budget == 0 or not to_buy:
+        return report
+    run = run_backfill(
+        words=to_buy[:budget], apply=True, concurrency=1, source="topup",
+        model=_model_id(), languages=languages, sleep=sleep, waits=(), now=now,
+    )
+    report.written = run.written
+    report.refused = sum(run.refused.values())
+    report.deferred = run.deferred
+    return report

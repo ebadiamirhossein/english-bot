@@ -35,6 +35,7 @@ sys.path.insert(0, str(REPO_ROOT / "packages"))
 from apps.api.routers.correct import result_out  # noqa: E402
 from apps.api.schemas import (  # noqa: E402
     BlockOut,
+    DefineWordOut,
     KeepGoingOut,
     MyWordsOut,
     PracticeAnswerOutcomeOut,
@@ -50,6 +51,7 @@ from apps.api.schemas import (  # noqa: E402
     WriteTodayOut,
 )
 from core.services import sessions  # noqa: E402
+from core.services.dictionary import wire_entry as _wire_entry  # noqa: E402
 from core.services.video import TodayVideo  # noqa: E402
 from core.services.writing import WritingOutcome  # noqa: E402
 from core.writing import gates, offers, rules  # noqa: E402
@@ -382,6 +384,13 @@ def _word_bodies() -> dict:
                          saved_at=datetime(2026, 9, 26, 20, 40, tzinfo=timezone.utc)),
         ])),
         "my_words_empty": dump(MyWordsOut(words=[])),
+        # W32c — the miss lookup, through the real response model and the map's
+        # own entry shape (`wire_entry`). Illustrative text.
+        "word_define_defined": dump(DefineWordOut(state="defined", entry=_wire_entry(
+            {"kind": "word", "register": "neutral", "senses": [
+                {"pos": "noun", "definition": "a big vehicle for carrying things or people",
+                 "l1": {"fa": "ون", "lt": "furgonas"}}]}, "fa"))),
+        "word_define_refused": dump(DefineWordOut(state="refused")),
     }
 
 

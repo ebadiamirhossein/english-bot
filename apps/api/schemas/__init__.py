@@ -833,6 +833,22 @@ class WordLookupOut(BaseModel):
     saved: Literal["none", "in_deck", "pending", "no_meaning"]
 
 
+class DefineWordOut(BaseModel):
+    """W32c: `POST /video/{id}/word/define` — a word with no entry, looked up.
+
+    `defined` carries the entry in the map's compact shape (`k`, `r`, `s`, and
+    `n`/`w` for informal words), in the learner's own language, so the page
+    merges it into its map and every later hover is instant. Every other state
+    carries no entry: `name` (nothing to learn), `not_in_video` (the word is not
+    in this video's lines — nothing was spent), `ceiling` (today's lookups are
+    used up), `refused` (the provider or the validator said no). **None of them
+    is an error code**: the sheet says *no meaning yet* and still offers Save.
+    """
+
+    state: Literal["defined", "name", "not_in_video", "ceiling", "refused"]
+    entry: dict[str, Any] | None = None
+
+
 class SavedWordOut(BaseModel):
     word: str
     sentence: str | None = None

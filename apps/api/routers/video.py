@@ -11,8 +11,13 @@ every other request the worker is serving. Neither route reaches a model today
 and the rule is followed anyway, because the slice that adds one
 (**W13-ii**, gated on the operator's §1a ruling) must not have to remember to.
 
-**NOTHING IS GENERATED WHILE THE LEARNER WAITS.** No `core.llm`, no
-`core.speech`, no provider SDK. The coverage recomputation is pure CPU over text
+**NOTHING IS GENERATED WHILE THE LEARNER WAITS** — **with ONE scoped
+exception since W32c, `POST /video/{id}/word/define`** (operator ruling Q4,
+2026-09-28, a scoped exception to the 2026-08-27 ruling and not a repeal): a
+word with no dictionary entry, looked up once through
+`core.services.dictionary.define_miss` and stored for everyone. No other route
+here reaches `explain`; `tests/test_core_boundary.py` pins that. No `core.llm`,
+no `core.speech`, no provider SDK is imported here. The coverage recomputation is pure CPU over text
 already stored -- which is the argument migration 019's header rests
 `video_coverage`'s *audit record, not a cache* ruling on, applied one layer up.
 **`video_coverage` is not read here**: `assign` recomputes on every run and so
@@ -43,8 +48,9 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
-from apps.api.deps import rate_limit, require_current_user
+from apps.api.deps import rate_limit, require_current_user, user_rate_limit
 from apps.api.schemas import (
+    DefineWordOut,
     SaveWordIn,
     SaveWordOut,
     VideoProgressIn,
@@ -290,3 +296,46 @@ def meanings(
         headers["Content-Encoding"] = "gzip"
         raw = gzip.compress(raw, mtime=0)
     return Response(content=raw, media_type="application/json", headers=headers)
+
+
+@router.post(
+    "/{video_id}/word/define",
+    response_model=DefineWordOut,
+    response_model_exclude_none=True,
+    dependencies=[
+        # **Per LEARNER, not per address** (W32c): 20 lookups an hour each, and
+        # all learners 200 an hour — the daily ceiling (60) is the service's.
+        Depends(
+            user_rate_limit(
+                "word_define",
+                per_user=dictionary_service.MISS_PER_USER_HOUR,
+                overall=200,
+                window_seconds=3600,
+            )
+        )
+    ],
+)
+def define_word(
+    video_id: int,
+    body: SaveWordIn,
+    session: AuthenticatedUser = Depends(require_current_user),
+) -> DefineWordOut:
+    """**W32c — THE ONE REQUEST THAT MAY REACH A MODEL WHILE A LEARNER WAITS.**
+
+    A word the dictionary does not hold, tapped in the sheet: looked up once,
+    stored for every learner, returned in the map's shape. **A scoped exception
+    to the 2026-08-27 ruling — operator ruling Q4, 2026-09-28 — and not a
+    repeal**: dictionary misses only, each limit enforced, and every refusal
+    (not in this video, a name, already held, the ceiling) spends nothing.
+
+    Parses, authorises, calls **one** service function, serialises. **Plain
+    `def` (#7)** — it blocks for the length of one model call (seconds) and an
+    `async def` would stall every other request on the worker. The body is
+    `SaveWordIn`'s: the word and the line's index, bounded.
+    """
+    outcome = dictionary_service.define_miss(
+        session.id, video_id=video_id, word=body.word, now=datetime.now(timezone.utc)
+    )
+    if outcome is None:
+        raise HTTPException(status_code=404, detail="not_assigned")
+    return DefineWordOut(state=outcome.state, entry=outcome.entry)

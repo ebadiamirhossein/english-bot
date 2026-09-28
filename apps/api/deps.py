@@ -191,3 +191,39 @@ def rate_limit(
             )
 
     return _dependency
+
+
+def user_rate_limit(
+    route: str, per_user: int, overall: int, window_seconds: int = 3600
+):
+    """**W32c — a limit per LEARNER, not per address.** `rate_limit` above keys
+    on the client's IP, which two learners behind one router share and one
+    learner on a phone changes; a billed route needs the learner. The same
+    counter table and the same function (`auth.check_rate_limit`), keyed by
+    `user:<id>` — so it is still counted in Postgres (two uvicorn workers) and
+    still stored as a salted hash, never the id itself (CLAUDE.md §5).
+
+    It authenticates as part of counting: an anonymous request is a 401 before
+    anything is counted.
+    """
+
+    def _dependency(
+        session: auth.AuthenticatedUser = Depends(require_current_user),
+        settings: Settings = Depends(get_settings),
+    ) -> None:
+        allowed = auth.check_rate_limit(
+            route=route,
+            client=f"user:{session.id}",
+            per_client=per_user,
+            overall=overall,
+            window_seconds=window_seconds,
+            now=datetime.now(timezone.utc),
+            settings=settings,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="rate_limited",
+            )
+
+    return _dependency

@@ -386,7 +386,8 @@ export const VIDEO = {
    */
   popover: {
     name: "a name",
-    miss: "No meaning stored yet — click to save it.",
+    /** W32c: a click looks the word up (the sheet says *Looking it up…*). */
+    miss: "No meaning stored yet — click to look it up.",
   },
   study: {
     focus: "Focus",
