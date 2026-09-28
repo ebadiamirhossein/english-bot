@@ -74,6 +74,7 @@
  *   whole-player (YouTube has one rate per player).
  */
 
+import { Maximize, Minimize, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { VIDEO } from "@/components/session/copy";
@@ -156,6 +157,76 @@ function unlockOrientation(): void {
   }
 }
 
+/**
+ * **W32e — a `MediaQueryList` listener that works on every Safari.** Before
+ * Safari 14 (iOS 13 and older) a `MediaQueryList` is not an `EventTarget`: it
+ * has `addListener` and no `addEventListener`, and W32d's
+ * `addEventListener?.("change", …)` registered nothing there — silently, so a
+ * phone turned after the page loaded never entered Focus. Both are checked
+ * here, by existence; a list with neither is left alone. Returns the undo.
+ */
+export function onMediaChange(list: MediaQueryList, fn: () => void): () => void {
+  if (typeof list.addEventListener === "function") {
+    list.addEventListener("change", fn);
+    return () => list.removeEventListener("change", fn);
+  }
+  const legacy = list as MediaQueryList & {
+    addListener?: (fn: () => void) => void;
+    removeListener?: (fn: () => void) => void;
+  };
+  if (typeof legacy.addListener === "function") {
+    legacy.addListener(fn);
+    return () => legacy.removeListener?.(fn);
+  }
+  return () => {};
+}
+
+/**
+ * **W32e — YouTube's own captions, which double ours.** `cc_load_policy: 0`
+ * does not override a viewer's saved YouTube caption preference (the operator's
+ * iPhone, 2026-09-28: YouTube's line inside the video, ours under it).
+ *
+ * **THE CAPTIONS MODULE IS UNDOCUMENTED.** `unloadModule`, `setOption` and
+ * `getOption` exist on the IFrame API's player and are not in its reference;
+ * YouTube can remove or change them without notice. So every call is guarded by
+ * the method's existence — **never by a swallow-everything `try`** (W31a's
+ * rule): a missing method does nothing and says nothing.
+ */
+type CaptionsModule = {
+  unloadModule?: (name: string) => void;
+  setOption?: (module: string, option: string, value: unknown) => void;
+  getOption?: (module: string, option: string) => unknown;
+};
+
+/** Turn YouTube's captions off: `unloadModule('captions')`, else an empty
+ * track. False when the player has neither — nothing was tried. */
+export function youtubeCaptionsOff(player: CaptionsModule): boolean {
+  if (typeof player.unloadModule === "function") {
+    player.unloadModule("captions");
+    return true;
+  }
+  if (typeof player.setOption === "function") {
+    player.setOption("captions", "track", {});
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a YouTube caption track is showing: `on` when `getOption('captions',
+ * 'track')` names a language, `off` when it does not (no module loaded is no
+ * captions shown), **`null` when the player cannot say — never guessed.**
+ */
+export function youtubeCaptions(player: CaptionsModule): "on" | "off" | null {
+  if (typeof player.getOption !== "function") return null;
+  const track = player.getOption("captions", "track");
+  if (track && typeof track === "object") {
+    const code = (track as { languageCode?: unknown }).languageCode;
+    if (typeof code === "string" && code !== "") return "on";
+  }
+  return "off";
+}
+
 /** A desktop pointer: hover means something. Touch screens pause on tap. */
 function canHoverPause(): boolean {
   return (
@@ -187,7 +258,7 @@ type Player = {
   playVideo: () => void;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
   getPlayerState: () => number;
-};
+} & CaptionsModule;
 
 declare global {
   interface Window {
@@ -260,6 +331,17 @@ export function VideoPlayer({
    */
   const [playerReady, setPlayerReady] = useState(false);
   const readyRef = useRef(false);
+  /**
+   * **W32e — YouTube's captions: what the player says, and whether we are
+   * done switching them off.** `unknown` when the player cannot say (the hint
+   * then never shows). **Switched off once per video**: when a track is first
+   * seen on — or, where nothing can be seen, at ready and at the first module
+   * change — and never again, so a learner who turns YouTube's CC back on
+   * keeps it rather than watching a button undo itself.
+   */
+  const [ytCaptions, setYtCaptions] = useState<"on" | "off" | "unknown">("unknown");
+  const captionsDone = useRef(false);
+  const [hintDismissed, setHintDismissed] = useState(false);
   const [rate, setRate] = useState<number>(1);
   const [completed, setCompleted] = useState(payload.completed);
   /**
@@ -441,12 +523,35 @@ export function VideoPlayer({
     host.className = "h-full w-full";
     mount.current.appendChild(host);
     const wrapper = mount.current;
+    captionsDone.current = false;
+    setYtCaptions("unknown");
+    /** W32e: at ready, and at every module change (the captions module loads
+     * when a saved preference asks for it, usually as playback starts). */
+    const settleCaptions = (moduleChange: boolean) => {
+      const current = player.current;
+      if (!current) return;
+      if (!captionsDone.current) {
+        const seen = youtubeCaptions(current);
+        if (seen === "on") {
+          youtubeCaptionsOff(current);
+          captionsDone.current = true;
+        } else if (seen === null) {
+          youtubeCaptionsOff(current);
+          captionsDone.current = moduleChange;
+        }
+      }
+      setYtCaptions(youtubeCaptions(current) ?? "unknown");
+    };
     player.current = new window.YT.Player(host, {
       videoId: payload.youtube_id,
       events: {
         onReady: () => {
           readyRef.current = true;
           setPlayerReady(true);
+          settleCaptions(false);
+        },
+        onApiChange: () => {
+          if (readyRef.current) settleCaptions(true);
         },
       },
       // **The resume position, honoured on the embed itself** — the learner
@@ -457,6 +562,8 @@ export function VideoPlayer({
         // **L1 subtitles OFF by default. PRD §7.3 and the row's own criterion.**
         // `cc_load_policy: 0` is the explicit off rather than the omitted
         // default, so a later YouTube default change cannot turn them on.
+        // **W32e: it does not beat a viewer's saved caption preference** —
+        // `settleCaptions` above does what it cannot, where the player lets it.
         cc_load_policy: 0,
         rel: 0,
         modestbranding: 1,
@@ -651,8 +758,7 @@ export function VideoPlayer({
       }
     };
     apply();
-    sideways.addEventListener?.("change", apply);
-    return () => sideways.removeEventListener?.("change", apply);
+    return onMediaChange(sideways, apply);
   }, [enterFocus, exitFocus]);
 
   useEffect(() => {
@@ -682,6 +788,19 @@ export function VideoPlayer({
     };
   }, [focus]);
 
+  useEffect(() => {
+    // **W32e — the bottom nav steps aside for Focus** (`globals.css`). On
+    // iPhone, Focus is the fixed layout, and the nav — the same `z-50`, later
+    // in the DOM — was painted over it: over Exit, the video's bottom edge and
+    // the word sheet's Save (the operator's iPhone, sideways, 2026-09-28).
+    if (focus === "off") return;
+    const html = document.documentElement;
+    html.dataset.videoFocus = focus;
+    return () => {
+      delete html.dataset.videoFocus;
+    };
+  }, [focus]);
+
   const focused = focus !== "off";
   const band = payload.coverage_band;
   const hasText = payload.transcript_available && lines.length > 0;
@@ -692,9 +811,10 @@ export function VideoPlayer({
       data-testid="video-player"
       data-focus={focus}
       data-meanings={meanings === "loading" || meanings === "unavailable" || meanings === "none" ? meanings : "ready"}
+      data-yt-captions={ytCaptions}
       className={
         focused
-          ? "fixed inset-0 z-50 flex h-[100dvh] w-full flex-col justify-center gap-3 overflow-hidden bg-background p-3"
+          ? "fixed inset-0 z-[70] flex h-[100dvh] w-full flex-col justify-center gap-3 overflow-hidden bg-background p-3"
           : "relative space-y-4"
       }
     >
@@ -727,6 +847,21 @@ export function VideoPlayer({
             data-testid="player-mount"
             data-player-ready={playerReady ? "true" : "false"}
           />
+          {focused ? null : (
+            // **W32e (B1) — full screen where people look for it**: the video's
+            // bottom-right corner, drawn in our layer above the iframe. Focus
+            // has its exit in the row under the picture, which stays clear.
+            <button
+              type="button"
+              aria-label={VIDEO.study.focus}
+              title={VIDEO.study.focus}
+              data-testid="focus-corner"
+              onClick={enterFocus}
+              className="absolute bottom-2 right-2 z-10 flex h-11 w-11 items-center justify-center rounded-md bg-black/60 text-white transition-colors hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white lg:h-9 lg:w-9"
+            >
+              <Maximize className="h-5 w-5" aria-hidden />
+            </button>
+          )}
           {focused && timed ? (
             <SubtitleBlock
               lines={lines}
@@ -742,6 +877,29 @@ export function VideoPlayer({
           ) : null}
         </div>
       </div>
+
+      {ytCaptions === "on" && !hintDismissed && !focused ? (
+        // **W32e (B3) — only when the player SAYS a YouTube track is on**, and
+        // switching it off did not take. Dismissible; never shown on a guess.
+        // Not in Focus, where ours are on the picture rather than below it.
+        <div
+          className="flex items-center gap-2 rounded-lg bg-muted/40 py-1 pl-3 pr-1 text-sm text-muted-foreground"
+          data-testid="yt-captions-hint"
+          role="note"
+        >
+          <p className="min-w-0 flex-1">{VIDEO.study.ytCaptions}</p>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="min-h-11 min-w-11 shrink-0 lg:min-h-8 lg:min-w-8"
+            aria-label={VIDEO.study.ytCaptionsDismiss}
+            data-testid="yt-captions-hint-dismiss"
+            onClick={() => setHintDismissed(true)}
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </Button>
+        </div>
+      ) : null}
 
       {timed && !focused ? (
         <SubtitleBlock
@@ -795,6 +953,7 @@ export function VideoPlayer({
           data-testid={focused ? "focus-exit" : "focus-enter"}
           onClick={focused ? exitFocus : enterFocus}
         >
+          {focused ? <Minimize aria-hidden /> : <Maximize aria-hidden />}
           {focused ? VIDEO.study.focusExit : VIDEO.study.focus}
         </Button>
       </div>

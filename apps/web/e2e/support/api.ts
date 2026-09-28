@@ -485,15 +485,42 @@ export async function mockMyWords(page: Page, body: unknown = fixture.my_words) 
  * fires (asynchronously), and time, state, seeks, pauses and plays are read and
  * set through `window.__yt`.
  */
-export async function fakeYouTube(page: Page) {
-  await page.addInitScript(() => {
+export async function fakeYouTube(
+  page: Page,
+  {
+    /**
+     * W32e — YouTube's own captions module, which the IFrame API has but does
+     * not document. `absent`: no `unloadModule`/`getOption` at all (every spec
+     * before W32e). `on`: a viewer's saved caption preference — a track is
+     * active, and `unloadModule('captions')` turns it off. `stuck`: the same
+     * track, and unloading it does nothing (the case the hint is for).
+     */
+    captions = "absent" as "absent" | "on" | "stuck",
+  } = {},
+) {
+  await page.addInitScript((captions) => {
     const yt = {
       time: 0, state: 2, options: null as unknown, seeks: [] as number[], pauses: 0, plays: 0,
+      unloaded: [] as string[],
+      track: (captions === "absent" ? {} : { languageCode: "en" }) as Record<string, unknown>,
     };
     (window as unknown as { __yt: typeof yt }).__yt = yt;
+    const captionsModule =
+      captions === "absent"
+        ? {}
+        : {
+            unloadModule(name: string) {
+              yt.unloaded.push(name);
+              if (name === "captions" && captions === "on") yt.track = {};
+            },
+            getOption(name: string, key: string) {
+              return name === "captions" && key === "track" ? yt.track : undefined;
+            },
+          };
     (window as unknown as { YT: unknown }).YT = {
       Player: class {
         constructor(el: HTMLElement, options: { events?: { onReady?: (e: unknown) => void } }) {
+          Object.assign(this, captionsModule);
           yt.options = options;
           const frame = document.createElement("div");
           frame.setAttribute("data-testid", "fake-yt");
@@ -513,7 +540,7 @@ export async function fakeYouTube(page: Page) {
         getPlayerState() { return yt.state; }
       },
     };
-  });
+  }, captions);
 }
 
 /**

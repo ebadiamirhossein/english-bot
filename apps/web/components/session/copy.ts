@@ -322,7 +322,11 @@ export const VIDEO = {
    * implies the learner should have known better, which no regex can check.
    */
   saveWord: {
-    saved: "Added to your deck.",
+    // **W32e (B4): the loop, visible at the moment of saving.** The operator
+    // asked whether a saved word is practised later — it is: its cards join
+    // the FSRS deck (the daily session's block 1 and Review) and the word
+    // drill (W31d). Plain, no count. (Read *"Added to your deck."* until W32e.)
+    saved: "Saved. You’ll practise it in Review and in word practice.",
     already: "Already in your deck.",
     notReady: "No definition for that one yet.",
     // **NOT `failed`.** `copy_rules.BANNED` bans the bare word in anything the
@@ -390,8 +394,15 @@ export const VIDEO = {
     miss: "No meaning stored yet — click to look it up.",
   },
   study: {
-    focus: "Focus",
-    focusExit: "Exit focus",
+    /** W32e (B1): the operator looked for full screen and did not see
+     * *Focus*. The code keeps the name Focus; the learner reads this. */
+    focus: "Full screen",
+    focusExit: "Exit full screen",
+    /** W32e (B3): only when the player says YouTube's own track is on and
+     * switching it off did not take. Not the learner's doing, and says so by
+     * saying what to tap. */
+    ytCaptions: "YouTube subtitles are on. Tap CC on the video to turn them off — ours are below.",
+    ytCaptionsDismiss: "Dismiss",
     loop: "Loop line",
     loopOn: "Looping this line",
     noTimed: "This video has no timed subtitles.",

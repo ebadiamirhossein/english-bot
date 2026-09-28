@@ -600,7 +600,7 @@ describe("the word sheet", () => {
   it("confirms a save", async () => {
     await openSheet();
     expect(await save({ state: "saved", card_ids: [1, 2] })).toHaveTextContent(
-      "Added to your deck.",
+      "Saved. You’ll practise it in Review and in word practice.",
     );
   });
 

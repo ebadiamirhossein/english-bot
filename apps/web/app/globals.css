@@ -223,3 +223,21 @@
 @utility safe-bottom {
   padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
 }
+
+/*
+ * W32e — the bottom nav steps aside (the operator's iPhone, sideways,
+ * 2026-09-28). In Focus (`player.tsx` sets `data-video-focus` on <html>): on
+ * iPhone Focus is a fixed layout at the nav's own z-index, and the nav — later
+ * in the DOM — was painted over it and over the word sheet's Save. And on any
+ * phone held sideways: ~70 px of a ~330 px screen is a fifth of it. A phone is
+ * a coarse pointer with no hover and a short screen; an iPad keeps its nav.
+ * Turning the phone upright brings it back.
+ */
+html[data-video-focus] [data-bottom-nav] {
+  display: none;
+}
+@media (orientation: landscape) and (max-height: 32rem) and (hover: none) and (pointer: coarse) {
+  [data-bottom-nav] {
+    display: none;
+  }
+}

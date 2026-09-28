@@ -337,7 +337,7 @@ describe("the sheet, from the map", () => {
     await mapLoaded();
     await userEvent.click(listWord("parties"));
     await userEvent.click(screen.getByTestId("word-sheet-save"));
-    expect(await screen.findByTestId("save-word-result")).toHaveTextContent("Added to your deck.");
+    expect(await screen.findByTestId("save-word-result")).toHaveTextContent("Saved. You’ll practise it in Review and in word practice.");
     expect(vi.mocked(api.saveWord)).toHaveBeenCalledWith(11, "parties", 0);
     await userEvent.click(screen.getByTestId("word-sheet-close"));
     await userEvent.click(listWord("parties"));

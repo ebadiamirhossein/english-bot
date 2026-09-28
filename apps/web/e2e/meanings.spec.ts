@@ -206,7 +206,7 @@ test.describe("W32b — the sheet, from the map", () => {
     await centre(word);
     await word.click();
     await page.getByTestId("word-sheet-save").click();
-    await expect(page.getByTestId("save-word-result")).toHaveText("Added to your deck.");
+    await expect(page.getByTestId("save-word-result")).toHaveText("Saved. You’ll practise it in Review and in word practice.");
     await shot(page, info, "sheet-saved");
     await page.getByTestId("word-sheet-close").click();
     await word.click();

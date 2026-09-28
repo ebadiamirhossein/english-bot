@@ -23,6 +23,8 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Main"
+      // W32e: hidden in Focus and on a phone held sideways (`globals.css`).
+      data-bottom-nav=""
       className="safe-bottom fixed inset-x-0 bottom-0 z-50 border-t border-border/80 bg-background/85 backdrop-blur-lg"
     >
       <ul className="mx-auto flex max-w-lg items-stretch lg:max-w-2xl justify-between px-2 pt-1.5">

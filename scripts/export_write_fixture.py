@@ -316,9 +316,15 @@ STUDY_ENTRIES: dict[str, dict] = {
     "relax": {"kind": "word", "register": "neutral", "senses": [
         {"pos": "verb", "definition": "to stop worrying and feel calm",
          "l1": {"fa": "آرام شدن", "lt": "atsipalaiduoti"}}]},
+    # W32e: three senses — the entry the short-viewport sheet test opens
+    # (the tallest a C2 entry can be; Save must stay on screen beside it).
     "suit": {"kind": "word", "register": "neutral", "senses": [
         {"pos": "verb", "definition": "to look right on someone or be good for them",
-         "l1": {"fa": "برازنده بودن", "lt": "tikti"}}]},
+         "l1": {"fa": "برازنده بودن", "lt": "tikti"}},
+        {"pos": "noun", "definition": "a jacket and trousers or a skirt made of the same cloth",
+         "l1": {"fa": "کت و شلوار", "lt": "kostiumas"}},
+        {"pos": "noun", "definition": "one of the four kinds of cards in a pack",
+         "l1": {"fa": "خال", "lt": "kortų rūšis"}}]},
     "okay": {"kind": "word", "register": "informal", "neutral_equivalent": "all right",
              "who_says_this": "anyone, in everyday talk", "senses": [
         {"pos": "interjection", "definition": "used to say you agree or that something is fine",

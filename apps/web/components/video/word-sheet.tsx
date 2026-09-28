@@ -206,15 +206,25 @@ export function WordSheet({
         data-testid="word-sheet-backdrop"
         onClick={onClose}
       />
+      {/*
+        **W32e (B2) — the sheet fits a short screen.** The operator's iPhone,
+        sideways: the sheet ran under the bottom nav and Save was off the
+        screen. Now three parts in a column held to the viewport — the word,
+        a body that scrolls, and **Save in a footer that never scrolls away**.
+        75% of the height on a tall screen, so the video stays in sight; on a
+        short one (a phone turned, a keyboard up) all of it but the top inset.
+        Every safe-area inset is respected (a notch sits at the side when the
+        phone is turned).
+      */}
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="word-sheet-word"
         data-testid="word-sheet"
-        className="absolute inset-x-0 bottom-0 max-h-[75dvh] overflow-y-auto rounded-t-2xl border-t bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-lg lg:inset-x-auto lg:bottom-6 lg:left-1/2 lg:w-[32rem] lg:-translate-x-1/2 lg:rounded-2xl lg:border"
+        className="absolute inset-x-0 bottom-0 flex max-h-[75dvh] flex-col overflow-hidden rounded-t-2xl border-t bg-background pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] shadow-lg [@media(max-height:32rem)]:max-h-[calc(100dvh-max(0.5rem,env(safe-area-inset-top)))] lg:inset-x-auto lg:bottom-6 lg:left-1/2 lg:w-[32rem] lg:-translate-x-1/2 lg:rounded-2xl lg:border"
       >
-        <div className="flex items-start justify-between gap-3">
-          <div>
+        <div className="flex shrink-0 items-start justify-between gap-3 pt-4">
+          <div className="min-w-0">
             <h2 id="word-sheet-word" lang="en" className="text-2xl font-semibold" data-testid="word-sheet-word">
               {target.word}
             </h2>
@@ -235,45 +245,57 @@ export function WordSheet({
           </Button>
         </div>
 
-        {!ready && found === "unavailable" ? (
-          <p className="mt-3 text-sm text-muted-foreground" data-testid="word-sheet-unavailable">
-            {VIDEO.sheet.unavailable}
-          </p>
-        ) : !ready ? (
-          <p className="mt-3 text-sm text-muted-foreground" data-testid="word-sheet-loading">
-            {VIDEO.sheet.loading}
-          </p>
-        ) : (
-          <div className="mt-3 space-y-3">
-            {line ? (
-              <p lang="en" className="text-sm italic leading-relaxed text-muted-foreground" data-testid="word-sheet-line">
-                {line}
-              </p>
-            ) : null}
-
-            {resolved ? (
-              <FromMap found={resolved} language={map?.l1 ?? null} lookingUp={lookingUp} />
-            ) : lookup?.meaning ? (
-              <div className="space-y-1" data-testid="word-sheet-meaning">
-                <p lang="en" className="text-base leading-relaxed">
-                  {lookup.meaning.definition}
-                  <RegisterChip register={lookup.meaning.register} />
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3"
+          data-testid="word-sheet-body"
+        >
+          {!ready && found === "unavailable" ? (
+            <p className="mt-3 text-sm text-muted-foreground" data-testid="word-sheet-unavailable">
+              {VIDEO.sheet.unavailable}
+            </p>
+          ) : !ready ? (
+            <p className="mt-3 text-sm text-muted-foreground" data-testid="word-sheet-loading">
+              {VIDEO.sheet.loading}
+            </p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {line ? (
+                <p lang="en" className="text-sm italic leading-relaxed text-muted-foreground" data-testid="word-sheet-line">
+                  {line}
                 </p>
-                {lookup.meaning.neutral_equivalent ? (
-                  <p className="text-sm text-muted-foreground">
-                    {VIDEO.sheet.safer} <span lang="en">{lookup.meaning.neutral_equivalent}</span>
+              ) : null}
+
+              {resolved ? (
+                <FromMap found={resolved} language={map?.l1 ?? null} lookingUp={lookingUp} />
+              ) : lookup?.meaning ? (
+                <div className="space-y-1" data-testid="word-sheet-meaning">
+                  <p lang="en" className="text-base leading-relaxed">
+                    {lookup.meaning.definition}
+                    <RegisterChip register={lookup.meaning.register} />
                   </p>
-                ) : null}
-                <L1 text={lookup.meaning.l1} language={lookup.meaning.l1_language} />
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground" data-testid="word-sheet-no-meaning">
-                {lookup?.saved === "no_meaning" ? VIDEO.sheet.noMeaningFound : VIDEO.sheet.noMeaning}
-              </p>
-            )}
+                  {lookup.meaning.neutral_equivalent ? (
+                    <p className="text-sm text-muted-foreground">
+                      {VIDEO.sheet.safer} <span lang="en">{lookup.meaning.neutral_equivalent}</span>
+                    </p>
+                  ) : null}
+                  <L1 text={lookup.meaning.l1} language={lookup.meaning.l1_language} />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground" data-testid="word-sheet-no-meaning">
+                  {lookup?.saved === "no_meaning" ? VIDEO.sheet.noMeaningFound : VIDEO.sheet.noMeaning}
+                </p>
+              )}
 
-            {image ? <CardImage image={image} /> : null}
+              {image ? <CardImage image={image} /> : null}
+            </div>
+          )}
+        </div>
 
+        {ready ? (
+          <div
+            className="shrink-0 space-y-2 border-t pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]"
+            data-testid="word-sheet-footer"
+          >
             {outcome ? (
               <p
                 className="text-sm text-muted-foreground"
@@ -303,6 +325,8 @@ export function WordSheet({
               </Button>
             )}
           </div>
+        ) : (
+          <div className="shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]" />
         )}
       </section>
     </div>
