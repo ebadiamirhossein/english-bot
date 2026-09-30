@@ -645,6 +645,12 @@ export const CONVERSATION = {
   /** A rung with nothing to show. `closeNothing` says *conversation*; a rung
    * was not one. No apology and no blame, like it. */
   rungNothing: "Nothing to add this time. That came across well.",
+  /** W33 (D), #493 — the close could not read the rung (its model call or the
+   * request failed). **Never the line above**: a close that read nothing must
+   * not praise. The operator's words for the retell, 2026-09-30; no blame, no
+   * number, and true — the turns were counted when they were sent (#462). */
+  retellUnchecked: "Couldn’t check that one just now. Your retelling still counts.",
+  answerUnchecked: "Couldn’t check that one just now. Your answer still counts.",
   /** **What the retelling got across — the video's own points, never a count
    * or a percentage of them** (the run prompt: *shown as what was covered*). */
   coveredHeading: "What you got across",

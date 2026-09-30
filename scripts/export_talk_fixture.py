@@ -120,6 +120,23 @@ def bodies() -> dict:
             also=["The habit grew during the Second World War, when food was rationed.",
                   "Visitors are often surprised by how quiet a queue is."],
         )),
+        # W33 (D), #491 → R2: a retell turn below the limit — the learner's turn
+        # is kept and the app asks one follow-up about THIS video; `open`.
+        "turn_retell_1": turn(topic_label=VIDEO_TITLE, state="open",
+                              reply="Why do you think people queue even when nobody tells them to?"),
+        "turn_retell_2": turn(topic_label=VIDEO_TITLE, state="open",
+                              reply="How do people feel when someone jumps the queue?"),
+        "turn_retell_3": turn(topic_label=VIDEO_TITLE, state="open",
+                              reply="When did the habit start, according to the video?"),
+        "turn_retell_4": turn(topic_label=VIDEO_TITLE, state="open",
+                              reply="What surprises visitors about a queue in London?"),
+        # The fifth turn: the limit, the only `closing`, and no question.
+        "turn_retell_limit": turn(topic_label=VIDEO_TITLE, reply="", state="closing"),
+        # W33 (D), #493: the close's model call failed — nothing was read.
+        "close_retell_unchecked": _dump(CloseOut(
+            conversation_id=44, corrections=[], did_well="", summary="", word_offers=[],
+            is_english=True, covered=[], also=[], checked=False,
+        )),
         "close_not_english": _dump(CloseOut(
             conversation_id=43, corrections=[], did_well="", summary="", word_offers=[],
             is_english=False, covered=[], also=[],

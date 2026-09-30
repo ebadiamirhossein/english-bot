@@ -169,6 +169,7 @@ export async function mockTalk(
     "/conversation/open":
       kind === "talk" ? talkFixture.open_talk : kind === "answer" ? talkFixture.open_answer : talkFixture.open_retell,
     "/conversation/turn": kind === "talk" ? talkFixture.turn_talk : talkFixture.turn_rung,
+    // W33 (D), #491 → R2: a retell's turns are answered in order below.
     "/conversation/close":
       close ?? (kind === "retell" ? talkFixture.close_retell : talkFixture.close_answer),
     "/conversation/save-word": { state: "saved" },
@@ -178,6 +179,22 @@ export async function mockTalk(
       r.request().method() === "OPTIONS"
         ? r.fulfill({ status: 204, headers: cors(r) })
         : json(r, 200, body),
+    );
+  }
+  if (kind === "retell") {
+    // W33 (D): four follow-up questions, then the fifth turn's `closing`.
+    const turns = [
+      talkFixture.turn_retell_1,
+      talkFixture.turn_retell_2,
+      talkFixture.turn_retell_3,
+      talkFixture.turn_retell_4,
+      talkFixture.turn_retell_limit,
+    ];
+    let n = 0;
+    await page.route(`${API}/conversation/turn`, (r) =>
+      r.request().method() === "OPTIONS"
+        ? r.fulfill({ status: 204, headers: cors(r) })
+        : json(r, 200, turns[Math.min(n++, turns.length - 1)]),
     );
   }
 }

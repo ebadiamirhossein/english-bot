@@ -58,7 +58,7 @@ from core.conversation import (
 )
 from core.conversation.guards import Correction, apply_guards
 from core.config import load_settings
-from core.copy_rules import content_offenders
+from core.copy_rules import BANNED, content_offenders
 from core.db import connection
 from core.services.errors import record_errors
 from core.lexicon.normalize import cefr_tagged_lemmas, lemmatize
@@ -632,6 +632,15 @@ def _local_date(learner: dict, now: datetime) -> date:
 # on a rung records the turn, generates NO reply, and answers `closing`, and the
 # client closes. A follow-up turn from the app would be a billed call that
 # turns a rung back into a talk.
+#
+# **W33 (D) — REVERSED FOR `retell` ONLY, BY THE OPERATOR'S RULING OF 2026-09-30
+# (#491 → R2).** The operator used retell that day and could not continue
+# talking: one message, and the close-out was on the screen. **A retell is now
+# 3–5 learner turns**: after each turn below `RETELL_MAX_TURNS`, one short
+# follow-up question grounded in THIS video's transcript (`retell_followup_request`,
+# one billed call per turn, ≈ $0.0074 uncached); `closing` only at the fifth
+# turn, or when the day's cap arrives — the cap is the talk's rule, not a new
+# one. The paragraph above stays as written for `answer`, which is unchanged.
 
 KINDS: tuple[str, ...] = ("talk", "answer", "retell")
 RUNG_KINDS: frozenset[str] = frozenset({"answer", "retell"})
@@ -661,6 +670,26 @@ RUNG_MAX_TOKENS = 2000
 #: words: comfortably over a five-minute video (`length_fit` prefers short ones)
 #: and a bounded input on a learner-triggered call.
 RETELL_TRANSCRIPT_MAX_CHARS = 12_000
+
+#: W33 (D). The retell's turn limit (#491 → R2): the fifth learner turn answers
+#: `closing` and asks nothing. Three is block 4's floor (#462) and is the
+#: learner's to choose — *That's enough for now* closes at any turn.
+RETELL_MAX_TURNS = 5
+#: W33 (D). A follow-up is one sentence; the talk's own reply budget.
+FOLLOWUP_MAX_TOKENS = TURN_MAX_TOKENS
+#: W33 (D). The longest question the gate accepts, in words and characters.
+FOLLOWUP_MAX_WORDS = 20
+FOLLOWUP_MAX_CHARS = 200
+#: W33 (D). **Questions a person wrote**, asked ONLY when the generated one
+#: cannot be: the call failed, the reply was not one question, or it tripped the
+#: copy rule. They are general by necessity; the alternative is a 500 that loses
+#: the learner's turn, or silence. Chosen by turn, so two in a row differ.
+RETELL_FALLBACK_QUESTIONS: tuple[str, ...] = (
+    "What happened after that?",
+    "Why do you think they did that?",
+    "How do you think they felt about it?",
+    "How did it end?",
+)
 
 #: The fence the transcript crosses the wire in. `core.video.explain`'s
 #: `<<<TRANSCRIPT_LINE>>>` precedent (#292 part 1), one level up: the whole
@@ -1087,6 +1116,53 @@ def add_turn(
         seq = (history[-1].seq + 1) if history else 0
         _append(conn, row["id"], seq, "learner", text, input_mode=input_mode)
 
+        if row["kind"] == "retell":
+            # **W33 (D), #491 → R2: A RETELL IS A SHORT CONVERSATION.** The turn
+            # is counted exactly as a rung's always was (#462 reads
+            # `conversation_usage.turns_learner`); below the limit one follow-up
+            # question is generated and the state stays `open`. `closing` only at
+            # the fifth turn — or at the day's cap, the talk's own rule.
+            turn_number = int(row["turns_learner"]) + 1
+            conn.execute(
+                """
+                UPDATE conversations
+                   SET turns_learner = turns_learner + 1, last_activity_at = %s
+                 WHERE id = %s
+                """,
+                (now, row["id"]),
+            )
+            _bump_usage(conn, user_id, today, turns_learner=1)
+            day_done = cap_exceeded(used.turns_learner + 1, cfg.conversation_max_turns_per_day)
+            if turn_number >= RETELL_MAX_TURNS or day_done:
+                conn.commit()
+                return TurnResult(
+                    conversation_id=row["id"], topic_label=row["topic_label"],
+                    learner_text=text, reply="", turns_learner=used.turns_learner + 1,
+                    state="closing",
+                )
+            question, _generated = _retell_followup(
+                conn, user_id, today, learner["cefr_level"],
+                _transcript_of(conn, row.get("video_id")),
+                [*history, Turn(seq=seq, role="learner", content=text, input_mode=input_mode)],
+                turn_number,
+            )
+            _append(conn, row["id"], seq + 1, "app", question)
+            conn.execute(
+                """
+                UPDATE conversations
+                   SET turns_app = turns_app + 1, last_activity_at = %s
+                 WHERE id = %s
+                """,
+                (now, row["id"]),
+            )
+            _bump_usage(conn, user_id, today, turns_app=1)
+            conn.commit()
+            return TurnResult(
+                conversation_id=row["id"], topic_label=row["topic_label"],
+                learner_text=text, reply=question, turns_learner=used.turns_learner + 1,
+                state="open",
+            )
+
         if row["kind"] in RUNG_KINDS:
             # **W15: A RUNG TAKES ONE TURN AND GENERATES NO REPLY.** `closing`
             # tells the client to close, which is where the rung's one billed
@@ -1200,6 +1276,10 @@ class CloseResult:
     also: tuple[str, ...] = ()
     #: `talk`, `answer` or `retell`, so the screen can name what just ended.
     kind: str = "talk"
+    #: W33 (D), #493. **False when the close's model call failed** — nothing was
+    #: read, so nothing may be praised; the screen says it could not check this
+    #: one. True when the call answered, and when there was nothing to send.
+    checked: bool = True
 
 
 @dataclass(frozen=True)
@@ -1474,6 +1554,7 @@ def close_conversation(user_id: int, now: datetime) -> CloseResult:
         corrections: list[Correction] = []
         did_well = ""
         summary = ""
+        talk_checked = True
         # **§C2 RUNS BEFORE THE DELETE, LIKE THE GUARDS, AND FOR THE SAME
         # REASON: it reads the turns.**
         unknown = unknown_words_from(conn, user_id, turns)
@@ -1500,6 +1581,7 @@ def close_conversation(user_id: int, now: datetime) -> CloseResult:
             except Exception:  # noqa: BLE001 -- release the learner (S26a)
                 logger.warning("conversation close failed user_id=%s", user_id)
                 result = {}
+                talk_checked = False
             finally:
                 _record_llm(conn, user_id, today, usage_out)
 
@@ -1561,7 +1643,102 @@ def close_conversation(user_id: int, now: datetime) -> CloseResult:
         summary=summary,
         journaled=journaled,
         word_offers=_word_offers(user_id, unknown),
+        checked=talk_checked,
     )
+
+
+# ── W33 (D): the retell's follow-up question ────────────────────────────────
+
+
+def _followup_template() -> str:
+    return (PROMPTS_DIR / "rung_retell_followup.txt").read_text(encoding="utf-8")
+
+
+def retell_followup_request(cefr_level: str, transcript: str, turns: list[Turn]) -> dict[str, Any]:
+    """**The whole request one follow-up sends, in one place** — the service and
+    `core.rung_probe` both call it, so the probe prints what production sends.
+
+    The transcript is DATA (CLAUDE.md §6, #292 part 1): it travels ONCE, fenced
+    between `TRANSCRIPT_OPEN` and `TRANSCRIPT_CLOSE` at the head of the first
+    user message — never in the system prompt, where `str.format` would read it.
+    Every learner turn is `<user_text>`-fenced (`correction.wrap_user_text`); the
+    app's earlier questions are the assistant's turns. **The opener is not sent**:
+    it is a sentence a person wrote, and the first message must be the user's.
+    """
+    from core.services.correction import wrap_user_text
+
+    after_opener = [t for t in turns if t.is_learner or t.seq > 0]
+    messages: list[dict[str, str]] = []
+    for t in after_opener:
+        if t.is_learner:
+            content = wrap_user_text(t.content)
+            if not messages:
+                cut = transcript.strip()[:RETELL_TRANSCRIPT_MAX_CHARS]
+                content = f"{TRANSCRIPT_OPEN}\n{cut}\n{TRANSCRIPT_CLOSE}\n\n{content}"
+            messages.append({"role": "user", "content": content})
+        elif messages:
+            messages.append({"role": "assistant", "content": t.content})
+    system = build_system_prompt(
+        _followup_template(),
+        cefr_level=cefr_level,
+        transcript_open=TRANSCRIPT_OPEN,
+        transcript_close=TRANSCRIPT_CLOSE,
+        max_words=FOLLOWUP_MAX_WORDS,
+    )
+    return {"messages": messages, "system": system, "max_tokens": FOLLOWUP_MAX_TOKENS}
+
+
+def shape_followup(raw: Any) -> str | None:
+    """The generated question if it survives, else ``None``. **Never repaired.**
+
+    One line, one question, ending with `?`; at most `FOLLOWUP_MAX_WORDS` words
+    and `FOLLOWUP_MAX_CHARS` characters; free of `BANNED` — **the COPY rule, not
+    the content one**, because the question is the app speaking to the learner.
+    **What it cannot establish (#271): that the question is about this video and
+    worth answering.** The request carries only this video; the reading is
+    W33-P1's.
+    """
+    if not isinstance(raw, str):
+        return None
+    text = " ".join(raw.split()).strip().strip('"').strip()
+    if not text or len(text) > FOLLOWUP_MAX_CHARS or not text.endswith("?"):
+        return None
+    if text.count("?") != 1 or len(text.split()) > FOLLOWUP_MAX_WORDS:
+        return None
+    if BANNED.search(text):
+        return None
+    return text
+
+
+def _retell_followup(
+    conn: Any, user_id: int, today: date, cefr_level: str, transcript: str | None,
+    turns: list[Turn], turn_number: int,
+) -> tuple[str, bool]:
+    """One follow-up: ``(question, generated)``. **Never raises; never silent.**
+
+    No transcript (purged mid-retell, #335) → a written question and no call.
+    A provider failure, or a reply the gate refuses → a written question. The
+    call's usage is recorded either way (#321: a billed call is counted).
+    """
+    fallback = RETELL_FALLBACK_QUESTIONS[(turn_number - 1) % len(RETELL_FALLBACK_QUESTIONS)]
+    if not transcript:
+        return fallback, False
+    request = retell_followup_request(cefr_level, transcript, turns)
+    usage_out: dict = {}
+    try:
+        raw = llm.chat(request.pop("messages"), **request, usage_out=usage_out)
+    except Exception:  # noqa: BLE001 -- keep the learner's turn and the talk going
+        logger.warning("conversation retell followup failed user_id=%s", user_id)
+        raw = None
+    finally:
+        _record_llm(conn, user_id, today, usage_out)
+    question = shape_followup(raw)
+    # Counts only — never the question, never the learner's words (§5).
+    logger.info(
+        "conversation retell followup user_id=%s turn=%s generated=%s",
+        user_id, turn_number, question is not None,
+    )
+    return (question, True) if question else (fallback, False)
 
 
 # ── W15: the rung close ─────────────────────────────────────────────────────
@@ -1733,6 +1910,7 @@ def _close_rung(
     also: tuple[str, ...] = ()
     journaled = 0
     unknown = unknown_words_from(conn, user_id, turns)
+    checked = True
 
     if said:
         # The opener IS the task: reading it back from the app's first turn keeps
@@ -1765,6 +1943,9 @@ def _close_rung(
         finally:
             _record_llm(conn, user_id, today, usage_out)
 
+        # #493: an empty or unusable answer read NOTHING, so it is not a clean
+        # retelling and the screen must not call it one.
+        checked = isinstance(raw, dict) and bool(raw)
         if isinstance(raw, dict) and raw:
             shaped, covered, also = shape_rung(raw, prompt_kind, submitted)
             is_english = shaped.is_english
@@ -1826,6 +2007,7 @@ def _close_rung(
         covered=covered,
         also=also,
         kind=kind,
+        checked=checked,
     )
 
 

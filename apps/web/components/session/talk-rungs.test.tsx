@@ -39,13 +39,25 @@ type ServeOptions = {
   kind?: "answer" | "retell";
   close?: unknown;
   voiceTurn?: boolean;
+  /** W33 (D), #493: answer `POST /conversation/close` with this status instead. */
+  closeStatus?: number;
 };
+
+/** W33 (D): a retell's turns, in order — four questions, then the limit. */
+const RETELL_TURNS = [
+  fixture.turn_retell_1,
+  fixture.turn_retell_2,
+  fixture.turn_retell_3,
+  fixture.turn_retell_4,
+  fixture.turn_retell_limit,
+];
 
 function serve(calls: Call[], options: ServeOptions = {}) {
   const kind = options.kind ?? "answer";
   const rungs = options.rungs ?? fixture.rungs_both;
   const close = options.close ?? (kind === "answer" ? fixture.close_answer : fixture.close_retell);
   const voiceTurn = options.voiceTurn ?? false;
+  let retellTurn = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -56,10 +68,15 @@ function serve(calls: Call[], options: ServeOptions = {}) {
       if (path === "/conversation/rungs") return jsonOnce(rungs);
       if (path === "/conversation/open")
         return jsonOnce(kind === "answer" ? fixture.open_answer : fixture.open_retell);
-      if (path === "/conversation/turn") return jsonOnce(fixture.turn_rung);
+      // W33 (D), #491 → R2: a retell turn is a question until the limit; an
+      // answer's one turn still closes. (Read `jsonOnce(fixture.turn_rung)` for
+      // both until W33.)
+      if (path === "/conversation/turn")
+        return jsonOnce(kind === "retell" ? RETELL_TURNS[retellTurn++] : fixture.turn_rung);
       if (path === "/conversation/turn/voice")
         return jsonOnce(voiceTurn ? fixture.turn_rung_voice : fixture.turn_rung);
-      if (path === "/conversation/close") return jsonOnce(close);
+      if (path === "/conversation/close")
+        return options.closeStatus ? jsonOnce({ detail: "x" }, options.closeStatus) : jsonOnce(close);
       if (path === "/conversation/save-word") return jsonOnce({ state: "saved" });
       return jsonOnce({ detail: "not_found" }, 404);
     }),
@@ -161,6 +178,9 @@ describe("W15 — the rungs on /talk", () => {
     expect(screen.getByText(CONVERSATION.retellTitle)).toBeInTheDocument();
     await user.type(screen.getByTestId("conversation-composer"), "People waits in a line.");
     await user.click(screen.getByRole("button", { name: CONVERSATION.send }));
+    // W33 (D): the retell asks its follow-up and stays open; the learner ends it.
+    await screen.findByText(fixture.turn_retell_1.reply);
+    await user.click(screen.getByTestId("conversation-end"));
     const closed = await screen.findByTestId("conversation-closed");
 
     const covered = screen.getByTestId("close-covered");
@@ -240,5 +260,113 @@ describe("W15 — the rungs on /talk", () => {
     expect(
       heard.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+});
+
+
+/**
+ * W33 (D) — retell is a short conversation (#491 → R2), and a close that read
+ * nothing is never praise (#493). The client closes on `closing` ONLY — the
+ * fifth turn — and on the learner's *That's enough for now*.
+ */
+describe("W33 (D) — the retell conversation", () => {
+  beforeEach(() => {
+    mockAudio();
+    globalThis.Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const closes = (calls: Call[]) => calls.filter((c) => c.url === "/conversation/close").length;
+
+  async function retell(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByTestId("rung-retell"));
+    await screen.findByText(fixture.open_retell.reply);
+  }
+
+  async function say(user: ReturnType<typeof userEvent.setup>, text: string) {
+    await user.type(screen.getByTestId("conversation-composer"), text);
+    await user.click(screen.getByRole("button", { name: CONVERSATION.send }));
+  }
+
+  it("shows the follow-up question after a turn and stays open — no close is sent", async () => {
+    const calls: Call[] = [];
+    serve(calls, { kind: "retell" });
+    const user = userEvent.setup();
+    render(<Conversation voice={false} />);
+    await retell(user);
+    await say(user, "People queue at the bus stop.");
+    await screen.findByText(fixture.turn_retell_1.reply);
+    expect(screen.queryByTestId("conversation-closed")).toBeNull();
+    expect(screen.getByTestId("conversation-composer")).toBeInTheDocument();
+    expect(closes(calls)).toBe(0);
+  });
+
+  it("takes three turns with three questions, and closes only when the learner says so", async () => {
+    const calls: Call[] = [];
+    serve(calls, { kind: "retell" });
+    const user = userEvent.setup();
+    render(<Conversation voice={false} />);
+    await retell(user);
+    const replies = [fixture.turn_retell_1, fixture.turn_retell_2, fixture.turn_retell_3];
+    for (const [i, reply] of replies.entries()) {
+      await say(user, `Turn ${["one", "two", "three"][i]} of my retelling.`);
+      await screen.findByText(reply.reply);
+      expect(closes(calls)).toBe(0);
+    }
+    await user.click(screen.getByTestId("conversation-end"));
+    await screen.findByTestId("conversation-closed");
+    expect(closes(calls)).toBe(1);
+  });
+
+  it("closes by itself at the fifth turn, the limit, and only there", async () => {
+    const calls: Call[] = [];
+    serve(calls, { kind: "retell" });
+    const user = userEvent.setup();
+    render(<Conversation voice={false} />);
+    await retell(user);
+    for (const reply of RETELL_TURNS.slice(0, 4)) {
+      await say(user, "And then something else happened.");
+      await screen.findByText(reply.reply);
+      expect(closes(calls)).toBe(0);
+    }
+    await say(user, "That was the end of it.");
+    await screen.findByTestId("conversation-closed");
+    expect(closes(calls)).toBe(1);
+  });
+
+  it("a close that could not check says so plainly and never praises (#493)", async () => {
+    serve([], { kind: "retell", close: fixture.close_retell_unchecked });
+    const user = userEvent.setup();
+    render(<Conversation voice={false} />);
+    await retell(user);
+    await say(user, "People queue at the bus stop.");
+    await screen.findByText(fixture.turn_retell_1.reply);
+    await user.click(screen.getByTestId("conversation-end"));
+    const closed = await screen.findByTestId("conversation-closed");
+    expect(screen.getByTestId("close-unchecked")).toHaveTextContent(
+      "Couldn’t check that one just now. Your retelling still counts.",
+    );
+    expect(closed).not.toHaveTextContent(CONVERSATION.rungNothing);
+    expect(closed).not.toHaveTextContent(/came across well/i);
+    expect(closed).not.toHaveTextContent(CONVERSATION.rungClosing);
+  });
+
+  it("a close REQUEST that fails says the same, and never praises (#493)", async () => {
+    serve([], { kind: "retell", closeStatus: 500 });
+    const user = userEvent.setup();
+    render(<Conversation voice={false} />);
+    await retell(user);
+    await say(user, "People queue at the bus stop.");
+    await screen.findByText(fixture.turn_retell_1.reply);
+    await user.click(screen.getByTestId("conversation-end"));
+    const closed = await screen.findByTestId("conversation-closed");
+    expect(screen.getByTestId("close-unchecked")).toHaveTextContent("Your retelling still counts.");
+    expect(closed).not.toHaveTextContent(/came across well/i);
+  });
+
+  it("the new line passes the no-guilt scan and carries no number", () => {
+    for (const line of [CONVERSATION.retellUnchecked, CONVERSATION.answerUnchecked]) {
+      expect(line).not.toMatch(/wrong|incorrect|failed|missed|mistake|score|try harder|\d/i);
+    }
   });
 });

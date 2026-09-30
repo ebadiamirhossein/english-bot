@@ -406,7 +406,11 @@ def test_a_retell_sends_the_transcript_fenced_and_shows_points_never_a_count(
     _say(app, learner, RETELLING)
     body = _close(app, learner).json()
 
-    [sent] = sdk.sent
+    # **W33 (D), #491 → R2:** the retell's turn now makes its follow-up call
+    # first (this stub's JSON is not a question, so a written one is asked), and
+    # the close is the LAST request. This read `[sent] = sdk.sent` until W33.
+    assert len(sdk.sent) == 2
+    sent = sdk.sent[-1]
     system = sent["system"][0]["text"]
     user = sent["messages"][0]["content"]
     assert "Anna was walking" not in system
@@ -420,8 +424,10 @@ def test_a_retell_sends_the_transcript_fenced_and_shows_points_never_a_count(
                                "She takes the dog home."]
     assert body["also"] == ["She looks for its owner for an hour.",
                             "She calls the number on its collar."]
+    # W33 (D), #493: `checked` joins the close's keys.
     assert set(body) == {"conversation_id", "corrections", "did_well", "summary",
-                         "word_offers", "is_english", "covered", "also"}
+                         "word_offers", "is_english", "covered", "also", "checked"}
+    assert body["checked"] is True
     assert count(db, "SELECT count(*) FROM errors WHERE user_id = %s AND source = 'retell'",
                  learner.user_id) == 1
 
@@ -546,10 +552,48 @@ def test_the_rung_probe_is_dry_by_default_and_names_its_calls(capsys, monkeypatc
     monkeypatch.setattr(rung_probe, "chat", _no_call)
     assert rung_probe.main([]) == 0
     out = capsys.readouterr().out
-    assert "calls --live will make: 2" in out
+    # W33 (D): the answer's close, the retell's two follow-ups and its close.
+    # Read `2` until W33 (#82's shape).
+    assert "calls --live will make: 4" in out
     assert "whose first language is Farsi" in out and "whose first language is Lithuanian" in out
-    assert out.count("<<<VIDEO_TRANSCRIPT>>>") == 2, "named in the prompt, and fencing the data"
+    # Named in the follow-up prompt and the close prompt, and fencing the data in
+    # each follow-up's first message and in the close's (read `== 2` until W33).
+    assert out.count("<<<VIDEO_TRANSCRIPT>>>") == 5, "named in the prompts, and fencing the data"
+    assert "=== retell (lt), 3 turns: follow-up 1 of 2 ===" in out
     assert "DRY RUN. Nothing was sent and nothing was written." in out
+
+
+def test_the_rung_probe_live_runs_a_three_turn_retell_in_four_calls(capsys, monkeypatch) -> None:
+    """W33 (D): `--live` makes the answer's close, the retell's two follow-ups and
+    its close over all three turns — four calls, each through `rung_probe.chat`,
+    stubbed here (no billed call). The second follow-up carries the first
+    question as the assistant's turn. **Red before W33 (D):** two calls, no
+    follow-up."""
+    from core import rung_probe
+
+    sent: list[dict] = []
+    replies = [
+        {"is_english": True, "corrections": [], "did_well": None},
+        "Why did Anna wait by the pond so long?",
+        "How did the old man thank her?",
+        {"is_english": True, "points": [{"point": "Anna finds a dog.", "covered": True}],
+         "corrections": [], "did_well": None},
+    ]
+
+    def _chat(messages, **kwargs):
+        sent.append({"messages": messages, **kwargs})
+        return replies[len(sent) - 1]
+
+    monkeypatch.setattr(rung_probe, "chat", _chat)
+    assert rung_probe.main(["--live"]) == 0
+    assert len(sent) == 4
+    assert sent[2]["messages"][1] == {"role": "assistant", "content": "Why did Anna wait by the pond so long?"}
+    close = sent[3]["messages"][0]["content"]
+    for turn in rung_probe.RETELL_TURNS:
+        assert turn in close
+    out = capsys.readouterr().out
+    assert "question: 'Why did Anna wait by the pond so long?'" in out
+    assert "DONE. 4 of 4 calls returned a usable response." in out
 
 
 def test_the_rung_probe_holds_no_write_path() -> None:

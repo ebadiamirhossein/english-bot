@@ -191,6 +191,9 @@ class CloseOut(BaseModel):
     covered: list[str] = []
     #: W15, retell. The video's other points, as content — never as a shortfall.
     also: list[str] = []
+    #: W33 (D), #493. **False when the close's model call failed**: nothing was
+    #: read, so the screen says it could not check this one — never praise.
+    checked: bool = True
 
 
 def _now() -> datetime:
@@ -408,6 +411,7 @@ def close(
         is_english=result.is_english,
         covered=list(result.covered),
         also=list(result.also),
+        checked=result.checked,
     )
 
 

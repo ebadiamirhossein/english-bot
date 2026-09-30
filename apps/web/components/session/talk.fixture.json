@@ -116,7 +116,8 @@
     ],
     "is_english": true,
     "covered": [],
-    "also": []
+    "also": [],
+    "checked": true
   },
   "close_retell": {
     "conversation_id": 42,
@@ -139,7 +140,54 @@
     "also": [
       "The habit grew during the Second World War, when food was rationed.",
       "Visitors are often surprised by how quiet a queue is."
-    ]
+    ],
+    "checked": true
+  },
+  "turn_retell_1": {
+    "conversation_id": 41,
+    "topic_label": "Why Londoners queue for everything",
+    "reply": "Why do you think people queue even when nobody tells them to?",
+    "state": "open",
+    "heard": null
+  },
+  "turn_retell_2": {
+    "conversation_id": 41,
+    "topic_label": "Why Londoners queue for everything",
+    "reply": "How do people feel when someone jumps the queue?",
+    "state": "open",
+    "heard": null
+  },
+  "turn_retell_3": {
+    "conversation_id": 41,
+    "topic_label": "Why Londoners queue for everything",
+    "reply": "When did the habit start, according to the video?",
+    "state": "open",
+    "heard": null
+  },
+  "turn_retell_4": {
+    "conversation_id": 41,
+    "topic_label": "Why Londoners queue for everything",
+    "reply": "What surprises visitors about a queue in London?",
+    "state": "open",
+    "heard": null
+  },
+  "turn_retell_limit": {
+    "conversation_id": 41,
+    "topic_label": "Why Londoners queue for everything",
+    "reply": "",
+    "state": "closing",
+    "heard": null
+  },
+  "close_retell_unchecked": {
+    "conversation_id": 44,
+    "corrections": [],
+    "did_well": "",
+    "summary": "",
+    "word_offers": [],
+    "is_english": true,
+    "covered": [],
+    "also": [],
+    "checked": false
   },
   "close_not_english": {
     "conversation_id": 43,
@@ -149,6 +197,7 @@
     "word_offers": [],
     "is_english": false,
     "covered": [],
-    "also": []
+    "also": [],
+    "checked": true
   }
 }

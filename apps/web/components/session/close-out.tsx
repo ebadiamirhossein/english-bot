@@ -114,6 +114,7 @@ export function CloseOut({
   covered = [],
   also = [],
   isEnglish = true,
+  checked = true,
 }: {
   topic: string | null;
   summary: string;
@@ -132,6 +133,9 @@ export function CloseOut({
   also?: string[];
   /** W15. False when a rung was answered in another language. */
   isEnglish?: boolean;
+  /** W33 (D), #493. False when the close read nothing (its call or the request
+   * failed). On a rung the screen then says so, and never *came across well*. */
+  checked?: boolean;
 }) {
   // **WHITESPACE IS ABSENCE, AND THE RULE LIVES HERE AND NOWHERE ELSE.**
   // `did_well` is `str` and not `str | None` on the wire, so an empty note
@@ -147,7 +151,12 @@ export function CloseOut({
   // headings.** A surface with a heading and nothing under it reads as a thing
   // that failed to load (`BLOCK_UNAVAILABLE`'s whole distinction).
   const hasPoints = covered.length > 0 || also.length > 0;
+  // #493: a rung close that read nothing is neither *bare* nor anything else —
+  // it says it could not check, and nothing that could read as a verdict. The
+  // talk keeps its own line (#493 stays open for the talk).
+  const unchecked = !checked && kind !== "talk";
   const bare =
+    !unchecked &&
     isEnglish && !well && !summary.trim() && !hasCorrections && !hasWords && !hasPoints;
 
   return (
@@ -171,13 +180,19 @@ export function CloseOut({
             {topic}
           </h2>
         ) : null}
-        <p className="mt-2 text-base">
-          {capped
-            ? CONVERSATION.capReached
-            : kind === "talk"
-              ? CONVERSATION.closing
-              : CONVERSATION.rungClosing}
-        </p>
+        {unchecked ? (
+          <p className="mt-2 text-base" data-testid="close-unchecked">
+            {kind === "retell" ? CONVERSATION.retellUnchecked : CONVERSATION.answerUnchecked}
+          </p>
+        ) : (
+          <p className="mt-2 text-base">
+            {capped
+              ? CONVERSATION.capReached
+              : kind === "talk"
+                ? CONVERSATION.closing
+                : CONVERSATION.rungClosing}
+          </p>
+        )}
       </div>
 
       {/* W15: a rung answered in another language. It says so, corrects

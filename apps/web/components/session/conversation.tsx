@@ -100,6 +100,9 @@ export function Conversation({
   const [covered, setCovered] = useState<string[]>([]);
   const [also, setAlso] = useState<string[]>([]);
   const [isEnglish, setIsEnglish] = useState(true);
+  // W33 (D), #493: false when the close read nothing — the model call failed
+  // (`checked: false`) or the close request itself did.
+  const [checked, setChecked] = useState(true);
   // #408: each offered word's token, held here and never rendered.
   const tokens = useRef<Record<string, string>>({});
 
@@ -172,6 +175,7 @@ export function Conversation({
   const end = useCallback(async () => {
     const out = await call(closeConversation);
     setDone(true);
+    setChecked(out !== null && out.checked !== false);
     if (out) {
       setCorrections(out.corrections ?? []);
       // **Passed through RAW.** Whitespace-is-absence is `CloseOut`'s rule and
@@ -197,7 +201,10 @@ export function Conversation({
       if (out.heard) setLines((l) => [...l, { who: "you", text: out.heard! }]);
       // A rung answers with an EMPTY reply: nothing to show until the close.
       if (out.reply) setLines((l) => [...l, { who: "app", text: out.reply }]);
-      // `closing` is the cap arriving after this turn, or a rung's one turn.
+      // `closing` is the cap arriving after this turn, an answer's one turn, or
+      // a retell's FIFTH (W33 (D), #491 → R2). **A retell's follow-up comes back
+      // `open` with its question, and nothing here closes on it** — only this
+      // line, and the learner's *That's enough for now*.
       if (out.state === "closing") await end();
     },
     [end],
@@ -403,6 +410,7 @@ export function Conversation({
         covered={covered}
         also={also}
         isEnglish={isEnglish}
+        checked={checked}
         onKeep={async (w) => {
           // #408: the word goes back with the token its offer was signed with.
           const token = tokens.current[w] ?? "";
@@ -457,7 +465,9 @@ export function Conversation({
             onClick={end}
             disabled={busy}
             data-testid="conversation-end"
-            className="shrink-0 rounded-full border border-border px-4 py-2.5 text-xs text-muted-foreground transition-colors hover:border-foreground hover:text-foreground disabled:opacity-50"
+            // W33 (D), #494: 44 tall. It measured 38 — never asserted until a
+            // retell made it the conversation's only way out before the limit.
+            className="inline-flex min-h-11 shrink-0 items-center rounded-full border border-border px-4 py-2.5 text-xs text-muted-foreground transition-colors hover:border-foreground hover:text-foreground disabled:opacity-50"
           >
             {CONVERSATION.end}
           </button>

@@ -62,7 +62,12 @@ def test_the_committed_talk_fixture_matches_the_wire(app, db, learner, monkeypat
 
     _SDK(RETELL_REPLY).install(monkeypatch)
     _open(app, learner, "retell")
-    _say(app, learner, RETELLING)
+    # W33 (D): a retell turn is `open` and carries a question, like the
+    # committed `turn_retell_*` bodies (#491 → R2).
+    kept = _say(app, learner, RETELLING).json()
+    assert set(kept) == set(committed["turn_retell_1"])
+    assert kept["state"] == committed["turn_retell_1"]["state"] == "open"
+    assert kept["reply"] and committed["turn_retell_1"]["reply"]
     retold = _close(app, learner).json()
     assert set(retold) == set(committed["close_retell"])
     assert set(retold["corrections"][0]) == set(committed["close_retell"]["corrections"][0])

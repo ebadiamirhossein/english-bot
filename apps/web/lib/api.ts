@@ -1026,6 +1026,8 @@ export type ConversationClose = {
   is_english: boolean;
   covered: string[];
   also: string[];
+  /** W33 (D), #493. `false` when the close's model call failed: nothing was read. */
+  checked?: boolean;
 };
 
 /** One rung on offer today. `prompt` is the answer's task, verbatim; `null` on a retell. */

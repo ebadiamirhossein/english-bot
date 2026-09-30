@@ -122,6 +122,10 @@ test.describe("W15 — /talk's rungs", () => {
     await expect(page.getByText("Retell", { exact: true })).toBeVisible();
     await page.getByTestId("conversation-composer").fill("People waits in a line at the bus stop.");
     await page.getByTestId("conversation-send").click();
+    // W33 (D), #491 → R2: the retell asks its follow-up and stays open; the
+    // learner ends it (read: straight to the close-out, until W33).
+    await expect(page.getByTestId("conversation-log")).toContainText(talkFixture.turn_retell_1.reply);
+    await page.getByTestId("conversation-end").click();
     const covered = page.getByTestId("close-covered");
     const also = page.getByTestId("close-also");
     await expect(covered).toContainText("What you got across");
