@@ -209,7 +209,7 @@ def test_journal_corrections_are_capped_at_two_on_screen_and_in_the_journal(
 def test_the_request_asks_for_two_and_guards_truncation(app, learner, monkeypatch) -> None:
     seen = stub_model(monkeypatch, CLEAN)
     post(app, learner)
-    assert seen[0]["max_tokens"] == 2000
+    assert seen[0]["max_tokens"] == 3000  # W33 (B); read 2000
     assert seen[0]["reject_truncation"] is True
     assert seen[0]["json_mode"] is True
     assert "At most 2 corrections" in seen[0]["system"]
@@ -767,3 +767,73 @@ def test_thursday_serves_the_units_task_verbatim(db, learner) -> None:
     assert (thursday.day_kind, thursday.prompt) == ("paragraph", unit1)
     wednesday = writing.today(learner.user_id, now=datetime(2026, 9, 16, 9, 0, tzinfo=timezone.utc))
     assert (wednesday.day_kind, wednesday.prompt) == ("journal", None)
+
+
+# ── W33 (B): the other notes and the natural version ─────────────────────────
+#
+# **One call, two display-only fields, and the journal unchanged.** The model is
+# stubbed once per submission; the counts are this file's own queries (§3 rule 5).
+
+CASUAL = "hi\nim good\ni have a bad headake today\nand i was at work and work a lot.\nand now preparing to go to home."
+
+WITH_MORE = {
+    "is_english": True,
+    "corrections": [
+        correction("work a lot", "worked a lot"),
+        correction("go to home", "go home", "preposition"),
+        # A third good correction: shown as a note, never journaled.
+        correction("now preparing to", "now I'm getting ready to"),
+    ],
+    "more": [
+        {"you_said": "headake", "correct_form": "headache", "kind": "spelling",
+         "explanation": "It's spelled with ch: headache."},
+        {"you_said": "im good", "correct_form": "I'm good", "kind": "capitals",
+         "explanation": "I is always a capital, and I'm needs its apostrophe."},
+    ],
+    "natural": "Hi!\nI'm good.\nI've got a bad headache today.\nI was at work and worked a lot.\nNow I'm getting ready to go home.",
+    "did_well": None,
+}
+
+
+def test_the_wire_carries_the_other_notes_and_the_natural_version(app, learner, monkeypatch) -> None:
+    seen = stub_model(monkeypatch, WITH_MORE)
+    body = post(app, learner, text=CASUAL).json()
+    assert len(seen) == 1, "one call per submission, never a second"
+    assert [c["you_said"] for c in body["corrections"]] == ["work a lot", "go to home"]
+    assert body["more"] == [
+        {"you_said": "now preparing to", "correct_form": "now I'm getting ready to", "kind": "grammar",
+         "explanation": "It's already happened, so the verb moves into the past."},
+        {"you_said": "headake", "correct_form": "headache", "kind": "spelling",
+         "explanation": "It's spelled with ch: headache."},
+        {"you_said": "im good", "correct_form": "I'm good", "kind": "capitals",
+         "explanation": "I is always a capital, and I'm needs its apostrophe."},
+    ]
+    assert "".join(s["text"] for s in body["natural"]) == WITH_MORE["natural"]
+    assert [s["text"] for s in body["natural"] if s["changed"]] == [
+        "Hi", "I'm", "I've got", "headache", "I", "worked", "Now I'm getting ready",
+    ]
+
+
+def test_the_other_notes_are_never_journaled(app, db, learner, monkeypatch) -> None:
+    """**CLAUDE.md §5 and the run prompt: nothing new reaches `errors`.** Two
+    corrections are journaled exactly as before; the three notes are not."""
+    stub_model(monkeypatch, WITH_MORE)
+    post(app, learner, text=CASUAL)
+    assert count(db, "SELECT count(*) FROM errors WHERE user_id = %s", learner.user_id) == 2
+    rows = db.execute(
+        "SELECT you_said FROM errors WHERE user_id = %s ORDER BY you_said", (learner.user_id,)
+    ).fetchall()
+    assert [r[0] for r in rows] == ["go to home", "work a lot"]
+
+
+def test_no_number_crosses_the_wire_with_the_notes_either(app, learner, monkeypatch) -> None:
+    """#160 and CLAUDE.md §4: the notes and the natural version carry no count."""
+    stub_model(monkeypatch, WITH_MORE)
+    assert _ints(post(app, learner, text=CASUAL).json()) == []
+
+
+def test_a_clean_entry_carries_an_empty_list_and_no_natural_version(app, learner, monkeypatch) -> None:
+    stub_model(monkeypatch, CLEAN)
+    body = post(app, learner).json()
+    assert body["more"] == []
+    assert "natural" not in body

@@ -109,6 +109,10 @@ class WritingOutcome:
     structure: tuple[dict, ...] | None = None
     #: W16b. ``{phrase, sentence, in_deck}``, at most two, paragraph only.
     word_offers: tuple[dict, ...] = ()
+    #: W33 (B). The journal's other notes — **shown on request, never journaled**.
+    more: tuple[dict, ...] = ()
+    #: W33 (B). The natural version as ``{text, changed}`` runs; ``None`` = absent.
+    natural: tuple[dict, ...] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +302,8 @@ def build_system_prompt(user: User, kind: DayKind, task: str | None = None) -> s
         error_type_list=type_list,
         explanation_language_rule=correction.explanation_language_rule(named),
         max_corrections=rules.max_corrections(kind),
+        # W33 (B): the journal's other notes; the paragraph template has no slot.
+        max_more=rules.JOURNAL_MAX_MORE_NOTES,
         task=task or "",
     )
 
@@ -422,6 +428,9 @@ def correct_submission(
             ",".join(f"{k}:{v}" for k, v in sorted(shaped.dropped.items())),
         )
 
+    # **W33 (B): the journal takes `shaped.corrections` and NOTHING ELSE.** The
+    # other notes and the natural version are display only — a spelling slip is
+    # a typo and a phrasing note is not an error (CLAUDE.md §5).
     written = 0
     if shaped.is_english and shaped.corrections:
         written = record_errors(user.id, JOURNAL_SOURCE, list(shaped.corrections))
@@ -452,6 +461,8 @@ def correct_submission(
         written=written,
         structure=shaped.structure,
         word_offers=word_offers,
+        more=shaped.more,
+        natural=shaped.natural,
     )
 
 

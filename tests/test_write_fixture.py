@@ -82,7 +82,22 @@ def test_the_committed_write_fixture_matches_the_wire(app, learner, monkeypatch)
     assert committed_four["payload"] == served_four["payload"]
 
 
-@pytest.mark.parametrize("name", ["two", "one", "clean_no_line", "no_label", "not_english"])
+def test_the_committed_notes_fixture_matches_the_wire(app, learner, monkeypatch) -> None:
+    """W33 (B): the body the Vitest and Playwright tests render the notes and the
+    natural version from has the keys the real route serves."""
+    from tests.test_writing_route import CASUAL, WITH_MORE
+
+    committed = _committed()["with_more"]
+    stub_model(monkeypatch, WITH_MORE)
+    served = post(app, learner, text=CASUAL).json()
+    assert set(committed) == set(served)
+    assert set(committed["more"][0]) == set(served["more"][0])
+    assert set(committed["natural"][0]) == set(served["natural"][0])
+
+
+@pytest.mark.parametrize(
+    "name", ["two", "one", "clean_no_line", "no_label", "not_english", "with_more", "more_no_natural"]
+)
 def test_no_committed_body_carries_a_null(name) -> None:
     """Absent means absent (Ruling 2): the route serialises with exclude_none."""
 

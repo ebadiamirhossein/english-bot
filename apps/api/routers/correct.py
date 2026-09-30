@@ -99,6 +99,8 @@ def result_out(outcome: writing.WritingOutcome) -> CorrectionResult:
         ],
         structure=None if outcome.structure is None else list(outcome.structure),
         word_offers=list(outcome.word_offers),
+        more=[dict(n) for n in outcome.more],
+        natural=None if outcome.natural is None else [dict(r) for r in outcome.natural],
     )
 
 

@@ -12,6 +12,8 @@ import {
   keepPhrase,
   requestCorrection,
   type CorrectionResult,
+  type MoreNote,
+  type NaturalSegment,
   type WordOffer,
   type WriteToday,
 } from "@/lib/api";
@@ -320,6 +322,23 @@ function Result({
   const corrections = result.corrections;
   const structure = result.structure ?? [];
   const offers = result.word_offers ?? [];
+  // W33 (B): both come in the ONE response already in hand — a button press
+  // only shows what is here, and never asks the server for anything.
+  const more = paragraph ? [] : result.more ?? [];
+  const natural = paragraph ? [] : result.natural ?? [];
+  const [showAll, setShowAll] = useState(false);
+  const [showNatural, setShowNatural] = useState(false);
+  const moreRef = useRef<HTMLElement>(null);
+  const naturalRef = useRef<HTMLElement>(null);
+  // What was just opened is brought into view inside the result's own scroll
+  // region: on a phone the buttons sit near the bottom, and a section that opens
+  // below the fold looks like a button that did nothing.
+  useEffect(() => {
+    if (showAll) moreRef.current?.scrollIntoView?.({ block: "start" });
+  }, [showAll]);
+  useEffect(() => {
+    if (showNatural) naturalRef.current?.scrollIntoView?.({ block: "start" });
+  }, [showNatural]);
   return (
     <>
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pb-4" data-testid="write-result">
@@ -417,6 +436,42 @@ function Result({
           </section>
         ) : null}
 
+        {/* W33 (B) — the operator's request of 2026-09-30. The two above stay the
+            default; these two quiet buttons open the rest and the rewrite. Each
+            is drawn only when there is something behind it, and neither says how
+            many (#160). */}
+        {more.length > 0 || natural.length > 0 ? (
+          <div className="flex flex-wrap gap-2" data-testid="write-more-controls">
+            {more.length > 0 ? (
+              <button
+                type="button"
+                data-testid="write-show-all"
+                aria-expanded={showAll}
+                aria-controls="write-more"
+                onClick={() => setShowAll((open) => !open)}
+                className={QUIET}
+              >
+                {showAll ? WRITE.showFewer : WRITE.showAll}
+              </button>
+            ) : null}
+            {natural.length > 0 ? (
+              <button
+                type="button"
+                data-testid="write-show-natural"
+                aria-expanded={showNatural}
+                aria-controls="write-natural"
+                onClick={() => setShowNatural((open) => !open)}
+                className={QUIET}
+              >
+                {showNatural ? WRITE.hideNatural : WRITE.showNatural}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {showAll && more.length > 0 ? <MoreNotes notes={more} anchor={moreRef} /> : null}
+        {showNatural && natural.length > 0 ? <Natural segments={natural} anchor={naturalRef} /> : null}
+
         {/* `1o`: last on the screen, and absent — heading and all — when nothing
             survived the offer rule. No gloss: nothing is generated while the
             learner waits, so the row carries the sentence the deck stores. */}
@@ -446,6 +501,83 @@ function Result({
   );
 }
 
+
+/** W33 (B). The quiet button: `KeepRow`'s outline pill, 44 tall. */
+const QUIET =
+  "inline-flex min-h-11 items-center rounded-full border border-border px-4 text-sm font-medium transition-colors hover:border-foreground";
+
+/** W33 (B). The other notes — a correction card's anatomy, smaller. Shown, never journaled. */
+function MoreNotes({ notes, anchor }: { notes: MoreNote[]; anchor: React.RefObject<HTMLElement | null> }) {
+  return (
+    <section id="write-more" ref={anchor} className="space-y-2" data-testid="write-more">
+      <p className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
+        {WRITE.moreHeading}
+      </p>
+      {notes.map((n, i) => (
+        <article
+          key={i}
+          className="rounded-xl border border-caution-border bg-caution px-3.5 py-3"
+          data-testid="write-more-note"
+        >
+          <p
+            className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-caution-foreground"
+            data-testid="write-more-label"
+          >
+            {WRITE.moreKinds[n.kind] ?? WRITE.moreKinds.grammar}
+          </p>
+          <p
+            className="mt-1.5 text-sm leading-normal text-muted-foreground underline decoration-dotted underline-offset-4"
+            data-speaker="you"
+            data-testid="write-more-said"
+          >
+            {n.you_said}
+          </p>
+          <p className="mt-1 font-heading text-[0.97rem] leading-normal" data-speaker="app" data-testid="write-more-better">
+            {n.correct_form}
+          </p>
+          <p className="mt-1.5 text-[0.8125rem] leading-normal text-muted-foreground" data-testid="write-more-why">
+            {n.explanation}
+          </p>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+/** W33 (B). The whole entry as a friend might say it; the changed words marked.
+ * The learner's own text above stays whole and unmarked (`1k`) — the marks are
+ * on the rewrite only, and they are a highlight, never a red or a strike. */
+function Natural({ segments, anchor }: { segments: NaturalSegment[]; anchor: React.RefObject<HTMLElement | null> }) {
+  return (
+    <section id="write-natural" ref={anchor} className="space-y-2" data-testid="write-natural">
+      <p className="font-mono text-[0.625rem] uppercase tracking-[0.11em] text-muted-foreground">
+        {WRITE.naturalHeading}
+      </p>
+      <p
+        className="whitespace-pre-wrap font-heading text-[1.0625rem] leading-[1.6]"
+        data-speaker="app"
+        data-testid="write-natural-text"
+      >
+        {segments.map((s, i) =>
+          s.changed ? (
+            <mark
+              key={i}
+              className="rounded-sm bg-accent px-0.5 text-accent-foreground"
+              data-testid="write-natural-changed"
+            >
+              {s.text}
+            </mark>
+          ) : (
+            <span key={i}>{s.text}</span>
+          ),
+        )}
+      </p>
+      <p className="text-sm text-muted-foreground" data-testid="write-natural-note">
+        {WRITE.naturalNote}
+      </p>
+    </section>
+  );
+}
 
 /** `1o`'s row: offer → *In your deck*, or *In your deck* as it arrives. */
 function KeepRow({ offer }: { offer: WordOffer }) {

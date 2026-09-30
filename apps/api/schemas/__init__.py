@@ -138,6 +138,30 @@ class CorrectionResult(BaseModel):
     structure: list["StructureParagraph"] | None = None
     #: W16b → `1o`. `[]` on the journal and when nothing survives the offer rule.
     word_offers: list["WordOffer"] = []
+    #: W33 (B). The journal's other notes, behind *Show all notes*. `[]` on the
+    #: paragraph and when none survive. **Never journaled.**
+    more: list["MoreNote"] = []
+    #: W33 (B). The natural version, behind *Natural version*: runs of text,
+    #: ``changed`` marking the new words. ABSENT when there is nothing to show.
+    natural: list["NaturalSegment"] | None = None
+
+
+class MoreNote(BaseModel):
+    """One other note (W33 (B)): a correction card's anatomy, smaller, and a
+    ``kind`` the screen names in words — ``spelling``, ``capitals``, ``grammar``
+    or ``phrasing``. **No count and no code on the wire.**"""
+
+    you_said: str
+    correct_form: str
+    explanation: str
+    kind: str
+
+
+class NaturalSegment(BaseModel):
+    """One run of the natural version; ``changed`` is a word the rewrite changed."""
+
+    text: str
+    changed: bool
 
 
 class StructureSegment(BaseModel):

@@ -65,7 +65,23 @@ PARAGRAPH_MAX_CORRECTIONS = 8
 #: to be REPORTED against by the §3 rule 2 call, not tuned in advance.**
 #: `reject_truncation` goes with it: a truncated JSON array would parse into
 #: fewer corrections and a silent hole.
-WRITING_MAX_TOKENS = 2000
+#:
+#: **W33 (B): 2,000 → 3,000.** The same call now also returns the other notes
+#: (at most `JOURNAL_MAX_MORE_NOTES`, one short sentence each) and the natural
+#: version — a rewrite as long as the entry, up to ~450 tokens at `MAX_CHARS`.
+#: With #411's measured 650 for the old shape, a long entry plus adaptive
+#: thinking would sit one bad sitting from a truncation 503. **A higher cap
+#: bills nothing unused** (finding (d)'s reasoning); the ceiling cost of one
+#: submission moves from 2,000 to 3,000 output tokens. It read `2000` until W33.
+WRITING_MAX_TOKENS = 3000
+#: **W33 (B), the operator's request of 2026-09-30.** Below the two corrections,
+#: *Show all notes* opens the rest: spelling, capitals, smaller grammar, phrasing.
+#: Six bounds a list nobody has to count and a model output nobody has to page;
+#: the two that matter most stay the default and the only journaled ones.
+JOURNAL_MAX_MORE_NOTES = 6
+#: The kinds a note may carry. The screen names each in words (`copy.ts`); a
+#: kind outside this set is dropped, never guessed at.
+MORE_KINDS: tuple[str, ...] = ("spelling", "capitals", "grammar", "phrasing")
 
 #: **W16b finding (d).** The paragraph shared the journal's 2,000 until review.
 #: It asks for up to four times the corrections plus the structure prose, and

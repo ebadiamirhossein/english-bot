@@ -1,6 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
-import { ENTRY, fixture, LONG, mockApi, PARAGRAPH } from "./support/api";
+import { API } from "../playwright.config";
+import { CASUAL, ENTRY, fixture, LONG, mockApi, PARAGRAPH } from "./support/api";
 import {
   contrastOf,
   expectDocumentDoesNotScroll,
@@ -342,5 +343,145 @@ test.describe("W16b — the paragraph", () => {
       if (ratio < 4.5) failing.push(`${name} ${ratio.toFixed(2)}:1`);
     }
     expect(failing, "text pairs under 4.5:1").toEqual([]);
+  });
+});
+
+
+/**
+ * W33 (B) — *Show all notes* and *Natural version* under the two, in a real
+ * browser at every project's size and theme, with a screenshot of each asserted
+ * state in `e2e/screenshots/W33/` (§1a stays suspended for this surface, as in
+ * W31/W32: the screenshots are the review).
+ *
+ * **THE NETWORK COUNT IS THE RUN PROMPT'S RULE: no request on a button press.**
+ * Every request to the API origin is counted from the moment the result is on
+ * screen; opening and closing both must add none.
+ *
+ * **NOT MEANT BY A GREEN RUN:** that a note is right, or that the rewrite keeps
+ * the learner's meaning and sounds like a friend. Those are the operator's reads
+ * (W33-P2, W33-P3) on a real entry.
+ */
+test.describe("W33 (B) — the other notes and the natural version", () => {
+  async function shot(page: Page, info: TestInfo, state: string) {
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: `e2e/screenshots/W33/${state}--${info.project.name}.png`, fullPage: false });
+  }
+
+  /** Every request to the API origin from now on, OPTIONS included. */
+  function countRequests(page: Page): () => number {
+    let n = 0;
+    page.on("request", (request) => {
+      if (request.url().startsWith(API)) n += 1;
+    });
+    return () => n;
+  }
+
+  async function result(page: Page, body = fixture.with_more) {
+    await mockApi(page, { correct: { body } });
+    await page.goto("/write");
+    await page.getByTestId("write-field").fill(CASUAL);
+    await page.getByTestId("write-submit").click();
+    await expect(page.getByTestId("write-correction")).toHaveCount(2);
+  }
+
+  test("default: the two, and both quiet buttons reachable once scrolled to", async ({ page }, info) => {
+    await result(page);
+    await expect(page.getByTestId("write-more")).toHaveCount(0);
+    await expect(page.getByTestId("write-natural")).toHaveCount(0);
+    for (const id of ["write-show-all", "write-show-natural"]) {
+      const button = page.getByTestId(id);
+      await button.evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await expectInViewport(page, button);
+      await expectReachable(button);
+      await expectTapTarget(button);
+    }
+    await expect(page.getByTestId("write-result")).not.toContainText(/\d/);
+    await expectInViewport(page, page.getByTestId("write-back"));
+    await expectDocumentDoesNotScroll(page);
+    await expectNoHorizontalOverflow(page);
+    await shot(page, info, "1-default");
+  });
+
+  test("Show all notes: the rest open into view, and no request is made", async ({ page }, info) => {
+    await result(page);
+    const requests = countRequests(page);
+    const button = page.getByTestId("write-show-all");
+    await button.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await button.click();
+    await expect(page.getByTestId("write-more-note")).toHaveCount(4);
+    await expectInViewport(page, page.getByTestId("write-more-note").first());
+    await expect(page.getByTestId("write-correction")).toHaveCount(2);
+    await expect(page.getByTestId("write-result")).not.toContainText(/\d/);
+    await expectInViewport(page, page.getByTestId("write-back"));
+    await expectReachable(page.getByTestId("write-back"));
+    await expectDocumentDoesNotScroll(page);
+    await expectNoHorizontalOverflow(page);
+    await shot(page, info, "2-all-notes");
+    // Closed again, and still nothing asked of the server.
+    await button.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await button.click();
+    await expect(page.getByTestId("write-more")).toHaveCount(0);
+    expect(requests(), "a button press sent a request").toBe(0);
+  });
+
+  test("Natural version: the rewrite and its highlights open into view, and no request is made", async ({ page }, info) => {
+    await result(page);
+    const requests = countRequests(page);
+    const button = page.getByTestId("write-show-natural");
+    await button.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await button.click();
+    const text = page.getByTestId("write-natural-text");
+    await expectInViewport(page, text);
+    await expect(page.getByTestId("write-natural-changed")).toHaveCount(7);
+    await expect(page.getByTestId("write-natural-changed").first()).toHaveText("Hi");
+    await expectInViewport(page, page.getByTestId("write-natural-changed").first());
+    await expectInViewport(page, page.getByTestId("write-back"));
+    await expectDocumentDoesNotScroll(page);
+    await expectNoHorizontalOverflow(page);
+    await shot(page, info, "3-natural");
+    expect(requests(), "a button press sent a request").toBe(0);
+  });
+
+  test("both open: every text pair holds 4.5:1 in this theme, highlight included", async ({ page }, info) => {
+    await result(page);
+    const requests = countRequests(page);
+    for (const id of ["write-show-all", "write-show-natural"]) {
+      const button = page.getByTestId(id);
+      await button.evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await button.click();
+    }
+    await expect(page.getByTestId("write-more-note")).toHaveCount(4);
+    await page.mouse.move(0, 0);
+    const pairs: Record<string, import("@playwright/test").Locator> = {
+      showAll: page.getByTestId("write-show-all"),
+      showNatural: page.getByTestId("write-show-natural"),
+      moreLabel: page.getByTestId("write-more-label").first(),
+      moreSaid: page.getByTestId("write-more-said").first(),
+      moreBetter: page.getByTestId("write-more-better").first(),
+      moreWhy: page.getByTestId("write-more-why").first(),
+      natural: page.getByTestId("write-natural-text"),
+      changed: page.getByTestId("write-natural-changed").first(),
+      note: page.getByTestId("write-natural-note"),
+    };
+    const failing: string[] = [];
+    for (const [name, locator] of Object.entries(pairs)) {
+      const ratio = await contrastOf(locator);
+      if (ratio < 4.5) failing.push(`${name} ${ratio.toFixed(2)}:1`);
+    }
+    expect(failing, "text pairs under 4.5:1").toEqual([]);
+    await expectDocumentDoesNotScroll(page);
+    await expectNoHorizontalOverflow(page);
+    await shot(page, info, "4-both-open");
+    expect(requests(), "a button press sent a request").toBe(0);
+  });
+
+  test("notes without a rewrite: only Show all notes is drawn", async ({ page }, info) => {
+    await result(page, fixture.more_no_natural);
+    await expect(page.getByTestId("write-show-natural")).toHaveCount(0);
+    const button = page.getByTestId("write-show-all");
+    await button.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await expectReachable(button);
+    await expectTapTarget(button);
+    await shot(page, info, "5-notes-only");
   });
 });

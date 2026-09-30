@@ -792,7 +792,8 @@
         "label": "Prepositions"
       }
     ],
-    "word_offers": []
+    "word_offers": [],
+    "more": []
   },
   "one": {
     "is_english": true,
@@ -805,12 +806,14 @@
         "label": "Past tense"
       }
     ],
-    "word_offers": []
+    "word_offers": [],
+    "more": []
   },
   "clean_no_line": {
     "is_english": true,
     "corrections": [],
-    "word_offers": []
+    "word_offers": [],
+    "more": []
   },
   "no_label": {
     "is_english": true,
@@ -821,12 +824,160 @@
         "explanation": "It's already happened, so the verb moves into the past: went."
       }
     ],
-    "word_offers": []
+    "word_offers": [],
+    "more": []
   },
   "not_english": {
     "is_english": false,
     "corrections": [],
-    "word_offers": []
+    "word_offers": [],
+    "more": []
+  },
+  "with_more": {
+    "is_english": true,
+    "corrections": [
+      {
+        "you_said": "work a lot",
+        "correct_form": "worked a lot",
+        "explanation": "It happened earlier today, so it's worked.",
+        "label": "Past tense"
+      },
+      {
+        "you_said": "go to home",
+        "correct_form": "go home",
+        "explanation": "Home takes no to after go.",
+        "label": "Prepositions"
+      }
+    ],
+    "word_offers": [],
+    "more": [
+      {
+        "you_said": "headake",
+        "correct_form": "headache",
+        "explanation": "Just a slip: it's spelled headache.",
+        "kind": "spelling"
+      },
+      {
+        "you_said": "im good",
+        "correct_form": "I'm good",
+        "explanation": "I is always a capital, and I'm has an apostrophe.",
+        "kind": "capitals"
+      },
+      {
+        "you_said": "i have",
+        "correct_form": "I have",
+        "explanation": "I on its own is always a capital letter.",
+        "kind": "capitals"
+      },
+      {
+        "you_said": "now preparing to",
+        "correct_form": "now getting ready to",
+        "explanation": "Getting ready is what people say about going home.",
+        "kind": "phrasing"
+      }
+    ],
+    "natural": [
+      {
+        "text": "Hi",
+        "changed": true
+      },
+      {
+        "text": "!\n",
+        "changed": false
+      },
+      {
+        "text": "I'm",
+        "changed": true
+      },
+      {
+        "text": " good.\n",
+        "changed": false
+      },
+      {
+        "text": "I've got",
+        "changed": true
+      },
+      {
+        "text": " a bad ",
+        "changed": false
+      },
+      {
+        "text": "headache",
+        "changed": true
+      },
+      {
+        "text": " today.\n",
+        "changed": false
+      },
+      {
+        "text": "I",
+        "changed": true
+      },
+      {
+        "text": " was at work and ",
+        "changed": false
+      },
+      {
+        "text": "worked",
+        "changed": true
+      },
+      {
+        "text": " a lot.\n",
+        "changed": false
+      },
+      {
+        "text": "Now I'm getting ready",
+        "changed": true
+      },
+      {
+        "text": " to go home.",
+        "changed": false
+      }
+    ]
+  },
+  "more_no_natural": {
+    "is_english": true,
+    "corrections": [
+      {
+        "you_said": "work a lot",
+        "correct_form": "worked a lot",
+        "explanation": "It happened earlier today, so it's worked.",
+        "label": "Past tense"
+      },
+      {
+        "you_said": "go to home",
+        "correct_form": "go home",
+        "explanation": "Home takes no to after go.",
+        "label": "Prepositions"
+      }
+    ],
+    "word_offers": [],
+    "more": [
+      {
+        "you_said": "headake",
+        "correct_form": "headache",
+        "explanation": "Just a slip: it's spelled headache.",
+        "kind": "spelling"
+      },
+      {
+        "you_said": "im good",
+        "correct_form": "I'm good",
+        "explanation": "I is always a capital, and I'm has an apostrophe.",
+        "kind": "capitals"
+      },
+      {
+        "you_said": "i have",
+        "correct_form": "I have",
+        "explanation": "I on its own is always a capital letter.",
+        "kind": "capitals"
+      },
+      {
+        "you_said": "now preparing to",
+        "correct_form": "now getting ready to",
+        "explanation": "Getting ready is what people say about going home.",
+        "kind": "phrasing"
+      }
+    ]
   },
   "session_paragraph": {
     "session_id": 90,
@@ -937,7 +1088,8 @@
         "in_deck": true,
         "token": "fixture-offer-1"
       }
-    ]
+    ],
+    "more": []
   },
   "paragraph_bare": {
     "is_english": true,
@@ -961,7 +1113,8 @@
         "label": "Subject and verb"
       }
     ],
-    "word_offers": []
+    "word_offers": [],
+    "more": []
   },
   "paragraph_one_offer": {
     "is_english": true,
@@ -1012,6 +1165,7 @@
         "in_deck": false,
         "token": "fixture-offer-0"
       }
-    ]
+    ],
+    "more": []
   }
 }

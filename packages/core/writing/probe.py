@@ -18,6 +18,13 @@ production is never contacted.**
 imports a writer or contains an `INSERT` or `UPDATE`. The texts are FIXTURES —
 design `1k`'s and `1m`'s entries — so no learner's writing leaves the machine.
 
+**W33 (B) ADDS A FOURTH FIXTURE, `casual`,** because the journal prompt now also
+asks for the other notes and the natural version — new request construction,
+so §3 rule 2 owes one real call of it — and design `1k`'s entry is too tidy to
+show either (no spelling slip, no lower-case `i`). The live run prints both after
+the gates. **Its usage line is the measurement W33's cost estimate is REPORTED
+against.**
+
 **TWO CALLS, NOT ONE, AND THE SECOND IS NOT A RETRY.** Ruling 2 has two branches
 — an opening line that survives and one that is absent — and a single fixture
 can only ever show one of them. The entry with errors is expected to produce
@@ -72,10 +79,23 @@ FIXTURE_PARAGRAPH = (
     "very tired."
 )
 
+#: W33 (B). A casual, lower-case entry SHAPED like the operator's report of
+#: 2026-09-30 — spelling slips, a missing capital I, `im`, two small grammar
+#: slips — so the live run shows the other notes and the natural version. **It is
+#: written for the probe and copies no line of a learner's diary** (CLAUDE.md §5).
+FIXTURE_CASUAL = (
+    "hi\n"
+    "im good\n"
+    "i have a bad headake today\n"
+    "and i was at work and work a lot.\n"
+    "and now preparing to go to home."
+)
+
 FIXTURES: tuple[tuple[str, rules.DayKind, str], ...] = (
     ("with_errors", "journal", FIXTURE_WITH_ERRORS),
     ("clean", "journal", FIXTURE_CLEAN),
     ("paragraph", "paragraph", FIXTURE_PARAGRAPH),
+    ("casual", "journal", FIXTURE_CASUAL),
 )
 
 #: The number of billed calls `--live` makes. Printed by the dry run so the
@@ -124,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
             f"\nrequest ({kind}): json_mode=True "
             f"max_tokens={rules.max_tokens(kind)} reject_truncation=True "
             f"max_corrections={rules.max_corrections(kind)}"
+            + (f" max_more={rules.JOURNAL_MAX_MORE_NOTES}" if kind == "journal" else "")
         )
         print(f"--- system prompt, {kind} (as sent) ---")
         print(writing.build_system_prompt(learner, kind, task))
@@ -159,6 +180,17 @@ def main(argv: list[str] | None = None) -> int:
         for c in shaped.corrections:
             print(f"  [{c['label']}] {c['you_said']!r} -> {c['correct_form']!r}  keep={c.get('keep')!r}")
             print(f"      {c['explanation']}")
+        if kind == "journal":
+            # W33 (B): display only — nothing here is ever journaled.
+            print(f"other notes kept: {len(shaped.more)}")
+            for n in shaped.more:
+                print(f"  [{n['kind']}] {n['you_said']!r} -> {n['correct_form']!r}")
+                print(f"      {n['explanation']}")
+            if shaped.natural is None:
+                print("natural: ABSENT (refused, unchanged or missing)")
+            else:
+                print("natural: " + "".join(f"[{r['text']}]" if r["changed"] else r["text"] for r in shaped.natural))
+                print("  ([...] = a changed word, highlighted on the screen)")
         print(f"dropped by gate: {shaped.dropped or '{}'}")
         if kind == "paragraph":
             print(f"structure: {'ABSENT (refused or missing)' if shaped.structure is None else json.dumps(shaped.structure, ensure_ascii=False)}")

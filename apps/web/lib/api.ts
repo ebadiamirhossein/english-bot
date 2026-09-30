@@ -145,7 +145,23 @@ export type CorrectionResult = {
   structure?: StructureParagraph[];
   /** W16b → `1o`. `[]` on the journal and when nothing survived the offer rule. */
   word_offers: WordOffer[];
+  /** W33 (B). The journal's other notes, behind *Show all notes*. `[]` when none
+   * — and older bodies may lack it, so read it as `?? []`. Never journaled. */
+  more?: MoreNote[];
+  /** W33 (B). The natural version, behind *Natural version*. ABSENT when none. */
+  natural?: NaturalSegment[];
 };
+
+/** W33 (B). One other note: a correction's anatomy, and a kind named in words. */
+export type MoreNote = {
+  you_said: string;
+  correct_form: string;
+  explanation: string;
+  kind: "spelling" | "capitals" | "grammar" | "phrasing";
+};
+
+/** W33 (B). One run of the natural version; `changed` marks the rewrite's new words. */
+export type NaturalSegment = { text: string; changed: boolean };
 
 /** One run of structure prose; `quote` is the learner's own words, set in italic. */
 export type StructureSegment = { text: string; quote: boolean };

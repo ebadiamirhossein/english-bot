@@ -60,10 +60,15 @@ def test_the_paragraph_shows_and_writes_at_most_eight() -> None:
 
 
 def test_the_bounds() -> None:
-    """The floor is W3's ten, unchanged; the ceiling is Q-B's two thousand."""
+    """The floor is W3's ten, unchanged; the ceiling is Q-B's two thousand.
+
+    **W33 (B): the journal's output budget 2,000 → 3,000** — the same call now
+    also returns the other notes and the natural version (a rewrite as long as
+    the entry). It read `== 2000` until W33 (#82's shape)."""
     assert rules.MIN_CHARS == 10
     assert rules.MAX_CHARS == 2000
-    assert rules.WRITING_MAX_TOKENS == 2000
+    assert rules.WRITING_MAX_TOKENS == 3000
+    assert rules.JOURNAL_MAX_MORE_NOTES == 6
 
 
 def test_the_paragraph_has_its_own_output_budget() -> None:
@@ -75,7 +80,7 @@ def test_the_paragraph_has_its_own_output_budget() -> None:
     would 503 as truncated. **Red demonstration:** before `max_tokens(kind)` existed
     this failed on the attribute; with the paragraph mapped to 2,000 it failed on
     the number."""
-    assert rules.max_tokens("journal") == 2000
+    assert rules.max_tokens("journal") == 3000  # W33 (B); read 2000 until then
     assert rules.max_tokens("paragraph") == 4000
     with pytest.raises(ValueError):
         rules.max_tokens("essay")  # type: ignore[arg-type]

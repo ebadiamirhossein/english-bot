@@ -86,7 +86,7 @@ def test_the_request_as_sent(mock_cls, _sleep) -> None:
     assert client.messages.create.call_count == 1
     kwargs = client.messages.create.call_args.kwargs
 
-    assert kwargs["max_tokens"] == 2000
+    assert kwargs["max_tokens"] == 3000  # W33 (B): the notes and the natural version; read 2000
     messages = kwargs["messages"]
     assert len(messages) == 1 and messages[0]["role"] == "user"
     content = messages[0]["content"]

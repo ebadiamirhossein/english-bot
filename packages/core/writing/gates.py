@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 
 from core.copy_rules import BANNED, content_offenders
 from core.lexicon.normalize import lemmatize
+from core.writing import natural as natural_text
+from core.writing.rules import JOURNAL_MAX_MORE_NOTES, MORE_KINDS
 
 # ---------------------------------------------------------------------------
 # Normalisation shared by G1 and G2
@@ -344,6 +346,127 @@ def structure_of(
     return tuple(kept) or None
 
 
+
+# ---------------------------------------------------------------------------
+# W33 (B) — the other notes and the natural version (the journal only)
+# ---------------------------------------------------------------------------
+
+#: How much longer than the entry a natural version may be before it is refused:
+#: twice the entry plus this. A rewrite of the learner's day, not an essay.
+NATURAL_SLACK_CHARS = 100
+
+
+def _exact(text: str) -> str:
+    """`_normal` WITHOUT the casefold: quotes straightened, whitespace collapsed.
+
+    **A note's only change may be a capital letter** (*i have → I have*), so its
+    no-change test cannot casefold the way G1 does. G1 itself is unchanged.
+    """
+    text = unicodedata.normalize("NFC", text or "").translate(_QUOTES)
+    return _SPACE.sub(" ", text).strip()
+
+
+def more_notes(
+    raw: object,
+    submitted: str,
+    *,
+    corrected: Iterable[str],
+    spill: Iterable[Mapping],
+    limit: int,
+    kinds: Iterable[str],
+    dropped: Counter,
+) -> tuple[dict, ...]:
+    """The journal's other notes, **display only**. Removal, never repair.
+
+    **FIRST the spill** — a correction that passed EVERY journal gate and was
+    stopped only by the two-correction cap is shown here as a `grammar` note
+    (*if the call already returns more than two, use them*, the run prompt). It
+    is not journaled: `record_errors` takes `Shaped.corrections` and nothing else.
+
+    **THEN the model's `more`**, each note refused when: its `kind` is not one of
+    ``kinds``; a field is blank; it changes nothing (`_exact`, case-sensitive); its
+    original is not the learner's (G1, `is_self_produced`); it repeats a shown
+    correction or a spill (`overlaps_a_correction`, whole words); its explanation
+    fails the content rule. **NOT the typo gate (G2)** — spelling is what a note is
+    FOR, and G2 exists to keep a typo out of the journal, which a note never reaches.
+    At most ``limit`` in all; the rest counted as `more_over_cap`.
+    """
+    kept: list[dict] = []
+    taken = [str(s) for s in corrected]
+    for item in spill:
+        if len(kept) >= limit:
+            dropped["more_over_cap"] += 1
+            continue
+        kept.append({
+            "you_said": item["you_said"],
+            "correct_form": item["correct_form"],
+            "kind": "grammar",
+            "explanation": item["explanation"],
+        })
+        taken.append(item["you_said"])
+    allowed = frozenset(kinds)
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, Mapping):
+            dropped["more_malformed"] += 1
+            continue
+        kind = item.get("kind")
+        if kind not in allowed:
+            dropped["more_kind"] += 1
+            continue
+        you_said = str(item.get("you_said") or "").strip()
+        correct_form = str(item.get("correct_form") or "").strip()
+        explanation = str(item.get("explanation") or "").strip()
+        if not you_said or not correct_form or not explanation:
+            dropped["more_malformed"] += 1
+            continue
+        if _exact(you_said) == _exact(correct_form):
+            dropped["more_no_change"] += 1
+            continue
+        if not is_self_produced(you_said, submitted):
+            dropped["more_not_self_produced"] += 1
+            continue
+        if any(overlaps_a_correction(you_said, other) for other in taken):
+            dropped["more_duplicate"] += 1
+            continue
+        if not explanation_is_clean(explanation):
+            dropped["more_explanation"] += 1
+            continue
+        if len(kept) >= limit:
+            dropped["more_over_cap"] += 1
+            continue
+        kept.append({"you_said": you_said, "correct_form": correct_form, "kind": kind, "explanation": explanation})
+        taken.append(you_said)
+    return tuple(kept)
+
+
+def natural_version(raw: object, submitted: str, *, dropped: Counter) -> tuple[dict, ...] | None:
+    """The natural version as highlight runs, or ``None``. **Never repaired.**
+
+    Absent when it is not a non-blank string, or when no word of it differs from
+    the entry (nothing to show). **Refused** (counted) when it runs past twice the
+    entry plus `NATURAL_SLACK_CHARS`, or when it carries a content term **the
+    learner did not write themselves** — *I should have gone home* is the
+    learner's own day, while a *you failed* the model added is the app's voice.
+
+    **WHAT IT CANNOT ESTABLISH (#271): that the rewrite keeps the learner's
+    meaning, or that it is how a friend would say it.** That is a human check.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip()
+    if len(text) > 2 * len(submitted.strip()) + NATURAL_SLACK_CHARS:
+        dropped["natural_length"] += 1
+        return None
+    own = {hit.casefold() for hit in content_offenders(submitted)}
+    if any(hit.casefold() not in own for hit in content_offenders(text)):
+        dropped["natural_content"] += 1
+        return None
+    runs = natural_text.segments(submitted, text)
+    if not any(run["changed"] for run in runs):
+        return None
+    return runs
+
+
 # ---------------------------------------------------------------------------
 # Every gate, in order — the one function the service and the probe both call
 # ---------------------------------------------------------------------------
@@ -363,6 +486,11 @@ class Shaped:
     dropped: dict[str, int] = field(default_factory=dict)
     #: W16b. The paragraph's structure prose, gated; ``None`` on the journal.
     structure: tuple[dict, ...] | None = None
+    #: W33 (B). The journal's other notes, gated — **shown on request, NEVER
+    #: journaled**; ``()`` on the paragraph.
+    more: tuple[dict, ...] = ()
+    #: W33 (B). The natural version as highlight runs; ``None`` when absent.
+    natural: tuple[dict, ...] | None = None
 
 
 def shape(
@@ -372,6 +500,8 @@ def shape(
     limit: int,
     labels: Mapping[str, str | None],
     kind: str = "journal",
+    more_limit: int = JOURNAL_MAX_MORE_NOTES,
+    more_kinds: Iterable[str] = MORE_KINDS,
 ) -> Shaped:
     """Apply every gate to one parsed response. **The only place they run.**
 
@@ -397,6 +527,7 @@ def shape(
 
     dropped: Counter[str] = Counter()
     kept: list[dict] = []
+    spill: list[dict] = []
     for item in raw.get("corrections") or []:
         if not isinstance(item, Mapping):
             dropped["malformed"] += 1
@@ -425,6 +556,9 @@ def shape(
             continue
         if len(kept) >= limit:
             dropped["over_cap"] += 1
+            # W33 (B): it passed every gate, so the journal shows it below as a
+            # note — never writes it.
+            spill.append({"you_said": you_said, "correct_form": correct_form, "explanation": explanation})
             continue
         kept.append(
             {
@@ -462,9 +596,18 @@ def shape(
             dropped=dict(dropped),
             structure=structure,
         )
+    # W33 (B): the journal's other notes and natural version — display only.
+    more = more_notes(
+        raw.get("more"), submitted,
+        corrected=[c["you_said"] for c in kept], spill=spill,
+        limit=more_limit, kinds=more_kinds, dropped=dropped,
+    )
+    natural = natural_version(raw.get("natural"), submitted, dropped=dropped)
     return Shaped(
         is_english=True,
         did_well=opening_line(raw.get("did_well")),
         corrections=tuple(kept),
         dropped=dict(dropped),
+        more=more,
+        natural=natural,
     )

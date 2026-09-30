@@ -93,16 +93,54 @@ OF = _c(
 )
 
 
-def _correct(raw: dict, labels: dict | None = None) -> dict:
-    shaped = gates.shape(raw, ENTRY, limit=rules.max_corrections("journal"), labels=labels or LABELS)
+def _correct(raw: dict, labels: dict | None = None, text: str = ENTRY) -> dict:
+    shaped = gates.shape(raw, text, limit=rules.max_corrections("journal"), labels=labels or LABELS)
     outcome = WritingOutcome(
         is_english=shaped.is_english,
         did_well=shaped.did_well,
         corrections=shaped.corrections,
         written=len(shaped.corrections),
+        more=shaped.more,
+        natural=shaped.natural,
     )
     return result_out(outcome).model_dump(mode="json", exclude_none=True)
 
+
+#: W33 (B) — a casual entry SHAPED like the operator's report of 2026-09-30 (the
+#: probe's `FIXTURE_CASUAL`; no line of a learner's diary is copied, §5).
+CASUAL = (
+    "hi\n"
+    "im good\n"
+    "i have a bad headake today\n"
+    "and i was at work and work a lot.\n"
+    "and now preparing to go to home."
+)
+
+CASUAL_RAW = {
+    "is_english": True,
+    "corrections": [
+        _c("work a lot", "worked a lot", "verb_tense_past", "It happened earlier today, so it's worked."),
+        _c("go to home", "go home", "preposition", "Home takes no to after go."),
+    ],
+    "more": [
+        {"you_said": "headake", "correct_form": "headache", "kind": "spelling",
+         "explanation": "Just a slip: it's spelled headache."},
+        {"you_said": "im good", "correct_form": "I'm good", "kind": "capitals",
+         "explanation": "I is always a capital, and I'm has an apostrophe."},
+        {"you_said": "i have", "correct_form": "I have", "kind": "capitals",
+         "explanation": "I on its own is always a capital letter."},
+        {"you_said": "now preparing to", "correct_form": "now getting ready to", "kind": "phrasing",
+         "explanation": "Getting ready is what people say about going home."},
+    ],
+    "natural": (
+        "Hi!\n"
+        "I'm good.\n"
+        "I've got a bad headache today.\n"
+        "I was at work and worked a lot.\n"
+        "Now I'm getting ready to go home."
+    ),
+    "did_well": None,
+}
 
 #: W16b — design `1n`'s paragraph, verbatim.
 PARAGRAPH = (
@@ -486,6 +524,10 @@ def bodies() -> dict:
             labels={"verb_tense_past": None},
         ),
         "not_english": _correct({"is_english": False, "corrections": [], "did_well": None}),
+        # W33 (B) — the two, the other notes and the natural version, from one call.
+        "with_more": _correct(CASUAL_RAW, text=CASUAL),
+        # W33 (B) — notes and no natural version: only *Show all notes* is drawn.
+        "more_no_natural": _correct({**CASUAL_RAW, "natural": None}, text=CASUAL),
         # W16b — 2026-09-17 is a Thursday.
         "session_paragraph": _session(date(2026, 9, 17)),
         "today_paragraph": _today(day_kind=rules.day_kind(date(2026, 9, 17)), prompt=TASK),

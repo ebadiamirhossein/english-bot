@@ -338,3 +338,115 @@ describe("the paragraph (W16b)", () => {
     expect(screen.getByTestId("write-keep-intro").textContent).toMatch(/^One phrase/);
   });
 });
+
+/**
+ * W33 (B) — *Show all notes* and *Natural version*, the operator's request of
+ * 2026-09-30: the two that matter most stay the default; the rest and the
+ * rewrite open on request, **from the one response already in hand**.
+ *
+ * **What jsdom cannot see:** whether the opened notes are on screen or reachable —
+ * `e2e/write.spec.ts`'s W33 block, with the network count, in a real browser.
+ */
+describe("W33 (B) — the other notes and the natural version", () => {
+  const WITH_MORE = fixture.with_more as CorrectionResult;
+  const MORE_NO_NATURAL = fixture.more_no_natural as CorrectionResult;
+  const CASUAL = "hi\nim good\ni have a bad headake today\nand i was at work and work a lot.\nand now preparing to go to home.";
+
+  it("shows the two by default, and neither the notes nor the rewrite", async () => {
+    await open();
+    await submit(WITH_MORE, CASUAL);
+    expect(screen.getAllByTestId("write-correction")).toHaveLength(2);
+    expect(screen.getByTestId("write-picked").textContent).toBe("I’ve picked the two that matter most.");
+    expect(screen.queryByTestId("write-more")).toBeNull();
+    expect(screen.queryByTestId("write-natural")).toBeNull();
+    const all = screen.getByTestId("write-show-all");
+    const natural = screen.getByTestId("write-show-natural");
+    expect(all.textContent).toBe("Show all notes");
+    expect(natural.textContent).toBe("Natural version");
+    expect(all.getAttribute("aria-expanded")).toBe("false");
+    expect(natural.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("Show all notes opens the rest, each named in words, and closes again", async () => {
+    await open();
+    await submit(WITH_MORE, CASUAL);
+    await userEvent.click(screen.getByTestId("write-show-all"));
+    expect(screen.getByTestId("write-show-all").getAttribute("aria-expanded")).toBe("true");
+    const notes = screen.getAllByTestId("write-more-note");
+    expect(notes).toHaveLength(4);
+    expect(screen.getAllByTestId("write-more-label").map((n) => n.textContent)).toEqual([
+      "Spelling",
+      "Capital letters",
+      "Capital letters",
+      "Sounds more natural",
+    ]);
+    expect(screen.getAllByTestId("write-more-said").map((n) => n.textContent)).toEqual([
+      "headake",
+      "im good",
+      "i have",
+      "now preparing to",
+    ]);
+    expect(screen.getAllByTestId("write-more-better").map((n) => n.textContent)).toEqual([
+      "headache",
+      "I'm good",
+      "I have",
+      "now getting ready to",
+    ]);
+    // The two stay where they were, and stay two.
+    expect(screen.getAllByTestId("write-correction")).toHaveLength(2);
+    await userEvent.click(screen.getByTestId("write-show-all"));
+    expect(screen.queryByTestId("write-more")).toBeNull();
+  });
+
+  it("Natural version renders the rewrite whole, with its changed words marked", async () => {
+    await open();
+    await submit(WITH_MORE, CASUAL);
+    await userEvent.click(screen.getByTestId("write-show-natural"));
+    expect(screen.getByTestId("write-show-natural").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("write-natural-text").textContent).toBe(
+      "Hi!\nI'm good.\nI've got a bad headache today.\nI was at work and worked a lot.\nNow I'm getting ready to go home.",
+    );
+    const marks = screen.getAllByTestId("write-natural-changed");
+    expect(marks.map((m) => m.textContent)).toEqual([
+      "Hi",
+      "I'm",
+      "I've got",
+      "headache",
+      "I",
+      "worked",
+      "Now I'm getting ready",
+    ]);
+    expect(marks.every((m) => m.tagName === "MARK")).toBe(true);
+  });
+
+  it("makes no request when either button is pressed", async () => {
+    await open();
+    await submit(WITH_MORE, CASUAL);
+    await userEvent.click(screen.getByTestId("write-show-all"));
+    await userEvent.click(screen.getByTestId("write-show-natural"));
+    await userEvent.click(screen.getByTestId("write-show-all"));
+    expect(vi.mocked(api.requestCorrection)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.getWriteToday)).toHaveBeenCalledTimes(1);
+  });
+
+  it("draws only a button it has something behind", async () => {
+    await open();
+    await submit(MORE_NO_NATURAL, CASUAL);
+    expect(screen.getByTestId("write-show-all")).not.toBeNull();
+    expect(screen.queryByTestId("write-show-natural")).toBeNull();
+  });
+
+  it("draws neither button when the response carries neither", async () => {
+    await open();
+    await submit(TWO);
+    expect(screen.queryByTestId("write-more-controls")).toBeNull();
+  });
+
+  it("shows no number and no banned word with both open (#160)", async () => {
+    const { container } = await open();
+    await submit(WITH_MORE, CASUAL);
+    await userEvent.click(screen.getByTestId("write-show-all"));
+    await userEvent.click(screen.getByTestId("write-show-natural"));
+    expect(container.textContent).not.toMatch(BANNED);
+  });
+});

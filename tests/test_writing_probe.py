@@ -54,10 +54,11 @@ def test_the_dry_run_sends_nothing_and_prints_the_count(monkeypatch, capsys) -> 
     monkeypatch.setattr(writing, "chat", _refuse)
     assert probe.main([]) == 0
     out = capsys.readouterr().out
-    # Hardcoded: two journal fixtures and, from W16b, one paragraph (§3 rule 5).
-    assert "calls --live will make: 3" in out
+    # Hardcoded: two journal fixtures, from W16b one paragraph, and from W33 (B)
+    # the casual journal the other notes are for (§3 rule 5). Read 3 until W33.
+    assert "calls --live will make: 4" in out
     assert "request (paragraph): json_mode=True max_tokens=4000 reject_truncation=True max_corrections=8" in out
-    assert "request (journal): json_mode=True max_tokens=2000 reject_truncation=True max_corrections=2" in out
+    assert "request (journal): json_mode=True max_tokens=3000 reject_truncation=True max_corrections=2 max_more=6" in out
     assert "DRY RUN. Nothing was sent." in out
 
 
@@ -72,7 +73,7 @@ def test_the_probes_paragraph_task_is_unit_ones_verbatim() -> None:
     assert probe.PARAGRAPH_TASK == unit1["output_task_written"]
 
 
-def test_the_live_run_makes_exactly_three_calls_and_writes_nothing(monkeypatch, capsys) -> None:
+def test_the_live_run_makes_exactly_four_calls_and_writes_nothing(monkeypatch, capsys) -> None:
     """`--live` against a stubbed wrapper: the count, and no row anywhere."""
     from core.services import writing
     from core.writing import probe
@@ -91,5 +92,9 @@ def test_the_live_run_makes_exactly_three_calls_and_writes_nothing(monkeypatch, 
     monkeypatch.setattr("core.services.errors.record_errors", _no_write)
     monkeypatch.setattr(writing, "record_errors", _no_write)
     assert probe.main(["--live"]) == 0
-    assert len(calls) == 3
-    assert "3 of 3 fixtures returned a response" in capsys.readouterr().out
+    assert len(calls) == 4
+    out = capsys.readouterr().out
+    assert "4 of 4 fixtures returned a response" in out
+    # W33 (B): the journal's two new fields are printed for the person reading.
+    assert "other notes kept: 0" in out
+    assert "natural: ABSENT" in out

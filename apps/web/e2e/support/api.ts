@@ -124,6 +124,10 @@ export async function mockApi(
   });
 }
 
+/** W33 (B) — the casual entry `with_more` was shaped through (the exporter's `CASUAL`). */
+export const CASUAL =
+  "hi\nim good\ni have a bad headake today\nand i was at work and work a lot.\nand now preparing to go to home.";
+
 /** Design `1k`'s entry, as a learner would type it. */
 export const ENTRY =
   "Today I go to the dentist in the morning. I was very nervous because last time it hurt a lot, but this time she only clean my teeth and it was fine.";

@@ -705,6 +705,22 @@ export const WRITE = {
   /** `1k` only. Written for a pair; `1l` removes it — the first silent branch. */
   pickedTwo: "I’ve picked the two that matter most.",
   back: "Back to today",
+  /** W33 (B) — the operator's request of 2026-09-30. Two quiet buttons under the
+   * two; **no count on either** (#160): *Show all notes*, never *Show 4 more*. */
+  showAll: "Show all notes",
+  showFewer: "Show fewer notes",
+  moreHeading: "The smaller things",
+  /** A note's eyebrow, by kind. Words, never the code. */
+  moreKinds: {
+    spelling: "Spelling",
+    capitals: "Capital letters",
+    grammar: "Grammar",
+    phrasing: "Sounds more natural",
+  },
+  showNatural: "Natural version",
+  hideNatural: "Hide natural version",
+  naturalHeading: "How a friend might say it",
+  naturalNote: "The highlighted words are the ones that changed.",
   /** W16b — `1n`. Named in words, never dimensions; the prose is the model's. */
   structureHeading: "How it’s put together",
   /** W16b — `1o`. The intro names the number in words so one offer reads naturally. */
